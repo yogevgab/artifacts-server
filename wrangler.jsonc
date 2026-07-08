@@ -1,0 +1,42 @@
+{
+  // Cloudflare Workers config. Run `npm run setup` to fill in the placeholders
+  // automatically, or edit them by hand (see README → Deployment).
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "artifacts-server",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-01",
+  "observability": { "enabled": true },
+
+  // The hostname your artifacts are served from. Must be a zone on your account.
+  "routes": [{ "pattern": "artifacts.example.com", "custom_domain": true }],
+
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "artifacts-files" }],
+
+  // `npm run setup` (or `wrangler d1 create`) fills in database_id.
+  "d1_databases": [
+    { "binding": "DB", "database_name": "artifacts-meta", "database_id": "REPLACE_WITH_D1_DATABASE_ID" }
+  ],
+
+  "vars": {
+    // Comma-separated emails with admin (publish/delete/manage) rights.
+    "ADMIN_EMAILS": "you@example.com",
+    // Comma-separated Access service-token client ids (…access) that get admin
+    // rights — used by the CLI. `npm run setup` fills this in.
+    "ADMIN_SERVICE_TOKENS": "",
+    // Your Cloudflare Zero Trust team domain, e.g. myteam.cloudflareaccess.com.
+    "ACCESS_TEAM_DOMAIN": "",
+    // Comma-separated Access application AUD tags: "<viewerAud>,<adminAud>".
+    // The Worker verifies request JWTs against either. `npm run setup` fills this in.
+    "ACCESS_AUD": "",
+    // Account + viewer-app identifiers used to manage the login allow-list via
+    // the Cloudflare API. `npm run setup` fills these in.
+    "CF_ACCOUNT_ID": "",
+    "ACCESS_VIEWER_APP_ID": "",
+    "ACCESS_VIEWER_POLICY_ID": ""
+  }
+
+  // Secret (NOT in this file): CF_API_TOKEN — a Cloudflare API token with
+  // "Access: Apps and Policies — Edit". Set it with:
+  //   wrangler secret put CF_API_TOKEN
+  // Only needed for in-app user management; the app runs fine without it.
+}
