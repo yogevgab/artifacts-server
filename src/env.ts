@@ -43,6 +43,16 @@ export interface ArtifactRow {
   current_version: number;
 }
 
+export interface ViewRow {
+  slug: string;
+  version: number;
+  email: string | null;
+  path: string | null;
+  country: string | null;
+  referrer: string | null;
+  viewed_at: string;
+}
+
 export interface VersionRow {
   slug: string;
   version: number;

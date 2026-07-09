@@ -24,9 +24,15 @@ async function initDb() {
       size_bytes INTEGER NOT NULL DEFAULT 0, note TEXT, created_by TEXT,
       created_at TEXT NOT NULL, PRIMARY KEY (slug, version))`
   ).run();
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS artifact_views (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL, version INTEGER NOT NULL,
+      email TEXT, path TEXT, country TEXT, referrer TEXT, viewed_at TEXT NOT NULL)`
+  ).run();
   await env.DB.prepare("DELETE FROM artifacts").run();
   await env.DB.prepare("DELETE FROM artifact_grants").run();
   await env.DB.prepare("DELETE FROM artifact_versions").run();
+  await env.DB.prepare("DELETE FROM artifact_views").run();
 }
 
 async function clearR2() {
@@ -310,6 +316,70 @@ describe("versioning", () => {
     await pub("keep", "<h1>v2</h1>");
     const acc = await (await req("/api/artifacts/keep/access")).json<any>();
     expect(acc.visibility).toBe("everyone");
+  });
+});
+
+describe("views log", () => {
+  const viewer = (email: string) => ({ headers: { "X-Dev-Email": email } });
+  const pubBundle = async (slug: string) => {
+    const zip = zipSync({ "index.html": strToU8("<h1>home</h1>"), "style.css": strToU8("body{}") });
+    const fd = new FormData();
+    fd.set("title", slug);
+    fd.set("slug", slug);
+    fd.set("bundle", new File([zip], "b.zip", { type: "application/zip" }));
+    await req("/api/artifacts", { method: "POST", body: fd });
+    // Make it visible to any signed-in user so viewers in these tests can load it.
+    await req(`/api/artifacts/${slug}/access`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ visibility: "everyone", emails: [] }),
+    });
+  };
+  const getViews = async (slug: string) => (await req(`/api/artifacts/${slug}/views`)).json<any>();
+
+  it("counts HTML views, ignores assets", async () => {
+    await pubBundle("site");
+    await req("/site/", viewer("bob@x.com")); // html page load
+    await req("/site/style.css", viewer("bob@x.com")); // asset — not a view
+    const views = await getViews("site");
+    expect(views.total).toBe(1);
+    expect(views.unique).toBe(1);
+    expect(views.recent[0].email).toBe("bob@x.com");
+    expect(views.recent[0].path).toBe("");
+  });
+
+  it("tracks total vs unique viewers", async () => {
+    await pubBundle("blog");
+    await req("/blog/", viewer("a@x.com"));
+    await req("/blog/", viewer("a@x.com"));
+    await req("/blog/", viewer("b@x.com"));
+    const views = await getViews("blog");
+    expect(views.total).toBe(3);
+    expect(views.unique).toBe(2);
+  });
+
+  it("does not log admin version previews", async () => {
+    await pubBundle("qa");
+    await req("/v/qa/1/"); // admin preview
+    const views = await getViews("qa");
+    expect(views.total).toBe(0);
+  });
+
+  it("does not log for a viewer who is denied (404)", async () => {
+    // publish restricted single, viewer not granted -> 404, no view
+    await req("/api/artifacts", { method: "POST", body: htmlForm({ title: "P", slug: "priv" }, "x.html", strToU8("<h1>x</h1>")) });
+    const res = await req("/priv/", viewer("nobody@x.com"));
+    expect(res.status).toBe(404);
+    expect((await getViews("priv")).total).toBe(0);
+  });
+
+  it("deleting an artifact clears its views", async () => {
+    await pubBundle("temp2");
+    await req("/temp2/", viewer("a@x.com"));
+    expect((await getViews("temp2")).total).toBe(1);
+    await req("/api/artifacts/temp2", { method: "DELETE" });
+    await pubBundle("temp2");
+    expect((await getViews("temp2")).total).toBe(0);
   });
 });
 

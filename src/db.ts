@@ -1,4 +1,4 @@
-import type { Env, ArtifactRow, VersionRow } from "./env";
+import type { Env, ArtifactRow, VersionRow, ViewRow } from "./env";
 
 export async function listArtifacts(env: Env): Promise<ArtifactRow[]> {
   const { results } = await env.DB.prepare(
@@ -110,8 +110,70 @@ export async function deleteArtifactRow(env: Env, slug: string): Promise<void> {
   await env.DB.batch([
     env.DB.prepare("DELETE FROM artifact_grants WHERE slug = ?").bind(slug),
     env.DB.prepare("DELETE FROM artifact_versions WHERE slug = ?").bind(slug),
+    env.DB.prepare("DELETE FROM artifact_views WHERE slug = ?").bind(slug),
     env.DB.prepare("DELETE FROM artifacts WHERE slug = ?").bind(slug),
   ]);
+}
+
+// --- Views log ---
+
+export async function logView(env: Env, v: ViewRow): Promise<void> {
+  try {
+    await env.DB.prepare(
+      `INSERT INTO artifact_views (slug, version, email, path, country, referrer, viewed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+      .bind(v.slug, v.version, v.email, v.path, v.country, v.referrer, v.viewed_at)
+      .run();
+  } catch {
+    // Logging must never break serving.
+  }
+}
+
+export interface ViewStats {
+  total: number;
+  unique: number;
+  recent: ViewRow[];
+}
+
+export async function getViews(env: Env, slug: string, limit = 50): Promise<ViewStats> {
+  const counts = await env.DB.prepare(
+    "SELECT COUNT(*) AS total, COUNT(DISTINCT email) AS uniq FROM artifact_views WHERE slug = ?"
+  )
+    .bind(slug)
+    .first<{ total: number; uniq: number }>();
+  const { results } = await env.DB.prepare(
+    "SELECT slug, version, email, path, country, referrer, viewed_at FROM artifact_views WHERE slug = ? ORDER BY viewed_at DESC LIMIT ?"
+  )
+    .bind(slug, limit)
+    .all<ViewRow>();
+  return { total: counts?.total ?? 0, unique: counts?.uniq ?? 0, recent: results ?? [] };
+}
+
+/** Per-slug view counts (total + unique) for the dashboard, in one query. */
+export async function viewCounts(env: Env): Promise<Map<string, { total: number; unique: number }>> {
+  const { results } = await env.DB.prepare(
+    "SELECT slug, COUNT(*) AS total, COUNT(DISTINCT email) AS uniq FROM artifact_views GROUP BY slug"
+  ).all<{ slug: string; total: number; uniq: number }>();
+  const map = new Map<string, { total: number; unique: number }>();
+  for (const r of results ?? []) map.set(r.slug, { total: r.total, unique: r.uniq });
+  return map;
+}
+
+/** Most-recent views across all artifacts (bounded), grouped by slug. */
+export async function recentViews(env: Env, perSlug = 8, scan = 500): Promise<Map<string, ViewRow[]>> {
+  const { results } = await env.DB.prepare(
+    "SELECT slug, version, email, path, country, referrer, viewed_at FROM artifact_views ORDER BY viewed_at DESC LIMIT ?"
+  )
+    .bind(scan)
+    .all<ViewRow>();
+  const map = new Map<string, ViewRow[]>();
+  for (const v of results ?? []) {
+    const list = map.get(v.slug) ?? [];
+    if (list.length < perSlug) list.push(v);
+    map.set(v.slug, list);
+  }
+  return map;
 }
 
 export async function listGrants(env: Env, slug: string): Promise<string[]> {

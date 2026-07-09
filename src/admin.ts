@@ -1,5 +1,25 @@
-import type { ArtifactRow, VersionRow } from "./env";
+import type { ArtifactRow, VersionRow, ViewRow } from "./env";
 import { layout, esc } from "./pages";
+
+export interface ViewsInfo {
+  counts: Map<string, { total: number; unique: number }>;
+  recent: Map<string, ViewRow[]>;
+}
+
+function viewsPanel(slug: string, info: ViewsInfo): string {
+  const c = info.counts.get(slug) ?? { total: 0, unique: 0 };
+  const recent = info.recent.get(slug) ?? [];
+  const rows = recent
+    .map(
+      (v) => `<div class="row"><div class="info">${esc(v.email ?? "—")}
+        <span class="hint">${v.viewed_at.replace("T", " ").slice(0, 16)} · v${v.version}${v.country ? " · " + esc(v.country) : ""}${v.path ? " · /" + esc(v.path) : ""}</span></div></div>`
+    )
+    .join("");
+  return `<div class="acc">
+    <b>Views</b> <span class="hint">${c.total} total · ${c.unique} unique viewer(s)</span>
+    ${recent.length ? rows : `<p class="note">No views yet.</p>`}
+  </div>`;
+}
 
 const SCRIPT = `
 const $ = (s)=>document.querySelector(s);
@@ -179,6 +199,7 @@ export function adminPage(
   rows: ArtifactRow[],
   grants: Map<string, string[]>,
   versions: Map<string, VersionRow[]>,
+  views: ViewsInfo,
   email: string,
   usersInfo: UsersInfo
 ): string {
@@ -198,6 +219,7 @@ export function adminPage(
             <button class="ghost" data-del="${esc(r.slug)}" style="margin-left:.5rem">delete</button></span>
         </summary>
         ${versionsPanel(r, vers)}
+        ${viewsPanel(r.slug, views)}
         ${accessPanel(r, emails)}
       </details>`;
     })

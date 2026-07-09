@@ -8,6 +8,7 @@ bundles — from a web dashboard or a CLI. With **per-artifact permissions** and
 - 🔒 **Access-gated** — Cloudflare Access handles login; no passwords stored by the app.
 - 👥 **Per-artifact permissions** — each artifact is private, shared with specific people, or open to all signed-in users.
 - 🕓 **Versioning** — every re-publish is a new immutable version; roll back anytime.
+- 📈 **Views log** — see who viewed each artifact, when, which version, and from where.
 - 🖼️ **Gallery + dashboard** — a filtered index for viewers, an admin UI to publish and manage.
 - 🧑‍💻 **CLI** — publish and manage from your terminal.
 - ☁️ **All Cloudflare** — Worker + R2 (files) + D1 (metadata). No servers, no database to run.
@@ -141,6 +142,7 @@ node cli/artifacts.mjs publish ./page-v2.html --slug my-page --note "new hero"  
 node cli/artifacts.mjs versions my-page
 node cli/artifacts.mjs rollback my-page 1
 node cli/artifacts.mjs grant my-page alice@example.com
+node cli/artifacts.mjs views my-page   # total/unique + recent views log
 node cli/artifacts.mjs users
 node cli/artifacts.mjs user-add bob@example.com
 ```
@@ -155,6 +157,12 @@ direct URL a viewer lacks access to returns 404.
 Each publish to an existing slug creates a new immutable version and makes it live; previous
 versions are kept. Admins preview any version at `/v/<slug>/<n>/`; roll back from the dashboard
 or `rollback <slug> <n>`.
+
+### Views log
+Each artifact records a view when a signed-in person loads an HTML page (assets, machine/
+service-token fetches, and admin version previews aren't counted). The admin dashboard and
+`views <slug>` show total/unique counts and a recent log (time · viewer · version · country).
+Views are retained indefinitely; prune the `artifact_views` table if it grows large.
 
 ## Development
 

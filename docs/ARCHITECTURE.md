@@ -38,6 +38,8 @@ Worker (Hono router)
 - `artifact_grants` — `(slug, email)` allow-list for restricted artifacts.
 - `artifact_versions` — `(slug, version)` one row per immutable version, with per-version
   type/entry/counts/note.
+- `artifact_views` — one row per HTML page load by a signed-in person (slug, version, email,
+  path, country, referrer, timestamp). Written non-blocking via `waitUntil`.
 
 The full schema is `schema.sql`; incremental changes live in `migrations/`.
 

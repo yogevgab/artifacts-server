@@ -3,7 +3,18 @@ import type { Env } from "./env";
 import { api } from "./api";
 import { requireAdmin, accessEmail, getIdentity } from "./auth";
 import { serveArtifact } from "./serve";
-import { listArtifacts, getArtifact, grantedSlugs, hasGrant, allGrants, allVersions, getVersion } from "./db";
+import {
+  listArtifacts,
+  getArtifact,
+  grantedSlugs,
+  hasGrant,
+  allGrants,
+  allVersions,
+  getVersion,
+  logView,
+  viewCounts,
+  recentViews,
+} from "./db";
 import { canView } from "./authz";
 import { getAllowlist, isConfigured } from "./access-api";
 import { galleryPage, notFoundPage } from "./pages";
@@ -31,8 +42,18 @@ app.get("/admin", requireAdmin, async (c) => {
       usersError = (e as Error).message;
     }
   }
-  const versions = await allVersions(c.env);
-  return c.html(adminPage(rows, grants, versions, c.get("email"), { users, admins, usersError }));
+  const [versions, viewCountsMap, recentViewsMap] = await Promise.all([
+    allVersions(c.env),
+    viewCounts(c.env),
+    recentViews(c.env),
+  ]);
+  return c.html(
+    adminPage(rows, grants, versions, { counts: viewCountsMap, recent: recentViewsMap }, c.get("email"), {
+      users,
+      admins,
+      usersError,
+    })
+  );
 });
 
 // JSON API for dashboard + CLI.
@@ -84,7 +105,33 @@ app.get("*", async (c) => {
   }
   if (!canView(identity, art.visibility, granted)) return c.html(notFoundPage(slug), 404);
 
-  return serveArtifact(c, slug, art.current_version, filePath);
+  const res = await serveArtifact(c, slug, art.current_version, filePath);
+
+  // Log a view for an HTML page load by a signed-in person (not assets, not
+  // machine/service-token fetches). Non-blocking in production; awaited in tests.
+  const isHtml = (res.headers.get("Content-Type") ?? "").startsWith("text/html");
+  if (res.ok && isHtml && identity?.email) {
+    const cf = (c.req.raw as { cf?: { country?: string } }).cf;
+    const p = logView(c.env, {
+      slug,
+      version: art.current_version,
+      email: identity.email,
+      path: filePath,
+      country: cf?.country ?? null,
+      referrer: (c.req.header("Referer") ?? "").slice(0, 500) || null,
+      viewed_at: new Date().toISOString(),
+    });
+    let ctx: { waitUntil(promise: Promise<unknown>): void } | undefined;
+    try {
+      ctx = c.executionCtx;
+    } catch {
+      ctx = undefined;
+    }
+    if (ctx) ctx.waitUntil(p);
+    else await p;
+  }
+
+  return res;
 });
 
 export default app;

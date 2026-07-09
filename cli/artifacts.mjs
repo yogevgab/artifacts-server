@@ -179,6 +179,18 @@ async function visibility(slug, mode) {
   console.log(`${slug} visibility set to ${r.visibility}`);
 }
 
+async function views(slug) {
+  if (!slug) die("views requires a <slug>");
+  const res = await fetch(`${BASE}/api/artifacts/${encodeURIComponent(slug)}/views`, { headers: authHeaders() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) die(`${res.status} ${data.detail || data.error || res.statusText}`);
+  console.log(`${slug}: ${data.total} total · ${data.unique} unique viewer(s)`);
+  for (const v of data.recent) {
+    const where = v.country ? ` ${v.country}` : "";
+    console.log(`  ${v.viewed_at.replace("T", " ").slice(0, 16)}  v${v.version}  ${v.email ?? "—"}${where}`);
+  }
+}
+
 async function users() {
   const res = await fetch(`${BASE}/api/users`, { headers: authHeaders() });
   const data = await res.json().catch(() => ({}));
@@ -253,6 +265,9 @@ switch (cmd) {
   case "rollback":
     await rollback(positional[0], positional[1]);
     break;
+  case "views":
+    await views(positional[0]);
+    break;
   case "users":
     await users();
     break;
@@ -270,6 +285,7 @@ switch (cmd) {
     console.log("  delete <slug>");
     console.log("  versions <slug>                  list an artifact's versions");
     console.log("  rollback <slug> <version>        make an older version live again");
+    console.log("  views <slug>                     view count + recent views log");
     console.log("  access <slug>                    show visibility + granted users");
     console.log("  grant <slug> <email>             allow a user (sets restricted)");
     console.log("  revoke <slug> <email>            remove a user from an artifact");

@@ -38,3 +38,16 @@ CREATE TABLE IF NOT EXISTS artifact_versions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_versions_slug ON artifact_versions (slug, version DESC);
+
+CREATE TABLE IF NOT EXISTS artifact_views (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  slug       TEXT NOT NULL,
+  version    INTEGER NOT NULL,
+  email      TEXT,
+  path       TEXT,
+  country    TEXT,
+  referrer   TEXT,
+  viewed_at  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_views_slug ON artifact_views (slug, viewed_at DESC);

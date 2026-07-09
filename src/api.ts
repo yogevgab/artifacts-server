@@ -15,6 +15,7 @@ import {
   deleteVersion,
   listVersions,
   setCurrentVersion,
+  getViews,
 } from "./db";
 import {
   getAllowlist,
@@ -181,6 +182,14 @@ api.get("/artifacts/:slug/versions", async (c) => {
   const art = await getArtifact(c.env, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
   return c.json({ current: art.current_version, versions: await listVersions(c.env, slug) });
+});
+
+api.get("/artifacts/:slug/views", async (c) => {
+  const slug = c.req.param("slug");
+  const art = await getArtifact(c.env, slug);
+  if (!art) return c.json({ error: "not_found" }, 404);
+  const limit = Math.min(Number(c.req.query("limit")) || 50, 200);
+  return c.json(await getViews(c.env, slug, limit));
 });
 
 api.post("/artifacts/:slug/current", async (c) => {
