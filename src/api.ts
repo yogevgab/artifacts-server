@@ -188,7 +188,8 @@ api.get("/artifacts/:slug/views", async (c) => {
   const slug = c.req.param("slug");
   const art = await getArtifact(c.env, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
-  const limit = Math.min(Number(c.req.query("limit")) || 50, 200);
+  const raw = Number(c.req.query("limit"));
+  const limit = Number.isInteger(raw) && raw > 0 ? Math.min(raw, 200) : 50;
   return c.json(await getViews(c.env, slug, limit));
 });
 

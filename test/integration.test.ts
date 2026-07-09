@@ -358,6 +358,15 @@ describe("views log", () => {
     expect(views.unique).toBe(2);
   });
 
+  it("clamps the limit query param (positive applies, negative/0 → default)", async () => {
+    await pubBundle("lim");
+    await req("/lim/", viewer("a@x.com"));
+    await req("/lim/", viewer("b@x.com"));
+    expect((await (await req("/api/artifacts/lim/views?limit=1")).json<any>()).recent).toHaveLength(1);
+    // negative must NOT return unbounded (SQLite treats negative LIMIT as unlimited) — falls back to default
+    expect((await (await req("/api/artifacts/lim/views?limit=-1")).json<any>()).recent).toHaveLength(2);
+  });
+
   it("does not log admin version previews", async () => {
     await pubBundle("qa");
     await req("/v/qa/1/"); // admin preview
