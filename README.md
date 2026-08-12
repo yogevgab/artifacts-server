@@ -76,6 +76,10 @@ When it finishes, open `https://<your-domain>/admin`, add users under **Users**,
 <details>
 <summary>Step-by-step without the setup script</summary>
 
+> Deploying with a separate content-only hostname (multiple `routes` entries, e.g.
+> app + content-host isolation)? `npm run setup` only supports a single hostname —
+> see [`docs/DEPLOY_RTFX.md`](docs/DEPLOY_RTFX.md) for a worked example runbook.
+
 ```bash
 npm install
 npx wrangler login
