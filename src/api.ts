@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Env, ArtifactRow } from "./env";
 import { requireAdmin } from "./auth";
 import { isValidSlug, slugify, contentType } from "./util";
-import { processZip, singleHtml, UploadError, type ProcessedUpload } from "./upload";
+import { processZip, singleHtml, UploadError, MAX_UPLOAD_BYTES, type ProcessedUpload } from "./upload";
 import {
   listArtifacts,
   getArtifact,
@@ -32,15 +32,65 @@ export const api = new Hono<Vars>();
 
 api.use("*", requireAdmin);
 
+// Multipart overhead (boundaries/headers) is small, so a modest margin over
+// the file-size cap is enough headroom for the request body as a whole.
+const MAX_BODY_BYTES = MAX_UPLOAD_BYTES + 64 * 1024;
+
+class PayloadTooLargeError extends Error {}
+
+/**
+ * Wrap a request body so it errors once more than `maxBytes` has streamed
+ * through it. A declared Content-Length can be missing, wrong, or lied about
+ * (chunked transfer encoding, a misbehaving client/proxy) — this enforces the
+ * cap against bytes actually read, so formData() can't be made to buffer an
+ * unbounded body into memory before any size check runs.
+ */
+function limitBodyBytes(body: ReadableStream<Uint8Array>, maxBytes: number): ReadableStream<Uint8Array> {
+  let seen = 0;
+  return body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        seen += chunk.byteLength;
+        if (seen > maxBytes) {
+          controller.error(new PayloadTooLargeError(`upload exceeds the max size of ${maxBytes} bytes`));
+          return;
+        }
+        controller.enqueue(chunk);
+      },
+    })
+  );
+}
+
 api.get("/artifacts", async (c) => {
   return c.json({ artifacts: await listArtifacts(c.env) });
 });
 
 api.post("/artifacts", async (c) => {
+  // Fast path: if the client declares an honest, oversized Content-Length, reject
+  // before reading any of the body. This is purely an optimization — a missing or
+  // inaccurate Content-Length (e.g. chunked transfer encoding) skips this check
+  // entirely, so it must never be relied on as the actual size guarantee; the
+  // streaming limit below is what enforces the cap against real bytes read.
+  const contentLength = Number(c.req.header("content-length") ?? "");
+  if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
+    return c.json(
+      { error: "payload_too_large", detail: `upload exceeds the max size of ${MAX_UPLOAD_BYTES} bytes` },
+      413
+    );
+  }
+
   let form: FormData;
   try {
-    form = await c.req.formData();
-  } catch {
+    const body = c.req.raw.body;
+    const req = body ? new Request(c.req.raw, { body: limitBodyBytes(body, MAX_BODY_BYTES) } as RequestInit) : c.req.raw;
+    form = await req.formData();
+  } catch (e) {
+    if (e instanceof PayloadTooLargeError) {
+      return c.json(
+        { error: "payload_too_large", detail: `upload exceeds the max size of ${MAX_UPLOAD_BYTES} bytes` },
+        413
+      );
+    }
     return c.json({ error: "bad_request", detail: "expected multipart/form-data" }, 400);
   }
 
@@ -63,6 +113,14 @@ api.post("/artifacts", async (c) => {
 
   const htmlFile = form.get("file");
   const bundleFile = form.get("bundle");
+
+  const uploadFile = bundleFile instanceof File && bundleFile.size > 0 ? bundleFile : htmlFile;
+  if (uploadFile instanceof File && uploadFile.size > MAX_UPLOAD_BYTES) {
+    return c.json(
+      { error: "payload_too_large", detail: `upload exceeds the max size of ${MAX_UPLOAD_BYTES} bytes` },
+      413
+    );
+  }
 
   let processed: ProcessedUpload;
   try {
