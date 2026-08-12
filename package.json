@@ -25,6 +25,7 @@
     "dev": "wrangler dev --var DEV_LOGIN:true",
     "deploy": "wrangler deploy",
     "setup": "node scripts/setup.mjs",
+    "validate:deploy": "node scripts/validate-deploy-config.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
