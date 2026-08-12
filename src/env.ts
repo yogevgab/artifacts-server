@@ -14,6 +14,12 @@ export interface Env {
   ACCESS_AUD: string;
   /** "true" only in local dev/tests: bypasses Access and treats caller as admin. */
   DEV_LOGIN?: string;
+  /**
+   * Comma-separated hostnames (e.g. "a.rtfx.pro" or "a.rtfx.pro,a-staging.rtfx.pro")
+   * that serve artifact content ONLY — no /admin, /api, /whoami, /health, /v, or "/".
+   * Leave unset to keep everything on a single origin (current behavior).
+   */
+  CONTENT_HOSTNAMES?: string;
 
   // --- User management: the app reads/writes the Cloudflare Access viewer
   //     policy directly, so Cloudflare Access is the source of truth for the

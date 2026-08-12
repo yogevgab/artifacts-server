@@ -416,3 +416,65 @@ describe("user management (Cloudflare Access not configured in tests)", () => {
     expect((await req("/api/users", { headers: { "X-Dev-Email": "bob@x.com" } })).status).toBe(403);
   });
 });
+
+describe("content host isolation", () => {
+  const CONTENT_HOST = "content.test.local";
+  const contentEnv = { ...env, CONTENT_HOSTNAMES: CONTENT_HOST } as any;
+  const contentReq = (path: string, init?: RequestInit) =>
+    app.request(`https://${CONTENT_HOST}${path}`, init, contentEnv);
+  const appReq = (path: string, init?: RequestInit) =>
+    app.request(`https://app.test.local${path}`, init, contentEnv);
+
+  it("serves artifact files on the content host", async () => {
+    await req("/api/artifacts", {
+      method: "POST",
+      body: htmlForm({ title: "Solo", slug: "solo" }, "x.html", strToU8("<h1>solo</h1>")),
+    });
+    const res = await contentReq("/solo/");
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("solo");
+  });
+
+  it("blocks management routes on the content host", async () => {
+    await req("/api/artifacts", {
+      method: "POST",
+      body: htmlForm({ title: "Solo2", slug: "solo2" }, "x.html", strToU8("<h1>solo2</h1>")),
+    });
+    for (const path of ["/", "/health", "/whoami", "/admin", "/api/artifacts", "/v/solo2/1/"]) {
+      const res = await contentReq(path);
+      expect(res.status).toBe(404);
+    }
+  });
+
+  it("leaves the app host fully functional when CONTENT_HOSTNAMES is configured", async () => {
+    expect((await appReq("/health")).status).toBe(200);
+    expect((await appReq("/admin")).status).toBe(200);
+  });
+
+  it("redirects app host artifact requests to the content host instead of serving them", async () => {
+    await req("/api/artifacts", {
+      method: "POST",
+      body: htmlForm({ title: "Solo3", slug: "solo3" }, "x.html", strToU8("<h1>solo3-secret</h1>")),
+    });
+    const res = await appReq("/solo3/?foo=bar");
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe(`https://${CONTENT_HOST}/solo3/?foo=bar`);
+    const body = await res.text();
+    expect(body).not.toContain("solo3-secret");
+  });
+
+  it("does not serve uploaded artifact HTML from the app host on HEAD either", async () => {
+    await req("/api/artifacts", {
+      method: "POST",
+      body: htmlForm({ title: "Solo4", slug: "solo4" }, "x.html", strToU8("<h1>solo4</h1>")),
+    });
+    const res = await appReq("/solo4/", { method: "HEAD" });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe(`https://${CONTENT_HOST}/solo4/`);
+  });
+
+  it("with CONTENT_HOSTNAMES unset, every existing host behaves as before (no restriction)", async () => {
+    expect((await req("/admin")).status).toBe(200);
+    expect((await req("/health")).status).toBe(200);
+  });
+});

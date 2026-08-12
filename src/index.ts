@@ -19,8 +19,33 @@ import { canView } from "./authz";
 import { getAllowlist, isConfigured } from "./access-api";
 import { galleryPage, notFoundPage } from "./pages";
 import { adminPage } from "./admin";
+import { isContentHost, isManagementPath, firstContentHostname } from "./host";
 
 const app = new Hono<{ Bindings: Env; Variables: { email: string } }>();
+
+// Content-origin isolation: when CONTENT_HOSTNAMES is configured, a content
+// host may only serve artifact files — never the dashboard/API/admin/gallery
+// routes — and the app host must never serve uploaded artifact HTML, since
+// that content is untrusted and would otherwise run same-origin as the app.
+app.use("*", async (c, next) => {
+  const contentHost = firstContentHostname(c.env);
+  if (contentHost === undefined) {
+    await next();
+    return;
+  }
+  const onContentHost = isContentHost(c.env, c.req.url);
+  if (onContentHost) {
+    if (isManagementPath(c.req.path)) return c.html(notFoundPage(), 404);
+  } else if (!isManagementPath(c.req.path)) {
+    if (c.req.method === "GET" || c.req.method === "HEAD") {
+      const target = new URL(c.req.url);
+      target.host = contentHost;
+      return c.redirect(target.toString(), 302);
+    }
+    return c.html(notFoundPage(), 404);
+  }
+  await next();
+});
 
 app.get("/health", (c) => c.text("ok"));
 
