@@ -6,24 +6,34 @@ behind Cloudflare Access.
 ## Request flow
 
 ```
-Cloudflare Access (login gate + allow-list)
+                       /  and  /waitlist  (public — never behind Access)
+                                │
+                                ▼
+Cloudflare Access (login gate + allow-list, everything else)
         │  forwards a signed JWT (Cf-Access-Jwt-Assertion) on every request
         ▼
 Worker (Hono router)
-   GET /                     gallery, filtered to what the viewer may see
+   GET /                     public landing page — pitch, pricing/beta, waitlist form
+   POST /waitlist            join the waitlist (public; validates + dedupes by email)
+   GET /gallery              gallery, filtered to what the viewer may see (signed-in only;
+                              anonymous → 302 to /)
    GET /<slug>/…             serve the current version's files (per-artifact authz)
    GET /v/<slug>/<n>/…       admin-only preview of a specific version
    GET /admin                admin dashboard (publish, access, versions, users)
    /api/*                    JSON API (admin-only)
         │
         ├── R2  (binding FILES)  — files at  <slug>/v<N>/<path>
-        └── D1  (binding DB)     — metadata
+        └── D1  (binding DB)     — metadata (+ waitlist emails)
 ```
 
 ## Authentication vs authorization
 
-- **Authentication** is Cloudflare Access's job: it gates the hostname, runs the login (email
-  one-time-PIN), and holds the allow-list of who may sign in. The Worker never sees passwords.
+- **Authentication** is Cloudflare Access's job for everything except `/` and `/waitlist`: it
+  gates the hostname, runs the login (email one-time-PIN), and holds the allow-list of who may
+  sign in. The Worker never sees passwords. `/` and `/waitlist` are exempted at the edge (an
+  Access app scoped to those two paths with a **Bypass** policy — see README) so the public
+  landing page and waitlist signup work with no login. `getIdentity` (`src/auth.ts`) still
+  handles the case gracefully at the Worker layer: no valid Access JWT → `null` identity.
 - **Authorization** is the Worker's job. It verifies the Access JWT (`src/auth.ts`) against
   either configured application AUD, derives the caller's identity (`getIdentity`), and decides:
   - **admin** — email in `ADMIN_EMAILS`, or a service-token `common_name` in
@@ -61,19 +71,23 @@ preserving admin emails.
 
 | File | Responsibility |
 |---|---|
-| `src/index.ts` | Routing; gallery filtering; version-aware serving; `/v/` preview. |
+| `src/index.ts` | Routing; landing vs. gallery split; gallery filtering; version-aware serving; `/v/` preview. |
 | `src/auth.ts` | Access JWT verification, `getIdentity`, `requireAdmin`. |
 | `src/authz.ts` | Pure `canView(identity, visibility, granted)`. |
 | `src/serve.ts` | R2 file serving + content types. |
 | `src/api.ts` | `/api` endpoints: publish, delete, access, versions, users. |
-| `src/db.ts` | All D1 queries. |
+| `src/db.ts` | All D1 queries (including waitlist). |
 | `src/access-api.ts` | Cloudflare Access allow-list management. |
 | `src/upload.ts` | Zip processing / single-file wrapping. |
 | `src/pages.ts`, `src/admin.ts` | Server-rendered gallery, 404, and admin HTML. |
+| `src/landing.ts` | Server-rendered public landing page + waitlist form. |
+| `src/waitlist.ts` | `/waitlist` endpoint: email validation, join/redirect. |
 | `src/util.ts` | Slug validation (+ reserved slugs), content-type map. |
 
 ## Testing
 
 `vitest` with `@cloudflare/vitest-pool-workers` runs tests inside a real Workers runtime with
 local R2/D1. Integration tests drive the Hono app via `app.request(...)` and impersonate viewers
-with the dev-only `X-Dev-Email` header. No Cloudflare account is needed to run the suite.
+with the dev-only `X-Dev-Email` header, or simulate a signed-out visitor with `X-Dev-Anonymous:
+true` (DEV_LOGIN mode otherwise always resolves an identity). No Cloudflare account is needed to
+run the suite.

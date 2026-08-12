@@ -14,7 +14,7 @@ describe("isValidSlug", () => {
     expect(isValidSlug("a".repeat(101))).toBe(false);
   });
   it("rejects reserved route slugs", () => {
-    for (const s of ["api", "admin", "health", "whoami", "v"]) expect(isValidSlug(s)).toBe(false);
+    for (const s of ["api", "admin", "health", "whoami", "v", "waitlist", "gallery"]) expect(isValidSlug(s)).toBe(false);
   });
 });
 

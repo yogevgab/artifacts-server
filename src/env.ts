@@ -16,7 +16,8 @@ export interface Env {
   DEV_LOGIN?: string;
   /**
    * Comma-separated hostnames (e.g. "a.rtfx.pro" or "a.rtfx.pro,a-staging.rtfx.pro")
-   * that serve artifact content ONLY — no /admin, /api, /whoami, /health, /v, or "/".
+   * that serve artifact content ONLY — no /admin, /api, /whoami, /health, /v,
+   * /waitlist, /gallery, or "/".
    * Leave unset to keep everything on a single origin (current behavior).
    */
   CONTENT_HOSTNAMES?: string;

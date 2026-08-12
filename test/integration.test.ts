@@ -30,10 +30,15 @@ async function initDb() {
       id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL, version INTEGER NOT NULL,
       email TEXT, path TEXT, country TEXT, referrer TEXT, viewed_at TEXT NOT NULL)`
   ).run();
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS waitlist (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL)`
+  ).run();
   await env.DB.prepare("DELETE FROM artifacts").run();
   await env.DB.prepare("DELETE FROM artifact_grants").run();
   await env.DB.prepare("DELETE FROM artifact_versions").run();
   await env.DB.prepare("DELETE FROM artifact_views").run();
+  await env.DB.prepare("DELETE FROM waitlist").run();
 }
 
 async function clearR2() {
@@ -55,22 +60,47 @@ function htmlForm(fields: Record<string, string>, fileName: string, bytes: Uint8
   return fd;
 }
 
-describe("health + gallery", () => {
+describe("health + landing", () => {
   it("health returns ok", async () => {
     const res = await req("/health");
     expect(res.status).toBe(200);
     expect(await res.text()).toBe("ok");
   });
 
+  it("serves the public landing page at / with waitlist + beta messaging", async () => {
+    const res = await req("/");
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain('id="waitlist"');
+    expect(body).toContain('id="wl"');
+    expect(body.toLowerCase()).toContain("beta");
+    expect(body).toContain("Sign in");
+    expect(body).not.toContain("No artifacts yet");
+  });
+
+  it("landing page is served the same regardless of caller identity", async () => {
+    const anon = await req("/", { headers: { "X-Dev-Anonymous": "true" } });
+    expect(anon.status).toBe(200);
+    expect(await anon.text()).toContain('id="waitlist"');
+  });
+});
+
+describe("gallery", () => {
   it("gallery shows empty state then artifacts", async () => {
-    let res = await req("/");
+    let res = await req("/gallery");
     expect(await res.text()).toContain("No artifacts yet");
 
     await req("/api/artifacts", { method: "POST", body: htmlForm({ title: "Hello Page" }, "x.html", strToU8("<h1>hi</h1>")) });
-    res = await req("/");
+    res = await req("/gallery");
     const body = await res.text();
     expect(body).toContain("Hello Page");
     expect(body).toContain('href="/hello-page/"');
+  });
+
+  it("redirects anonymous visitors to the public landing page instead of an empty gallery", async () => {
+    const res = await req("/gallery", { headers: { "X-Dev-Anonymous": "true" }, redirect: "manual" });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/");
   });
 });
 
@@ -157,7 +187,7 @@ describe("validation + conflicts", () => {
   });
 
   it("rejects reserved slugs", async () => {
-    for (const s of ["admin", "api", "v", "health"]) {
+    for (const s of ["admin", "api", "v", "health", "waitlist", "gallery"]) {
       const res = await req("/api/artifacts", { method: "POST", body: htmlForm({ title: "X", slug: s }, "x.html", strToU8("x")) });
       expect(res.status).toBe(400);
     }
@@ -209,7 +239,7 @@ describe("per-artifact permissions", () => {
     await publish("secret", "Secret");
     expect((await req("/secret/")).status).toBe(200); // admin
     expect((await req("/secret/", viewer("bob@x.com"))).status).toBe(404); // viewer
-    const g = await (await req("/", viewer("bob@x.com"))).text();
+    const g = await (await req("/gallery", viewer("bob@x.com"))).text();
     expect(g).not.toContain("Secret");
     expect(g).toContain("No artifacts yet");
   });
@@ -219,15 +249,15 @@ describe("per-artifact permissions", () => {
     expect((await setAcc("shared", "restricted", ["bob@x.com"])).status).toBe(200);
     expect((await req("/shared/", viewer("bob@x.com"))).status).toBe(200);
     expect((await req("/shared/", viewer("eve@x.com"))).status).toBe(404);
-    expect(await (await req("/", viewer("bob@x.com"))).text()).toContain("Shared");
-    expect(await (await req("/", viewer("eve@x.com"))).text()).not.toContain("Shared");
+    expect(await (await req("/gallery", viewer("bob@x.com"))).text()).toContain("Shared");
+    expect(await (await req("/gallery", viewer("eve@x.com"))).text()).not.toContain("Shared");
   });
 
   it("'everyone' visibility is visible to any logged-in viewer", async () => {
     await publish("pub", "PublicOne");
     await setAcc("pub", "everyone", []);
     expect((await req("/pub/", viewer("anyone@x.com"))).status).toBe(200);
-    expect(await (await req("/", viewer("anyone@x.com"))).text()).toContain("PublicOne");
+    expect(await (await req("/gallery", viewer("anyone@x.com"))).text()).toContain("PublicOne");
   });
 
   it("GET access reflects grants; revoke removes a user", async () => {
@@ -469,7 +499,7 @@ describe("content host isolation", () => {
       method: "POST",
       body: htmlForm({ title: "Solo2", slug: "solo2" }, "x.html", strToU8("<h1>solo2</h1>")),
     });
-    for (const path of ["/", "/health", "/whoami", "/admin", "/api/artifacts", "/v/solo2/1/"]) {
+    for (const path of ["/", "/health", "/whoami", "/admin", "/api/artifacts", "/v/solo2/1/", "/gallery", "/waitlist"]) {
       const res = await contentReq(path);
       expect(res.status).toBe(404);
     }
@@ -478,6 +508,8 @@ describe("content host isolation", () => {
   it("leaves the app host fully functional when CONTENT_HOSTNAMES is configured", async () => {
     expect((await appReq("/health")).status).toBe(200);
     expect((await appReq("/admin")).status).toBe(200);
+    expect((await appReq("/")).status).toBe(200);
+    expect((await appReq("/gallery")).status).toBe(200);
   });
 
   it("redirects app host artifact requests to the content host instead of serving them", async () => {

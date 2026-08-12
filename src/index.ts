@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Env } from "./env";
 import { api } from "./api";
+import { waitlist } from "./waitlist";
 import { requireAdmin, accessEmail, getIdentity } from "./auth";
 import { serveArtifact } from "./serve";
 import {
@@ -18,6 +19,7 @@ import {
 import { canView } from "./authz";
 import { getAllowlist, isConfigured } from "./access-api";
 import { galleryPage, notFoundPage } from "./pages";
+import { landingPage } from "./landing";
 import { adminPage } from "./admin";
 import { isContentHost, isManagementPath, firstContentHostname } from "./host";
 
@@ -84,16 +86,23 @@ app.get("/admin", requireAdmin, async (c) => {
 // JSON API for dashboard + CLI.
 app.route("/api", api);
 
-// Gallery — filtered to what the viewer may see.
-app.get("/", async (c) => {
+// Public landing-page waitlist signup (unauthenticated).
+app.route("/waitlist", waitlist);
+
+// Public landing page: marketing pitch, pricing/beta messaging, waitlist signup.
+// Reachable by anyone — never gates on identity.
+app.get("/", (c) => c.html(landingPage()));
+
+// Gallery — filtered to what the viewer may see. Requires sign-in; anonymous
+// visitors are sent back to the public landing page instead of an empty gallery.
+app.get("/gallery", async (c) => {
   const identity = await getIdentity(c);
+  if (!identity) return c.redirect("/", 302);
   const rows = await listArtifacts(c.env);
   let visible = rows;
-  if (!identity?.isAdmin) {
-    const granted = identity?.email ? await grantedSlugs(c.env, identity.email) : new Set<string>();
-    visible = identity
-      ? rows.filter((r) => r.visibility === "everyone" || granted.has(r.slug))
-      : [];
+  if (!identity.isAdmin) {
+    const granted = identity.email ? await grantedSlugs(c.env, identity.email) : new Set<string>();
+    visible = rows.filter((r) => r.visibility === "everyone" || granted.has(r.slug));
   }
   return c.html(galleryPage(visible));
 });

@@ -92,7 +92,13 @@ management routes there (the Worker does, per `src/host.ts`).
 2. Self-hosted app **`Artifacts (admin)`** with destinations `rtfx.pro/admin` and
    `rtfx.pro/api` (not `a.rtfx.pro` — content hosts never serve those paths), same two
    policies.
-3. Fill in `wrangler.jsonc`:
+3. **New for the public landing page (issue #5):** self-hosted app **`Artifacts (public)`**
+   with destinations `rtfx.pro/` (exact root) and `rtfx.pro/waitlist`, one policy with
+   decision **Bypass**. Without this, the viewer app above (destination `rtfx.pro`) still
+   gates the root, so `/` would show Access's login screen instead of the public landing
+   page. `a.rtfx.pro` doesn't need this — it never serves `/` or `/waitlist` (`src/host.ts`
+   blocks management routes there regardless of Access).
+4. Fill in `wrangler.jsonc`:
    - `vars.ACCESS_TEAM_DOMAIN` — your `…cloudflareaccess.com` team domain.
    - `vars.ACCESS_AUD` — `"<viewer app AUD>,<admin app AUD>"`.
    - `vars.CF_ACCOUNT_ID` — your account id (`wrangler whoami`).

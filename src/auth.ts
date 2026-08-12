@@ -92,7 +92,10 @@ export interface Identity {
 /**
  * Resolve the caller's identity for authorization. In dev mode (DEV_LOGIN=true,
  * local/tests only) the `X-Dev-Email` header impersonates a viewer for testing;
- * absent, the first admin email is used. Returns null when unauthenticated.
+ * absent, the first admin email is used. `X-Dev-Anonymous: true` simulates an
+ * unauthenticated caller (for testing the public landing page / reserved-route
+ * redirects) since DEV_LOGIN mode otherwise always resolves some identity.
+ * Returns null when unauthenticated.
  */
 export async function getIdentity(c: {
   env: Env;
@@ -100,6 +103,7 @@ export async function getIdentity(c: {
 }): Promise<Identity | null> {
   const env = c.env;
   if (env.DEV_LOGIN === "true") {
+    if (c.req.header("X-Dev-Anonymous") === "true") return null;
     const email = (c.req.header("X-Dev-Email") || adminList(env)[0] || "dev@local").toLowerCase();
     return { email, commonName: null, isAdmin: isAdmin(env, email) };
   }

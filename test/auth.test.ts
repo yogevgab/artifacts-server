@@ -25,6 +25,11 @@ describe("accessEmail dev/prod gating", () => {
       await accessEmail(ctx({ ...baseEnv, ACCESS_AUD: "aud", ACCESS_TEAM_DOMAIN: "t.cloudflareaccess.com" }))
     ).toBeNull();
   });
+  it("dev login honors X-Dev-Anonymous to simulate an unauthenticated caller", async () => {
+    expect(
+      await accessEmail(ctx({ ...baseEnv, DEV_LOGIN: "true" }, { "X-Dev-Anonymous": "true" }))
+    ).toBeNull();
+  });
 });
 
 describe("isAdmin", () => {

@@ -223,6 +223,23 @@ export async function hasGrant(env: Env, slug: string, email: string): Promise<b
   return !!row;
 }
 
+// --- Waitlist ---
+
+/**
+ * Insert an email into the waitlist, or no-op if already present. The
+ * uniqueness check and insert happen in one statement so concurrent
+ * submissions of the same email can't race into duplicate rows.
+ */
+export async function addToWaitlist(env: Env, email: string, now: string): Promise<boolean> {
+  const clean = email.trim().toLowerCase();
+  const row = await env.DB.prepare(
+    "INSERT INTO waitlist (email, created_at) VALUES (?, ?) ON CONFLICT(email) DO NOTHING RETURNING id"
+  )
+    .bind(clean, now)
+    .first<{ id: number }>();
+  return row !== null;
+}
+
 /** Replace an artifact's visibility and its full grant list atomically. */
 export async function setAccess(
   env: Env,

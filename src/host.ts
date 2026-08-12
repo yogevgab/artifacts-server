@@ -1,6 +1,6 @@
 import type { Env } from "./env";
 
-const MANAGEMENT_PATHS = new Set(["/", "/health", "/whoami"]);
+const MANAGEMENT_PATHS = new Set(["/", "/health", "/whoami", "/waitlist", "/gallery"]);
 const MANAGEMENT_PREFIXES = ["/admin", "/api", "/v"];
 
 /** Parse a comma-separated hostname list (env var) into a lowercase set. */
@@ -36,8 +36,9 @@ export function firstContentHostname(env: Env): string | undefined {
 }
 
 /**
- * True for app-only management/dashboard routes (gallery, admin, API, whoami,
- * health, version preview) that must never be reachable from a content host.
+ * True for app-only routes (public landing, gallery, admin, API, whoami,
+ * health, version preview, waitlist) that must never be reachable from a
+ * content host.
  */
 export function isManagementPath(path: string): boolean {
   if (MANAGEMENT_PATHS.has(path)) return true;

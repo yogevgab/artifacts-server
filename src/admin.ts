@@ -227,7 +227,7 @@ export function adminPage(
 
   const body = `<header class="top"><div><h1>Admin · Artifacts</h1>
       <div class="sub">signed in as ${esc(email)}</div></div>
-      <div><a href="/">view gallery →</a></div></header>
+      <div><a href="/gallery">view gallery →</a></div></header>
 
     <form class="up" id="up">
       <div><label>Title *</label><input name="title" required placeholder="Q3 Landing Page"></div>
