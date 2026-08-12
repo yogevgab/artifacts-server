@@ -26,17 +26,17 @@
     "ADMIN_EMAILS": "yogevgab@gmail.com",
     // Comma-separated Access service-token client ids (…access) that get admin
     // rights — used by the CLI. `npm run setup` fills this in.
-    "ADMIN_SERVICE_TOKENS": "",
+    "ADMIN_SERVICE_TOKENS": "9872ac5cdfdcc53a1c8d348c009ed1d8.access",
     // Your Cloudflare Zero Trust team domain, e.g. myteam.cloudflareaccess.com.
-    "ACCESS_TEAM_DOMAIN": "",
+    "ACCESS_TEAM_DOMAIN": "yogevgab.cloudflareaccess.com",
     // Comma-separated Access application AUD tags: "<viewerAud>,<adminAud>".
     // The Worker verifies request JWTs against either. `npm run setup` fills this in.
-    "ACCESS_AUD": "",
+    "ACCESS_AUD": "25844c315a88a2f617d4e0bb418305b1a532492b96d46968f4518ac5bd39efc9,9d5478cef60e7400b38b20b5ff77d3e5767a31e9519e65de4d3a2d9474e072f9",
     // Account + viewer-app identifiers used to manage the login allow-list via
     // the Cloudflare API. `npm run setup` fills these in.
     "CF_ACCOUNT_ID": "fac060161220992adb92c048d8d8f8b5",
-    "ACCESS_VIEWER_APP_ID": "",
-    "ACCESS_VIEWER_POLICY_ID": "",
+    "ACCESS_VIEWER_APP_ID": "65e4d014-0042-4a6c-94ea-2b6f23b9c67e",
+    "ACCESS_VIEWER_POLICY_ID": "b1d9eebc-7f01-41fe-a4cd-2730c8a536a1",
     // Comma-separated hostnames that serve artifact content ONLY (no admin/API/
     // dashboard). Each hostname listed here must also have a `routes` entry above.
     // Leave empty to keep a single origin.
