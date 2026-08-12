@@ -50,7 +50,7 @@ describe("firstContentHostname", () => {
 
 describe("isManagementPath", () => {
   it("blocks exact management paths", () => {
-    for (const p of ["/", "/health", "/whoami", "/admin", "/api", "/v"]) {
+    for (const p of ["/", "/health", "/whoami", "/admin", "/api", "/v", "/waitlist", "/gallery"]) {
       expect(isManagementPath(p)).toBe(true);
     }
   });
@@ -60,7 +60,7 @@ describe("isManagementPath", () => {
     }
   });
   it("does not block artifact paths that merely start with a reserved word", () => {
-    for (const p of ["/adminfoo", "/apidocs", "/vault/"]) {
+    for (const p of ["/adminfoo", "/apidocs", "/vault/", "/waitlistfoo", "/galleryfoo"]) {
       expect(isManagementPath(p)).toBe(false);
     }
   });

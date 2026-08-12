@@ -1,11 +1,14 @@
 # artifacts-server
 
 Private, access-gated hosting for landing pages and HTML/[Claude](https://claude.ai) artifacts,
-running entirely on **Cloudflare Workers**. Authorized people sign in (Cloudflare Access,
-email one-time-PIN); an admin publishes artifacts — single HTML files or multi-file static
-bundles — from a web dashboard or a CLI. With **per-artifact permissions** and **versioning**.
+running entirely on **Cloudflare Workers**. A public landing page at `/` explains the product and
+collects waitlist signups; authorized people sign in (Cloudflare Access, email one-time-PIN) to
+reach their gallery at `/gallery`. An admin publishes artifacts — single HTML files or multi-file
+static bundles — from a web dashboard or a CLI. With **per-artifact permissions** and
+**versioning**.
 
-- 🔒 **Access-gated** — Cloudflare Access handles login; no passwords stored by the app.
+- 🌐 **Public landing page** — `/` and `/waitlist` are reachable by anyone, logged in or not.
+- 🔒 **Access-gated dashboard** — Cloudflare Access handles login for `/gallery`, `/admin`, and the API; no passwords stored by the app.
 - 👥 **Per-artifact permissions** — each artifact is private, shared with specific people, or open to all signed-in users.
 - 🕓 **Versioning** — every re-publish is a new immutable version; roll back anytime.
 - 📈 **Views log** — see who viewed each artifact, when, which version, and from where.
@@ -20,20 +23,26 @@ bundles — from a web dashboard or a CLI. With **per-artifact permissions** and
 ## How it works
 
 ```
-                    ┌──────────── Cloudflare Access ────────────┐
-Browser / CLI ─────▶│  login gate (email OTP) + allow-list      │────▶  Worker (Hono)
+                              /  and  /waitlist  (always public)
+                                        │
+Browser / CLI ─────────────────────────┼──────────────────────────▶  Worker (Hono)
+                    ┌──────────── Cloudflare Access ────────────┐          │
+                    │  login gate (email OTP) + allow-list      │────▶     │
                     └───────────────────────────────────────────┘          │
-                              gallery · files · /admin · /api               │
+                          /gallery · files · /admin · /api                 │
                         ┌───────────────────────┬────────────────────┐      │
                         ▼                       ▼                    ▼      │
                   R2  (files at            D1 (metadata:        Cloudflare  │
                   <slug>/v<N>/…)           artifacts, grants,   Access API ◀┘
-                                           versions)            (manage users)
+                                           versions, waitlist)  (manage users)
 ```
 
-- **Cloudflare Access** authenticates every request and holds the login allow-list.
+- **`/` and `/waitlist`** are never behind Cloudflare Access — the public landing page and
+  waitlist signup must be reachable by anyone.
+- **Cloudflare Access** authenticates every other request (`/gallery`, `/admin`, `/api`, artifact
+  files) and holds the login allow-list.
 - The **Worker** authorizes per-artifact (who sees what), serves the current version of each
-  artifact, renders the gallery/dashboard, and exposes a JSON API.
+  artifact, renders the landing page/gallery/dashboard, and exposes a JSON API.
 - **R2** stores files under `<slug>/v<N>/…`; **D1** stores metadata.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for details.
@@ -65,6 +74,10 @@ the API token, then:
 1. create the R2 bucket + D1 database and apply the schema,
 2. create the two Cloudflare Access applications, their policies, and a CLI service token,
 3. fill in `wrangler.jsonc`, deploy, and print your CLI credentials.
+
+`npm run setup` does not yet create the public-bypass Access app described in step 3 of
+[Manual deployment](#manual-deployment) below — add it once, by hand, so `/` and `/waitlist`
+stay reachable without logging in.
 
 Prefer to skip Access automation? Set `SKIP_ACCESS=1` — it deploys everything else, and you
 finish Access from the dashboard (see [Manual deployment](#manual-deployment)).
@@ -103,11 +116,16 @@ npx wrangler deploy
    - `— cli`: action **Service Auth**, include a new service token `artifacts-cli`.
 2. Create a **self-hosted app** `Artifacts (admin)` on paths `your-domain/admin` **and**
    `your-domain/api`, with the same two policies.
-3. Put the **admin app's AUD** and the **viewer app's AUD** into `ACCESS_AUD` as
+3. So the public landing page and waitlist are reachable without logging in, add a third
+   **self-hosted app** `Artifacts (public)` on paths `your-domain/` (exact root) **and**
+   `your-domain/waitlist`, with a single policy action **Bypass** (no rule criteria needed). Access
+   evaluates the most specific matching app, so this exempts just those two paths — `/gallery`,
+   artifact links, `/admin`, and `/api` stay behind the viewer/admin apps above.
+4. Put the **admin app's AUD** and the **viewer app's AUD** into `ACCESS_AUD` as
    `"<viewerAud>,<adminAud>"`. Put the viewer app id and its `— humans` policy id into
    `ACCESS_VIEWER_APP_ID` / `ACCESS_VIEWER_POLICY_ID`, and the service token's client id into
    `ADMIN_SERVICE_TOKENS`. Redeploy.
-4. For in-app user management, store an API token: `npx wrangler secret put CF_API_TOKEN`.
+5. For in-app user management, store an API token: `npx wrangler secret put CF_API_TOKEN`.
 
 </details>
 
@@ -127,10 +145,14 @@ All config lives in `wrangler.jsonc` (`vars`) plus one secret. See the comments 
 
 ## Usage
 
+### Landing page
+`https://<your-domain>/` — public, no login required. Pitches the product, explains beta/pricing
+status, and collects `/waitlist` signups. Signed-in people click through to `/gallery`.
+
 ### Dashboard
 `https://<your-domain>/admin` — publish artifacts, manage per-artifact access, upload new
-versions / roll back, and add/remove users. The gallery at `/` is filtered to what each viewer
-may see.
+versions / roll back, and add/remove users. The gallery at `/gallery` is filtered to what each
+viewer may see; visiting it signed out redirects back to the landing page.
 
 ### CLI
 
@@ -178,8 +200,10 @@ npm run typecheck
 npm run check      # typecheck + tests
 ```
 
-Locally there's no Access gate. To simulate a specific viewer, send an `X-Dev-Email` header
-(honored only when `DEV_LOGIN=true`, which `npm run dev` sets — never in production).
+Locally there's no Access gate. To simulate a specific viewer, send an `X-Dev-Email` header; to
+simulate a signed-out visitor (e.g. to see `/gallery` redirect to the landing page), send
+`X-Dev-Anonymous: true`. Both are honored only when `DEV_LOGIN=true`, which `npm run dev` sets —
+never in production.
 
 ```bash
 # once, seed the local DB:

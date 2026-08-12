@@ -1,7 +1,7 @@
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 // Slugs that would collide with the Worker's own routes.
-const RESERVED_SLUGS = new Set(["api", "admin", "health", "whoami", "v"]);
+const RESERVED_SLUGS = new Set(["api", "admin", "health", "whoami", "v", "waitlist", "gallery"]);
 
 export function isValidSlug(s: string): boolean {
   return SLUG_RE.test(s) && s.length <= 100 && !RESERVED_SLUGS.has(s);

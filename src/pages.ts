@@ -65,6 +65,6 @@ export function galleryPage(rows: ArtifactRow[]): string {
 export function notFoundPage(slug?: string): string {
   const body = `<header class="top"><h1>Not found</h1></header>
     <p class="note">${slug ? `No artifact matched <code>${esc(slug)}</code>.` : "This page does not exist."}</p>
-    <p><a href="/">← Back to gallery</a></p>`;
+    <p><a href="/gallery">← Back to gallery</a></p>`;
   return layout("Not found", body);
 }

@@ -51,3 +51,9 @@ CREATE TABLE IF NOT EXISTS artifact_views (
 );
 
 CREATE INDEX IF NOT EXISTS idx_views_slug ON artifact_views (slug, viewed_at DESC);
+
+CREATE TABLE IF NOT EXISTS waitlist (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  email      TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL
+);
