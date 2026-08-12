@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { env } from "cloudflare:test";
 import { zipSync, strToU8 } from "fflate";
 import app from "../src/index";
+import { MAX_UPLOAD_BYTES } from "../src/upload";
 
 async function initDb() {
   await env.DB.prepare(
@@ -109,6 +110,34 @@ describe("upload + serve", () => {
   it("404s for missing files", async () => {
     const res = await req("/nope/missing.css");
     expect(res.status).toBe(404);
+  });
+
+  it("rejects a zip bundle containing a path traversal entry and stores nothing", async () => {
+    const zip = zipSync({
+      "index.html": strToU8("<h1>bundle</h1>"),
+      "../../evil.html": strToU8("evil"),
+    });
+    const fd = new FormData();
+    fd.set("title", "Evil");
+    fd.set("slug", "evil");
+    fd.set("bundle", new File([zip], "b.zip", { type: "application/zip" }));
+    const res = await req("/api/artifacts", { method: "POST", body: fd });
+    expect(res.status).toBe(400);
+    expect((await res.json<any>()).error).toBe("bad_request");
+
+    expect((await req("/evil/")).status).toBe(404);
+    const listed = await env.FILES.list();
+    expect(listed.objects).toHaveLength(0);
+  });
+
+  it("rejects an upload larger than the max upload size", async () => {
+    const fd = new FormData();
+    fd.set("title", "Huge");
+    fd.set("slug", "huge");
+    fd.set("file", new File([new Uint8Array(MAX_UPLOAD_BYTES + 1)], "x.html", { type: "text/html" }));
+    const res = await req("/api/artifacts", { method: "POST", body: fd });
+    expect(res.status).toBe(413);
+    expect((await res.json<any>()).error).toBe("payload_too_large");
   });
 });
 
