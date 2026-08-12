@@ -32,7 +32,12 @@
     // the Cloudflare API. `npm run setup` fills these in.
     "CF_ACCOUNT_ID": "",
     "ACCESS_VIEWER_APP_ID": "",
-    "ACCESS_VIEWER_POLICY_ID": ""
+    "ACCESS_VIEWER_POLICY_ID": "",
+    // Comma-separated hostnames that serve artifact content ONLY (no admin/API/
+    // dashboard). Leave empty to keep a single origin. To actually route a second
+    // hostname to this Worker, add another entry to `routes` above, e.g.
+    // { "pattern": "a.rtfx.pro", "custom_domain": true }, and list it here.
+    "CONTENT_HOSTNAMES": ""
   }
 
   // Secret (NOT in this file): CF_API_TOKEN — a Cloudflare API token with
