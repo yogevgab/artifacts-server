@@ -18,12 +18,12 @@
 
   // `npm run setup` (or `wrangler d1 create`) fills in database_id.
   "d1_databases": [
-    { "binding": "DB", "database_name": "artifacts-meta", "database_id": "REPLACE_WITH_D1_DATABASE_ID" }
+    { "binding": "DB", "database_name": "artifacts-meta", "database_id": "05f77557-3709-43b9-aad8-0cddf53765a8" }
   ],
 
   "vars": {
     // Comma-separated emails with admin (publish/delete/manage) rights.
-    "ADMIN_EMAILS": "you@example.com",
+    "ADMIN_EMAILS": "yogevgab@gmail.com",
     // Comma-separated Access service-token client ids (…access) that get admin
     // rights — used by the CLI. `npm run setup` fills this in.
     "ADMIN_SERVICE_TOKENS": "",
@@ -34,7 +34,7 @@
     "ACCESS_AUD": "",
     // Account + viewer-app identifiers used to manage the login allow-list via
     // the Cloudflare API. `npm run setup` fills these in.
-    "CF_ACCOUNT_ID": "",
+    "CF_ACCOUNT_ID": "fac060161220992adb92c048d8d8f8b5",
     "ACCESS_VIEWER_APP_ID": "",
     "ACCESS_VIEWER_POLICY_ID": "",
     // Comma-separated hostnames that serve artifact content ONLY (no admin/API/
