@@ -90,12 +90,15 @@ const FAQS: readonly Faq[] = [
   {
     q: "How do I publish from Claude Code, an MCP client or a Hermes run?",
     a:
-      "Give the agent a scoped API token and let it call the same CLI or HTTP API you use. " +
-      "`artifacts publish ./out --slug my-page` handles a single file, a folder or a zip, so " +
-      "'publish this' becomes the last step of an ordinary agent session. The Claude Code plugin " +
-      "ships a native MCP server too, so a client with no shell — Claude Desktop, for instance — " +
-      "publishes as a tool call over the same path. A token is bound to " +
-      "its owner and can be revoked at any time, so the agent never gains your account.",
+      "Give the agent a scoped API token and let it call the same CLI or HTTP API you use. The " +
+      "Claude Code plugin is the shortest path: install it from the project's marketplace and " +
+      "'publish this' becomes the last step of an ordinary session. The same plugin ships a " +
+      "native MCP server, so a client with no shell — Claude Desktop, for instance — publishes " +
+      "as a tool call over the same path. From a terminal, run the CLI out of a checkout of the " +
+      "project: `node cli/artifacts.mjs publish ./out --slug client-demo` handles a single file, " +
+      "a folder or a zip. There is no npm package to install yet, and nothing here pretends " +
+      "there is. A token is bound to its owner and can be revoked at any time, so the agent " +
+      "never gains your account.",
   },
   {
     q: "What happens when I publish the same slug twice?",
@@ -141,7 +144,11 @@ const FAQS: readonly Faq[] = [
     a:
       "On a separate content origin (a.rtfx.pro) that serves artifact files and nothing else — " +
       "no dashboard, no API, no admin. Uploaded HTML therefore can never run in the same origin " +
-      "as the app that manages it.",
+      "as the app that manages it. That boundary sits between your artifacts and rtfx.pro, not " +
+      "between one artifact and the next: every artifact is served from the same content origin " +
+      "today, so what keeps one publisher's page away from another's is the access list, not the " +
+      "browser. If you need two mutually distrusting publishers isolated by the browser itself, " +
+      "that is not what this origin split gives you.",
   },
 ];
 
@@ -253,22 +260,54 @@ export function docsPage(env: Env): string {
         <p>Three ways in, one behaviour. A file, a directory or a zip all work; a bundle keeps its
           relative paths, so <code>./assets/app.js</code> resolves the way it did locally.</p>
         <h3>From the terminal</h3>
-        <pre class="code"><code>$ export ARTIFACTS_URL=https://rtfx.pro
+        <p>The CLI ships in the project repository — there is no npm package yet, so you run it
+          from a checkout (or from the Claude Code plugin below, which needs no checkout at all).</p>
+        <pre class="code"><code>$ git clone https://github.com/yogevgab/artifacts-server
+$ cd artifacts-server &amp;&amp; npm install
+
+$ export ARTIFACTS_URL=https://rtfx.pro
 $ export RTFX_API_TOKEN=rtfx_…    # dashboard → Integrations
 
-$ artifacts publish ./index.html --slug q3-report --title "Q3 Report"
-$ artifacts publish ./site --slug q3-report --note "revised charts"   # next version
-$ artifacts grant q3-report alex@example.com
-$ artifacts views q3-report
-$ artifacts list</code></pre>
+$ node cli/artifacts.mjs publish ./index.html --slug q3-report --title "Q3 Report"
+$ node cli/artifacts.mjs publish ./site --slug q3-report --note "revised charts"   # next version
+$ node cli/artifacts.mjs grant q3-report alex@example.com
+$ node cli/artifacts.mjs views q3-report
+$ node cli/artifacts.mjs list</code></pre>
         <h3>From the dashboard</h3>
         <p>Drop a file or zip into the publish panel under <b>Artifacts</b>, set a title, and it's
           live at its slug. Each artifact then has its own page, holding version history, sharing
           and the view log.</p>
         <h3>Over HTTP</h3>
-        <pre class="code"><code>$ curl -X POST https://rtfx.pro/api/artifacts \\
+        <p>The upload field decides how the file is read, not its extension: a zip goes in
+          <code>bundle</code>, a single HTML document in <code>file</code>. A bundle needs
+          <code>index.html</code> at its root.</p>
+        <pre class="code" data-docs="http-publish"><code>$ export RTFX_API_TOKEN=rtfx_…              # dashboard → Integrations
+$ export CF_ACCESS_CLIENT_ID=…              # Access service token (see below)
+$ export CF_ACCESS_CLIENT_SECRET=…
+
+# a zip — zip the folder first over HTTP → bundle
+$ curl -X POST https://rtfx.pro/api/artifacts \\
     -H "Authorization: Bearer $RTFX_API_TOKEN" \\
-    -F slug=q3-report -F title="Q3 Report" -F file=@./dist.zip</code></pre>
+    -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \\
+    -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \\
+    -F slug=q3-report -F title="Q3 Report" -F bundle=@./dist.zip
+
+# one HTML document → file
+$ curl -X POST https://rtfx.pro/api/artifacts \\
+    -H "Authorization: Bearer $RTFX_API_TOKEN" \\
+    -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \\
+    -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \\
+    -F slug=q3-report -F title="Q3 Report" -F file=@./index.html</code></pre>
+        <p><b>Two credentials, two jobs.</b> Cloudflare Access gates the edge; the bearer token
+          authenticates you to the app. While <code>/api</code> sits inside the Access application
+          — the posture rtfx.pro runs — a call from a machine has to satisfy both, so it sends the
+          service-token headers <i>and</i> the API token. The headers get the request through
+          Access and grant nothing inside the app; the API token decides who you are and what you
+          may do. Mint the service token in Cloudflare Zero Trust, keep both halves in environment
+          variables, and drop the two <code>CF-Access-*</code> headers only on an instance whose
+          operator has excluded <code>/api</code> from Access. The CLI and the MCP server send the
+          same pair automatically when <code>CF_ACCESS_CLIENT_ID</code> and
+          <code>CF_ACCESS_CLIENT_SECRET</code> are set.</p>
       </section>
 
       <section id="agents">
@@ -276,13 +315,17 @@ $ artifacts list</code></pre>
         <p>Agents publish through exactly the same CLI and API a human uses — there is no separate,
           weaker agent path. Mint an API token in the dashboard, scope it to <code>publish</code>,
           and hand it to the session:</p>
-        <pre class="code"><code># in a Claude Code or Hermes session
-$ artifacts publish ./out --slug prototype --title "Checkout prototype"
-$ artifacts grant prototype teammate@example.com</code></pre>
+        <pre class="code"><code># in a Claude Code session, with the plugin installed
+/rtfx:publish ./out client-demo
+
+# or from any shell — Claude Code, Hermes, CI — in a checkout of the project
+$ node cli/artifacts.mjs publish ./out --slug client-demo --title "Checkout prototype"
+$ node cli/artifacts.mjs grant client-demo teammate@example.com</code></pre>
         <h3>The Claude Code plugin</h3>
         <p>Installing the plugin turns that into ordinary conversation: say <i>publish this</i> and
           the session picks the build output, versions it under a slug and hands back the link.
-          It ships a skill, five slash commands, and a dependency-free publisher.</p>
+          It ships a skill, five slash commands, and a dependency-free publisher — no checkout and
+          no package install, since the plugin brings its own copy of the publisher.</p>
         <pre class="code" data-docs="claude-code-plugin"><code>/plugin marketplace add yogevgab/artifacts-server
 /plugin install rtfx@rtfx
 
@@ -293,7 +336,9 @@ $ artifacts grant prototype teammate@example.com</code></pre>
         <p>The same plugin ships a native MCP server, for a client with no shell to run a command
           in — Claude Desktop, or anything else that speaks MCP. Installing the plugin registers it;
           it publishes, lists versions and rolls back as tool calls, holding the same scoped token
-          and applying the same credential filters as the CLI.</p>
+          and applying the same credential filters as the CLI. To wire it up by hand instead, point
+          a client at the server file inside the installed plugin (or inside a checkout) — it needs
+          Node and nothing else:</p>
         <pre class="code" data-docs="mcp-server"><code>{ "mcpServers": { "rtfx": {
     "command": "node",
     "args": ["/path/to/plugins/rtfx/scripts/rtfx-mcp.mjs"],
@@ -323,6 +368,11 @@ tools: publish · list_artifacts · get_versions · rollback · doctor</code></p
           404, so a link can't be used to confirm that a page exists. Artifact content is served from
           a dedicated origin that hosts files only — never the dashboard or the API — so uploaded
           HTML can't reach the app it was published from.</p>
+        <p>Worth being precise about what that origin does and doesn't do: it separates published
+          content from rtfx.pro, and all artifacts share it. It is not a per-artifact browser
+          sandbox, so two pages published by people who don't trust each other are kept apart by the
+          access list — who may open what — rather than by the browser's origin boundary. Publish
+          only what you're willing to run in the same origin as your other artifacts.</p>
         <p>None of it is crawlable: artifacts, the dashboard and the API are excluded in
           <a href="/robots.txt">robots.txt</a>, marked <code>noindex</code>, and served with an
           <code>X-Robots-Tag: noindex</code> header. The only indexable pages are this one, the
@@ -393,7 +443,9 @@ tools: publish · list_artifacts · get_versions · rollback · doctor</code></p
             anyone.</li>
           <li><b>Uploaded HTML runs somewhere it can't reach us.</b> Artifact files are served from a
             dedicated content origin that hosts files and nothing else — no dashboard, no API, no
-            admin — so a page you publish can never touch the app that published it.</li>
+            admin — so a page you publish can never touch the app that published it. Artifacts share
+            that one content origin, so it isolates published content from rtfx.pro rather than
+            artifacts from each other.</li>
           <li><b>Nothing watches the visitor.</b> No analytics, advertising or third-party tracking
             anywhere on this site, and none injected into what you publish. The view log is ours to
             show you, not a product we resell.</li>
@@ -434,19 +486,23 @@ tools: publish · list_artifacts · get_versions · rollback · doctor</code></p
       <section id="api">
         <h2>API</h2>
         <p>Authenticate with <code>Authorization: Bearer &lt;token&gt;</code>. Every endpoint is
-          scoped to what the token's owner may see; an admin sees everything they administer.</p>
+          scoped to what the token's owner may see; an admin sees everything they administer. While
+          <code>/api</code> sits behind Cloudflare Access, a machine call also carries the
+          <code>CF-Access-Client-Id</code> and <code>CF-Access-Client-Secret</code> headers of an
+          Access service token — see <a href="#publishing">Publishing</a> for a runnable call.</p>
         <ul>
           <li><code>GET /api/artifacts</code> — list artifacts you can manage.</li>
           <li><code>POST /api/artifacts</code> — publish (multipart: <code>title</code>,
-            <code>slug</code>, <code>file</code>).</li>
+            <code>slug</code>, and either <code>file</code> for one <code>.html</code> document or
+            <code>bundle</code> for a <code>.zip</code>).</li>
           <li><code>GET /api/artifacts/:slug/versions</code> — version history.</li>
           <li><code>POST /api/artifacts/:slug/rollback</code> — restore a previous version.</li>
           <li><code>POST /api/artifacts/:slug/access</code> — set visibility and the share list.</li>
           <li><code>DELETE /api/artifacts/:slug</code> — delete an artifact and its versions.</li>
         </ul>
         <p>The API lives behind sign-in; these paths are documented here but are not public. Full
-          request/response detail ships with the CLI (<code>artifacts --help</code>) and in the
-          dashboard once you have access.</p>
+          request/response detail ships with the CLI (<code>node cli/artifacts.mjs --help</code> in
+          a checkout) and in the dashboard once you have access.</p>
       </section>
 
       <section id="faq">

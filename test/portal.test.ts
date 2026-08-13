@@ -258,6 +258,25 @@ describe("integrations", () => {
     // A token value is never pre-filled into a snippet.
     expect(html).not.toMatch(/RTFX_API_TOKEN=rtfx_[a-zA-Z0-9]/);
   });
+
+  it("gives a command that runs today, not an npm package we never published", async () => {
+    const html = await page("/admin/integrations");
+    // `npx artifacts …` resolves to a stranger's package on the registry; the
+    // CLI lives in this repository and the plugin carries its own copy.
+    expect(html).not.toMatch(/npx\s+artifacts\b/i);
+    expect(html).toContain("node cli/artifacts.mjs publish");
+  });
+
+  it("gives a curl that clears Access and uses the right upload field", async () => {
+    const html = await page("/admin/integrations");
+    // A bearer token authenticates to the app; it does not get past Access,
+    // which still gates /api at the edge.
+    expect(html).toContain("CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID");
+    expect(html).toContain("CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET");
+    // `bundle` is the zip field; `file` is one HTML document.
+    expect(html).toContain("-F bundle=@./dist.zip");
+    expect(html).not.toMatch(/file=@\S*\.zip/);
+  });
 });
 
 describe("platform", () => {

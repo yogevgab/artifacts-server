@@ -194,7 +194,9 @@ export function llmsTxt(env: Pick<Env, "PUBLIC_BASE_URL">): string {
 
 ## How publishing works
 
-- CLI: \`artifacts publish ./index.html --title "Report"\` (single file, folder or zip).
+- CLI: \`node cli/artifacts.mjs publish ./index.html --title "Report"\` (single file, folder or
+  zip), run from a checkout of the artifacts-server repository. There is no npm package: the CLI
+  ships in the repository, and the Claude Code plugin carries its own dependency-free publisher.
 - API: \`POST /api/artifacts\` with a bearer API token minted from the dashboard.
 - MCP: a native MCP server ships with the Claude Code plugin, so an MCP client (Claude Desktop,
   Claude Code, or another) publishes, lists versions and rolls back as tool calls.
@@ -240,7 +242,10 @@ product:
 - Access to rtfx.pro is by invitation — request access at ${origin}/#waitlist.
 - Per-artifact permissions: restricted (named people only) or everyone signed in.
 - Artifact content is served from a separate origin (a.rtfx.pro) so uploaded HTML can never
-  run in the same origin as the dashboard or API.
+  run in the same origin as the dashboard or API. All artifacts share that content origin, so
+  it isolates published content from the app rather than artifacts from each other. It is
+  not a per-artifact browser sandbox between mutually distrusting publishers: access control,
+  not the browser's origin boundary, is what keeps one person's artifact away from another's.
 - API tokens are scoped, owner-bound and revocable; a token can never exceed its owner.
 - No analytics, advertising or third-party tracking anywhere on the site. The only cookies are
   the Cloudflare Access session cookie and Cloudflare's own security cookies — both strictly

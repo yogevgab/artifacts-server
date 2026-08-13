@@ -241,6 +241,118 @@ describe("llms.txt gives an answer engine the comparison and the gaps", () => {
   });
 });
 
+/**
+ * Two claims that are easy to make by accident and impossible to honour.
+ *
+ *  1. **An install path nobody can run.** `npx artifacts …` reads like the
+ *     obvious command, and it is not ours: there is no npm package, and that
+ *     name on the registry belongs to someone else. What works today is the
+ *     Claude Code plugin, the CLI out of a checkout, the plugin's own MCP
+ *     server file, or `curl`. Documenting anything else sends a reader — or an
+ *     agent — to a stranger's package.
+ *  2. **Origin isolation read as sandboxing.** Artifact content really does run
+ *     on its own host, away from the dashboard and the API. All artifacts share
+ *     that host, so the claim must never be stretched into a per-artifact
+ *     browser sandbox between publishers who don't trust each other.
+ */
+describe("install paths are ones a reader can actually run", () => {
+  /**
+   * `$ artifacts publish` was only ever the most obvious spelling of the
+   * problem, not the whole of it: any bare `artifacts <command>` claims a global
+   * binary nobody can install. The real spellings survive this guard because
+   * neither puts whitespace straight after `artifacts` — `node
+   * cli/artifacts.mjs publish` has `.mjs` in the way, and the repository name
+   * `artifacts-server` has a hyphen.
+   */
+  const UNRUNNABLE = [
+    /npx\s+artifacts\b/i,
+    /npm\s+(install|i|add)\s+(-g|--global)\s+artifacts\b/i,
+    /\bartifacts\s+(publish|list|grant|views|versions|rollback|help|--help)\b/,
+  ];
+
+  it("claims no npm package on any public page or in llms.txt", async () => {
+    for (const path of PUBLIC_PATHS) {
+      const html = await publicHtml(path);
+      for (const pattern of UNRUNNABLE) {
+        expect(html, `${path} documents an install path that does not exist: ${pattern}`).not.toMatch(
+          pattern
+        );
+      }
+    }
+    const txt = llmsTxt({ PUBLIC_BASE_URL: LOCAL });
+    for (const pattern of UNRUNNABLE) expect(txt).not.toMatch(pattern);
+  });
+
+  it("documents the paths that do work — plugin, repo CLI, MCP server file, HTTP", async () => {
+    const docs = await publicHtml("/docs");
+    expect(docs, "docs should show the repo-local CLI").toContain("node cli/artifacts.mjs publish");
+    expect(docs, "docs should show the plugin install").toContain(
+      "/plugin marketplace add yogevgab/artifacts-server"
+    );
+    expect(docs, "docs should show the MCP server file").toContain("rtfx-mcp.mjs");
+    expect(docs, "docs should show the HTTP path").toContain("/api/artifacts");
+    // And it must say why the command is spelled that way, not leave a reader
+    // assuming a package they can install.
+    expect(docs.toLowerCase()).toContain("no npm package");
+    expect(llmsTxt({ PUBLIC_BASE_URL: LOCAL })).toContain("node cli/artifacts.mjs publish");
+  });
+});
+
+/**
+ * The HTTP path is the one install story that needs no checkout and no plugin,
+ * so it is the one most likely to be copied straight into CI — and it had two
+ * ways to fail silently:
+ *
+ *  1. **Half the credentials.** `/api` sits inside the Cloudflare Access
+ *     application, so a bearer token alone meets Access's login screen, not the
+ *     API. A machine call needs the Access service-token headers *as well*.
+ *  2. **The wrong upload field.** `file` is one HTML document and `bundle` is a
+ *     zip; `-F file=@./dist.zip` therefore hands a zip to the single-document
+ *     path (`src/api.ts`) rather than publishing a bundle.
+ */
+describe("the /docs HTTP publish example is one a machine can run", () => {
+  it("sends the Access service-token headers next to the bearer token", async () => {
+    const docs = await publicHtml("/docs");
+    expect(docs).toContain('data-docs="http-publish"');
+    expect(docs, "the example must survive Access at the edge").toContain(
+      "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID"
+    );
+    expect(docs).toContain("CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET");
+    expect(docs).toContain("Authorization: Bearer $RTFX_API_TOKEN");
+    // Placeholders, never a credential.
+    expect(docs).not.toMatch(/RTFX_API_TOKEN=rtfx_[a-zA-Z0-9]/);
+    // And it says why both are there, so dropping one is a decision, not a guess.
+    expect(docs.toLowerCase()).toContain("service-token headers");
+  });
+
+  it("uploads a zip as bundle= and a single document as file=", async () => {
+    const docs = await publicHtml("/docs");
+    expect(docs).toContain("-F bundle=@./dist.zip");
+    expect(docs, "a zip must never be sent as file=").not.toMatch(/file=@\S*\.zip/);
+    expect(docs, "the single-document variant is worth showing").toMatch(/file=@\S*\.html/);
+  });
+});
+
+describe("content-origin isolation is claimed with its limit attached", () => {
+  it("says on /docs that artifacts share the content origin", async () => {
+    const html = (await publicHtml("/docs")).toLowerCase();
+    // The claim itself survives…
+    expect(html).toContain("content origin");
+    // …and so does the part that stops it being read as browser sandboxing.
+    expect(html, "/docs should say artifacts share the content origin").toMatch(
+      /(share|shared|same) (that |one |the )?content origin|every artifact is served from the same content origin/
+    );
+    expect(html, "/docs should point at access control as the separation").toContain("access list");
+  });
+
+  it("states the same limit in llms.txt, where an answer engine will read it", () => {
+    const lower = llmsTxt({ PUBLIC_BASE_URL: LOCAL }).toLowerCase();
+    expect(lower).toContain("separate origin (a.rtfx.pro)");
+    expect(lower).toContain("all artifacts share that content origin");
+    expect(lower).toContain("not a per-artifact browser sandbox");
+  });
+});
+
 describe("positioning copy obeys the existing public-copy rules", () => {
   it("adds no preview-stage framing", async () => {
     for (const path of PUBLIC_PATHS) {
