@@ -223,6 +223,16 @@ $ artifacts list</code></pre>
         <pre class="code"><code># in a Claude Code or Hermes session
 $ artifacts publish ./out --slug prototype --title "Checkout prototype"
 $ artifacts grant prototype teammate@example.com</code></pre>
+        <h3>The Claude Code plugin</h3>
+        <p>Installing the plugin turns that into ordinary conversation: say <i>publish this</i> and
+          the session picks the build output, versions it under a slug and hands back the link.
+          It ships a skill, five slash commands, and a dependency-free publisher.</p>
+        <pre class="code" data-docs="claude-code-plugin"><code>/plugin marketplace add yogevgab/artifacts-server
+/plugin install rtfx@rtfx
+
+/rtfx:setup       # check the token reaches your instance
+/rtfx:publish     # publish what the session just built
+/rtfx:versions    # history · /rtfx:rollback to go back</code></pre>
         <div class="callout">
           <p><b>Why a token, not your login.</b> An API token is bound to its owner, carries only the
             scopes you give it (<code>read</code>, <code>publish</code>, <code>manage</code>), and can

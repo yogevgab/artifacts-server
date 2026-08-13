@@ -19,3 +19,5 @@ jobs:
         run: npm run typecheck
       - name: Test
         run: npm test
+      - name: Validate Claude Code plugin
+        run: npm run validate:plugin

@@ -3,6 +3,8 @@
 //
 // Auth: an API token, a Cloudflare Access service token, or both.
 //   ARTIFACTS_URL            your instance URL (default http://localhost:8787 for dev)
+//   RTFX_URL                 alias for ARTIFACTS_URL, so the Claude Code plugin and this
+//                            CLI accept the same environment (ARTIFACTS_URL still wins)
 //   RTFX_API_TOKEN           API token (rtfx_…) — sent as `Authorization: Bearer`
 //   CF_ACCESS_CLIENT_ID      Access service token client id
 //   CF_ACCESS_CLIENT_SECRET  Access service token client secret
@@ -23,7 +25,7 @@ import { readFileSync, statSync, readdirSync } from "node:fs";
 import { join, relative, basename, extname, sep } from "node:path";
 import { zipSync } from "fflate";
 
-const BASE = (process.env.ARTIFACTS_URL || "http://localhost:8787").replace(/\/+$/, "");
+const BASE = (process.env.ARTIFACTS_URL || process.env.RTFX_URL || "http://localhost:8787").replace(/\/+$/, "");
 const ID = process.env.CF_ACCESS_CLIENT_ID;
 const SECRET = process.env.CF_ACCESS_CLIENT_SECRET;
 const API_TOKEN = process.env.RTFX_API_TOKEN;
@@ -106,6 +108,7 @@ async function versions(slug) {
   const res = await fetch(`${BASE}/api/artifacts/${encodeURIComponent(slug)}/versions`, { headers: authHeaders() });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) die(`${res.status} ${data.detail || data.error || res.statusText}`);
+  if (data.url) console.log(data.url);
   for (const v of data.versions) {
     const cur = v.version === data.current ? " (current)" : "";
     const note = v.note ? `  ${v.note}` : "";
@@ -123,6 +126,7 @@ async function rollback(slug, version) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) die(`${res.status} ${data.detail || data.error || res.statusText}`);
   console.log(`${slug} is now live on v${data.current}`);
+  if (data.url) console.log(data.url);
 }
 
 async function list() {

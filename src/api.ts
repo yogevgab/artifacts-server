@@ -90,6 +90,20 @@ async function manageable(c: Context<Vars>, slug: string): Promise<ArtifactRow |
   return art && canManage(c.get("identity"), art) ? art : null;
 }
 
+/**
+ * The origin artifacts are actually served from — the content host when one is
+ * configured, otherwise whatever host this request arrived on. Every route that
+ * reports a link derives it here rather than letting the client assemble one:
+ * an agent that guesses `https://a.rtfx.pro/<slug>/` is right on rtfx.pro and
+ * wrong on every self-hosted instance, and a wrong link is worse than none.
+ */
+function contentBase(c: Context<Vars>): string {
+  const url = new URL(c.req.url);
+  return `${url.protocol}//${firstContentHostname(c.env) ?? url.host}`;
+}
+
+const artifactUrl = (c: Context<Vars>, slug: string): string => `${contentBase(c)}/${slug}/`;
+
 // Multipart overhead (boundaries/headers) is small, so a modest margin over
 // the file-size cap is enough headroom for the request body as a whole.
 const MAX_BODY_BYTES = MAX_UPLOAD_BYTES + 64 * 1024;
@@ -124,7 +138,9 @@ api.get("/artifacts", requireScope("read"), async (c) => {
   const artifacts = identity.isAdmin
     ? await listArtifacts(c.env)
     : await listArtifactsOwnedBy(c.env, identity.email!);
-  return c.json({ artifacts });
+  // `content_base` is additive: rows keep their exact shape, and a machine
+  // client gets the one piece it cannot derive — where artifacts are served.
+  return c.json({ artifacts, content_base: contentBase(c) });
 });
 
 api.post("/artifacts", requireScope("publish"), async (c) => {
@@ -255,11 +271,9 @@ api.post("/artifacts", requireScope("publish"), async (c) => {
   };
   await upsertArtifact(c.env, row);
 
-  const url = new URL(c.req.url);
-  const publishHost = firstContentHostname(c.env) ?? url.host;
   return c.json({
     slug,
-    url: `${url.protocol}//${publishHost}/${slug}/`,
+    url: artifactUrl(c, slug),
     type: processed.type,
     file_count: processed.files.length,
     version,
@@ -590,7 +604,11 @@ api.get("/artifacts/:slug/versions", requireScope("read"), async (c) => {
   const slug = c.req.param("slug");
   const art = await manageable(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
-  return c.json({ current: art.current_version, versions: await listVersions(c.env, slug) });
+  return c.json({
+    current: art.current_version,
+    url: artifactUrl(c, slug),
+    versions: await listVersions(c.env, slug),
+  });
 });
 
 api.get("/artifacts/:slug/views", requireScope("read"), async (c) => {
@@ -615,7 +633,7 @@ api.post("/artifacts/:slug/current", requireScope("publish"), async (c) => {
   }
   const ok = await setCurrentVersion(c.env, slug, version, new Date().toISOString());
   if (!ok) return c.json({ error: "not_found", detail: `version ${version} does not exist` }, 404);
-  return c.json({ slug, current: version });
+  return c.json({ slug, current: version, url: artifactUrl(c, slug) });
 });
 
 api.get("/artifacts/:slug/access", requireScope("read"), async (c) => {

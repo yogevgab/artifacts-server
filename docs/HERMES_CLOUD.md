@@ -6,6 +6,9 @@ artifacts on this server with an **API token**, without a browser login.
 The whole contract is: mint a token once, send it as `Authorization: Bearer <token>`, and
 POST a multipart form to `/api/artifacts`.
 
+> Publishing from a **Claude Code** session is the same contract, packaged: see
+> [`CLAUDE_CODE.md`](CLAUDE_CODE.md) for the plugin in [`plugins/rtfx`](../plugins/rtfx).
+
 ---
 
 ## 1. Get a token
@@ -153,14 +156,19 @@ Updating is just publishing to the same slug — every publish is a new immutabl
 ```bash
 # what versions exist, and which is live
 curl -sS "$ARTIFACTS_URL/api/artifacts/my-page/versions" -H "Authorization: Bearer $RTFX_API_TOKEN"
-# {"current":3,"versions":[{"version":3,…},{"version":2,…},{"version":1,…}]}
+# {"current":3,"url":"https://a.rtfx.pro/my-page/","versions":[{"version":3,…},{"version":1,…}]}
 
 # roll back to v2 (requires `publish` scope)
 curl -sS -X POST "$ARTIFACTS_URL/api/artifacts/my-page/current" \
   -H "Authorization: Bearer $RTFX_API_TOKEN" -H "Content-Type: application/json" \
   -d '{"version": 2}'
-# {"slug":"my-page","current":2}
+# {"slug":"my-page","current":2,"url":"https://a.rtfx.pro/my-page/"}
 ```
+
+Every route that reports on an artifact returns its `url`, and `GET /api/artifacts` returns
+`content_base` alongside the list. Use them rather than assembling a link: the content host comes
+from `CONTENT_HOSTNAMES`, so a hard-coded `https://a.rtfx.pro/<slug>/` is right on rtfx.pro and
+wrong on every other deployment.
 
 Rollback is instant and non-destructive: v3's files stay in R2, so rolling forward again is
 another `current` call. Preview any version at `/v/<slug>/<n>/` (owner/admin only).

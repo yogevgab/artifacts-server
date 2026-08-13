@@ -172,8 +172,13 @@ function setupPanel(origin: string): string {
       `npx artifacts publish ./index.html --slug q3-report --title "Q3 Report"\nnpx artifacts publish ./site --slug q3-report --note "revised charts"\nnpx artifacts grant q3-report alex@example.com\nnpx artifacts views q3-report`
     )}
     ${snippet(
+      "setup-plugin",
+      "3 · Or install the Claude Code plugin, and just say “publish this”",
+      `/plugin marketplace add yogevgab/artifacts-server\n/plugin install rtfx@rtfx\n/rtfx:setup   # confirms the token above reaches this instance`
+    )}
+    ${snippet(
       "setup-http",
-      "3 · Or straight over HTTP, from CI",
+      "4 · Or straight over HTTP, from CI",
       `curl -X POST ${origin}/api/artifacts \\\n  -H "Authorization: Bearer $RTFX_API_TOKEN" \\\n  -F slug=q3-report -F title="Q3 Report" -F file=@./dist.zip`
     )}
 

@@ -106,8 +106,10 @@ export function processZip(buf: Uint8Array, limits: ZipLimits = DEFAULT_ZIP_LIMI
       return;
     }
 
-    // Hygiene: skip macOS resource forks and hidden files/dirs (e.g. ".git/").
-    if (name.startsWith("__MACOSX/") || name.includes("/.")) return;
+    // Hygiene: skip macOS resource forks and hidden files/dirs (e.g. ".git/" or
+    // a root `.env`). Root dotfiles must be treated the same as nested dotfiles:
+    // agents often publish archives they did not assemble themselves.
+    if (path.split("/").some((seg) => seg === "__MACOSX" || seg.startsWith("."))) return;
 
     entryCount++;
     if (entryCount > limits.maxEntries) {
