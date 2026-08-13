@@ -109,7 +109,7 @@ function publishPanel(): string {
       </div>
       <p class="hint">This artifact is private until you grant access below.</p>
       <div class="published-actions">
-        <a data-open-link target="_blank" rel="noopener"><button type="button" class="ghost">Open artifact ↗</button></a>
+        <a class="ghost link-button" data-open-link target="_blank" rel="noopener">Open artifact ↗</a>
         <button type="button" class="ghost" data-publish-another>Publish another</button>
         <button type="button" class="ghost" data-refresh>Refresh dashboard</button>
       </div>

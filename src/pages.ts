@@ -49,8 +49,9 @@ input:focus,textarea:focus,select:focus{border-color:var(--accent);outline:none;
 ::placeholder{color:var(--faint);opacity:1}
 button{background:var(--accent);color:#fff;border:0;border-radius:10px;padding:.6rem 1rem;font:inherit;font-weight:600;cursor:pointer;transition:opacity .15s,border-color .15s,color .15s}
 button:hover{opacity:.9}button:disabled{opacity:.55;cursor:default}
-button.ghost{background:transparent;color:var(--muted);border:1px solid var(--border)}
-button.ghost:hover{color:var(--fg);border-color:var(--border-strong)}
+button.ghost,a.ghost.link-button{background:transparent;color:var(--muted);border:1px solid var(--border)}
+a.ghost.link-button{display:inline-flex;align-items:center;justify-content:center;border-radius:10px;padding:.6rem 1rem;font-weight:600;text-decoration:none}
+button.ghost:hover,a.ghost.link-button:hover{color:var(--fg);border-color:var(--border-strong);text-decoration:none}
 button.small{padding:.35rem .7rem;font-size:.82rem}
 button.danger{background:transparent;color:var(--danger);border:1px solid var(--border)}
 button.danger:hover{border-color:var(--danger);background:var(--danger-weak)}
