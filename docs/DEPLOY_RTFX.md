@@ -214,17 +214,30 @@ curl -si -X OPTIONS https://rtfx.pro/api/users -H 'Origin: https://rtfx.pro' \
   -H 'Access-Control-Request-Method: POST' | head -1
 ```
 
-### The Worker's half (deployed with the code, no Cloudflare change)
+### The Worker's half (deployed with the code)
 
 `src/cors.ts` answers preflights before authentication and names one concrete origin (never `*`,
 never a content host); the People panel fetches with `redirect: 'manual'` and recovers through
-`GET /api/users/reauth`, a full-page navigation Access *can* complete. This makes the flow work
-with the two-application setup left exactly as it is — the first invite of a session costs one
-extra redirect.
+`GET /api/users/reauth`, a full-page navigation Access *can* complete.
 
-### Recommended Cloudflare change — MANUAL, mutates Cloudflare
+### Required Cloudflare Access option when keeping the two-app setup — MANUAL, mutates Cloudflare
 
-Remove the second application boundary, so there is no second session to establish:
+If `Artifacts (admin)` still guards `rtfx.pro/api/users`, Access must be told to pass browser
+preflights through to the Worker; otherwise `OPTIONS /api/users` is refused at the edge and
+`src/cors.ts` never runs.
+
+1. Zero Trust → Access → Applications → **`Artifacts (admin)`** → Edit.
+2. Enable **Bypass OPTIONS requests** / `options_preflight_bypass`.
+3. Do the same on **`Artifacts (viewers)`** so every `/api/*` preflight behaves consistently.
+
+This leaves the admin Access application in place and keeps `/api/users` edge-gated for real
+non-OPTIONS requests; the first invite of a browser session may still bounce through
+`/api/users/reauth`, then succeeds.
+
+### Alternative Cloudflare simplification — MANUAL, mutates Cloudflare
+
+You can remove the second application boundary entirely, so there is no second Access session to
+establish:
 
 1. Zero Trust → Access → Applications → **`Artifacts (admin)`** → Edit.
 2. Delete the `rtfx.pro/api/users` destination (i.e. retire the app), leaving `/admin` and `/api`
@@ -234,7 +247,7 @@ This does **not** widen who may manage users. `/api/users` has always been admin
 Worker (`api.use("/users", requireAdmin, denyApiToken)` in `src/api.ts`) and additionally refuses
 API tokens outright, so an invited non-admin reaching the route still gets 403. What is lost is
 one layer of edge defence-in-depth — an admin-only *edge* filter in front of an admin-only
-*application* check. Keep the app if you want that layer; the code path above works either way.
+*application* check.
 
 Drop `<adminAud>` from `vars.ACCESS_AUD` only after the app is retired, never before.
 
