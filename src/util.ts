@@ -14,6 +14,8 @@ const RESERVED_SLUGS = new Set([
   "gallery",
   "login",
   "docs",
+  "privacy",
+  "terms",
   "robots",
   "sitemap",
   "llms",

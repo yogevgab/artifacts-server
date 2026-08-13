@@ -6,11 +6,15 @@ export function esc(s: unknown): string {
     .replace(/"/g, "&quot;");
 }
 
+// `--faint` is the quietest ink in the palette, and it is used for real text
+// (eyebrows, stat labels, nav blurbs) rather than decoration — so it is tuned to
+// clear 4.5:1 against its own background in both schemes, not to be as light as
+// it can get away with. Anything quieter than this belongs in a border, not a word.
 const STYLE = `
 :root{color-scheme:light dark;
   --bg:#06070a;--bg2:#111827;--elev:rgba(24,27,34,.72);--card:rgba(28,31,38,.72);
-  --fg:#f5f7fb;--muted:#a6adbb;--faint:#737b8c;
-  --accent:#0a84ff;--accent2:#64d2ff;--accent-weak:rgba(10,132,255,.16);
+  --fg:#f5f7fb;--muted:#a6adbb;--faint:#7d8598;
+  --accent:#0a84ff;--accent2:#64d2ff;--accent-weak:rgba(10,132,255,.16);--link-hover:#64d2ff;
   --ok:#30d158;--ok-weak:rgba(48,209,88,.16);--danger:#ff453a;--danger-weak:rgba(255,69,58,.14);
   --border:rgba(255,255,255,.12);--border-strong:rgba(255,255,255,.22);
   --radius:24px;--radius-sm:14px;
@@ -18,14 +22,17 @@ const STYLE = `
   --blur:saturate(180%) blur(24px);--mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace}
 @media(prefers-color-scheme:light){:root{
   --bg:#f5f5f7;--bg2:#eef3fb;--elev:rgba(255,255,255,.78);--card:rgba(255,255,255,.82);
-  --fg:#1d1d1f;--muted:#626874;--faint:#8a9099;
-  --accent:#0071e3;--accent2:#5ac8fa;--accent-weak:rgba(0,113,227,.11);
-  --ok:#248a3d;--ok-weak:rgba(36,138,61,.10);--danger:#d70015;--danger-weak:rgba(215,0,21,.09);
+  --fg:#1d1d1f;--muted:#626874;--faint:#656c78;
+  --accent:#0064cc;--accent2:#5ac8fa;--accent-weak:rgba(0,100,204,.11);--link-hover:#004a9e;
+  --ok:#1e7a35;--ok-weak:rgba(30,122,53,.10);--danger:#d70015;--danger-weak:rgba(215,0,21,.09);
   --border:rgba(0,0,0,.10);--border-strong:rgba(0,0,0,.18);
   --shadow:0 1px 0 rgba(255,255,255,.7) inset,0 22px 70px -42px rgba(15,23,42,.42)}}
 *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;font:16px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:radial-gradient(circle at 18% -12%,rgba(100,210,255,.22),transparent 34rem),radial-gradient(circle at 86% 0,rgba(10,132,255,.18),transparent 30rem),linear-gradient(180deg,var(--bg),var(--bg2));color:var(--fg);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;min-height:100vh}
 [hidden]{display:none !important}
-a{color:var(--accent);text-decoration:none}a:hover{text-decoration:none;color:var(--accent2)}
+/* Hover used to lighten a link to --accent2, which on a light background made it
+   *less* readable than it was at rest — a pale cyan on near-white. --link-hover
+   moves each scheme further from its own background instead of towards it. */
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:none;color:var(--link-hover)}
 :focus-visible{outline:3px solid var(--accent);outline-offset:3px}
 .wrap{max-width:1120px;margin:0 auto;padding:2rem 1.25rem 4rem}
 header.top{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:2rem}
@@ -40,12 +47,16 @@ h1{font-size:clamp(1.55rem,3.2vw,2.7rem);line-height:1.05;margin:0;letter-spacin
 .badge.is-locked{color:var(--muted)}
 .mono{font-family:var(--mono);font-size:.82em}
 .empty{text-align:center;color:var(--muted);padding:3.5rem 1.5rem;border:1px dashed var(--border-strong);border-radius:var(--radius);background:var(--card);box-shadow:var(--shadow);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}
-.empty h3{margin:0 0 .45rem;color:var(--fg);font-size:1.15rem;letter-spacing:-.02em}
+.empty h1,.empty h3{margin:0 0 .45rem;color:var(--fg);font-size:1.15rem;letter-spacing:-.02em;line-height:1.3}
 .empty p{margin:0 auto;max-width:34rem;font-size:.92rem}
 form.up{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:2rem;display:grid;gap:.75rem;box-shadow:var(--shadow);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}
 label{font-size:.85rem;color:var(--muted);display:block;margin-bottom:.28rem}
 input,textarea,select{width:100%;padding:.72rem .78rem;background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--fg);font:inherit;transition:border-color .15s,box-shadow .15s,background .15s}
 input:focus,textarea:focus,select:focus{border-color:var(--accent);outline:none;box-shadow:0 0 0 4px var(--accent-weak);background:rgba(255,255,255,.10)}
+/* …but a keyboard user still gets the outline. The 4px ring above is a 16%-alpha
+   tint — pretty, and nowhere near the 3:1 a focus indicator has to reach — so it
+   decorates the pointer case only, and :focus-visible puts the real ring back. */
+input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 ::placeholder{color:var(--faint);opacity:1}
 button{background:linear-gradient(180deg,var(--accent),#006edb);color:#fff;border:0;border-radius:999px;padding:.72rem 1.08rem;font:inherit;font-weight:650;cursor:pointer;box-shadow:0 14px 34px -22px rgba(10,132,255,.95);transition:transform .15s,opacity .15s,box-shadow .15s,border-color .15s,color .15s,background .15s}
 button:hover{opacity:.96;transform:translateY(-1px)}button:disabled{opacity:.55;cursor:default;transform:none}
@@ -61,7 +72,13 @@ button.danger:hover{border-color:var(--danger);background:var(--danger-weak)}
 .hint{font-size:.82rem;color:var(--muted)}
 .status{font-size:.86rem;color:var(--muted)}
 .status.is-ok{color:var(--ok)}.status.is-error{color:var(--danger)}
-#msg{padding:.72rem .85rem;border-radius:var(--radius-sm);font-size:.9rem;display:none}
+/* The waitlist form's live region. Hidden with [hidden] rather than an inline
+   display, and coloured from the same status tokens the rest of the product
+   uses — the hard-coded greens and reds it used before were the one pair on the
+   site that failed contrast in light mode. */
+#msg{padding:.72rem .85rem;border-radius:var(--radius-sm);font-size:.9rem;border:1px solid transparent}
+#msg.is-ok{color:var(--ok);border-color:var(--ok);background:var(--ok-weak)}
+#msg.is-error{color:var(--danger);border-color:var(--danger);background:var(--danger-weak)}
 @media(max-width:720px){.wrap{padding:1.2rem .85rem 3rem}header.top{align-items:flex-start}.row{align-items:flex-start;flex-direction:column}}
 
 /* --- shared foundation: see docs/DESIGN.md -------------------------------- */
@@ -76,6 +93,10 @@ button.danger:hover{border-color:var(--danger);background:var(--danger-weak)}
 /* A visual cue that needs a spoken one. */
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
   clip:rect(0 0 0 0);white-space:nowrap;border:0}
+/* Every page's first tab stop. Off-screen rather than display:none, so it is
+   still in the focus order; it becomes visible the moment it is focused. */
+.skip{position:absolute;left:-9999px;top:0}
+.skip:focus{position:static;display:inline-block;margin-bottom:.7rem}
 /* Quiet, spacious surface for the sign-in / access states. */
 .sheet{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
   box-shadow:var(--shadow);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
@@ -166,12 +187,25 @@ export const BRAND_STYLE = `
 // looking like three products.
 
 /** Which public page is being rendered, so its own link can be dropped. */
-export type PublicPage = "home" | "docs" | "login";
+export type PublicPage = "home" | "docs" | "login" | "privacy" | "terms";
+
+/**
+ * The link every public page opens with, and the reason each of them wraps its
+ * content in `<main id="main">`. It is the first thing in the tab order, so
+ * somebody navigating by keyboard reaches the page's content without walking
+ * the whole nav on every single page.
+ */
+export function skipLink(): string {
+  return `<a class="skip" href="#main">Skip to content</a>`;
+}
 
 /**
  * The sticky nav bar: the rtfx lockup, then the same four destinations in the
  * same order everywhere. The current page's own link is omitted rather than
  * disabled — a nav that points at the page you are on is noise.
+ *
+ * The skip link is emitted here rather than by each page, so a new public page
+ * cannot be added without one.
  */
 export function siteHeader(current: PublicPage = "home"): string {
   const links = [
@@ -181,11 +215,19 @@ export function siteHeader(current: PublicPage = "home"): string {
     `<a href="/#waitlist" class="primary" data-cta="request-access">Request access</a>`,
     current === "login" ? "" : `<a href="/login" data-cta="sign-in">Sign in →</a>`,
   ].filter(Boolean);
-  return `<header class="top">${brandLockup("/")}
+  return `${skipLink()}
+    <header class="top">${brandLockup("/")}
     <nav class="nav" aria-label="Primary">${links.join("\n      ")}</nav></header>`;
 }
 
-/** The same footer on every public page: where to go next, and what this is. */
+/**
+ * The same footer on every public page: where to go next, and what this is.
+ *
+ * The legal row is separated from the navigation row because it answers a
+ * different question — "what am I agreeing to?" rather than "where do I go?" —
+ * and because a person looking for a privacy policy looks at the bottom of the
+ * page, in a place that does not move between pages (issue #36).
+ */
 export function siteFooter(): string {
   return `<footer class="site">
       <nav aria-label="Footer">
@@ -194,6 +236,11 @@ export function siteFooter(): string {
         <a href="/docs#use-cases">Use cases</a>
         <a href="/login" data-cta="sign-in">Sign in</a>
         <a href="/llms.txt">llms.txt</a>
+      </nav>
+      <nav class="legal" aria-label="Legal">
+        <a href="/privacy" data-legal="privacy">Privacy</a>
+        <a href="/terms" data-legal="terms">Terms</a>
+        <a href="/privacy#cookies" data-legal="cookies">Cookies</a>
       </nav>
       <div>rtfx.pro — secure, access-protected hosting for pages and artifacts.</div>
     </footer>`;
@@ -215,6 +262,9 @@ header.top{position:sticky;top:0;z-index:5;margin:-.75rem 0 2.2rem;padding:.72re
 footer.site{text-align:center;color:var(--muted);font-size:.88rem;padding:2.4rem 0 1rem;
   border-top:1px solid var(--border);margin-top:3rem}
 footer.site nav{display:flex;gap:1.1rem;justify-content:center;flex-wrap:wrap;margin-bottom:.9rem}
+footer.site nav.legal{gap:.9rem;font-size:.84rem;margin-bottom:1.1rem}
+footer.site nav.legal a{color:var(--muted)}
+footer.site nav.legal a:hover{color:var(--fg)}
 @media(max-width:760px){
   header.top{position:static;border-radius:22px}
   .nav{gap:.55rem}
@@ -222,8 +272,12 @@ footer.site nav{display:flex;gap:1.1rem;justify-content:center;flex-wrap:wrap;ma
      person forward (request access, sign in) always stay. */
   .nav a[data-nav="use-cases"],.nav a[data-nav="home"]{display:none}
 }
-/* Touch targets in the nav: a 0.9rem text link is not 44px on its own. */
-@media(pointer:coarse){.nav a,footer.site nav a{min-height:44px;display:inline-flex;align-items:center}}
+/* Touch targets in the nav: a 0.9rem text link is not 44px on its own. The
+   .toc pills on /docs, /privacy and /terms are the same problem — a row of
+   small chips is exactly where a thumb misses. */
+@media(pointer:coarse){
+  .nav a,footer.site nav a,.toc a{min-height:44px;display:inline-flex;align-items:center}
+}
 `;
 
 /**
@@ -302,15 +356,16 @@ ${headTags(title, meta)}
  * product just answered them.
  */
 export function notFoundPage(slug?: string): string {
-  const body = `<header class="top">${brandLockup("/")}</header>
-    <div class="empty" data-empty="not-found">
-      <h3>${slug ? `Nothing here at <span class="mono">/${esc(slug)}/</span>` : "This page does not exist."}</h3>
+  const body = `${skipLink()}
+    <header class="top">${brandLockup("/")}</header>
+    <main class="empty" id="main" data-empty="not-found">
+      <h1>${slug ? `Nothing here at <span class="mono">/${esc(slug)}/</span>` : "This page does not exist."}</h1>
       <p>${
         slug
           ? "The artifact may have been deleted, renamed, or you may not have access to it. Check the link, or ask the person who shared it to grant you access."
           : "Check the address, or head back to your dashboard."
       }</p>
       <p style="margin-top:1rem"><a href="/admin">← Back to your dashboard</a></p>
-    </div>`;
+    </main>`;
   return layout("Not found", body, BRAND_STYLE);
 }

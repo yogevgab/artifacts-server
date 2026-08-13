@@ -8,6 +8,8 @@ const MANAGEMENT_PATHS = new Set([
   "/gallery",
   "/login",
   "/docs",
+  "/privacy",
+  "/terms",
   "/sitemap.xml",
   "/llms.txt",
   "/og.svg",
@@ -59,9 +61,9 @@ export function firstContentHostname(env: Env): string | undefined {
 }
 
 /**
- * True for app-only routes (public product pages, gallery, admin, API, whoami,
- * health, version preview, waitlist, sitemap/llms.txt) that must never be
- * reachable from a content host.
+ * True for app-only routes (public product pages, legal pages, gallery, admin,
+ * API, whoami, health, version preview, waitlist, sitemap/llms.txt) that must
+ * never be reachable from a content host.
  */
 export function isManagementPath(path: string): boolean {
   if (MANAGEMENT_PATHS.has(path)) return true;

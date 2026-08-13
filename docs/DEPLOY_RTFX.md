@@ -94,8 +94,9 @@ management routes there (the Worker does, per `src/host.ts`).
    policies.
 3. **New for the public landing page (issue #5):** self-hosted app **`Artifacts (public)`**
    with destinations `rtfx.pro/` (exact root), `rtfx.pro/waitlist`, — **added for issue
-   #24** — `rtfx.pro/login`, and — **added for issue #29** — `rtfx.pro/docs`,
+   #24** — `rtfx.pro/login`, — **added for issue #29** — `rtfx.pro/docs`,
    `rtfx.pro/robots.txt`, `rtfx.pro/sitemap.xml`, `rtfx.pro/llms.txt` and `rtfx.pro/og.svg`,
+   and — **added for issue #36** — `rtfx.pro/privacy` and `rtfx.pro/terms`,
    one policy with decision **Bypass**. Without this, the viewer app above (destination
    `rtfx.pro`) still gates those paths, so `/` would show Access's login screen instead of
    the public landing page. `/login` matters for the same reason and more sharply: it is the
@@ -103,7 +104,9 @@ management routes there (the Worker does, per `src/host.ts`).
    instead defeats its entire purpose. The issue-#29 paths matter for a third reason: a
    crawler cannot log in, so an Access-gated `robots.txt` or `sitemap.xml` is the same as
    not having one, and an Access-gated `/docs` is a page no search engine or AI agent can
-   ever read. `a.rtfx.pro` doesn't need this — it never serves any of them except
+   ever read. The issue-#36 pages are the ones a person reads *before* deciding to hand over
+   an email address — a privacy policy you must sign in to read is not a privacy policy.
+   `a.rtfx.pro` doesn't need this — it never serves any of them except
    `robots.txt`, which is public there by design and answers `Disallow: /` (`src/host.ts`
    and `src/seo.ts`).
 4. Fill in `wrangler.jsonc`:
@@ -184,7 +187,8 @@ existing artifact owners as active members. Optionally set `vars.SUPER_ADMIN_EMA
 
 Browser-smoke after deploy: `/login` signed out (both CTAs), `/login` signed in, the People
 panel on `/admin`, and one invite → pause → re-enable → remove round trip on a throwaway
-address.
+address. Do one keyboard pass while you are there: Tab from the top of `/` and `/admin` — the
+first stop is **Skip to content**, and every stop after it has a visible focus ring.
 
 To roll back, restore the `Artifacts (admin)` destinations to `rtfx.pro/admin` and
 `rtfx.pro/api`.
@@ -301,12 +305,20 @@ confirm each public path answers **unauthenticated** — run this from a shell w
 session, so an Access redirect (302 to `…cloudflareaccess.com`) shows up as a failure:
 
 ```bash
-for p in / /docs /login /robots.txt /sitemap.xml /llms.txt /og.svg; do
+for p in / /docs /login /privacy /terms /robots.txt /sitemap.xml /llms.txt /og.svg; do
   printf '%-14s ' "$p"; curl -s -o /dev/null -w '%{http_code} %{content_type}\n' "https://rtfx.pro$p"
 done
-# all 200; / /docs /login are text/html, robots+llms text/plain, sitemap application/xml
+# all 200; / /docs /login /privacy /terms are text/html, robots+llms text/plain,
+# sitemap application/xml
 
-curl -s https://rtfx.pro/robots.txt        # allows /, /docs, /login; Sitemap: https://rtfx.pro/sitemap.xml
+# No public page may set a cookie of its own (issue #36) — the only cookie in the
+# product is the Cloudflare Access session, and it is set by signing in, not by reading.
+for p in / /docs /login /privacy /terms; do
+  printf '%-10s ' "$p"; curl -sI "https://rtfx.pro$p" | grep -ci '^set-cookie:'
+done
+# all 0
+
+curl -s https://rtfx.pro/robots.txt        # allows /, /docs, /login, /privacy, /terms; Sitemap: https://rtfx.pro/sitemap.xml
 curl -s https://a.rtfx.pro/robots.txt      # Disallow: /  (artifact content is access-controlled)
 curl -sI https://a.rtfx.pro/<some-slug>/ | grep -i x-robots-tag   # noindex, nofollow, noarchive
 ```
@@ -320,6 +332,11 @@ curl -s -o /dev/null -w '%{http_code}\n' https://a.rtfx.pro/docs    # 404 — co
 
 Then, in a browser: `/` and `/docs` render, the **Request access** form returns
 "Request received", and `view-source:` shows `<link rel="canonical">` plus the OpenGraph tags.
+Also confirm the issue-#36 surface: `/privacy` and `/terms` render with the site chrome, the
+footer of every public page links to both, and the cookie notice appears once, dismisses, and
+stays dismissed on reload (it is remembered in `localStorage`, not in a cookie). Before
+publishing to real users, fill in the two placeholders both legal pages call out — the
+contact address and the governing law — see [PUBLIC_SITE.md](PUBLIC_SITE.md).
 Finally submit `https://rtfx.pro/sitemap.xml` in Google Search Console and Bing Webmaster
 Tools — nothing in the deploy does that for you. Details: [PUBLIC_SITE.md](PUBLIC_SITE.md).
 

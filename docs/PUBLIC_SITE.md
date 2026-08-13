@@ -6,16 +6,18 @@ agent can see, and the rule for the copy that faces them.
 
 ## The public surface
 
-Exactly four paths are public, plus the crawler files. Everything else requires an identity.
+Exactly six paths are public, plus the crawler files. Everything else requires an identity.
 
 | Path | What it is | Indexable |
 |---|---|---|
 | `/` | Product landing page: positioning, use cases, differentiators, Claude Code/Hermes story, request access | ✅ |
 | `/docs` | Public documentation: publishing, agents, access & privacy model, API overview, FAQ | ✅ |
 | `/login` | Sign-in surface (signed-out state) | ✅ |
+| `/privacy` | Privacy policy — what is stored, cookies, processors, retention, rights (issue #36) | ✅ |
+| `/terms` | Terms of use — access, ownership, acceptable use, tokens, liability (issue #36) | ✅ |
 | `/waitlist` | `POST` access request from the landing page; `GET` redirects to `/#waitlist` | — |
 | `/robots.txt` | Crawl policy — **per-origin**, three different answers (below) | — |
-| `/sitemap.xml` | The three indexable pages, absolute against `PUBLIC_BASE_URL` | — |
+| `/sitemap.xml` | The indexable pages, absolute against `PUBLIC_BASE_URL` | — |
 | `/llms.txt` | [llmstxt.org](https://llmstxt.org) product summary for AI agents/answer engines | — |
 | `/og.svg` | 1200×630 social card | — |
 
@@ -69,6 +71,29 @@ family, add it to the assertion rather than arguing with it.
 
 Inside the app, a non-admin is a **member**, not a "beta user".
 
+## Cookies and consent (issue #36)
+
+There is **no non-essential storage on this site**, and the cookie notice says exactly that
+rather than asking permission for tracking that does not exist:
+
+| Stored | Kind | Why |
+|---|---|---|
+| `CF_Authorization` | Cookie, set by Cloudflare Access | The session. Without it nobody is signed in. |
+| `__cf_bm` and similar | Cookie, set by the Cloudflare network | Bot management / abuse prevention. |
+| `rtfx.cookie-notice` | `localStorage`, set by us | Remembers the notice was dismissed. Never sent to the server. |
+
+`src/consent.ts` renders the notice as a **labelled region, not a dialog** — no overlay, no
+focus trap, no scroll lock, last in the tab order — because it must never block core use. It
+is emitted `hidden` and unhidden by its own script, so a returning visitor sees no flash and
+a visitor without JavaScript never gets a banner whose dismiss button could not work.
+
+If a non-essential script is ever introduced, it must not run until
+`window.rtfxConsent.analytics` is true. That flag is `false` today and nothing reads it; the
+notice grows a real choice — with a real "no" — in the same change that introduces the first
+thing worth consenting to, and `/privacy#cookies` is updated before it ships, not after.
+`test/legal.test.ts` fails the build if any public page starts setting a cookie, loading an
+external script/stylesheet/font, or preconnecting to a third party.
+
 ## Deployment
 
 The public paths must sit **outside** the Cloudflare Access application, or a visitor (or
@@ -77,6 +102,7 @@ Access app needs Bypass destinations for all of:
 
 ```
 rtfx.pro/            rtfx.pro/docs         rtfx.pro/login        rtfx.pro/waitlist
+rtfx.pro/privacy     rtfx.pro/terms
 rtfx.pro/robots.txt  rtfx.pro/sitemap.xml  rtfx.pro/llms.txt     rtfx.pro/og.svg
 ```
 
@@ -96,6 +122,10 @@ same artwork to `/og.png` at 1200×630 and point `HeadMeta.image` at it — the 
 - Docs page → `src/docs.ts`; add a question to `FAQS` and both the page and the JSON-LD
   gain it.
 - Product summary shared with AI agents → `llmsTxt()` in `src/seo.ts`.
+- Privacy policy / terms of use → `src/legal.ts`. Both are **operator templates** and say so
+  on the page; they have not been through counsel. The inventory in the privacy policy is
+  written against the D1 schema and the R2 bucket, so a change to what is stored is a change
+  to that page — treat the two as one commit.
 - Add a public page → add it to `PUBLIC_PAGES` (`src/seo.ts`, which feeds the sitemap and
   llms.txt), to `MANAGEMENT_PATHS` (`src/host.ts`), to `RESERVED_SLUGS` (`src/util.ts`),
   and to the Access bypass list above.

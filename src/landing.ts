@@ -1,4 +1,5 @@
 import { layout, siteHeader, siteFooter, PUBLIC_CHROME_STYLE } from "./pages";
+import { cookieNotice, CONSENT_STYLE, CONSENT_SCRIPT } from "./consent";
 import type { Env } from "./env";
 import { SITE, canonicalUrl } from "./seo";
 
@@ -23,7 +24,7 @@ import { SITE, canonicalUrl } from "./seo";
  *    of it above the fold.
  */
 
-const LANDING_STYLE = `${PUBLIC_CHROME_STYLE}
+const LANDING_STYLE = `${PUBLIC_CHROME_STYLE}${CONSENT_STYLE}
 .wrap{max-width:1180px}
 .hero{position:relative;padding:5.4rem 0 3rem;text-align:center;overflow:hidden}
 .hero:before{content:"";position:absolute;inset:1.2rem 8% auto;height:17rem;border-radius:999px;background:linear-gradient(90deg,rgba(10,132,255,.18),rgba(100,210,255,.13),transparent);filter:blur(18px);z-index:-1}
@@ -54,9 +55,11 @@ section.band{margin:4rem 0}
 const SCRIPT = `
 const $ = (s)=>document.querySelector(s);
 const msg = $('#msg');
-function show(text, ok){ msg.textContent=text; msg.style.display='block';
-  msg.style.background = ok ? 'rgba(60,160,90,.15)' : 'rgba(200,70,70,.15)';
-  msg.style.color = ok ? '#3ca05a' : '#c84646'; }
+/* #msg is a polite live region, so this is also what announces the result to a
+   screen reader: set the text, unhide, and let the status class carry the
+   colour. Colour is never the only signal — the sentence says what happened. */
+function show(text, ok){ msg.textContent=text; msg.hidden=false;
+  msg.className = ok ? 'is-ok' : 'is-error'; }
 $('#wl').addEventListener('submit', async (e)=>{
   e.preventDefault();
   const email = $('#email').value.trim();
@@ -126,6 +129,7 @@ export function landingPage(env: Env): string {
   const body = `
     ${siteHeader("home")}
 
+    <main id="main">
     <section class="hero">
       <div class="badge-row"><span class="pill">Built for AI-generated work</span><span class="pill">Secure, access-protected sharing</span><span class="pill">Versioned &amp; audited</span></div>
       <h1>Claude creates. We share.</h1>
@@ -139,7 +143,11 @@ export function landingPage(env: Env): string {
       <p class="cta-note">Access to rtfx.pro is invite-only, so every page has a known audience.
         <b>Request access</b> if you're new; <b><a href="/login" data-cta="sign-in">sign in</a></b>
         if you already have an account.</p>
-      <div class="product-shot" aria-label="Product preview">
+      <!-- Decorative: coloured bars standing in for a screenshot. role="img"
+           collapses the whole thing to one description, so a screen reader gets
+           "a preview of the dashboard" instead of walking a fake UI. -->
+      <div class="product-shot" role="img"
+        aria-label="Preview of the rtfx.pro dashboard: an artifact published at version 4, shared with three people.">
         <div class="shot-bar"><span class="shot-dot"></span><span class="shot-dot"></span><span class="shot-dot"></span></div>
         <div class="shot-body">
           <div class="shot-panel"><span class="pill">Published · v4</span><div class="shot-line wide"></div><div class="shot-line mid"></div><div class="shot-line short"></div></div>
@@ -177,17 +185,25 @@ export function landingPage(env: Env): string {
       <p>Access is managed on purpose — we onboard a few teams at a time, so every account has a
         real person behind it. Tell us where to send your invitation.</p>
       <form id="wl">
-        <input id="email" name="email" type="email" required placeholder="you@example.com" autocomplete="email">
+        <!-- A placeholder is not a label: it disappears the moment you type, and
+             a screen reader may never announce it at all. -->
+        <label class="sr-only" for="email">Email address</label>
+        <input id="email" name="email" type="email" required placeholder="you@example.com"
+          autocomplete="email" autocapitalize="off" spellcheck="false">
         <button type="submit">Request access</button>
       </form>
-      <div id="msg"></div>
+      <div id="msg" role="status" aria-live="polite" hidden></div>
       <p class="note">Already have an account? <a href="/login" data-cta="sign-in">Sign in instead →</a>
         We'll email you a one-time code — there's no password to set. Pricing for teams is coming;
         accounts created now keep founding pricing when it lands.</p>
+      <p class="note">Submitting this stores your email address so we can send an invitation —
+        nothing else. See the <a href="/privacy">privacy policy</a>.</p>
     </section>
+    </main>
 
     ${siteFooter()}
-    <script>${SCRIPT}</script>`;
+    ${cookieNotice()}
+    <script>${SCRIPT}${CONSENT_SCRIPT}</script>`;
   return layout(TITLE, body, LANDING_STYLE, {
     description: SITE.description,
     canonical: canonicalUrl(env, "/"),

@@ -300,6 +300,13 @@ export function portalShell(o: ShellOptions): string {
         ${o.body}
       </main>
     </div>
+    <footer class="pfoot" data-portal-footer>
+      <nav aria-label="Legal">
+        <a href="/privacy" data-legal="privacy">Privacy</a>
+        <a href="/terms" data-legal="terms">Terms</a>
+        <a href="/docs">Docs</a>
+      </nav>
+    </footer>
     <script>${CORE_SCRIPT}${o.script ?? ""}</script>`;
   return layout(`${o.title} · rtfx.pro`, body, BRAND_STYLE + PORTAL_STYLE + (o.style ?? ""));
 }
@@ -400,8 +407,16 @@ $$('[data-copy-text]').forEach(function(b){
 export const PORTAL_STYLE = `
 .wrap{max-width:1240px}
 .faint{color:var(--faint);font-weight:400}
-.skip{position:absolute;left:-9999px;top:0}
-.skip:focus{position:static;display:inline-block;margin-bottom:.7rem}
+/* The .skip rules live in the base stylesheet now — every surface has one. */
+
+/* The one place inside the app that points at the legal pages. Quiet, at the
+   bottom, where somebody goes looking for it (issue #36). */
+.pfoot{margin-top:2.6rem;padding-top:1.2rem;border-top:1px solid var(--border);
+  display:flex;justify-content:center}
+.pfoot nav{display:flex;gap:1.1rem;flex-wrap:wrap;font-size:.83rem}
+.pfoot a{color:var(--muted)}
+.pfoot a:hover{color:var(--fg)}
+@media(pointer:coarse){.pfoot a{min-height:44px;display:inline-flex;align-items:center}}
 
 .ptop{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;
   padding:.75rem 1.15rem;border:1px solid var(--border);border-radius:999px;background:var(--elev);
