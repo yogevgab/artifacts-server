@@ -166,6 +166,35 @@ const PEOPLE_SCRIPT = `
    Every mutation reloads on success. The server re-derives the whole directory
    (D1 + the Access allow-list) after each write, so re-rendering from source is
    both simpler and more honest than patching rows client-side. */
+
+/* Cloudflare Access guards /api/users with a *different* application than the
+   one guarding /admin (docs/DEPLOY_RTFX.md §5d), and an Access session is
+   per-application. So the first write of a browser session is answered — before
+   the Worker sees it — with a 302 to cloudflareaccess.com. That redirect is
+   cross-origin, and a request carrying 'Content-Type: application/json' may not
+   follow a cross-origin redirect without a preflight, which is not allowed after
+   a redirect. Left alone the browser reports the whole thing as a CORS error and
+   "Send invite" appears broken (issue #37).
+
+   redirect:'manual' stops the browser from escalating it: we get an opaque
+   response instead of an exception, and that is our cue to re-authenticate the
+   way Access can actually complete — a full-page navigation. */
+function apiFetch(url, init){
+  init = init || {};
+  init.redirect = 'manual';
+  init.credentials = 'same-origin';
+  return fetch(url, init);
+}
+function needsReauth(res){
+  return res.type === 'opaqueredirect' || res.status === 0 ||
+    (res.status >= 300 && res.status < 400);
+}
+function reauth(status){
+  setStatus(status, 'Renewing your sign-in…');
+  location.href = '/api/users/reauth?next=' +
+    encodeURIComponent(location.pathname + location.search);
+}
+
 var userForm = $('#userform');
 if(userForm){
   userForm.addEventListener('submit', async function(e){
@@ -180,9 +209,10 @@ if(userForm){
     btn.disabled = true;
     setStatus(status, 'Inviting…');
     try {
-      var res = await fetch('/api/users', {
+      var res = await apiFetch('/api/users', {
         method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
       });
+      if(needsReauth(res)){ reauth(status); return; }
       if(!res.ok){ setStatus(status, (await detail(res)) || 'Could not invite that person.', 'error'); return; }
       var data = await res.json();
       /* A warning means the write landed but Access didn't — say so rather than
@@ -222,7 +252,8 @@ $$('button[data-user-action]').forEach(function(b){
     b.disabled = true;
     setStatus(status, action.busy);
     try {
-      var res = await fetch(action.url(email), { method: action.method });
+      var res = await apiFetch(action.url(email), { method: action.method });
+      if(needsReauth(res)){ reauth(status); return; }
       if(!res.ok){
         b.disabled = false;
         setStatus(status, (await detail(res)) || action.fail, 'error');

@@ -189,6 +189,89 @@ address.
 To roll back, restore the `Artifacts (admin)` destinations to `rtfx.pro/admin` and
 `rtfx.pro/api`.
 
+## 5d. Invite-user "CORS error" + branding the sign-in (issue #37)
+
+### The problem
+
+After step 5b.C, `/admin` is guarded by `Artifacts (viewers)` and `/api/users` by
+`Artifacts (admin)` — two Access **applications**, and an Access session is per-application.
+A browser that signed in at `/admin` holds no session for `/api/users`, so the People panel's
+first write is answered by Access, before the Worker ever sees it, with a 302 to
+`…cloudflareaccess.com`. That is a *cross-origin* redirect, and a `fetch` carrying
+`Content-Type: application/json` may not follow one without a preflight — which is not allowed
+after a redirect. Chrome reports "blocked by CORS policy" and "Send invite" appears broken.
+
+Reproduce it from a shell with no browser session:
+
+```bash
+# 302 to …cloudflareaccess.com — the redirect a fetch cannot follow
+curl -si -X POST https://rtfx.pro/api/users -H 'Content-Type: application/json' \
+  -H 'Origin: https://rtfx.pro' -d '{"email":"x@example.com"}' | head -3
+
+# 403 from the Cloudflare edge, with no Access-Control-* headers: a browser
+# preflight never carries credentials, so Access refuses it
+curl -si -X OPTIONS https://rtfx.pro/api/users -H 'Origin: https://rtfx.pro' \
+  -H 'Access-Control-Request-Method: POST' | head -1
+```
+
+### The Worker's half (deployed with the code, no Cloudflare change)
+
+`src/cors.ts` answers preflights before authentication and names one concrete origin (never `*`,
+never a content host); the People panel fetches with `redirect: 'manual'` and recovers through
+`GET /api/users/reauth`, a full-page navigation Access *can* complete. This makes the flow work
+with the two-application setup left exactly as it is — the first invite of a session costs one
+extra redirect.
+
+### Recommended Cloudflare change — MANUAL, mutates Cloudflare
+
+Remove the second application boundary, so there is no second session to establish:
+
+1. Zero Trust → Access → Applications → **`Artifacts (admin)`** → Edit.
+2. Delete the `rtfx.pro/api/users` destination (i.e. retire the app), leaving `/admin` and `/api`
+   under `Artifacts (viewers)`.
+
+This does **not** widen who may manage users. `/api/users` has always been admin-only in the
+Worker (`api.use("/users", requireAdmin, denyApiToken)` in `src/api.ts`) and additionally refuses
+API tokens outright, so an invited non-admin reaching the route still gets 403. What is lost is
+one layer of edge defence-in-depth — an admin-only *edge* filter in front of an admin-only
+*application* check. Keep the app if you want that layer; the code path above works either way.
+
+Drop `<adminAud>` from `vars.ACCESS_AUD` only after the app is retired, never before.
+
+### Branding the one-time-code screen — MANUAL, mutates Cloudflare
+
+`/login` is ours and now carries the rtfx mark, wordmark and copy (`src/login.ts`). The screen
+immediately after it — the email prompt and the one-time code — is **hosted by Cloudflare Access**
+and cannot be styled by the Worker at all. Match it in Zero Trust or the handoff still looks like
+two unrelated products:
+
+1. Zero Trust → **Settings → Custom Pages** → *Login page* → Customize.
+2. Set the **logo** (the rtfx mark), **background** and **header text** ("rtfx.pro").
+3. Zero Trust → Settings → Custom Pages → **Block page**: same logo, and a support link that
+   points at `https://rtfx.pro/login`, which explains invite-only access in plain words.
+
+No deploy or `wrangler.jsonc` change is involved; it is account-level Zero Trust configuration.
+
+### Verify after deploy
+
+```bash
+# preflight is answered by the Worker, names one origin, never a wildcard
+curl -si -X OPTIONS https://rtfx.pro/api/users -H 'Origin: https://rtfx.pro' \
+  -H 'Access-Control-Request-Method: POST' | grep -i '^HTTP\|^access-control\|^vary'
+# expect: 204, Access-Control-Allow-Origin: https://rtfx.pro, Allow-Credentials: true, Vary: Origin
+
+# a foreign origin gets no allow headers at all
+curl -si -X OPTIONS https://rtfx.pro/api/users -H 'Origin: https://evil.example.com' \
+  -H 'Access-Control-Request-Method: POST' | grep -ci 'access-control-allow-origin'   # 0
+
+# the content host still refuses the management API outright
+curl -so /dev/null -w '%{http_code}\n' -X OPTIONS https://a.rtfx.pro/api/users        # 404
+```
+
+Then, in a browser signed in as an admin: open `/admin/people`, invite a throwaway address, and
+confirm the row appears with no console error — then Remove it and confirm it is gone from both
+the directory and the Access allow-list.
+
 ## 6. Redeploy + secret — MANUAL, mutates Cloudflare
 
 ```bash

@@ -193,6 +193,29 @@ Worker on every surface, so pausing somebody takes effect even if the Access wri
 Workspace membership (`account_members`) is a third, independent thing again, and deliberately
 does not touch the allow-list — see the table at the top of this document.
 
+### Two Access applications, one dashboard (issue #37)
+
+`/admin` and `/api/users` are guarded by *different* Cloudflare Access applications
+(DEPLOY_RTFX.md §5d), and an Access session is per-application. A browser that signed in at
+`/admin` therefore holds no session for `/api/users`, so Access answers the People panel's first
+write with a **302 to `…cloudflareaccess.com`** — before the Worker sees the request at all.
+
+That redirect is cross-origin, and a `fetch` carrying `Content-Type: application/json` may not
+follow a cross-origin redirect without a preflight (which is not allowed *after* a redirect). The
+browser reports it as a CORS error, which is why "Send invite" appeared broken. Three pieces
+address it, none of which loosens who may do anything:
+
+- `src/cors.ts` answers preflights *before* authentication — a preflight carries no credentials by
+  definition, so authenticating one refuses a call that would have been authorized.
+- `PEOPLE_SCRIPT` (`src/people.ts`) fetches with `redirect: 'manual'`, so the browser hands back an
+  opaque response instead of raising a CORS error.
+- `GET /api/users/reauth` is a full-page navigation Access *can* complete, which then returns the
+  admin to the page they were on.
+
+Folding `/api/users` into the same Access application as `/admin` removes the handoff entirely and
+is the recommended production configuration — the Worker has always enforced admin-only and
+token-denial on those routes in code. See DEPLOY_RTFX.md §5d.
+
 ## Modules
 
 | File | Responsibility |
@@ -206,6 +229,7 @@ does not touch the allow-list — see the table at the top of this document.
 | `src/api.ts` | `/api` endpoints: publish, delete, access, versions, users, tokens. |
 | `src/db.ts` | All D1 queries (including waitlist). |
 | `src/access-api.ts` | Cloudflare Access allow-list management. |
+| `src/cors.ts` | Browser preflight + allowed-origin policy for `/api` (issue #37). Never wildcards, never trusts a content host. |
 | `src/upload.ts` | Zip processing / single-file wrapping. |
 | `src/pages.ts`, `src/admin.ts` | Server-rendered gallery, 404, and admin HTML. |
 | `src/landing.ts` | Server-rendered public landing page + waitlist form. |

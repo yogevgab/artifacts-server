@@ -104,12 +104,56 @@ a.link-button:hover{opacity:.96;transform:translateY(-1px);text-decoration:none;
 }
 `;
 
+// --- the mark ---------------------------------------------------------------
+//
+// One shape, drawn twice: once URL-encoded for the favicon, once as inline SVG
+// for any page that shows the logo. Keeping the geometry in `MARK_PATH` and the
+// colour in `MARK_BLUE` is what stops the tab and the page from drifting apart.
+
+const MARK_PATH = "M9 22 16 9l7 13";
+const MARK_BLUE = "#3b5bdb";
+
 // Inline mark, so no page ever requests /favicon.ico — that path would fall
 // through to the artifact catch-all (or the content-host redirect) and log noise.
 const FAVICON =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E" +
-  "%3Crect width='32' height='32' rx='8' fill='%233b5bdb'/%3E" +
-  "%3Cpath d='M9 22 16 9l7 13' fill='none' stroke='white' stroke-width='2.5' stroke-linejoin='round'/%3E%3C/svg%3E";
+  `%3Crect width='32' height='32' rx='8' fill='%23${MARK_BLUE.slice(1)}'/%3E` +
+  `%3Cpath d='${MARK_PATH}' fill='none' stroke='white' stroke-width='2.5' stroke-linejoin='round'/%3E%3C/svg%3E`;
+
+/**
+ * The rtfx mark as inline SVG. Inline rather than an `<img>` because the one
+ * page that most needs it — `/login` — is the page a person meets before they
+ * are authenticated, on a connection that is about to hand them to a different
+ * origin: it must render complete on first paint, with no second request.
+ *
+ * `aria-hidden` on purpose. It is always rendered beside the wordmark, and a
+ * screen reader announcing "rtfx.pro logo, rtfx.pro" is noise, not information.
+ */
+export function brandMark(size = 28): string {
+  return `<svg class="mark" width="${size}" height="${size}" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+    <rect width="32" height="32" rx="8" fill="${MARK_BLUE}"></rect>
+    <path d="${MARK_PATH}" fill="none" stroke="white" stroke-width="2.5" stroke-linejoin="round"></path>
+  </svg>`;
+}
+
+/**
+ * Mark + wordmark, split exactly the way the dashboard header splits it
+ * (`rtfx` in full weight, `.pro` quiet). Signing in and being signed in should
+ * not look like two products.
+ */
+export function brandLockup(href = "/"): string {
+  return `<a class="brand brand-lockup" data-brand-lockup href="${esc(href)}">${brandMark()}<span
+    class="wordmark">rtfx<span>.pro</span></span></a>`;
+}
+
+/** Shared presentation for the lockup above, for pages that opt into it. */
+export const BRAND_STYLE = `
+.brand-lockup{display:inline-flex;align-items:center;gap:.55rem;color:var(--fg);font-weight:750;
+  letter-spacing:-.03em;font-size:1.02rem;text-decoration:none}
+.brand-lockup:hover{color:var(--accent);text-decoration:none}
+.brand-lockup .mark{display:block;border-radius:8px;flex:none}
+.brand-lockup .wordmark span{color:var(--muted);font-weight:600}
+`;
 
 /**
  * Head metadata for a page. Omitting it is the safe default: a page with no
