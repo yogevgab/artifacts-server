@@ -4,7 +4,12 @@
 //
 // Standalone by design: no npm install, no dependencies, Node 18+. The plugin is
 // copied to machines that have never checked out artifacts-server, so everything
-// it needs lives in this directory (see rtfx.lib.mjs for the pure parts).
+// it needs lives in this directory (see rtfx.lib.mjs for the pure parts, and
+// rtfx.bundle.mjs for what may and may not be uploaded).
+//
+// The same operations are available to an MCP client through rtfx-mcp.mjs, which
+// wraps the same two libraries — there is one auth path and one bundle safety
+// model, not two.
 //
 // Configuration — two variables, both plain text, neither a Cloudflare account
 // credential:
@@ -23,27 +28,20 @@
 
 import { readFileSync, statSync, lstatSync, readdirSync } from "node:fs";
 import { File } from "node:buffer";
-import { join, relative, basename, extname, sep } from "node:path";
+import { join, basename } from "node:path";
 import { deflateRawSync } from "node:zlib";
 import {
   DEFAULT_ENDPOINT,
-  MAX_UPLOAD_BYTES,
   TOKEN_VAR,
-  INCLUDE,
-  SKIP_SECRET,
-  SKIP_DIR,
-  SKIP_FILE,
-  classifyEntry,
-  isSensitivePath,
   resolveConfig,
   authHeaders,
   apiUrl,
   parseArgs,
-  createZip,
   describeApiError,
   publishSummary,
   redactToken,
 } from "./rtfx.lib.mjs";
+import { BundleError, describeSkips, prepareBundle } from "./rtfx.bundle.mjs";
 
 const USAGE = `rtfx — publish to rtfx.pro
 
@@ -113,103 +111,29 @@ async function call(cfg, path, init = {}) {
 }
 
 // --- Collecting what to publish ---------------------------------------------
+//
+// The walk, the credential filter and the zip inspection live in
+// `rtfx.bundle.mjs`, which takes its filesystem as an argument. This is the real
+// filesystem; the MCP server passes the same one, and the test suite passes a
+// virtual one — so all three exercise identical safety rules.
 
-/**
- * Walk a directory into `{ "relative/path": bytes }`, reporting what was left
- * out. Skips are surfaced rather than silent: a bundle missing its `.env` is
- * correct, a bundle missing a stylesheet because of an over-eager filter is not,
- * and the only way to tell them apart is to print both.
- */
-function collect(dir, root = dir, out = { files: {}, skipped: [] }) {
-  for (const name of readdirSync(dir)) {
-    const full = join(dir, name);
-    const st = lstatSync(full);
-    const rel = relative(root, full).split(sep).join("/");
-    if (st.isSymbolicLink()) {
-      out.skipped.push({ path: rel, reason: "skip-symlink" });
-      continue;
-    }
-    const verdict = classifyEntry(name, st.isDirectory());
-    if (verdict !== INCLUDE) {
-      out.skipped.push({ path: rel, reason: verdict });
-      continue;
-    }
-    if (st.isDirectory()) collect(full, root, out);
-    else out.files[relative(root, full).split(sep).join("/")] = new Uint8Array(readFileSync(full));
-  }
-  return out;
-}
-
-const SKIP_LABEL = {
-  [SKIP_DIR]: "build/vcs directory",
-  [SKIP_FILE]: "editor or OS file",
-  [SKIP_SECRET]: "looks like a credential",
-  "skip-symlink": "symbolic link outside the bundle boundary",
+const IO = {
+  stat: (path) => statSync(path),
+  lstat: (path) => lstatSync(path),
+  readDir: (path) => readdirSync(path),
+  readFile: (path) => new Uint8Array(readFileSync(path)),
+  join,
+  deflate: (bytes) => new Uint8Array(deflateRawSync(bytes)),
 };
-
-function zipEntryNames(bytes) {
-  const names = [];
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const dec = new TextDecoder();
-  for (let i = 0; i <= bytes.length - 46; i++) {
-    if (view.getUint32(i, true) !== 0x02014b50) continue;
-    const nameLen = view.getUint16(i + 28, true);
-    const extraLen = view.getUint16(i + 30, true);
-    const commentLen = view.getUint16(i + 32, true);
-    const nameStart = i + 46;
-    const nameEnd = nameStart + nameLen;
-    if (nameEnd > bytes.length) fail("zip central directory is malformed");
-    names.push(dec.decode(bytes.subarray(nameStart, nameEnd)));
-    i = nameEnd + extraLen + commentLen - 1;
-  }
-  if (!names.length) fail("zip archive has no readable central directory");
-  return names.filter((name) => !name.endsWith("/"));
-}
 
 /** Turn a path into the bytes and form field the API expects. */
 function bundleFor(path) {
-  let st;
   try {
-    st = statSync(path);
-  } catch {
-    fail(`no such file or directory: ${path}`);
+    return prepareBundle(path, IO);
+  } catch (e) {
+    if (e instanceof BundleError) fail(e.message, e.hint ? { hint: e.hint } : {});
+    fail(`could not read ${path}: ${e.message}`);
   }
-
-  if (st.isDirectory()) {
-    const { files, skipped } = collect(path);
-    if (!Object.keys(files).length) fail(`${path} contains no publishable files`);
-    if (!files["index.html"]) {
-      fail(`${path} has no index.html at its root`, {
-        hint: "A multi-file artifact is served from index.html. Point at the built output directory, not the project root.",
-      });
-    }
-    const zip = createZip(files, { deflate: (bytes) => new Uint8Array(deflateRawSync(bytes)) });
-    return { field: "bundle", filename: "bundle.zip", type: "application/zip", bytes: zip, entries: Object.keys(files).sort(), skipped };
-  }
-
-  const bytes = new Uint8Array(readFileSync(path));
-  const ext = extname(path).toLowerCase();
-  if (ext === ".zip") {
-    const entries = zipEntryNames(bytes);
-    const sensitive = entries.filter(isSensitivePath);
-    if (sensitive.length) {
-      fail(`zip contains a hidden, generated or credential-looking path: ${sensitive[0]}`, {
-        hint: "Unzip it, remove secrets/build directories, and publish the cleaned folder so rtfx can report every skipped file.",
-      });
-    }
-    if (!entries.includes("index.html") && !entries.some((name) => /(^|\/)index\.html$/i.test(name))) {
-      fail(`${path} has no index.html`, {
-        hint: "A multi-file artifact is served from index.html. Publish a zip or directory with index.html at its root, or under one common top-level folder.",
-      });
-    }
-    return { field: "bundle", filename: basename(path), type: "application/zip", bytes, entries: entries.sort(), skipped: [] };
-  }
-  if (ext === ".html" || ext === ".htm") {
-    return { field: "file", filename: basename(path), type: "text/html", bytes, entries: [basename(path)], skipped: [] };
-  }
-  fail(`unsupported file type "${ext || basename(path)}"`, {
-    hint: "Publish a .html file, a .zip, or a directory containing index.html.",
-  });
 }
 
 // --- Commands ----------------------------------------------------------------
@@ -217,12 +141,6 @@ function bundleFor(path) {
 async function publish(path, flags) {
   if (!path) fail("publish needs a <path>");
   const prepared = bundleFor(path);
-
-  if (prepared.bytes.length > MAX_UPLOAD_BYTES) {
-    fail(`upload is ${(prepared.bytes.length / 1024 / 1024).toFixed(1)} MiB, over the ${MAX_UPLOAD_BYTES / 1024 / 1024} MiB cap`, {
-      hint: "Remove large assets, or host them elsewhere and reference them.",
-    });
-  }
 
   if (flags["dry-run"]) {
     succeed(
@@ -238,7 +156,7 @@ async function publish(path, flags) {
       [
         `would publish ${path} (${prepared.bytes.length} bytes as ${prepared.field})`,
         ...(prepared.entries ?? []).map((f) => `  + ${f}`),
-        ...prepared.skipped.map((s) => `  - ${s.path}  (${SKIP_LABEL[s.reason] ?? s.reason})`),
+        ...describeSkips(prepared.skipped).map((line) => `  - ${line}`),
       ]
     );
     return;
@@ -258,7 +176,7 @@ async function publish(path, flags) {
 
   const data = await call(cfg, "/api/artifacts", { method: "POST", body: form });
   succeed({ command: "publish", ...data, skipped: prepared.skipped }, [
-    ...prepared.skipped.map((s) => `skipped ${s.path}  (${SKIP_LABEL[s.reason] ?? s.reason})`),
+    ...describeSkips(prepared.skipped).map((line) => `skipped ${line}`),
     publishSummary(data),
   ]);
 }

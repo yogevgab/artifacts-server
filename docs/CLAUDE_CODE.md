@@ -27,13 +27,22 @@ plugins/rtfx/
   skills/publishing-to-rtfx/SKILL.md     loads on its own when someone says "publish this"
   skills/publishing-to-rtfx/references/api.md
   scripts/rtfx.lib.mjs                   pure helpers (config, zip, error mapping)
+  scripts/rtfx.bundle.mjs                what may be uploaded — pure, shared with the MCP server
   scripts/rtfx.mjs                       the publisher — Node 18+, zero dependencies
+  scripts/rtfx-mcp.mjs                   the MCP server (see MCP.md)
+  scripts/rtfx.mcp.lib.mjs               MCP tool schemas and JSON-RPC — pure
+  .mcp.json                              MCP server declaration (mirrored in plugin.json)
   README.md
 ```
 
 The **skill** is the part that matters. Slash commands are for people who already know the plugin
 exists; the skill is what makes an ordinary "ship this so I can send it to Dana" resolve to a
 published, access-controlled artifact without anyone naming a tool.
+
+Installing the plugin also registers a native **MCP server** with the same operations, for clients
+that have no shell to run a command in. It is documented on its own in [`MCP.md`](MCP.md); the two
+share every library below the entry point, so this document's configuration surface, safety model
+and API contract apply verbatim to both.
 
 ## 2. Install
 
@@ -78,6 +87,7 @@ Exactly two variables, and neither is a Cloudflare account credential:
 | `RTFX_API_TOKEN` | yes | Scoped API token. Bound to its owner, revocable on its own. |
 | `ARTIFACTS_URL` | no | Instance URL, default `https://rtfx.pro`. `RTFX_URL` is an accepted alias. |
 | `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` | no | Cloudflare Access **service token**, for an instance that still gates `/api` at the edge (the production posture in [`HERMES_CLOUD.md`](HERMES_CLOUD.md) §2). Pass-through only — it gets a request past Access and grants nothing inside the app. |
+| `RTFX_MCP_ALLOW_ACCESS` / `RTFX_MCP_DEBUG` | no | MCP server only. See [`MCP.md`](MCP.md) §3. |
 
 `CF_API_TOKEN` — the Cloudflare management token used for user administration — is deliberately
 **not** part of this surface, and the plugin ignores it if present.
@@ -100,15 +110,22 @@ default (`http://localhost:8787`) is unchanged.
 | Inspect before uploading | `publish … --dry-run` | Lists every file included and skipped, sends nothing. |
 | Check configuration | `doctor` | Endpoint, token id, Access headers, live API reachability. |
 
-Sharing (`grant`, `visibility`) and user/token management are deliberately **absent**. They need a
-`manage` scope or a browser login, and a publishing integration that can also change who sees
-things is a bigger blast radius than the feature is worth. The skill says so explicitly rather
-than failing halfway through.
+Sharing (`grant`, `visibility`) and user/token management are deliberately **absent** from the
+plugin. They need a `manage` scope or a browser login, and a publishing integration that can also
+change who sees things is a bigger blast radius than the feature is worth. The skill says so
+explicitly rather than failing halfway through. The MCP server ships `update_access` behind an
+opt-in env var for the operators who do want it — same reasoning, made switchable rather than
+absent ([`MCP.md`](MCP.md) §5).
+
+Every row above is reachable through the MCP server too, under the tool names in
+[`MCP.md`](MCP.md) §4.
 
 ## 5. Why it does not reuse `cli/artifacts.mjs`
 
 The repo CLI depends on `fflate` and on being inside a checkout with `node_modules`. A plugin
-installs onto machines that have never seen this repository, so it must stand alone.
+installs onto machines that have never seen this repository, so it must stand alone. The MCP server
+is standalone for the same reason, which is why it implements the stdio transport rather than
+depending on an MCP SDK.
 
 `scripts/rtfx.mjs` therefore writes its own ZIP container (local file headers, central directory,
 EOCD, CRC-32), with DEFLATE injected from `node:zlib` and a fallback to *stored* whenever
@@ -145,7 +162,8 @@ all three fields as optional, so it still works against an instance running olde
 | Plugin-built zips through the real upload + serve path | `test/claude-plugin.test.ts` | `npm test` |
 | The new `url` / `content_base` fields, incl. via an API token | `test/claude-plugin.test.ts` | `npm test` |
 | Docs and Integrations markers | `test/claude-plugin.test.ts` | `npm test` |
-| Structure of the actual plugin files | `scripts/validate-plugin.mjs` | `npm run validate:plugin`, `npm run check`, CI |
+| Structure of the actual plugin files, incl. `.mcp.json` | `scripts/validate-plugin.mjs` | `npm run validate:plugin`, `npm run check`, CI |
+| The MCP server: schemas, JSON-RPC, redaction, tools against the real API | `test/mcp.test.ts` | `npm test` |
 
 The split exists because the Workers test pool has no filesystem. The *rules* the validator
 applies are pure functions in `scripts/validate-plugin.lib.mjs` and are unit-tested alongside
@@ -155,8 +173,9 @@ everything else; the validator walks the real tree and applies them.
 disagrees with its directory, a marketplace entry pointing at a plugin that isn't there, a command
 with no description or body, a skill whose `description` doesn't say *when* to use it, a skill
 directory whose name disagrees with its frontmatter, a `${CLAUDE_PLUGIN_ROOT}` reference to a file
-that doesn't exist, a bare `scripts/rtfx.mjs` path that would resolve against the user's cwd, and
-anything that looks like a committed credential.
+that doesn't exist, a bare `scripts/*.mjs` path that would resolve against the user's cwd, an
+MCP server declaration that points at a script which isn't there, hard-codes a credential, or
+disagrees between `plugin.json` and `.mcp.json`, and anything that looks like a committed credential.
 
 ## 8. Secrets
 
@@ -174,6 +193,7 @@ are tuned to match a plausible secret and not the `rtfx_…` placeholder the doc
 
 ## 9. Related
 
+- [`MCP.md`](MCP.md) — the MCP server: tools, client configuration, plugin-vs-MCP
 - [`plugins/rtfx/README.md`](../plugins/rtfx/README.md) — user-facing install and usage
 - [`plugins/rtfx/skills/publishing-to-rtfx/references/api.md`](../plugins/rtfx/skills/publishing-to-rtfx/references/api.md) — HTTP contract as the agent sees it
 - [`HERMES_CLOUD.md`](HERMES_CLOUD.md) — full token lifecycle, scopes and error semantics

@@ -17,6 +17,12 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs" <command> [...]
 
 It has no dependencies and needs no install. Node 18+ is the only requirement.
 
+**If rtfx MCP tools are connected** — `publish`, `list_artifacts`, `get_versions`, `rollback`,
+`doctor` — prefer them over the shell command. They are the same code behind the same token, and a
+tool call needs no Bash permission. Everything below still applies: the slug rules, re-publishing
+instead of renaming, always passing a note, reporting the URL verbatim. The argument names match the
+flags (`path`, `slug`, `title`, `note`, `dry_run`).
+
 ## Before the first publish in a session
 
 Run the check once. It never prints the token itself — only its id.

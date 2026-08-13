@@ -46,6 +46,50 @@ node scripts/rtfx.mjs rollback q3-report 1
 node scripts/rtfx.mjs list --json
 ```
 
+## MCP server
+
+The same operations are available as **MCP tools**, for a client that has no shell to run a command
+in — Claude Desktop, or anything else that speaks MCP. Installing the plugin registers it, and it
+inherits `RTFX_API_TOKEN` from the environment Claude Code was started in.
+
+| Tool | Does |
+|---|---|
+| `publish` | Publish a file, folder or zip; returns the URL. `dry_run: true` reports what would go up and sends nothing. |
+| `list_artifacts` | What this token can reach. |
+| `get_versions` | Version history, newest first, marking the live one. |
+| `rollback` | Make an earlier version live again. |
+| `doctor` | Endpoint, token **id**, Access headers, reachability. |
+| `update_access` | Who may open an artifact. **Off** unless started with `RTFX_MCP_ALLOW_ACCESS=1`, and needs a `manage` token. |
+
+**Claude Code**, if you would rather register it by hand — pass the absolute path to this
+directory's copy of the script (`/plugin` shows where the plugin was installed):
+
+```bash
+claude mcp add rtfx -- node /absolute/path/to/plugins/rtfx/scripts/rtfx-mcp.mjs
+```
+
+**Claude Desktop** — `claude_desktop_config.json`. It does not inherit your shell, so the token
+belongs in `env` here; give that one an expiry, since it sits in a plaintext file:
+
+```json
+{
+  "mcpServers": {
+    "rtfx": {
+      "command": "node",
+      "args": ["/absolute/path/to/plugins/rtfx/scripts/rtfx-mcp.mjs"],
+      "env": { "RTFX_API_TOKEN": "rtfx_…" }
+    }
+  }
+}
+```
+
+`node scripts/rtfx-mcp.mjs --help` prints the configuration a client needs and how the current
+environment resolves. Full detail: [docs/MCP.md](../../docs/MCP.md).
+
+**Which one?** No shell (Claude Desktop, another client) → MCP. Claude Code → either; the skill
+carries more judgement about *how* to publish than tool descriptions can. CI or a script → the CLI,
+for `--json` and the exit code.
+
 ## Configuration
 
 | Variable | Required | Meaning |
@@ -53,6 +97,8 @@ node scripts/rtfx.mjs list --json
 | `RTFX_API_TOKEN` | yes | Scoped API token. Bound to its owner, revocable on its own. |
 | `ARTIFACTS_URL` | no | Instance URL, default `https://rtfx.pro`. `RTFX_URL` is accepted too. |
 | `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` | no | Cloudflare Access **service token**, only for an instance that still gates `/api` at the edge. Not a Cloudflare account credential; grants nothing inside the app. |
+| `RTFX_MCP_ALLOW_ACCESS` | no | MCP only. `1` also exposes `update_access`. |
+| `RTFX_MCP_DEBUG` | no | MCP only. Logs method names to stderr; never arguments. |
 
 No Cloudflare management token is involved anywhere, and the plugin never writes a credential to
 disk. `doctor` prints a token's **id** only.
@@ -61,7 +107,11 @@ disk. `doctor` prints a token's **id** only.
 
 - **Zero dependencies, no install step.** `scripts/rtfx.mjs` is plain Node 18+. It writes its own
   zip container (`scripts/rtfx.lib.mjs`) rather than pulling a compression library, because the
-  plugin lands on machines that have never seen this repo.
+  plugin lands on machines that have never seen this repo. The MCP server
+  (`scripts/rtfx-mcp.mjs`) is the same: no SDK, one file, the stdio transport written out.
+- **One safety model, two front doors.** The CLI and the MCP server are wrappers over the same
+  `rtfx.lib.mjs` and `rtfx.bundle.mjs`, so credentials resolve and bundles get filtered identically
+  either way — they cannot drift.
 - **Deterministic bundles.** Zip entries are sorted and carry a fixed timestamp, so publishing
   unchanged files produces identical bytes.
 - **Refuses to upload credentials.** The directory walk drops `.env`, `.dev.vars`, `*.pem`,
@@ -80,4 +130,5 @@ someone else's slug is refused (`409`), never merged into their artifact. Rollba
 slug without deleting anything.
 
 Full HTTP contract: `skills/publishing-to-rtfx/references/api.md`.
+MCP surface: [docs/MCP.md](../../docs/MCP.md).
 Operator-side reference: [docs/HERMES_CLOUD.md](../../docs/HERMES_CLOUD.md).

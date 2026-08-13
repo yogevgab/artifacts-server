@@ -124,6 +124,8 @@ describe("/docs#why-rtfx: table stakes vs differentiators", () => {
       "view log",
       "workspace",
       "404",
+      // Issue #39: MCP is shipped, so it belongs here and not in "not here yet".
+      "mcp",
     ]) {
       expect(html, `#why-rtfx missing: ${claim}`).toContain(claim);
     }
@@ -135,11 +137,15 @@ describe("/docs#why-rtfx: table stakes vs differentiators", () => {
     const open = html.indexOf('<ul class="stance" data-positioning="not-yet">');
     expect(open, "not-yet list is not in the markup").toBeGreaterThan(-1);
     const section = html.slice(open, html.indexOf("</ul>", open));
-    for (const gap of ["Per-link secrets", "Link expiry", "Custom domains", "MCP"]) {
+    for (const gap of ["Per-link secrets", "Link expiry", "Custom domains"]) {
       expect(section, `not-yet list missing: ${gap}`).toContain(gap);
     }
     // The "Planned" badge is CSS-generated on this list; the rule must ship.
     expect(html).toContain('.stance[data-positioning="not-yet"] li b:after{content:"Planned"');
+    // Nothing may be claimed and disclaimed at once. MCP shipped in issue #39,
+    // so it must have left this list — that is the failure mode of a feature
+    // landing and the copy only being half-updated.
+    expect(section.toLowerCase(), "MCP is shipped; it cannot still be listed as planned").not.toContain("mcp");
   });
 
   it("keeps the new prose inside the existing docs shell, not a new page", async () => {
@@ -211,6 +217,8 @@ describe("llms.txt gives an answer engine the comparison and the gaps", () => {
       "immutable versions",
       "workspaces with roles",
       "separate content origin",
+      // Issue #39.
+      "native mcp server",
     ]) {
       expect(lower, `llms.txt missing: ${claim}`).toContain(claim);
     }
@@ -218,10 +226,14 @@ describe("llms.txt gives an answer engine the comparison and the gaps", () => {
 
   it("names each unbuilt feature so it cannot be attributed to us", () => {
     const lower = txt().toLowerCase();
-    for (const gap of ["per-link password", "link expiry", "custom domains", "mcp server"]) {
+    for (const gap of ["per-link password", "link expiry", "custom domains"]) {
       expect(lower, `llms.txt missing gap: ${gap}`).toContain(gap);
     }
     expect(lower).toContain("there is no password on a share link");
+    // …and nothing shipped may appear in that section. An answer engine reading
+    // "MCP" under "Not shipped yet" would repeat it long after it stopped being true.
+    const notShipped = txt().slice(txt().indexOf("## Not shipped yet"));
+    expect(notShipped.slice(0, notShipped.indexOf("\n## ", 3)).toLowerCase()).not.toContain("mcp");
   });
 
   it("points at the crawlable version of the same split", () => {

@@ -20,6 +20,8 @@ import {
   checkSkill,
   checkSkillNameMatchesDir,
   checkPluginRootRefs,
+  checkMcpConfig,
+  checkMcpAgreement,
   findSecrets,
   mergeResults,
 } from "./validate-plugin.lib.mjs";
@@ -126,6 +128,18 @@ for (const name of pluginDirs) {
       const ref = `skills/${skill}/${m[1]}/${m[2]}`;
       if (!exists(ref)) errors.push(`${rel(path)}: references ${m[1]}/${m[2]}, which does not exist`);
     }
+  }
+
+  // MCP servers the plugin registers on install (issue #39). Optional — but a
+  // broken one fails on the user's machine at connect time, not here, so it is
+  // checked as strictly as a command. Declared in both places by convention, so
+  // both are checked and then compared.
+  const mcpPath = join(pluginRoot, ".mcp.json");
+  const mcpFile = existsSync(mcpPath) ? readJson(mcpPath) : null;
+  if (mcpFile) collect(checkMcpConfig(`plugins/${name}/.mcp.json`, mcpFile, exists));
+  if (manifest?.mcpServers) {
+    collect(checkMcpConfig(`plugins/${name}/.claude-plugin/plugin.json`, { mcpServers: manifest.mcpServers }, exists));
+    collect(checkMcpAgreement(manifest.mcpServers, mcpFile?.mcpServers));
   }
 
   if (!existsSync(join(pluginRoot, "README.md"))) errors.push(`plugins/${name}: no README.md`);

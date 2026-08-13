@@ -196,11 +196,115 @@ export function checkPluginRootRefs(path, text, exists) {
     if (!exists(ref)) errors.push(`${path}: references \${CLAUDE_PLUGIN_ROOT}/${ref}, which does not exist`);
   }
   // A bare `scripts/rtfx.mjs` in a command body resolves against the user's cwd,
-  // not the plugin — it works on the author's machine and nowhere else.
-  if (/(?<!\$\{CLAUDE_PLUGIN_ROOT\}\/)(?<![\w./-])scripts\/rtfx\.mjs/.test(text) && !path.endsWith("README.md")) {
-    errors.push(`${path}: refers to scripts/rtfx.mjs without \${CLAUDE_PLUGIN_ROOT}/ — that path only resolves in the plugin's own directory`);
+  // not the plugin — it works on the author's machine and nowhere else. Applies
+  // to every script the plugin ships, not just the publisher.
+  const bare = /(?<!\$\{CLAUDE_PLUGIN_ROOT\}\/)(?<![\w./-])scripts\/[A-Za-z0-9._-]+\.mjs/.exec(text);
+  if (bare && !path.endsWith("README.md")) {
+    errors.push(`${path}: refers to ${bare[0]} without \${CLAUDE_PLUGIN_ROOT}/ — that path only resolves in the plugin's own directory`);
   }
   return { errors, ok: referenced.size ? [`${path}: ${referenced.size} plugin-root reference(s) resolve`] : [] };
+}
+
+/**
+ * A plugin's `.mcp.json` — the MCP servers installing it registers (issue #39).
+ *
+ * Two things this catches that nothing else can. First, an `args` entry pointing
+ * at a script that has been renamed: the server then fails to start on the user's
+ * machine with a bare ENOENT, long after install. Second, and the reason the rule
+ * is strict about it: a credential typed into the `env` block. That block is
+ * committed to the repository, so a token there is a published token — the server
+ * inherits the shell environment instead, which is why the shipped config has no
+ * `env` at all.
+ */
+export function checkMcpConfig(path, config, exists) {
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    return { errors: [`${path}: must be a JSON object`], ok: [] };
+  }
+  const errors = [];
+  const ok = [];
+  const servers = config.mcpServers;
+  if (!servers || typeof servers !== "object" || Array.isArray(servers)) {
+    return { errors: [`${path}: needs an \`mcpServers\` object`], ok: [] };
+  }
+  const names = Object.keys(servers);
+  if (!names.length) errors.push(`${path}: \`mcpServers\` is empty`);
+
+  for (const name of names) {
+    const before = errors.length;
+    const server = servers[name];
+    if (!KEBAB_CASE.test(name)) errors.push(`${path}: server name "${name}" must be kebab-case`);
+    if (!server || typeof server !== "object" || Array.isArray(server)) {
+      errors.push(`${path}: server "${name}" must be an object`);
+      continue;
+    }
+    if (typeof server.command !== "string" || !server.command.trim()) {
+      errors.push(`${path}: server "${name}" needs a \`command\``);
+    }
+    const args = server.args ?? [];
+    if (!Array.isArray(args) || args.some((a) => typeof a !== "string")) {
+      errors.push(`${path}: server "${name}" \`args\` must be an array of strings`);
+    } else {
+      for (const arg of args) {
+        const m = /^\$\{CLAUDE_PLUGIN_ROOT\}\/(.+)$/.exec(arg);
+        if (m && !exists(m[1])) {
+          errors.push(`${path}: server "${name}" runs \${CLAUDE_PLUGIN_ROOT}/${m[1]}, which does not exist`);
+        } else if (/\.mjs$/.test(arg) && !m) {
+          errors.push(`${path}: server "${name}" runs "${arg}" — a script path must start with \${CLAUDE_PLUGIN_ROOT}/ or it resolves against the user's cwd`);
+        }
+      }
+    }
+    const env = server.env ?? {};
+    if (typeof env !== "object" || Array.isArray(env)) {
+      errors.push(`${path}: server "${name}" \`env\` must be an object`);
+    } else {
+      for (const [key, value] of Object.entries(env)) {
+        if (typeof value !== "string") {
+          errors.push(`${path}: server "${name}" env ${key} must be a string`);
+          continue;
+        }
+        // A committed config is a published config. Only an indirection
+        // (`${SOMETHING}`) or an obvious placeholder belongs here.
+        const placeholder = /^\s*$/.test(value) || /^\$\{[^}]+\}$/.test(value) || /[…<]/.test(value);
+        if (/TOKEN|SECRET|KEY|PASSWORD/i.test(key) && !placeholder) {
+          errors.push(`${path}: server "${name}" hard-codes ${key} — leave it out and let the server inherit it from the environment`);
+        }
+      }
+    }
+    if (errors.length === before) ok.push(`${path}: server "${name}" → ${server.command}`);
+  }
+  return { errors, ok };
+}
+
+/** Key-order-independent serialization, so "same config" means same config. */
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+/**
+ * A plugin may declare its MCP servers in two places — `mcpServers` inside
+ * `plugin.json` and a `.mcp.json` at plugin root — and shipping both is the
+ * convention. Two declarations that disagree is precisely the drift worth
+ * failing on: whichever one the loader reads, the other is a lie, and which one
+ * that is depends on a Claude Code version nobody in this repo controls.
+ */
+export function checkMcpAgreement(manifestServers, fileServers) {
+  if (!manifestServers || !fileServers) return { errors: [], ok: [] };
+  if (canonicalJson(manifestServers) === canonicalJson(fileServers)) {
+    return { errors: [], ok: ["plugin.json and .mcp.json declare the same MCP servers"] };
+  }
+  return {
+    errors: [
+      "plugin.json `mcpServers` and .mcp.json disagree — keep them identical, or ship only one of the two",
+    ],
+    ok: [],
+  };
 }
 
 /** Merge several check results into one. */

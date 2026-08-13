@@ -66,7 +66,7 @@ pre.code code{background:none;border:0;padding:0;font-size:inherit;color:inherit
 
 const TITLE = "Docs — publishing, access control and the API · rtfx.pro";
 const DESCRIPTION =
-  "How rtfx.pro works: publish HTML pages and multi-file artifacts from Claude Code, " +
+  "How rtfx.pro works: publish HTML pages and multi-file artifacts from Claude Code, MCP, " +
   "Hermes, the CLI or the API; control who can open each one; keep every version; and " +
   "see exactly who viewed what — plus what is table stakes in this category and what " +
   "actually makes rtfx.pro different.";
@@ -88,11 +88,13 @@ const FAQS: readonly Faq[] = [
       "are public.",
   },
   {
-    q: "How do I publish from Claude Code or a Hermes run?",
+    q: "How do I publish from Claude Code, an MCP client or a Hermes run?",
     a:
       "Give the agent a scoped API token and let it call the same CLI or HTTP API you use. " +
       "`artifacts publish ./out --slug my-page` handles a single file, a folder or a zip, so " +
-      "'publish this' becomes the last step of an ordinary agent session. A token is bound to " +
+      "'publish this' becomes the last step of an ordinary agent session. The Claude Code plugin " +
+      "ships a native MCP server too, so a client with no shell — Claude Desktop, for instance — " +
+      "publishes as a tool call over the same path. A token is bound to " +
       "its owner and can be revoked at any time, so the agent never gains your account.",
   },
   {
@@ -201,7 +203,7 @@ export function docsPage(env: Env): string {
       <a href="#overview">Overview</a>
       <a href="#use-cases">Use cases</a>
       <a href="#publishing">Publishing</a>
-      <a href="#agents">Claude Code &amp; Hermes</a>
+      <a href="#agents">Claude Code, MCP &amp; Hermes</a>
       <a href="#access">Access &amp; privacy</a>
       <a href="#versions">Versions &amp; views</a>
       <a href="#why-rtfx">Why rtfx.pro</a>
@@ -270,7 +272,7 @@ $ artifacts list</code></pre>
       </section>
 
       <section id="agents">
-        <h2>Claude Code &amp; Hermes</h2>
+        <h2>Claude Code, MCP &amp; Hermes</h2>
         <p>Agents publish through exactly the same CLI and API a human uses — there is no separate,
           weaker agent path. Mint an API token in the dashboard, scope it to <code>publish</code>,
           and hand it to the session:</p>
@@ -287,6 +289,17 @@ $ artifacts grant prototype teammate@example.com</code></pre>
 /rtfx:setup       # check the token reaches your instance
 /rtfx:publish     # publish what the session just built
 /rtfx:versions    # history · /rtfx:rollback to go back</code></pre>
+        <h3>The MCP server</h3>
+        <p>The same plugin ships a native MCP server, for a client with no shell to run a command
+          in — Claude Desktop, or anything else that speaks MCP. Installing the plugin registers it;
+          it publishes, lists versions and rolls back as tool calls, holding the same scoped token
+          and applying the same credential filters as the CLI.</p>
+        <pre class="code" data-docs="mcp-server"><code>{ "mcpServers": { "rtfx": {
+    "command": "node",
+    "args": ["/path/to/plugins/rtfx/scripts/rtfx-mcp.mjs"],
+    "env": { "RTFX_API_TOKEN": "rtfx_…" } } } }
+
+tools: publish · list_artifacts · get_versions · rollback · doctor</code></pre>
         <div class="callout">
           <p><b>Why a token, not your login.</b> An API token is bound to its owner, carries only the
             scopes you give it (<code>read</code>, <code>publish</code>, <code>manage</code>), and can
@@ -361,9 +374,9 @@ $ artifacts grant prototype teammate@example.com</code></pre>
         <p>These are the reasons to choose rtfx.pro over a general "share your AI output" tool.</p>
         <ul class="stance" data-positioning="differentiators">
           <li><b>Agent-native publishing, not an upload form with an API bolted on.</b> Claude Code,
-            a Hermes run, the CLI and the HTTP API all take the same path a human takes — there is
-            no separate, weaker agent route. An agent holds a scoped, owner-bound, revocable token,
-            so it can publish as you and can never become you.</li>
+            a native MCP server, a Hermes run, the CLI and the HTTP API all take the same path a
+            human takes — there is no separate, weaker agent route. An agent holds a scoped,
+            owner-bound, revocable token, so it can publish as you and can never become you.</li>
           <li><b>Access is an identity, not a secret URL.</b> Every artifact is restricted until you
             name someone. An unauthorized request and a request for something that doesn't exist
             return the identical 404, so a leaked link can't even confirm the page is real. Sharing
@@ -397,8 +410,6 @@ $ artifacts grant prototype teammate@example.com</code></pre>
             optional expiry.</li>
           <li><b>Custom domains.</b> Serving artifacts from your own hostname. Content already runs
             on its own origin, which is the hard part.</li>
-          <li><b>An MCP server.</b> Agents publish through the CLI and HTTP API today; a native MCP
-            surface is on the list.</li>
           <li><b>Comments, approvals and polls.</b> rtfx.pro publishes and controls the artifact; it
             is not the review tool around it.</li>
         </ul>

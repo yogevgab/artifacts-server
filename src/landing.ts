@@ -119,7 +119,7 @@ function structuredData(env: Env): unknown[] {
           description: SITE.description,
           featureList: [
             "Per-artifact access control by identity, not a secret link",
-            "Agent-native publishing from Claude Code, Hermes, the CLI or the API",
+            "Agent-native publishing from Claude Code, a native MCP server, Hermes, the CLI or the API",
             "Immutable versions with one-click rollback",
             "View log: who opened an artifact, when, and which version",
             "Workspaces with owner, admin, member and viewer roles",
@@ -174,9 +174,9 @@ export function landingPage(env: Env): string {
         <div class="feature"><h3>Access by identity, not a secret link</h3><p>Keep a page private,
           share it with named people, or open it to every signed-in user on the instance. Anyone
           else gets a 404 — the page never even admits it exists.</p></div>
-        <div class="feature"><h3>Agent-native publishing</h3><p>Claude Code, Hermes, the CLI and the
-          API all take the same path. Hand a session a scoped, revocable token and "publish this"
-          becomes the last step of the work.</p></div>
+        <div class="feature"><h3>Agent-native publishing</h3><p>Claude Code, MCP, Hermes, the CLI
+          and the API all take the same path. Hand a session a scoped, revocable token and "publish
+          this" becomes the last step of the work.</p></div>
         <div class="feature"><h3>Immutable versions</h3><p>Every re-publish is a new version with
           its own preview URL. Roll back in one click; nothing you shipped is ever overwritten.</p></div>
         <div class="feature"><h3>View log &amp; workspace roles</h3><p>See who opened each artifact,
@@ -186,7 +186,7 @@ export function landingPage(env: Env): string {
       <p class="band-more">Going deeper: <a href="/docs#why-rtfx">table stakes vs what's different</a> ·
         <a href="/docs#use-cases">who uses it and for what</a> ·
         <a href="/docs#why">why not a generic static host</a> ·
-        <a href="/docs#agents">publishing from Claude Code</a> ·
+        <a href="/docs#agents">publishing from Claude Code or MCP</a> ·
         <a href="/docs#faq">FAQ</a></p>
     </section>
 
