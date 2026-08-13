@@ -9,6 +9,7 @@ async function initDb() {
       id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL)`
   ).run();
   await env.DB.prepare("DELETE FROM waitlist").run();
+  await env.DB.prepare("DROP TABLE IF EXISTS waitlist_rate_limits").run();
 }
 
 beforeEach(async () => {
@@ -20,7 +21,7 @@ const req = (path: string, init?: RequestInit) => app.request(path, init, env as
 const postEmail = (body: unknown, init?: RequestInit) =>
   req("/waitlist", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
     body: typeof body === "string" ? body : JSON.stringify(body),
     ...init,
   });
@@ -116,6 +117,31 @@ describe("POST /waitlist", () => {
     const res = await postEmail("not json");
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "invalid_email" });
+  });
+
+
+
+  it("rate-limits repeated submissions from the same client", async () => {
+    const headers = { "CF-Connecting-IP": "203.0.113.10" };
+    for (let i = 0; i < 12; i += 1) {
+      const res = await postEmail({ email: `rate-${i}@example.com` }, { headers });
+      expect(res.status).toBe(200);
+    }
+    const res = await postEmail({ email: "rate-limited@example.com" }, { headers });
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("3600");
+    expect(await res.json()).toEqual({ error: "rate_limited" });
+  });
+
+  it("does not rate-limit a different client bucket", async () => {
+    for (let i = 0; i < 12; i += 1) {
+      await postEmail({ email: `same-ip-${i}@example.com` }, { headers: { "CF-Connecting-IP": "203.0.113.20" } });
+    }
+    const res = await postEmail(
+      { email: "other-client@example.com" },
+      { headers: { "CF-Connecting-IP": "203.0.113.21" } }
+    );
+    expect(res.status).toBe(200);
   });
 
   it("rejects a missing body with 400, not 500", async () => {
