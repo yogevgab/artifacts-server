@@ -87,10 +87,18 @@ import {
   AccessApiError,
 } from "./access-api";
 import { firstContentHostname } from "./host";
+import { apiCors } from "./cors";
 
 type Vars = { Variables: AuthVars; Bindings: Env };
 
 export const api = new Hono<Vars>();
+
+// Browser preflight and cross-origin policy, FIRST — before any authentication.
+// A CORS preflight carries no credentials by definition, so authenticating one
+// refuses a request that would have been authorized, and the browser reports
+// that as a CORS failure on the call that follows. It grants nothing on its own:
+// see the long note in src/cors.ts.
+api.use("*", apiCors);
 
 // Every API route needs an authenticated caller — an Access login or an API
 // token. Per-artifact ownership is enforced per route below (admins manage
@@ -380,6 +388,44 @@ async function targetUser(
 }
 
 api.get("/users", async (c) => c.json(await directory(c.env)));
+
+/** Where an admin lands after re-establishing a session, if `next` is unusable. */
+const REAUTH_FALLBACK = "/admin/people";
+
+/**
+ * A same-origin path safe to redirect a browser to, or the People section.
+ *
+ * Only a plain absolute path is accepted. `//evil.com` and `/\evil.com` are both
+ * read as protocol-relative URLs by browsers, and a scheme (`javascript:`, or
+ * any absolute URL) is not a path at all — so this is an allow-list of one shape
+ * rather than a list of things to strip.
+ */
+function safeNext(raw: string | undefined): string {
+  if (!raw || !raw.startsWith("/")) return REAUTH_FALLBACK;
+  if (raw.startsWith("//") || raw.startsWith("/\\")) return REAUTH_FALLBACK;
+  return raw;
+}
+
+/**
+ * Re-establish the Cloudflare Access session for this path prefix, then go back
+ * (issue #37).
+ *
+ * `/admin` and `/api/users` are guarded by two *different* Access applications
+ * (docs/DEPLOY_RTFX.md §5d), and an Access session is per-application. A browser
+ * that signed in at `/admin` therefore has no session for `/api/users`, so the
+ * first invite of a session is answered — before the Worker ever sees it — with
+ * a 302 to `…cloudflareaccess.com`. A `fetch` cannot follow a cross-origin
+ * redirect like that, which is what users saw as "CORS error".
+ *
+ * The redirect Access sends *can* be followed by a full-page navigation, so the
+ * dashboard sends the browser here instead of failing. Being under `/api/users`
+ * is the entire point: reaching this route at all means the session now exists.
+ *
+ * It is an ordinary admin-only route — the middleware at the top of this file
+ * applies, so a member and an API token are both refused — and it discloses
+ * nothing: no body, and it only ever redirects to a path on this origin.
+ */
+api.get("/users/reauth", (c) => c.redirect(safeNext(c.req.query("next")), 302));
 
 /**
  * Invite somebody (or re-invite an existing person). The Access allow-list is

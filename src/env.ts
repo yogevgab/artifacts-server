@@ -35,6 +35,14 @@ export interface Env {
    * preview/staging host never competes with production in a search index.
    */
   PUBLIC_BASE_URL?: string;
+  /**
+   * Comma-separated *extra* origins ("https://ops.example.com") the dashboard
+   * may be served from, for the browser CORS policy on `/api` (issue #37). Almost
+   * nobody needs this: the origin a request arrives on and `PUBLIC_BASE_URL` are
+   * both trusted automatically, which covers the single-origin and preview cases.
+   * A content host listed here is ignored — see `appOrigins` in src/cors.ts.
+   */
+  APP_ORIGINS?: string;
 
   // --- User management: the app reads/writes the Cloudflare Access viewer
   //     policy directly, so Cloudflare Access is the source of truth for the
