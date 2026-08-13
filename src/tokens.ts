@@ -106,7 +106,10 @@ export function rowScopes(row: Pick<ApiTokenRow, "scopes">): Scope[] {
 }
 
 /** Is this token still good right now — not revoked, not expired? */
-export function isTokenUsable(row: ApiTokenRow, now: Date): boolean {
+export function isTokenUsable(
+  row: Pick<ApiTokenRow, "expires_at" | "revoked_at">,
+  now: Date
+): boolean {
   if (row.revoked_at) return false;
   if (row.expires_at && Date.parse(row.expires_at) <= now.getTime()) return false;
   return true;

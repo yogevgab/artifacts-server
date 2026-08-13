@@ -18,6 +18,7 @@ import {
   recentViews,
 } from "./db";
 import { canView, canManage, isOwner } from "./authz";
+import { listApiTokens, toPublicToken, type PublicApiToken } from "./tokens";
 import { getAllowlist, isConfigured } from "./access-api";
 import { galleryPage, notFoundPage } from "./pages";
 import { landingPage } from "./landing";
@@ -100,6 +101,17 @@ app.get("/admin", requireUser, async (c) => {
     usersInfo = { users, admins, usersError };
   }
 
+  // Token management mirrors /api/tokens: Access-authenticated callers only
+  // (see denyApiToken), so a bearer token can't even enumerate credentials via
+  // the dashboard. An admin sees every token; a beta user only their own.
+  let tokens: PublicApiToken[] | null = null;
+  if (!identity.token) {
+    const tokenRows = identity.isAdmin
+      ? await listApiTokens(c.env)
+      : await listApiTokens(c.env, identity.email!);
+    tokens = tokenRows.map(toPublicToken);
+  }
+
   return c.html(
     adminPage(
       rows,
@@ -107,7 +119,7 @@ app.get("/admin", requireUser, async (c) => {
       scope(versions, slugs),
       { counts: scope(viewCountsMap, slugs), recent: scope(recentViewsMap, slugs) },
       c.get("email"),
-      { isAdmin: identity.isAdmin, users: usersInfo }
+      { isAdmin: identity.isAdmin, users: usersInfo, tokens }
     )
   );
 });
