@@ -205,6 +205,12 @@ describe("public page metadata", () => {
     expect(productNode.featureList.length).toBeGreaterThan(2);
   });
 
+  it("the docs page keeps the API-token snippet inside a balanced code element", async () => {
+    const html = await (await canonicalReq("/docs")).text();
+    expect(html).toContain("<code>Authorization: Bearer &lt;token&gt;</code>");
+    expect(html).not.toContain("&lt;to...de>");
+  });
+
   it("escapes < inside JSON-LD so it can never close the script early", async () => {
     const html = await (await canonicalReq("/")).text();
     const blocks = [...html.matchAll(/<script type="application\/ld\+json">(.*?)<\/script>/gs)];
