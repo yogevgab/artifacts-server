@@ -89,8 +89,33 @@ Two rules bind every public surface:
 - **A planned feature is labelled planned, on the page.** `/docs#why-rtfx` carries a "Not
   here yet" list, and `llms.txt` carries a "Not shipped yet" section, precisely so an answer
   engine that has read a competitor's page cannot attribute their features to us.
+- **The content origin isolates artifacts from the app, not from each other.** Copy may say
+  uploaded HTML cannot reach the dashboard or the API — that is true and enforced in
+  `src/host.ts`. Copy must never imply a per-artifact browser sandbox or a per-artifact origin:
+  every artifact shares `a.rtfx.pro`, so two artifacts are same-origin with each other and the
+  access list is what keeps them apart. `/docs` states this in the access section, in the
+  `#why-rtfx` differentiator and in the "where does the uploaded HTML run" FAQ; `llms.txt`
+  states it under the access and privacy model; [SECURITY.md](../SECURITY.md) carries the full
+  threat-model version.
 
-`test/positioning.test.ts` enforces both, plus the `#why-rtfx` anchor and its markers.
+- **Install paths must be ones a reader can run today.** There is no npm package, so no public
+  surface may show `npx artifacts …` or a bare `artifacts …` binary. The honest paths are the
+  Claude Code plugin (`/plugin marketplace add yogevgab/artifacts-server`, which brings its own
+  dependency-free publisher), `node cli/artifacts.mjs …` from a checkout with `npm install` run,
+  the MCP server file inside the installed plugin or a checkout, and `curl` against
+  `POST /api/artifacts`. When a package does ship, `src/docs.ts`, `src/integrations.ts` and
+  `llmsTxt()` in `src/seo.ts` change together.
+
+- **The `curl` example must run against this instance as deployed.** Two ways it silently stops
+  being runnable: dropping the Access service-token headers (`CF-Access-Client-Id` /
+  `CF-Access-Client-Secret`), which a machine call needs *in addition to* the bearer token for as
+  long as `/api` sits inside the Access application ([HERMES_CLOUD.md](HERMES_CLOUD.md) §2); and
+  sending a zip as `-F file=@…`, when `file` is one HTML document and `bundle` is the zip field
+  (`src/api.ts`). Both spellings appear on `/docs` (`data-docs="http-publish"`) and in the
+  Integrations panel (`data-snippet="setup-http"`), and change together.
+
+`test/positioning.test.ts` enforces these, plus the `#why-rtfx` anchor and its markers;
+`test/portal.test.ts` covers the Integrations copy of the same snippets.
 
 ## Cookies and consent (issue #36)
 

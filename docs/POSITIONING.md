@@ -70,7 +70,9 @@ product in the table above, and each one is enforced somewhere in the test suite
    read from a table. Nobody else in the field describes a governance model at all.
 6. **Content-host isolation.** Artifact files are served from a dedicated origin that hosts
    files and nothing else, so published HTML can never reach the dashboard or API that
-   published it.
+   published it. State the limit alongside the claim: all artifacts share that one content
+   origin, so it is not a per-artifact browser sandbox between mutually distrusting publishers —
+   access control is what separates two artifacts. See [SECURITY.md](../SECURITY.md).
 7. **No tracking, ours or anyone's.** No analytics, advertising or third-party scripts on the
    site, and none injected into what you publish.
 
@@ -86,6 +88,8 @@ borrows their vocabulary starts making claims we cannot honour.
 | **Custom domains for artifacts** | Content already runs on its own origin, which is the hard part. Listed as planned. |
 | **Comments, approvals, polls** | rtfx.pro publishes and controls the artifact; it is not the review tool around it. |
 | **Leaderboards, game hosting, templates** | Not a goal. Star's category is not ours. |
+| **A published npm package / global `artifacts` binary** | "Install the Claude Code plugin", or "run `node cli/artifacts.mjs …` from a checkout". Never `npx artifacts …`: that name is not ours on the registry. |
+| **Per-artifact browser origins or sandboxing** | "Artifact content runs on its own origin, separate from the dashboard and the API." Artifacts share that origin with each other; separation between two artifacts is access control. |
 
 **The password rule, stated once.** There is no password anywhere in this product, by design —
 not for sign-in, not on a share link. "Password protection" is a table-stakes feature of the

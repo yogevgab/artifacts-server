@@ -169,7 +169,11 @@ function setupPanel(origin: string): string {
     ${snippet(
       "setup-cli",
       "2 · Publish from a terminal, Claude Code or a Hermes run",
-      `npx artifacts publish ./index.html --slug q3-report --title "Q3 Report"\nnpx artifacts publish ./site --slug q3-report --note "revised charts"\nnpx artifacts grant q3-report alex@example.com\nnpx artifacts views q3-report`
+      `# from a checkout of artifacts-server (npm install once) — no npm package yet\n` +
+        `node cli/artifacts.mjs publish ./index.html --slug q3-report --title "Q3 Report"\n` +
+        `node cli/artifacts.mjs publish ./site --slug q3-report --note "revised charts"\n` +
+        `node cli/artifacts.mjs grant q3-report alex@example.com\n` +
+        `node cli/artifacts.mjs views q3-report`
     )}
     ${snippet(
       "setup-plugin",
@@ -184,7 +188,16 @@ function setupPanel(origin: string): string {
     ${snippet(
       "setup-http",
       "5 · Or straight over HTTP, from CI",
-      `curl -X POST ${origin}/api/artifacts \\\n  -H "Authorization: Bearer $RTFX_API_TOKEN" \\\n  -F slug=q3-report -F title="Q3 Report" -F file=@./dist.zip`
+      // A zip is `bundle`; `file` is one HTML document. The two CF-Access-*
+      // headers come from an Access service token and are what gets a machine
+      // call past the edge while /api sits inside the Access application — the
+      // bearer token authenticates to the app and never past Access.
+      `curl -X POST ${origin}/api/artifacts \\\n` +
+        `  -H "Authorization: Bearer $RTFX_API_TOKEN" \\\n` +
+        `  -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \\\n` +
+        `  -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \\\n` +
+        `  -F slug=q3-report -F title="Q3 Report" -F bundle=@./dist.zip\n\n` +
+        `# one HTML document instead of a zip: -F file=@./index.html`
     )}
 
     <p class="note" data-setup-note><b>Why a token and not your login.</b> A token is bound to its
