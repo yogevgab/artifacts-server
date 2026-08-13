@@ -204,8 +204,8 @@ export function landingPage(env: Env): string {
       </form>
       <div id="msg" role="status" aria-live="polite" hidden></div>
       <p class="note">Already have an account? <a href="/login" data-cta="sign-in">Sign in instead →</a>
-        We'll email you a one-time code — there's no password to set. Pricing for teams is coming;
-        accounts created now keep founding pricing when it lands.</p>
+        We'll email you a one-time code — there's no password to set. If paid plans arrive,
+        existing accounts will get notice before any pricing change applies.</p>
       <p class="note">Submitting this stores your email address so we can send an invitation —
         nothing else. See the <a href="/privacy">privacy policy</a>.</p>
     </section>
@@ -217,7 +217,7 @@ export function landingPage(env: Env): string {
   return layout(TITLE, body, LANDING_STYLE, {
     description: SITE.description,
     canonical: canonicalUrl(env, "/"),
-    image: canonicalUrl(env, "/og.svg"),
+    image: canonicalUrl(env, "/og.png"),
     socialTitle: `${SITE.name} — ${SITE.tagline}`,
     jsonLd: structuredData(env),
   });

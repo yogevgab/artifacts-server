@@ -16,8 +16,8 @@ import type { Env } from "../src/env";
  *
  *  - the two pages are **public** — no identity read, no Access needed, and they
  *    stay off the artifact content origin like every other management path;
- *  - the pages **say they are operator templates**, because they have not been
- *    through counsel;
+ *  - canonical rtfx.pro pages render production-facing legal copy, while
+ *    non-canonical/self-host deployments keep the operator-template banner;
  *  - nothing on any public page **sets a cookie or loads a third-party script**,
  *    which is the claim the notice makes on the product's behalf.
  */
@@ -120,22 +120,25 @@ describe("the legal pages are findable", () => {
 // --- what the pages actually say --------------------------------------------
 
 describe("the legal pages are honest about what they are", () => {
-  it("says on both that this is an operator template, not legal advice", async () => {
+  it("does not show the operator-template banner on canonical rtfx.pro legal pages", async () => {
     for (const path of LEGAL) {
       const body = await html(path, ANON);
-      expect(body, path).toContain("data-legal-template");
-      expect(body, path).toContain("Operator template — not legal advice");
-      expect(body, path).toContain("not been reviewed by a lawyer");
+      expect(body, path).not.toContain("data-legal-template");
+      expect(body, path).not.toContain("Operator template — not legal advice");
       expect(body, path).toContain("Last updated");
+      expect(body, path).toContain("privacy@rtfx.pro");
     }
   });
 
-  it("names the fill-ins an operator has to decide before publishing them", async () => {
-    const privacy = await html("/privacy", ANON);
-    expect(privacy).toContain("is a placeholder");
-    expect(privacy).toContain("governing law");
-    // …and the terms page refuses to invent a jurisdiction rather than guessing.
-    expect(await html("/terms", ANON)).toContain("leaves both blank");
+  it("keeps the operator-template banner on non-canonical/self-host deployments", async () => {
+    const selfHostEnv = { ...env, PUBLIC_BASE_URL: "https://example.test" } as unknown as Env;
+    for (const path of LEGAL) {
+      const res = await app.request(`https://example.test${path}`, ANON, selfHostEnv as any);
+      const body = await res.text();
+      expect(body, path).toContain("data-legal-template");
+      expect(body, path).toContain("Operator template — not legal advice");
+      expect(body, path).toContain("governing law");
+    }
   });
 
   it("describes the data this codebase actually stores, table by table", async () => {

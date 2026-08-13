@@ -6,7 +6,7 @@ behind Cloudflare Access.
 ## Request flow
 
 ```
-                       /  and  /waitlist  (public — never behind Access)
+                       /, /docs, /login, /privacy, /terms and /waitlist (public bypass)
                                 │
                                 ▼
 Cloudflare Access (login gate + allow-list, everything else)
@@ -14,6 +14,8 @@ Cloudflare Access (login gate + allow-list, everything else)
         ▼
 Worker (Hono router)
    GET /                     public landing page — product pitch, use cases, request-access form
+   GET /docs,/login,/privacy,/terms public product/trust pages
+   GET /robots.txt,/sitemap.xml,/llms.txt,/og.svg,/og.png crawler and social-preview files
    POST /waitlist            join the waitlist (public; validates + dedupes by email)
    GET /gallery              back-compat alias → 302 to /admin/gallery (signed-in only;
                               anonymous → 302 to /login, paused → the paused sheet)

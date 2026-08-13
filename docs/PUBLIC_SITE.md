@@ -19,7 +19,8 @@ Exactly six paths are public, plus the crawler files. Everything else requires a
 | `/robots.txt` | Crawl policy — **per-origin**, three different answers (below) | — |
 | `/sitemap.xml` | The indexable pages, absolute against `PUBLIC_BASE_URL` | — |
 | `/llms.txt` | [llmstxt.org](https://llmstxt.org) product summary for AI agents/answer engines | — |
-| `/og.svg` | 1200×630 social card | — |
+| `/og.svg` | 1200×630 SVG source social card | — |
+| `/og.png` | 1200×630 PNG social card used by OpenGraph/Twitter previews | — |
 
 Gated, and excluded from every index: `/admin/*` (the gallery included), `/api/*`, `/gallery`
 (a redirect into `/admin/gallery`), `/v/*`, `/whoami`, `/health`, and every artifact URL.
@@ -124,17 +125,26 @@ Access app needs Bypass destinations for all of:
 rtfx.pro/            rtfx.pro/docs         rtfx.pro/login        rtfx.pro/waitlist
 rtfx.pro/privacy     rtfx.pro/terms
 rtfx.pro/robots.txt  rtfx.pro/sitemap.xml  rtfx.pro/llms.txt     rtfx.pro/og.svg
+rtfx.pro/og.png
 ```
 
 See [DEPLOY_RTFX.md](DEPLOY_RTFX.md) step 5.3 for the full runbook step and the post-deploy
 verification (`curl -I` each path expecting `200` and no `CF_Authorization` challenge).
 
-## Known follow-up
+## Social previews and trust headers
 
-`og:image` is an SVG (`/og.svg`). It renders in most modern link previews, but some social
-networks only rasterize PNG/JPEG. If cards come back blank on a given network, export the
-same artwork to `/og.png` at 1200×630 and point `HeadMeta.image` at it — the SVG source in
-`ogImageSvg()` (`src/seo.ts`) is the master.
+`HeadMeta.image` points at `/og.png`, a 1200×630 PNG social card for platforms that do not
+render SVG previews reliably. `/og.svg` remains the readable/vector source for the same card.
+Both are public app-host files and blocked on the artifact content host.
+
+The Worker adds baseline app headers (`X-Content-Type-Options: nosniff`,
+`Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY`). Artifact files get
+content-origin headers in `src/serve.ts`: `X-Robots-Tag`, `nosniff`, `no-referrer`, and a
+compatibility-first CSP that prevents framing and hostile `<base>` URLs without blocking normal
+artifact subresources such as CDNs, images, fonts or iframes. Because every artifact on
+`a.rtfx.pro` shares one origin, do not treat the content host as a browser sandbox between two
+artifacts owned by mutually distrusting parties; use access control and future per-artifact
+origins/sandboxing if that threat model matters.
 
 ## Changing the public copy
 
@@ -146,10 +156,11 @@ lives in six files at once and drifts if edited one at a time.
   gain it. The table-stakes/differentiator/not-yet split is `#why-rtfx` in the same file.
 - Product summary shared with AI agents → `llmsTxt()` in `src/seo.ts`, including the
   **Not shipped yet** section that keeps an answer engine from inventing features.
-- Privacy policy / terms of use → `src/legal.ts`. Both are **operator templates** and say so
-  on the page; they have not been through counsel. The inventory in the privacy policy is
-  written against the D1 schema and the R2 bucket, so a change to what is stored is a change
-  to that page — treat the two as one commit.
+- Privacy policy / terms of use → `src/legal.ts`. Canonical rtfx.pro renders production-facing
+  copy; non-canonical/self-host deployments still show the operator-template banner until an
+  operator adapts the legal text. The inventory in the privacy policy is written against the D1
+  schema and the R2 bucket, so a change to what is stored is a change to that page — treat the
+  two as one commit.
 - Add a public page → add it to `PUBLIC_PAGES` (`src/seo.ts`, which feeds the sitemap and
   llms.txt), to `MANAGEMENT_PATHS` (`src/host.ts`), to `RESERVED_SLUGS` (`src/util.ts`),
   and to the Access bypass list above.

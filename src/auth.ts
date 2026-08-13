@@ -34,6 +34,18 @@ function jwks(teamDomain: string) {
   return set;
 }
 
+
+function isCanonicalProductionRequest(env: Env, url?: string): boolean {
+  if (!url) return false;
+  const origin = (env.PUBLIC_BASE_URL ?? "").trim().replace(/\/+$/, "");
+  if (!origin || /localhost|127\.0\.0\.1|\.local$/i.test(origin)) return false;
+  try {
+    return new URL(origin).hostname.toLowerCase() === new URL(url).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
 function adminList(env: Env): string[] {
   return env.ADMIN_EMAILS.split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
 }
@@ -148,7 +160,7 @@ export interface Identity {
 /** Minimal request shape the auth helpers need (a Hono context satisfies it). */
 type AuthContext = {
   env: Env;
-  req: { header(name: string): string | undefined };
+  req: { header(name: string): string | undefined; url?: string };
 };
 
 /** The credential from an `Authorization: Bearer <token>` header, if present. */
@@ -294,7 +306,7 @@ export async function resolveAuth(c: AuthContext): Promise<AuthResult> {
     return applyDirectory(c, identity);
   }
   const env = c.env;
-  if (env.DEV_LOGIN === "true") {
+  if (env.DEV_LOGIN === "true" && !isCanonicalProductionRequest(env, c.req.url)) {
     if (c.req.header("X-Dev-Anonymous") === "true") return ANONYMOUS;
     const email = (c.req.header("X-Dev-Email") || adminList(env)[0] || "dev@local").toLowerCase();
     return applyDirectory(c, {
