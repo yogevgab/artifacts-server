@@ -95,6 +95,23 @@ describe("gallery", () => {
     const body = await res.text();
     expect(body).toContain("Hello Page");
     expect(body).toContain('href="/hello-page/"');
+    // premium list markers: each card carries visibility + version badges
+    expect(body).toContain('data-artifact="hello-page"');
+    expect(body).toMatch(/data-badge="visibility">restricted</);
+    expect(body).toMatch(/data-badge="version">v1</);
+  });
+
+  it("gallery empty state explains what to expect", async () => {
+    const body = await (await req("/gallery")).text();
+    expect(body).toContain('data-empty="gallery"');
+    expect(body.toLowerCase()).toContain("grants you access");
+  });
+
+  it("not-found page explains the likely cause and links back", async () => {
+    const body = await (await req("/nope/")).text();
+    expect(body).toContain('data-empty="not-found"');
+    expect(body.toLowerCase()).toContain("access");
+    expect(body).toContain('href="/gallery"');
   });
 
   it("redirects anonymous visitors to the public landing page instead of an empty gallery", async () => {
@@ -221,6 +238,127 @@ describe("list + delete + admin", () => {
     const body = await res.text();
     expect(body).toContain("Admin");
     expect(body).toContain('id="up"');
+  });
+});
+
+describe("admin dashboard UX", () => {
+  const admin = async () => await (await req("/admin")).text();
+  const publish = (slug: string, title: string, note = "") =>
+    req("/api/artifacts", {
+      method: "POST",
+      body: htmlForm({ title, slug, note }, "x.html", strToU8(`<h1>${slug}</h1>`)),
+    });
+
+  it("shows header stats that reflect the real artifact/view/storage totals", async () => {
+    let body = await admin();
+    expect(body).toContain('data-stat="artifacts"');
+    expect(body).toContain('data-stat="versions"');
+    expect(body).toContain('data-stat="views"');
+    expect(body).toContain('data-stat="storage"');
+    // no artifacts yet
+    expect(body).toMatch(/data-stat="artifacts"[\s\S]*?data-stat-value>0</);
+
+    await publish("one", "One");
+    await publish("two", "Two");
+    body = await admin();
+    expect(body).toMatch(/data-stat="artifacts"[\s\S]*?data-stat-value>2</);
+    expect(body).toMatch(/data-stat="versions"[\s\S]*?data-stat-value>2</);
+  });
+
+  it("renders a drag-and-drop publish panel wired to the file and bundle inputs", async () => {
+    const body = await admin();
+    expect(body).toContain("data-dropzone");
+    expect(body).toContain('data-browse="file"');
+    expect(body).toContain('data-browse="bundle"');
+    expect(body).toContain('type="file" name="file"');
+    expect(body).toContain('type="file" name="bundle"');
+  });
+
+  it("ships a copy-link success state instead of only reloading after publish", async () => {
+    const body = await admin();
+    expect(body).toContain("data-publish-success");
+    expect(body).toContain("data-artifact-url");
+    expect(body).toContain("data-copy-link");
+    expect(body).toContain("data-publish-another");
+    // reloading the dashboard is an explicit user action, not an automatic
+    // redirect that would blow away the share link
+    expect(body).toContain("data-refresh");
+    expect(body).toContain("showPublished");
+  });
+
+  it("gives an actionable empty state when nothing is published", async () => {
+    const body = await admin();
+    expect(body).toContain('data-empty="artifacts"');
+    expect(body).toContain("Nothing published yet");
+    expect(body.toLowerCase()).toContain("publish your first artifact");
+  });
+
+  it("shows visibility, version, file-count and view badges on each artifact", async () => {
+    await publish("badged", "Badged");
+    let body = await admin();
+    expect(body).toContain('data-artifact="badged"');
+    const card = body.slice(body.indexOf('data-artifact="badged"'));
+    expect(card).toContain('data-badge="visibility"');
+    expect(card).toContain('data-badge="version"');
+    expect(card).toContain('data-badge="files"');
+    expect(card).toContain('data-badge="views"');
+    expect(card).toMatch(/data-badge="visibility">Restricted · 0</);
+    expect(card).toMatch(/data-badge="version">v1</);
+    expect(card).toMatch(/data-badge="views">0 views</);
+
+    // grant + view + new version, and the badges follow
+    await req("/api/artifacts/badged/access", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ visibility: "restricted", emails: ["bob@x.com"] }),
+    });
+    await req("/badged/", { headers: { "X-Dev-Email": "bob@x.com" } });
+    await publish("badged", "Badged");
+
+    body = await admin();
+    const updated = body.slice(body.indexOf('data-artifact="badged"'));
+    expect(updated).toMatch(/data-badge="visibility">Restricted · 1</);
+    expect(updated).toMatch(/data-badge="version">v2 of 2</);
+    expect(updated).toMatch(/data-badge="views">1 view</);
+  });
+
+  it("marks an 'everyone' artifact as open", async () => {
+    await publish("open", "OpenOne");
+    await req("/api/artifacts/open/access", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ visibility: "everyone", emails: [] }),
+    });
+    const card = (await admin()).split('data-artifact="open"')[1];
+    expect(card).toMatch(/data-badge="visibility">Everyone</);
+  });
+
+  it("keeps versions, views and access management on every artifact card", async () => {
+    await publish("full", "Full");
+    const card = (await admin()).split('data-artifact="full"')[1];
+    expect(card).toContain('data-panel="versions"');
+    expect(card).toContain('data-panel="views"');
+    expect(card).toContain('data-panel="access"');
+    expect(card).toContain("data-newver"); // drag/drop new-version form
+    expect(card).not.toContain('data-current="1"'); // v1 is already live
+    expect(card).toContain('href="/v/full/1/"'); // version preview link
+    expect(card).toContain('data-save="full"'); // save access
+    expect(card).toContain('data-del="full"'); // delete
+    expect(card).toContain('data-copy="/full/"'); // per-artifact copy link
+  });
+
+  it("explains empty views instead of showing a bare dash", async () => {
+    await publish("quiet", "Quiet");
+    const card = (await admin()).split('data-artifact="quiet"')[1];
+    expect(card).toContain("No views yet");
+    expect(card.toLowerCase()).toContain("share link");
+  });
+
+  it("tells the admin how to fix an unconfigured user-management setup", async () => {
+    const body = await admin();
+    expect(body).toContain("data-users-unconfigured");
+    expect(body).toContain("CF_API_TOKEN");
+    expect(body).toContain("ACCESS_VIEWER_POLICY_ID");
   });
 });
 
