@@ -133,6 +133,24 @@ describe("POST /waitlist", () => {
     expect(await res.json()).toEqual({ error: "rate_limited" });
   });
 
+
+
+  it("rate-limits repeated submissions for the same email across apparent clients", async () => {
+    for (let i = 0; i < 3; i += 1) {
+      const res = await postEmail(
+        { email: "same-address@example.com" },
+        { headers: { "CF-Connecting-IP": `203.0.113.${30 + i}` } }
+      );
+      expect(res.status).toBe(200);
+    }
+    const res = await postEmail(
+      { email: "same-address@example.com" },
+      { headers: { "CF-Connecting-IP": "203.0.113.99" } }
+    );
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({ error: "rate_limited" });
+  });
+
   it("does not rate-limit a different client bucket", async () => {
     for (let i = 0; i < 12; i += 1) {
       await postEmail({ email: `same-ip-${i}@example.com` }, { headers: { "CF-Connecting-IP": "203.0.113.20" } });
