@@ -18,9 +18,11 @@ Worker (Hono router)
    GET /gallery              gallery, filtered to what the viewer may see (signed-in only;
                               anonymous → 302 to /)
    GET /<slug>/…             serve the current version's files (per-artifact authz)
-   GET /v/<slug>/<n>/…       admin-only preview of a specific version
-   GET /admin                admin dashboard (publish, access, versions, users)
-   /api/*                    JSON API (admin-only)
+   GET /v/<slug>/<n>/…       preview a specific version (admin or the artifact's owner)
+   GET /admin                dashboard (publish, access, versions; users panel = admin only).
+                              Admins see every artifact, a beta user only their own
+   /api/*                    JSON API (signed-in; scoped to what the caller owns.
+                              /api/users is admin-only)
         │
         ├── R2  (binding FILES)  — files at  <slug>/v<N>/<path>
         └── D1  (binding DB)     — metadata (+ waitlist emails)
@@ -38,13 +40,28 @@ Worker (Hono router)
   either configured application AUD, derives the caller's identity (`getIdentity`), and decides:
   - **admin** — email in `ADMIN_EMAILS`, or a service-token `common_name` in
     `ADMIN_SERVICE_TOKENS`. A valid token is not admin by itself.
-  - **per-artifact view** (`src/authz.ts`, `canView`) — admins see all; `everyone` artifacts are
-    visible to any signed-in user; `restricted` artifacts only to granted emails.
+  - **dashboard access** (`canUseDashboard`) — admins, and signed-in humans. A non-admin
+    service token is refused: ownership is keyed on an email, so a token owns nothing.
+  - **per-artifact management** (`src/authz.ts`, `canManage`/`isOwner`) — admins manage every
+    artifact; a beta user manages only those whose `owner_email` is theirs. Everything else
+    answers 404, never 403, so another user's slugs stay unprobeable. A view grant confers no
+    management rights, and an artifact with no owner is admin-only.
+  - **per-artifact view** (`canView`) — admins see all; the owner always sees their own;
+    `everyone` artifacts are visible to any signed-in user; `restricted` artifacts only to
+    granted emails.
+
+The invite-only beta relies on both layers: Access decides who may sign in at all, and the
+Worker decides what each signed-in person may see and manage. Widening the Access path gating
+(so beta users reach `/admin`) is a deliberate, documented operator step — see
+`docs/DEPLOY_RTFX.md` §5b.
 
 ## Data model (D1)
 
 - `artifacts` — one row per artifact: slug, title, description, current type/entry/counts,
-  `visibility` (`restricted` | `everyone`), and `current_version`.
+  `visibility` (`restricted` | `everyone`), `current_version`, and `owner_email` (the beta user
+  who may manage it; NULL = admin-only). `owner_email` is set once at creation and never
+  changed by a republish, so an admin uploading a new version can't take over someone's
+  artifact.
 - `artifact_grants` — `(slug, email)` allow-list for restricted artifacts.
 - `artifact_versions` — `(slug, version)` one row per immutable version, with per-version
   type/entry/counts/note.
@@ -72,8 +89,8 @@ preserving admin emails.
 | File | Responsibility |
 |---|---|
 | `src/index.ts` | Routing; landing vs. gallery split; gallery filtering; version-aware serving; `/v/` preview. |
-| `src/auth.ts` | Access JWT verification, `getIdentity`, `requireAdmin`. |
-| `src/authz.ts` | Pure `canView(identity, visibility, granted)`. |
+| `src/auth.ts` | Access JWT verification, `getIdentity`, `requireAdmin`, `requireUser`. |
+| `src/authz.ts` | Pure policy: `canView`, `canManage`, `isOwner`, `canUseDashboard`. |
 | `src/serve.ts` | R2 file serving + content types. |
 | `src/api.ts` | `/api` endpoints: publish, delete, access, versions, users. |
 | `src/db.ts` | All D1 queries (including waitlist). |

@@ -2,10 +2,11 @@ import { Hono } from "hono";
 import type { Env } from "./env";
 import { api } from "./api";
 import { waitlist } from "./waitlist";
-import { requireAdmin, accessEmail, getIdentity } from "./auth";
+import { requireUser, accessEmail, getIdentity, type AuthVars } from "./auth";
 import { serveArtifact } from "./serve";
 import {
   listArtifacts,
+  listArtifactsOwnedBy,
   getArtifact,
   grantedSlugs,
   hasGrant,
@@ -16,14 +17,14 @@ import {
   viewCounts,
   recentViews,
 } from "./db";
-import { canView } from "./authz";
+import { canView, canManage, isOwner } from "./authz";
 import { getAllowlist, isConfigured } from "./access-api";
 import { galleryPage, notFoundPage } from "./pages";
 import { landingPage } from "./landing";
 import { adminPage } from "./admin";
 import { isContentHost, isManagementPath, firstContentHostname } from "./host";
 
-const app = new Hono<{ Bindings: Env; Variables: { email: string } }>();
+const app = new Hono<{ Bindings: Env; Variables: AuthVars }>();
 
 // Content-origin isolation: when CONTENT_HOSTNAMES is configured, a content
 // host may only serve artifact files — never the dashboard/API/admin/gallery
@@ -56,30 +57,58 @@ app.get("/whoami", async (c) => {
   return c.json({ email });
 });
 
-// Admin dashboard (Access admin policy also guards this path at the edge).
-app.get("/admin", requireAdmin, async (c) => {
-  const [rows, grants] = await Promise.all([listArtifacts(c.env), allGrants(c.env)]);
-  const admins = c.env.ADMIN_EMAILS.split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
-  let users: string[] | null = null;
-  let usersError: string | null = null;
-  if (isConfigured(c.env)) {
-    try {
-      users = await getAllowlist(c.env);
-    } catch (e) {
-      usersError = (e as Error).message;
-    }
+/** Narrow a slug-keyed lookup to the artifacts this dashboard actually renders. */
+function scope<T>(map: Map<string, T>, slugs: Set<string>): Map<string, T> {
+  const out = new Map<string, T>();
+  for (const slug of slugs) {
+    const value = map.get(slug);
+    if (value !== undefined) out.set(slug, value);
   }
-  const [versions, viewCountsMap, recentViewsMap] = await Promise.all([
+  return out;
+}
+
+// Management dashboard. Admins see and manage every artifact; a beta user sees
+// and manages only the ones they own. (In production Cloudflare Access still
+// gates who can reach this path at all — see docs/DEPLOY_RTFX.md.)
+app.get("/admin", requireUser, async (c) => {
+  const identity = c.get("identity");
+  const rows = identity.isAdmin
+    ? await listArtifacts(c.env)
+    : await listArtifactsOwnedBy(c.env, identity.email!);
+  const slugs = new Set(rows.map((r) => r.slug));
+
+  const [grants, versions, viewCountsMap, recentViewsMap] = await Promise.all([
+    allGrants(c.env),
     allVersions(c.env),
     viewCounts(c.env),
     recentViews(c.env),
   ]);
+
+  // The login allow-list is admin-only data — never fetch or render it otherwise.
+  let usersInfo = null as null | { users: string[] | null; admins: string[]; usersError: string | null };
+  if (identity.isAdmin) {
+    const admins = c.env.ADMIN_EMAILS.split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+    let users: string[] | null = null;
+    let usersError: string | null = null;
+    if (isConfigured(c.env)) {
+      try {
+        users = await getAllowlist(c.env);
+      } catch (e) {
+        usersError = (e as Error).message;
+      }
+    }
+    usersInfo = { users, admins, usersError };
+  }
+
   return c.html(
-    adminPage(rows, grants, versions, { counts: viewCountsMap, recent: recentViewsMap }, c.get("email"), {
-      users,
-      admins,
-      usersError,
-    })
+    adminPage(
+      rows,
+      scope(grants, slugs),
+      scope(versions, slugs),
+      { counts: scope(viewCountsMap, slugs), recent: scope(recentViewsMap, slugs) },
+      c.get("email"),
+      { isAdmin: identity.isAdmin, users: usersInfo }
+    )
   );
 });
 
@@ -102,21 +131,25 @@ app.get("/gallery", async (c) => {
   let visible = rows;
   if (!identity.isAdmin) {
     const granted = identity.email ? await grantedSlugs(c.env, identity.email) : new Set<string>();
-    visible = rows.filter((r) => r.visibility === "everyone" || granted.has(r.slug));
+    visible = rows.filter(
+      (r) => r.visibility === "everyone" || granted.has(r.slug) || isOwner(identity, r)
+    );
   }
   return c.html(galleryPage(visible));
 });
 
-// Admin-only version preview: /v/<slug>/<n>/<path> serves a specific version.
-// Relative assets resolve within this prefix. Non-admins get 404 (hidden).
+// Version preview for people who manage the artifact (admin or owner):
+// /v/<slug>/<n>/<path> serves a specific version. Relative assets resolve within
+// this prefix. Everyone else gets 404 (existence stays hidden).
 app.get("/v/*", async (c) => {
   const identity = await getIdentity(c);
-  if (!identity?.isAdmin) return c.html(notFoundPage(), 404);
   const parts = c.req.path.replace(/^\/v\/+/, "").split("/");
   const slug = decodeURIComponent(parts[0] ?? "");
   const version = Number(parts[1]);
   const filePath = parts.slice(2).map(decodeURIComponent).join("/");
   if (!slug || !Number.isInteger(version) || version < 1) return c.html(notFoundPage(slug), 404);
+  const art = await getArtifact(c.env, slug);
+  if (!art || !canManage(identity, art)) return c.html(notFoundPage(slug), 404);
   if (!(await getVersion(c.env, slug, version))) return c.html(notFoundPage(slug), 404);
   return serveArtifact(c, slug, version, filePath);
 });
@@ -133,11 +166,12 @@ app.get("*", async (c) => {
   const art = await getArtifact(c.env, slug);
   // 404 for both missing and unauthorized, so probing a slug can't reveal it exists.
   if (!art) return c.html(notFoundPage(slug), 404);
+  const owned = isOwner(identity, art);
   let granted = false;
-  if (art.visibility === "restricted" && !identity?.isAdmin && identity?.email) {
+  if (art.visibility === "restricted" && !identity?.isAdmin && !owned && identity?.email) {
     granted = await hasGrant(c.env, slug, identity.email);
   }
-  if (!canView(identity, art.visibility, granted)) return c.html(notFoundPage(slug), 404);
+  if (!canView(identity, art.visibility, granted, owned)) return c.html(notFoundPage(slug), 404);
 
   const res = await serveArtifact(c, slug, art.current_version, filePath);
 

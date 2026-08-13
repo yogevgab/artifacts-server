@@ -151,8 +151,14 @@ status, and collects `/waitlist` signups. Signed-in people click through to `/ga
 
 ### Dashboard
 `https://<your-domain>/admin` — publish artifacts, manage per-artifact access, upload new
-versions / roll back, and add/remove users. The gallery at `/gallery` is filtered to what each
-viewer may see; visiting it signed out redirects back to the landing page.
+versions / roll back, and (admins only) add/remove users. Admins see every artifact, labelled
+with its owner; a beta user sees only the ones they published. The gallery at `/gallery` is
+filtered to what each viewer may see; visiting it signed out redirects back to the landing page.
+
+> If Cloudflare Access gates `/admin` and `/api` to admins only (the default in
+> [docs/DEPLOY_RTFX.md](docs/DEPLOY_RTFX.md) step 5), beta users are stopped at the edge before
+> the Worker's ownership rules apply. Step 5b there narrows the admin Access app to
+> `/api/users` so invited users can reach their own dashboard.
 
 ### CLI
 
@@ -178,6 +184,21 @@ Cloudflare Access decides **who can log in** (managed in the app's *Users* panel
 the Access allow-list). The Worker decides **who sees each artifact**: `restricted` (only granted
 emails + admins) or `everyone` (any signed-in user). New artifacts are private by default. A
 direct URL a viewer lacks access to returns 404.
+
+**Ownership (invite-only beta).** Every artifact belongs to the person who published it
+(`artifacts.owner_email`). Admins (`ADMIN_EMAILS`, plus `ADMIN_SERVICE_TOKENS`) manage
+everything; a signed-in beta user manages only their own — their dashboard, `/api/artifacts`
+list, version previews and analytics are scoped to artifacts they own, and any attempt to
+read or change someone else's returns **404**, so a slug they don't own is indistinguishable
+from one that doesn't exist. Being *granted* view access to an artifact never confers
+management rights, and publishing to a slug someone else owns is refused (`409 slug_taken`)
+rather than adding a version to their artifact. Managing the sign-in allow-list (`/api/users`)
+is admin-only, and a non-admin owner's grants deliberately do **not** add anyone to that
+allow-list — only an admin invites people into the beta.
+
+Artifacts with no owner (published before this model, or by a service token, which has no
+email) are manageable by admins only. Run `migrations/0005_owner_email.sql` on an existing
+database; it backfills owners from `created_by` where that was a real email.
 
 ### Versioning
 Each publish to an existing slug creates a new immutable version and makes it live; previous

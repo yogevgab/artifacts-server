@@ -13,6 +13,16 @@ interface UsersInfo {
   usersError: string | null;
 }
 
+/**
+ * Who is looking at the dashboard. `users` is the login allow-list panel, which
+ * is admin-only data — it is null for a beta user, who sees only their own
+ * artifacts and no team management at all.
+ */
+export interface DashboardViewer {
+  isAdmin: boolean;
+  users: UsersInfo | null;
+}
+
 // --- formatting helpers -----------------------------------------------------
 
 function num(n: number): string {
@@ -197,7 +207,8 @@ function artifactCard(
   r: ArtifactRow,
   emails: string[],
   vers: VersionRow[],
-  views: ViewsInfo
+  views: ViewsInfo,
+  showOwner = false
 ): string {
   const viewCount = views.counts.get(r.slug)?.total ?? 0;
   const visBadge =
@@ -209,8 +220,13 @@ function artifactCard(
   }</span>`;
   const fileBadge = `<span class="badge" data-badge="files">${plural(r.file_count, "file")}</span>`;
   const viewBadge = `<span class="badge" data-badge="views">${plural(viewCount, "view")}</span>`;
+  // Admins manage everyone's artifacts, so they need to see whose each one is.
+  const ownerBadge =
+    showOwner && r.owner_email
+      ? `<span class="badge" data-badge="owner">${esc(r.owner_email)}</span>`
+      : "";
 
-  const search = `${r.title} ${r.slug} ${r.description ?? ""}`.toLowerCase();
+  const search = `${r.title} ${r.slug} ${r.description ?? ""} ${showOwner ? r.owner_email ?? "" : ""}`.toLowerCase();
   const bodyId = `art-${esc(r.slug)}`;
   // A disclosure button (rather than <details>/<summary>) keeps the row's own
   // links and buttons out of the summary's activation target — nesting them
@@ -224,7 +240,7 @@ function artifactCard(
           <span class="mono art-slug">/${esc(r.slug)}/</span>
           ${r.description ? `<span class="hint art-desc">${esc(r.description)}</span>` : ""}
         </span>
-        <span class="art-badges">${visBadge}${verBadge}${fileBadge}${viewBadge}
+        <span class="art-badges">${visBadge}${verBadge}${fileBadge}${viewBadge}${ownerBadge}
           <span class="badge">${esc(r.type)}</span></span>
       </button>
       <div class="art-actions">
@@ -724,7 +740,7 @@ export function adminPage(
   versions: Map<string, VersionRow[]>,
   views: ViewsInfo,
   email: string,
-  usersInfo: UsersInfo
+  viewer: DashboardViewer
 ): string {
   const totalVersions = rows.reduce((n, r) => n + (versions.get(r.slug)?.length ?? 1), 0);
   const totalViews = rows.reduce((n, r) => n + (views.counts.get(r.slug)?.total ?? 0), 0);
@@ -741,7 +757,7 @@ export function adminPage(
 
   const list = rows
     .map((r) =>
-      artifactCard(r, grants.get(r.slug) ?? [], versions.get(r.slug) ?? [], views)
+      artifactCard(r, grants.get(r.slug) ?? [], versions.get(r.slug) ?? [], views, viewer.isAdmin)
     )
     .join("");
 
@@ -755,7 +771,7 @@ export function adminPage(
   const searchable = rows.length > 3;
   const artifactsSection = `<section aria-labelledby="artifacts-h">
     <div class="section-head">
-      <h2 id="artifacts-h">Artifacts <span class="hint">${plural(rows.length, "published artifact")}</span></h2>
+      <h2 id="artifacts-h">${viewer.isAdmin ? "Artifacts" : "Your artifacts"} <span class="hint">${plural(rows.length, "published artifact")}</span></h2>
       ${searchable ? `<input id="filter" type="search" placeholder="Filter by title or slug…" aria-label="Filter artifacts">` : ""}
     </div>
     ${rows.length ? list : emptyState}
@@ -768,15 +784,17 @@ export function adminPage(
   </section>`;
 
   const body = `<header class="top">
-      <div><div class="eyebrow">Admin</div><h1>Dashboard</h1>
-        <div class="sub">Signed in as ${esc(email)}</div></div>
+      <div><div class="eyebrow">${viewer.isAdmin ? "Admin" : "Beta"}</div><h1>Dashboard</h1>
+        <div class="sub">Signed in as ${esc(email)}${
+          viewer.isAdmin ? "" : " · you only see artifacts you published"
+        }</div></div>
       <div><a href="/gallery">View gallery →</a></div>
     </header>
 
     ${stats}
     ${publishPanel()}
     ${artifactsSection}
-    ${usersPanel(usersInfo)}
+    ${viewer.isAdmin && viewer.users ? usersPanel(viewer.users) : ""}
     <script>${SCRIPT}</script>`;
   return layout("Dashboard · Artifacts", body, ADMIN_STYLE);
 }

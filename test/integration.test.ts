@@ -3,62 +3,12 @@ import { env } from "cloudflare:test";
 import { zipSync, strToU8 } from "fflate";
 import app from "../src/index";
 import { MAX_UPLOAD_BYTES } from "../src/upload";
-
-async function initDb() {
-  await env.DB.prepare(
-    `CREATE TABLE IF NOT EXISTS artifacts (
-      slug TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT, type TEXT NOT NULL,
-      entry TEXT NOT NULL DEFAULT 'index.html', file_count INTEGER NOT NULL DEFAULT 1,
-      size_bytes INTEGER NOT NULL DEFAULT 0, created_by TEXT,
-      created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-      visibility TEXT NOT NULL DEFAULT 'restricted', current_version INTEGER NOT NULL DEFAULT 1)`
-  ).run();
-  await env.DB.prepare(
-    `CREATE TABLE IF NOT EXISTS artifact_grants (
-      slug TEXT NOT NULL, email TEXT NOT NULL, created_at TEXT NOT NULL,
-      PRIMARY KEY (slug, email))`
-  ).run();
-  await env.DB.prepare(
-    `CREATE TABLE IF NOT EXISTS artifact_versions (
-      slug TEXT NOT NULL, version INTEGER NOT NULL, type TEXT NOT NULL,
-      entry TEXT NOT NULL DEFAULT 'index.html', file_count INTEGER NOT NULL DEFAULT 1,
-      size_bytes INTEGER NOT NULL DEFAULT 0, note TEXT, created_by TEXT,
-      created_at TEXT NOT NULL, PRIMARY KEY (slug, version))`
-  ).run();
-  await env.DB.prepare(
-    `CREATE TABLE IF NOT EXISTS artifact_views (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL, version INTEGER NOT NULL,
-      email TEXT, path TEXT, country TEXT, referrer TEXT, viewed_at TEXT NOT NULL)`
-  ).run();
-  await env.DB.prepare(
-    `CREATE TABLE IF NOT EXISTS waitlist (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL)`
-  ).run();
-  await env.DB.prepare("DELETE FROM artifacts").run();
-  await env.DB.prepare("DELETE FROM artifact_grants").run();
-  await env.DB.prepare("DELETE FROM artifact_versions").run();
-  await env.DB.prepare("DELETE FROM artifact_views").run();
-  await env.DB.prepare("DELETE FROM waitlist").run();
-}
-
-async function clearR2() {
-  const listed = await env.FILES.list();
-  if (listed.objects.length) await env.FILES.delete(listed.objects.map((o) => o.key));
-}
+import { initDb, clearR2, req, htmlForm } from "./fixtures";
 
 beforeEach(async () => {
   await initDb();
   await clearR2();
 });
-
-const req = (path: string, init?: RequestInit) => app.request(path, init, env as any);
-
-function htmlForm(fields: Record<string, string>, fileName: string, bytes: Uint8Array, field = "file") {
-  const fd = new FormData();
-  for (const [k, v] of Object.entries(fields)) fd.set(k, v);
-  fd.set(field, new File([bytes], fileName, { type: "text/html" }));
-  return fd;
-}
 
 describe("health + landing", () => {
   it("health returns ok", async () => {
@@ -412,10 +362,14 @@ describe("per-artifact permissions", () => {
     expect((await req("/doc/", viewer("a@x.com"))).status).toBe(404);
   });
 
-  it("viewers cannot reach the access API", async () => {
+  it("viewers cannot reach the access API of an artifact they don't own", async () => {
     await publish("guarded", "Guarded");
-    expect((await req("/api/artifacts", viewer("bob@x.com"))).status).toBe(403);
-    expect((await setAcc("guarded", "everyone", [], "bob@x.com")).status).toBe(403);
+    // The API is open to signed-in beta users, but scoped to what they own —
+    // so a viewer sees an empty list and can't touch somebody else's artifact.
+    const list = await (await req("/api/artifacts", viewer("bob@x.com"))).json<any>();
+    expect(list.artifacts).toEqual([]);
+    expect((await setAcc("guarded", "everyone", [], "bob@x.com")).status).toBe(404);
+    expect((await req("/api/users", viewer("bob@x.com"))).status).toBe(403);
   });
 
   it("access PUT validates visibility and emails", async () => {

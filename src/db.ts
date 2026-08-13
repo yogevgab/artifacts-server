@@ -7,17 +7,28 @@ export async function listArtifacts(env: Env): Promise<ArtifactRow[]> {
   return results ?? [];
 }
 
+/** Artifacts owned by one beta user — everything their dashboard may manage. */
+export async function listArtifactsOwnedBy(env: Env, email: string): Promise<ArtifactRow[]> {
+  const { results } = await env.DB.prepare(
+    "SELECT * FROM artifacts WHERE lower(owner_email) = ? ORDER BY created_at DESC"
+  )
+    .bind(email.trim().toLowerCase())
+    .all<ArtifactRow>();
+  return results ?? [];
+}
+
 export async function getArtifact(env: Env, slug: string): Promise<ArtifactRow | null> {
   return env.DB.prepare("SELECT * FROM artifacts WHERE slug = ?").bind(slug).first<ArtifactRow>();
 }
 
 export async function upsertArtifact(env: Env, row: ArtifactRow): Promise<void> {
-  // visibility is set on INSERT but intentionally NOT in DO UPDATE SET, so
-  // publishing a new version preserves the artifact's existing access setting.
+  // visibility and owner_email are set on INSERT but intentionally NOT in
+  // DO UPDATE SET, so publishing a new version preserves the artifact's existing
+  // access setting and can never re-home it to whoever uploaded last.
   await env.DB.prepare(
     `INSERT INTO artifacts
-       (slug, title, description, type, entry, file_count, size_bytes, created_by, created_at, updated_at, visibility, current_version)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       (slug, title, description, type, entry, file_count, size_bytes, created_by, created_at, updated_at, visibility, current_version, owner_email)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(slug) DO UPDATE SET
        title=excluded.title, description=excluded.description, type=excluded.type,
        entry=excluded.entry, file_count=excluded.file_count, size_bytes=excluded.size_bytes,
@@ -35,7 +46,8 @@ export async function upsertArtifact(env: Env, row: ArtifactRow): Promise<void> 
       row.created_at,
       row.updated_at,
       row.visibility,
-      row.current_version
+      row.current_version,
+      row.owner_email
     )
     .run();
 }

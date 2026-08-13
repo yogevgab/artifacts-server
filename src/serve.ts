@@ -1,14 +1,17 @@
 import type { Context } from "hono";
-import type { AppBindings } from "./env";
+import type { Env } from "./env";
 import { contentType } from "./util";
 import { notFoundPage } from "./pages";
 
 /**
  * Serve a file for an artifact from R2. `path` is the portion after the slug
  * (may be empty). Empty or trailing-slash paths resolve to index.html.
+ *
+ * Generic over the app's per-request variables so it can be called from routes
+ * with different Variables shapes (it only ever reads the bindings).
  */
-export async function serveArtifact(
-  c: Context<AppBindings>,
+export async function serveArtifact<E extends { Bindings: Env }>(
+  c: Context<E>,
   slug: string,
   version: number,
   path: string

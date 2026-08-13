@@ -10,10 +10,12 @@ CREATE TABLE IF NOT EXISTS artifacts (
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL,
   visibility      TEXT NOT NULL DEFAULT 'restricted',
-  current_version INTEGER NOT NULL DEFAULT 1
+  current_version INTEGER NOT NULL DEFAULT 1,
+  owner_email     TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_artifacts_created_at ON artifacts (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_artifacts_owner ON artifacts (owner_email);
 
 CREATE TABLE IF NOT EXISTS artifact_grants (
   slug       TEXT NOT NULL,

@@ -1,10 +1,13 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import type { Env, ArtifactRow } from "./env";
-import { requireAdmin } from "./auth";
+import { requireAdmin, requireUser, type AuthVars } from "./auth";
+import { canManage } from "./authz";
 import { isValidSlug, slugify, contentType } from "./util";
 import { processZip, singleHtml, UploadError, MAX_UPLOAD_BYTES, type ProcessedUpload } from "./upload";
 import {
   listArtifacts,
+  listArtifactsOwnedBy,
   getArtifact,
   upsertArtifact,
   deleteArtifactRow,
@@ -27,11 +30,27 @@ import {
 } from "./access-api";
 import { firstContentHostname } from "./host";
 
-type Vars = { Variables: { email: string }; Bindings: Env };
+type Vars = { Variables: AuthVars; Bindings: Env };
 
 export const api = new Hono<Vars>();
 
-api.use("*", requireAdmin);
+// Every API route needs a signed-in caller; per-artifact ownership is enforced
+// per route below (admins manage everything, beta users only what they own).
+api.use("*", requireUser);
+// Managing who can sign in to the beta stays admin-only.
+api.use("/users", requireAdmin);
+api.use("/users/*", requireAdmin);
+
+/**
+ * Load an artifact the caller is allowed to manage, or null. Returns null both
+ * when the slug does not exist and when it belongs to somebody else, so every
+ * caller answers 404 either way and a beta user can't probe for the existence
+ * of another user's artifacts.
+ */
+async function manageable(c: Context<Vars>, slug: string): Promise<ArtifactRow | null> {
+  const art = await getArtifact(c.env, slug);
+  return art && canManage(c.get("identity"), art) ? art : null;
+}
 
 // Multipart overhead (boundaries/headers) is small, so a modest margin over
 // the file-size cap is enough headroom for the request body as a whole.
@@ -63,7 +82,11 @@ function limitBodyBytes(body: ReadableStream<Uint8Array>, maxBytes: number): Rea
 }
 
 api.get("/artifacts", async (c) => {
-  return c.json({ artifacts: await listArtifacts(c.env) });
+  const identity = c.get("identity");
+  const artifacts = identity.isAdmin
+    ? await listArtifacts(c.env)
+    : await listArtifactsOwnedBy(c.env, identity.email!);
+  return c.json({ artifacts });
 });
 
 api.post("/artifacts", async (c) => {
@@ -110,6 +133,15 @@ api.post("/artifacts", async (c) => {
   }
   if (!isValidSlug(slug)) {
     return c.json({ error: "bad_request", detail: `invalid slug "${slug}"` }, 400);
+  }
+  // Publishing to an existing slug adds a version to *that* artifact, so it is
+  // only allowed for its owner (or an admin). Slugs are a shared namespace, so
+  // "taken" is unavoidably observable — but nothing about the artifact is.
+  if (existing && !canManage(c.get("identity"), existing)) {
+    return c.json(
+      { error: "slug_taken", detail: `the slug "${slug}" is already in use — pick another` },
+      409
+    );
   }
 
   const htmlFile = form.get("file");
@@ -179,6 +211,9 @@ api.post("/artifacts", async (c) => {
     // New artifacts are private; a new version preserves existing visibility.
     visibility: existing?.visibility ?? "restricted",
     current_version: version, // new upload becomes live immediately
+    // Ownership is set once, at creation, and never transferred by a republish.
+    // A service token (no email) creates an unowned, admin-only artifact.
+    owner_email: existing?.owner_email ?? c.get("identity").email,
   };
   await upsertArtifact(c.env, row);
 
@@ -239,14 +274,14 @@ api.delete("/users/:email", async (c) => {
 
 api.get("/artifacts/:slug/versions", async (c) => {
   const slug = c.req.param("slug");
-  const art = await getArtifact(c.env, slug);
+  const art = await manageable(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
   return c.json({ current: art.current_version, versions: await listVersions(c.env, slug) });
 });
 
 api.get("/artifacts/:slug/views", async (c) => {
   const slug = c.req.param("slug");
-  const art = await getArtifact(c.env, slug);
+  const art = await manageable(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
   const raw = Number(c.req.query("limit"));
   const limit = Number.isInteger(raw) && raw > 0 ? Math.min(raw, 200) : 50;
@@ -255,7 +290,7 @@ api.get("/artifacts/:slug/views", async (c) => {
 
 api.post("/artifacts/:slug/current", async (c) => {
   const slug = c.req.param("slug");
-  const art = await getArtifact(c.env, slug);
+  const art = await manageable(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
   const body = await c.req.json().catch(() => null);
   const version = Number(body?.version);
@@ -269,14 +304,14 @@ api.post("/artifacts/:slug/current", async (c) => {
 
 api.get("/artifacts/:slug/access", async (c) => {
   const slug = c.req.param("slug");
-  const art = await getArtifact(c.env, slug);
+  const art = await manageable(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
   return c.json({ visibility: art.visibility, emails: await listGrants(c.env, slug) });
 });
 
 api.put("/artifacts/:slug/access", async (c) => {
   const slug = c.req.param("slug");
-  const art = await getArtifact(c.env, slug);
+  const art = await manageable(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
 
   const body = await c.req.json().catch(() => null);
@@ -296,12 +331,19 @@ api.put("/artifacts/:slug/access", async (c) => {
   await setAccess(c.env, slug, visibility, emails, new Date().toISOString());
 
   // Ensure granted users can actually log in: add them to the Access allow-list.
+  // Admin-only — the beta is invite-only, so an owner sharing their own artifact
+  // must not be able to widen who can sign in. Their grants still apply; the
+  // recipient just needs an admin to invite them first.
   let allowlistWarning: string | undefined;
   if (emails.length && isConfigured(c.env)) {
-    try {
-      await addUsers(c.env, emails);
-    } catch (e) {
-      if (!(e instanceof AccessNotConfiguredError)) allowlistWarning = (e as Error).message;
+    if (!c.get("identity").isAdmin) {
+      allowlistWarning = "anyone who hasn't been invited to the beta yet needs an admin to add them";
+    } else {
+      try {
+        await addUsers(c.env, emails);
+      } catch (e) {
+        if (!(e instanceof AccessNotConfiguredError)) allowlistWarning = (e as Error).message;
+      }
     }
   }
   return c.json({ slug, visibility, emails: await listGrants(c.env, slug), allowlistWarning });
@@ -309,7 +351,7 @@ api.put("/artifacts/:slug/access", async (c) => {
 
 api.delete("/artifacts/:slug", async (c) => {
   const slug = c.req.param("slug");
-  const existing = await getArtifact(c.env, slug);
+  const existing = await manageable(c, slug);
   if (!existing) return c.json({ error: "not_found" }, 404);
   await deletePrefix(c.env, slug);
   await deleteArtifactRow(c.env, slug);

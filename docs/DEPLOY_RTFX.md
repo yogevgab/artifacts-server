@@ -106,6 +106,65 @@ management routes there (the Worker does, per `src/host.ts`).
      and its `— humans` policy id.
    - `vars.ADMIN_SERVICE_TOKENS` — the `artifacts-cli` service token's client id.
 
+## 5b. Invite-only beta ownership model (issue #7) — MANUAL, mutates Cloudflare
+
+Do these in order; each is safe on its own, and stopping after step B leaves the deployment
+behaving exactly as it does today (admins only).
+
+**A. D1 migration — required before deploying the new Worker code.** `artifacts.owner_email`
+must exist before the code that writes it runs:
+
+```bash
+npx wrangler d1 execute artifacts-meta --remote --file migrations/0005_owner_email.sql
+# spot-check the backfill (existing artifacts become owned by whoever created them)
+npx wrangler d1 execute artifacts-meta --remote --command \
+  "SELECT slug, created_by, owner_email FROM artifacts"
+```
+
+Rows created by the CLI service token keep `owner_email = NULL` on purpose — they stay
+admin-only. The migration is additive and re-runnable only once (`ALTER TABLE … ADD COLUMN`
+fails if the column already exists, which is a harmless no-op signal).
+
+**B. Deploy** (`npx wrangler deploy`). Nothing user-visible changes yet: Access still gates
+`/admin` and `/api` to admins.
+
+**C. Access path change — required before beta users can use their dashboard.** The Worker enforces
+ownership itself (`src/authz.ts`): admins manage every artifact, a signed-in beta user
+manages only artifacts whose `owner_email` is theirs, and `/api/users` (the sign-in
+allow-list) stays admin-only in code. But the `Artifacts (admin)` app from step 5.2
+still gates *all* of `/admin` and `/api` at the edge to admin emails only — so without
+this change a beta user is stopped by Access before the Worker ever sees the request.
+
+Make the admin Access app guard only the genuinely admin-only surface:
+
+1. Zero Trust → Access → Applications → **`Artifacts (admin)`** → Edit.
+2. Replace its destinations `rtfx.pro/admin` and `rtfx.pro/api` with the single
+   destination **`rtfx.pro/api/users`** (this also covers `/api/users/<email>`).
+   Leave its policies (`— humans` = admin emails, `— cli`) unchanged.
+3. Leave `Artifacts (viewers)` exactly as-is. `/admin` and `/api/artifacts…` now fall
+   under it, so every *invited* beta user — the app-managed allow-list in
+   `ACCESS_VIEWER_POLICY_ID` — reaches them, and the Worker scopes what they see.
+
+Access resolves the most specific path first, so `/api/users` stays admin-gated at the
+edge while `/api/artifacts` is viewer-gated. No `wrangler.jsonc` value changes; both
+AUDs stay in `ACCESS_AUD`. **No deploy is needed for this step**, but the Worker code
+carrying the ownership model must already be deployed before you widen the path —
+deploy first, then edit Access.
+
+If you'd rather not widen `/admin` yet, skip this step: everything keeps working exactly
+as before (admins only), and beta users simply can't reach their own dashboard.
+
+Verify after the change (in a browser, signed in as a non-admin invited user):
+
+```bash
+# as an invited non-admin: their own dashboard, scoped to their artifacts
+open https://rtfx.pro/admin           # 200, "Beta" header, no Team panel
+open https://rtfx.pro/api/users       # blocked by Access; 403 from the Worker if it gets through
+```
+
+To roll back, restore the `Artifacts (admin)` destinations to `rtfx.pro/admin` and
+`rtfx.pro/api`.
+
 ## 6. Redeploy + secret — MANUAL, mutates Cloudflare
 
 ```bash
