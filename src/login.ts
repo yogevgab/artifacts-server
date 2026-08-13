@@ -1,4 +1,12 @@
-import { layout, esc, brandLockup, BRAND_STYLE, type HeadMeta } from "./pages";
+import {
+  layout,
+  esc,
+  brandLockup,
+  siteHeader,
+  siteFooter,
+  PUBLIC_CHROME_STYLE,
+  type HeadMeta,
+} from "./pages";
 import type { Env } from "./env";
 import { canonicalUrl } from "./seo";
 
@@ -24,22 +32,17 @@ import { canonicalUrl } from "./seo";
  * See docs/DESIGN.md for the visual language these states share.
  */
 
-const LOGIN_STYLE = `${BRAND_STYLE}
-main.auth{display:flex;align-items:center;justify-content:center;min-height:72vh;padding:2rem 0}
+const LOGIN_STYLE = `${PUBLIC_CHROME_STYLE}
+main.auth{display:flex;align-items:center;justify-content:center;min-height:62vh;padding:2rem 0}
 .sheet .steps{margin:1.4rem 0 0;padding:0;list-style:none;display:grid;gap:.75rem;counter-reset:step}
 .sheet .steps li{display:flex;gap:.7rem;align-items:flex-start;color:var(--muted);font-size:.94rem}
 .sheet .steps li:before{counter-increment:step;content:counter(step);flex:none;width:1.5rem;height:1.5rem;
   border-radius:999px;border:1px solid var(--border);background:rgba(255,255,255,.05);color:var(--fg);
   font-size:.78rem;font-weight:650;display:inline-flex;align-items:center;justify-content:center}
-.auth-foot{text-align:center;color:var(--muted);font-size:.88rem;padding:1.6rem 0 0}
 .who{font-family:var(--mono);font-size:.9rem;overflow-wrap:anywhere}
 /* The lockup inside the sheet is the page's own signature — bigger than the one
    in the header bar, and centred, because on this page the brand IS the content
    above the fold. */
-/* The .nav rule lives in the landing page's own stylesheet, which this page does
-   not load — so the header links need a rule here or they run together. */
-.auth-nav{display:flex;gap:.9rem;align-items:center}
-.auth-nav a{color:var(--muted);font-size:.9rem}
 .auth-brand{display:flex;justify-content:center;margin-bottom:1.15rem}
 .auth-brand .brand-lockup{font-size:1.2rem;gap:.65rem}
 .sheet[data-page="login"]{text-align:center}
@@ -54,13 +57,11 @@ main.auth{display:flex;align-items:center;justify-content:center;min-height:72vh
  * the dashboard and the browser tab use; see `brandMark` in src/pages.ts.
  */
 function sheet(state: string, inner: string): string {
-  return `<header class="top">${brandLockup("/")}
-      <nav class="nav auth-nav" aria-label="Primary"><a href="/">Home</a><a href="/docs">Docs</a></nav></header>
+  return `${siteHeader("login")}
     <main class="auth"><section class="sheet" data-page="login" data-state="${esc(state)}">
       <div class="auth-brand">${brandLockup("/")}</div>
       ${inner}</section></main>
-    <footer class="auth-foot"><a href="/docs">Docs</a> · Access is by invitation · Cloudflare Access
-      secures every sign-in</footer>`;
+    ${siteFooter()}`;
 }
 
 /**
@@ -109,7 +110,7 @@ function signedIn(email: string): string {
      <p class="lede">This browser is signed in as <span class="who" data-viewer-email>${esc(email)}</span>.</p>
      <div class="actions">
        <a class="link-button" href="/admin" data-cta="dashboard">Go to dashboard</a>
-       <a class="ghost link-button" href="/gallery">Browse artifacts</a>
+       <a class="ghost link-button" href="/admin/gallery">Browse the gallery</a>
      </div>
      <hr class="divider">
      <p class="hint">Signing in as somebody else? Sign out of Cloudflare Access first, at

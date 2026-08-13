@@ -1,5 +1,3 @@
-import type { ArtifactRow } from "./env";
-
 export function esc(s: unknown): string {
   return String(s ?? "")
     .replace(/&/g, "&amp;")
@@ -110,8 +108,13 @@ a.link-button:hover{opacity:.96;transform:translateY(-1px);text-decoration:none;
 // for any page that shows the logo. Keeping the geometry in `MARK_PATH` and the
 // colour in `MARK_BLUE` is what stops the tab and the page from drifting apart.
 
-const MARK_PATH = "M9 22 16 9l7 13";
-const MARK_BLUE = "#3b5bdb";
+/**
+ * The mark's geometry and colour, exported so anything that has to redraw it in
+ * a different medium — the social card in `src/seo.ts`, for instance — redraws
+ * *this* shape rather than inventing a second one.
+ */
+export const MARK_PATH = "M9 22 16 9l7 13";
+export const MARK_BLUE = "#3b5bdb";
 
 // Inline mark, so no page ever requests /favicon.ico — that path would fall
 // through to the artifact catch-all (or the content-host redirect) and log noise.
@@ -153,6 +156,74 @@ export const BRAND_STYLE = `
 .brand-lockup:hover{color:var(--accent);text-decoration:none}
 .brand-lockup .mark{display:block;border-radius:8px;flex:none}
 .brand-lockup .wordmark span{color:var(--muted);font-weight:600}
+`;
+
+// --- public chrome ----------------------------------------------------------
+//
+// One header and one footer for every page a signed-out visitor can reach
+// (issue #35). Landing, docs and sign-in used to carry three near-identical
+// copies of this markup and CSS, which is exactly how three pages drift into
+// looking like three products.
+
+/** Which public page is being rendered, so its own link can be dropped. */
+export type PublicPage = "home" | "docs" | "login";
+
+/**
+ * The sticky nav bar: the rtfx lockup, then the same four destinations in the
+ * same order everywhere. The current page's own link is omitted rather than
+ * disabled — a nav that points at the page you are on is noise.
+ */
+export function siteHeader(current: PublicPage = "home"): string {
+  const links = [
+    current === "home" ? "" : `<a href="/" data-nav="home">Home</a>`,
+    current === "docs" ? "" : `<a href="/docs" data-cta="docs">Docs</a>`,
+    `<a href="/docs#use-cases" data-nav="use-cases">Use cases</a>`,
+    `<a href="/#waitlist" class="primary" data-cta="request-access">Request access</a>`,
+    current === "login" ? "" : `<a href="/login" data-cta="sign-in">Sign in →</a>`,
+  ].filter(Boolean);
+  return `<header class="top">${brandLockup("/")}
+    <nav class="nav" aria-label="Primary">${links.join("\n      ")}</nav></header>`;
+}
+
+/** The same footer on every public page: where to go next, and what this is. */
+export function siteFooter(): string {
+  return `<footer class="site">
+      <nav aria-label="Footer">
+        <a href="/">Home</a>
+        <a href="/docs" data-cta="docs">Docs</a>
+        <a href="/docs#use-cases">Use cases</a>
+        <a href="/login" data-cta="sign-in">Sign in</a>
+        <a href="/llms.txt">llms.txt</a>
+      </nav>
+      <div>rtfx.pro — secure, access-protected hosting for pages and artifacts.</div>
+    </footer>`;
+}
+
+/**
+ * Presentation for `siteHeader`/`siteFooter`. Includes `BRAND_STYLE`, so a page
+ * that opts into the chrome cannot end up with an unstyled lockup.
+ */
+export const PUBLIC_CHROME_STYLE = `${BRAND_STYLE}
+header.top{position:sticky;top:0;z-index:5;margin:-.75rem 0 2.2rem;padding:.72rem .9rem;
+  border:1px solid var(--border);border-radius:999px;background:var(--elev);
+  backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);box-shadow:var(--shadow)}
+.nav{display:flex;gap:.9rem;align-items:center;flex-wrap:wrap}
+.nav a{color:var(--muted);font-size:.9rem}
+.nav a:hover{color:var(--fg)}
+.nav a.primary{color:var(--fg);border:1px solid var(--border);border-radius:999px;
+  padding:.42rem .78rem;background:rgba(255,255,255,.05)}
+footer.site{text-align:center;color:var(--muted);font-size:.88rem;padding:2.4rem 0 1rem;
+  border-top:1px solid var(--border);margin-top:3rem}
+footer.site nav{display:flex;gap:1.1rem;justify-content:center;flex-wrap:wrap;margin-bottom:.9rem}
+@media(max-width:760px){
+  header.top{position:static;border-radius:22px}
+  .nav{gap:.55rem}
+  /* The two orientation links go first on a narrow screen; the two that move a
+     person forward (request access, sign in) always stay. */
+  .nav a[data-nav="use-cases"],.nav a[data-nav="home"]{display:none}
+}
+/* Touch targets in the nav: a 0.9rem text link is not 44px on its own. */
+@media(pointer:coarse){.nav a,footer.site nav a{min-height:44px;display:inline-flex;align-items:center}}
 `;
 
 /**
@@ -221,46 +292,25 @@ ${headTags(title, meta)}
 <body><div class="wrap">${body}</div></body></html>`;
 }
 
-function fmtDate(iso: string): string {
-  return iso.slice(0, 10);
-}
-
-export function galleryPage(rows: ArtifactRow[]): string {
-  const cards = rows
-    .map(
-      (r) => `<a class="card" href="/${esc(r.slug)}/" data-artifact="${esc(r.slug)}">
-      <h3>${esc(r.title)}</h3>
-      ${r.description ? `<p>${esc(r.description)}</p>` : `<p class="hint">/${esc(r.slug)}/</p>`}
-      <div class="meta"><span class="tag">${esc(r.type)}</span>
-        <span class="badge" data-badge="version">v${r.current_version}</span>
-        ${r.visibility === "everyone" ? `<span class="badge is-open" data-badge="visibility">everyone</span>` : `<span class="badge is-locked" data-badge="visibility">restricted</span>`}
-        <span>${fmtDate(r.created_at)}</span></div>
-    </a>`
-    )
-    .join("");
-  const body = `<header class="top"><div><h1>Artifacts</h1><div class="sub">${rows.length} published</div></div></header>
-    ${
-      rows.length
-        ? `<div class="grid">${cards}</div>`
-        : `<div class="empty" data-empty="gallery">
-            <h3>No artifacts yet.</h3>
-            <p>Nothing has been shared with you so far. When someone publishes an artifact and
-              grants you access, it shows up here.</p>
-          </div>`
-    }`;
-  return layout("Artifacts", body);
-}
-
+/**
+ * The 404 every missing *or* unauthorized artifact gets. This is the one page
+ * rendered on the content origin as well as the app origin, which is why it
+ * depends on nothing outside this module.
+ *
+ * It carries the lockup like every other surface (issue #35): somebody who
+ * followed a link that no longer resolves should still be able to tell whose
+ * product just answered them.
+ */
 export function notFoundPage(slug?: string): string {
-  const body = `<header class="top"><h1>Not found</h1></header>
+  const body = `<header class="top">${brandLockup("/")}</header>
     <div class="empty" data-empty="not-found">
       <h3>${slug ? `Nothing here at <span class="mono">/${esc(slug)}/</span>` : "This page does not exist."}</h3>
       <p>${
         slug
           ? "The artifact may have been deleted, renamed, or you may not have access to it. Check the link, or ask the person who shared it to grant you access."
-          : "Check the address, or head back to the gallery."
+          : "Check the address, or head back to your dashboard."
       }</p>
-      <p style="margin-top:1rem"><a href="/gallery">← Back to gallery</a></p>
+      <p style="margin-top:1rem"><a href="/admin">← Back to your dashboard</a></p>
     </div>`;
-  return layout("Not found", body);
+  return layout("Not found", body, BRAND_STYLE);
 }

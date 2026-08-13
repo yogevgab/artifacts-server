@@ -482,6 +482,75 @@ export function artifactsPage(o: ArtifactsInput): string {
   });
 }
 
+// --- Gallery ----------------------------------------------------------------
+
+/**
+ * Everything this person can *open*, as opposed to everything they manage
+ * (issue #35).
+ *
+ * This was the standalone `/gallery` page, which looked and behaved like a
+ * second product: its own header, its own typography, no navigation back into
+ * the dashboard. It is now a portal section like any other, so the answer to
+ * "where do I find the thing somebody shared with me?" is a tab, not a URL you
+ * had to be told about. `/gallery` still resolves — it redirects here.
+ *
+ * Read-only by design. A card links to the artifact itself; the management
+ * affordances live in Artifacts, and only for artifacts this person owns.
+ */
+export function galleryPage(viewer: PortalViewer, rows: ArtifactRow[]): string {
+  const cards = rows
+    .map(
+      (r) => `<a class="card" href="/${esc(r.slug)}/" data-artifact="${esc(r.slug)}">
+      <h3>${esc(r.title)}</h3>
+      ${r.description ? `<p>${esc(r.description)}</p>` : `<p class="hint">/${esc(r.slug)}/</p>`}
+      <div class="meta"><span class="tag">${esc(r.type)}</span>
+        <span class="badge" data-badge="version">v${r.current_version}</span>
+        ${
+          r.visibility === "everyone"
+            ? `<span class="badge is-open" data-badge="visibility">everyone</span>`
+            : `<span class="badge is-locked" data-badge="visibility">restricted</span>`
+        }
+        <span>${esc(r.created_at.slice(0, 10))}</span></div>
+    </a>`
+    )
+    .join("");
+
+  const empty = `<div class="empty" data-empty="gallery">
+    <h3>No artifacts yet.</h3>
+    <p>Nothing has been shared with you so far. When someone publishes an artifact and
+      grants you access, it shows up here. Anything you publish yourself appears under
+      <a href="/admin/artifacts">Artifacts</a>.</p>
+  </div>`;
+
+  return portalShell({
+    viewer,
+    section: "gallery",
+    title: "Gallery",
+    heading: "Gallery",
+    lede: viewer.isAdmin
+      ? `Every artifact on this instance, as a reader sees it. Open one to view the page itself.`
+      : `Everything you can open — what you published, plus what other people have shared with
+         you. Managing an artifact happens under <a href="/admin/artifacts">Artifacts</a>.`,
+    body: `<section aria-labelledby="gallery-h">
+      <div class="section-head">
+        <h2 id="gallery-h">Shared with you
+          <span class="hint">${plural(rows.length, "artifact")}</span></h2>
+      </div>
+      ${rows.length ? `<div class="grid">${cards}</div>` : empty}
+    </section>`,
+    style: GALLERY_STYLE,
+  });
+}
+
+/* The same section heading the Artifacts list uses — repeated here rather than
+   shared, because this section deliberately loads none of ARTIFACTS_STYLE (no
+   publish form, no drag-and-drop, nothing that can change anything). */
+const GALLERY_STYLE = `
+.section-head{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin:0 0 .95rem}
+.section-head h2{font-size:1.15rem;margin:0;letter-spacing:-.035em}
+.section-head .hint{margin-left:.45rem;font-weight:400}
+`;
+
 // --- Artifacts: one artifact ------------------------------------------------
 
 function versionsPanel(r: ArtifactRow, versions: VersionRow[]): string {

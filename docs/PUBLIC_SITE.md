@@ -19,8 +19,8 @@ Exactly four paths are public, plus the crawler files. Everything else requires 
 | `/llms.txt` | [llmstxt.org](https://llmstxt.org) product summary for AI agents/answer engines | — |
 | `/og.svg` | 1200×630 social card | — |
 
-Gated, and excluded from every index: `/admin`, `/api/*`, `/gallery`, `/v/*`, `/whoami`,
-`/health`, and every artifact URL.
+Gated, and excluded from every index: `/admin/*` (the gallery included), `/api/*`, `/gallery`
+(a redirect into `/admin/gallery`), `/v/*`, `/whoami`, `/health`, and every artifact URL.
 
 Three layers keep it that way, and none of them depends on the others:
 

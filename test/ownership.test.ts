@@ -136,7 +136,7 @@ describe("ownership: listing is scoped", () => {
   });
 
   it("a beta user's gallery excludes other people's private artifacts", async () => {
-    const body = await (await req("/gallery", as(BOB))).text();
+    const body = await (await req("/admin/gallery", as(BOB))).text();
     expect(body).toContain('data-artifact="bob-one"');
     expect(body).not.toContain('data-artifact="carol-one"');
   });
@@ -206,7 +206,7 @@ describe("ownership: viewing vs managing", () => {
     expect((await setAccess(BOB, "shared-out", "restricted", [CAROL])).status).toBe(200);
     // Carol can read it...
     expect((await req("/shared-out/", as(CAROL))).status).toBe(200);
-    expect(await (await req("/gallery", as(CAROL))).text()).toContain('data-artifact="shared-out"');
+    expect(await (await req("/admin/gallery", as(CAROL))).text()).toContain('data-artifact="shared-out"');
     // ...but it is not hers to manage, and it is not on her dashboard.
     expect((await req("/api/artifacts/shared-out/access", as(CAROL))).status).toBe(404);
     expect((await req("/api/artifacts/shared-out", as(CAROL, { method: "DELETE" }))).status).toBe(404);

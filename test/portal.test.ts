@@ -37,6 +37,7 @@ function currentSection(html: string): string | null {
 const SECTIONS: [string, string][] = [
   ["/admin", "overview"],
   ["/admin/artifacts", "artifacts"],
+  ["/admin/gallery", "gallery"],
   ["/admin/people", "people"],
   ["/admin/integrations", "integrations"],
   ["/admin/settings", "settings"],
@@ -117,10 +118,11 @@ describe("portal shell", () => {
 });
 
 describe("portal navigation is scoped to the viewer", () => {
-  it("offers a member four sections, and neither People nor Platform", async () => {
+  it("offers a member five sections, and neither People nor Platform", async () => {
     expect(navItems(await page("/admin", BOB))).toEqual([
       "overview",
       "artifacts",
+      "gallery",
       "integrations",
       "settings",
     ]);
@@ -130,6 +132,7 @@ describe("portal navigation is scoped to the viewer", () => {
     expect(navItems(await page("/admin", ADMIN2))).toEqual([
       "overview",
       "artifacts",
+      "gallery",
       "people",
       "integrations",
       "settings",
@@ -140,6 +143,7 @@ describe("portal navigation is scoped to the viewer", () => {
     expect(navItems(await page("/admin", SUPER))).toEqual([
       "overview",
       "artifacts",
+      "gallery",
       "people",
       "integrations",
       "settings",

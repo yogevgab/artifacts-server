@@ -1,5 +1,6 @@
 import type { Env } from "./env";
 import { requestHostname } from "./host";
+import { MARK_PATH, MARK_BLUE } from "./pages";
 
 /**
  * Public-web surface: canonical identity, crawler files, and the metadata every
@@ -21,11 +22,12 @@ export const SITE = {
   name: "rtfx.pro",
   /** Canonical origin. Override per-deployment with `vars.PUBLIC_BASE_URL`. */
   origin: "https://rtfx.pro",
-  tagline: "Publish what your AI just built — privately, in seconds.",
+  tagline: "Claude creates. We share.",
   description:
-    "rtfx.pro is access-controlled hosting for HTML pages and multi-file artifacts. " +
-    "Publish from Claude Code, Hermes, the CLI or the dashboard, keep every page " +
-    "private by default, version each release, and see exactly who opened it.",
+    "rtfx.pro is secure, access-protected hosting for the HTML pages and multi-file " +
+    "artifacts Claude just built. Publish from Claude Code, Hermes, the CLI or the " +
+    "dashboard, keep every page private by default, version each release, and see " +
+    "exactly who opened it.",
 } as const;
 
 /** Absolute origin for canonical URLs, with any trailing slash removed. */
@@ -71,8 +73,9 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
     path: "/docs",
     title: "Docs — publishing, access control and the API",
     summary:
-      "How publishing works from Claude Code, Hermes, the CLI and the API; the " +
-      "access-control and privacy model; versioning; view logs; FAQ.",
+      "How publishing works from Claude Code, Hermes, the CLI and the API; who uses " +
+      "rtfx.pro and for what; the access-control and privacy model; versioning; view " +
+      "logs; how it compares to generic static hosting; FAQ.",
     priority: "0.8",
   },
   {
@@ -198,6 +201,12 @@ excluded from crawling. Do not attempt to fetch them; they answer 404 without an
  * Social card. An inline SVG keeps the card in the same design language as the
  * site with no build step and no binary in the repo — see docs/PUBLIC_SITE.md
  * for the PNG follow-up some social networks need.
+ *
+ * The lockup here is the *same* mark the favicon, the sign-in page and the
+ * dashboard header draw (issue #35): `MARK_PATH` and `MARK_BLUE` come straight
+ * from `src/pages.ts`, so the thing somebody sees in a Slack unfurl and the
+ * thing they see when they click through cannot drift apart. Nested `<svg>`
+ * rather than a copied path, so the mark keeps its own 32×32 coordinate space.
  */
 export function ogImageSvg(): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="${SITE.name} — ${SITE.tagline}">
@@ -205,20 +214,20 @@ export function ogImageSvg(): string {
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#06070a"/><stop offset="100%" stop-color="#111827"/>
     </linearGradient>
-    <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#0a84ff"/><stop offset="100%" stop-color="#64d2ff"/>
-    </linearGradient>
   </defs>
   <rect width="1200" height="630" fill="url(#bg)"/>
   <circle cx="1050" cy="90" r="260" fill="#0a84ff" opacity="0.16"/>
   <circle cx="150" cy="600" r="220" fill="#64d2ff" opacity="0.12"/>
+  <svg x="80" y="66" width="56" height="56" viewBox="0 0 32 32">
+    <rect width="32" height="32" rx="8" fill="${MARK_BLUE}"/>
+    <path d="${MARK_PATH}" fill="none" stroke="white" stroke-width="2.5" stroke-linejoin="round"/>
+  </svg>
   <g font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Helvetica, Arial, sans-serif">
-    <circle cx="98" cy="92" r="17" fill="url(#mark)"/>
-    <text x="130" y="104" fill="#f5f7fb" font-size="34" font-weight="700" letter-spacing="-1">${SITE.name}</text>
-    <text x="96" y="300" fill="#f5f7fb" font-size="78" font-weight="700" letter-spacing="-3">Publish what your AI</text>
-    <text x="96" y="392" fill="#f5f7fb" font-size="78" font-weight="700" letter-spacing="-3">just built — privately.</text>
-    <text x="96" y="470" fill="#a6adbb" font-size="34">Versioned hosting for pages and artifacts, with</text>
-    <text x="96" y="516" fill="#a6adbb" font-size="34">per-artifact access control and a full view log.</text>
+    <text x="152" y="106" fill="#f5f7fb" font-size="34" font-weight="700" letter-spacing="-1">${SITE.name}</text>
+    <text x="96" y="300" fill="#f5f7fb" font-size="86" font-weight="700" letter-spacing="-3">Claude creates.</text>
+    <text x="96" y="396" fill="#f5f7fb" font-size="86" font-weight="700" letter-spacing="-3">We share.</text>
+    <text x="96" y="474" fill="#a6adbb" font-size="34">Secure, access-protected hosting for pages and</text>
+    <text x="96" y="520" fill="#a6adbb" font-size="34">artifacts — versioned, access-controlled, audited.</text>
   </g>
 </svg>
 `;
