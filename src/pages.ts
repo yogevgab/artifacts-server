@@ -111,11 +111,69 @@ const FAVICON =
   "%3Crect width='32' height='32' rx='8' fill='%233b5bdb'/%3E" +
   "%3Cpath d='M9 22 16 9l7 13' fill='none' stroke='white' stroke-width='2.5' stroke-linejoin='round'/%3E%3C/svg%3E";
 
-export function layout(title: string, body: string, extraStyle = ""): string {
+/**
+ * Head metadata for a page. Omitting it is the safe default: a page with no
+ * `HeadMeta` is treated as private and rendered `noindex,nofollow`, so a new
+ * signed-in surface can never be indexed by forgetting to say so (issue #29).
+ */
+export interface HeadMeta {
+  /** Meta description + OpenGraph/Twitter description. */
+  description: string;
+  /** Absolute canonical URL — also the OpenGraph URL. */
+  canonical: string;
+  /** Absolute social card URL. */
+  image?: string;
+  /** Social-card title; defaults to the page title. */
+  socialTitle?: string;
+  /** JSON-LD objects rendered as `application/ld+json`. */
+  jsonLd?: unknown[];
+}
+
+/** Serialize JSON-LD safely: `<` can never start a tag inside the script. */
+function ldJson(data: unknown): string {
+  return `<script type="application/ld+json">${JSON.stringify(data).replace(/</g, "\\u003c")}</script>`;
+}
+
+function headTags(title: string, meta?: HeadMeta): string {
+  if (!meta) return `<meta name="robots" content="noindex,nofollow">`;
+  const social = meta.socialTitle ?? title;
+  const tags = [
+    `<meta name="description" content="${esc(meta.description)}">`,
+    `<link rel="canonical" href="${esc(meta.canonical)}">`,
+    `<meta name="robots" content="index,follow,max-image-preview:large">`,
+    `<meta property="og:type" content="website">`,
+    `<meta property="og:site_name" content="rtfx.pro">`,
+    `<meta property="og:locale" content="en_US">`,
+    `<meta property="og:title" content="${esc(social)}">`,
+    `<meta property="og:description" content="${esc(meta.description)}">`,
+    `<meta property="og:url" content="${esc(meta.canonical)}">`,
+    `<meta name="twitter:card" content="${meta.image ? "summary_large_image" : "summary"}">`,
+    `<meta name="twitter:title" content="${esc(social)}">`,
+    `<meta name="twitter:description" content="${esc(meta.description)}">`,
+  ];
+  if (meta.image) {
+    tags.push(
+      `<meta property="og:image" content="${esc(meta.image)}">`,
+      `<meta property="og:image:type" content="image/svg+xml">`,
+      `<meta property="og:image:width" content="1200">`,
+      `<meta property="og:image:height" content="630">`,
+      `<meta property="og:image:alt" content="${esc(social)}">`,
+      `<meta name="twitter:image" content="${esc(meta.image)}">`
+    );
+  }
+  for (const block of meta.jsonLd ?? []) tags.push(ldJson(block));
+  return tags.join("\n");
+}
+
+export function layout(title: string, body: string, extraStyle = "", meta?: HeadMeta): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#06070a">
 <link rel="icon" href="${FAVICON}">
-<title>${esc(title)}</title><style>${STYLE}${extraStyle}</style></head>
+<title>${esc(title)}</title>
+${headTags(title, meta)}
+<style>${STYLE}${extraStyle}</style></head>
 <body><div class="wrap">${body}</div></body></html>`;
 }
 

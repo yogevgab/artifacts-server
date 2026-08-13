@@ -13,14 +13,14 @@ Cloudflare Access (login gate + allow-list, everything else)
         │  forwards a signed JWT (Cf-Access-Jwt-Assertion) on every request
         ▼
 Worker (Hono router)
-   GET /                     public landing page — pitch, pricing/beta, waitlist form
+   GET /                     public landing page — product pitch, use cases, request-access form
    POST /waitlist            join the waitlist (public; validates + dedupes by email)
    GET /gallery              gallery, filtered to what the viewer may see (signed-in only;
                               anonymous → 302 to /)
    GET /<slug>/…             serve the current version's files (per-artifact authz)
    GET /v/<slug>/<n>/…       preview a specific version (admin or the artifact's owner)
    GET /admin                dashboard (publish, access, versions; users panel = admin only).
-                              Admins see every artifact, a beta user only their own
+                              Admins see every artifact, a member only their own
    /api/*                    JSON API (signed-in via Access *or* an API token; scoped to
                               what the caller owns. /api/users is admin-only;
                               /api/users + /api/tokens refuse API tokens entirely)
@@ -55,22 +55,22 @@ Worker (Hono router)
   - **dashboard access** (`canUseDashboard`) — admins, and signed-in humans. A non-admin
     service token is refused: ownership is keyed on an email, so a token owns nothing.
   - **per-artifact management** (`src/authz.ts`, `canManage`/`isOwner`) — admins manage every
-    artifact; a beta user manages only those whose `owner_email` is theirs. Everything else
+    artifact; a member manages only those whose `owner_email` is theirs. Everything else
     answers 404, never 403, so another user's slugs stay unprobeable. A view grant confers no
     management rights, and an artifact with no owner is admin-only.
   - **per-artifact view** (`canView`) — admins see all; the owner always sees their own;
     `everyone` artifacts are visible to any signed-in user; `restricted` artifacts only to
     granted emails.
 
-The invite-only beta relies on both layers: Access decides who may sign in at all, and the
+The invite-only access model relies on both layers: Access decides who may sign in at all, and the
 Worker decides what each signed-in person may see and manage. Widening the Access path gating
-(so beta users reach `/admin`) is a deliberate, documented operator step — see
+(so members reach `/admin`) is a deliberate, documented operator step — see
 `docs/DEPLOY_RTFX.md` §5b.
 
 ## Data model (D1)
 
 - `artifacts` — one row per artifact: slug, title, description, current type/entry/counts,
-  `visibility` (`restricted` | `everyone`), `current_version`, and `owner_email` (the beta user
+  `visibility` (`restricted` | `everyone`), `current_version`, and `owner_email` (the member
   who may manage it; NULL = admin-only). `owner_email` is set once at creation and never
   changed by a republish, so an admin uploading a new version can't take over someone's
   artifact.

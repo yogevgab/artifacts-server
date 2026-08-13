@@ -9,7 +9,7 @@ export interface Env {
   /**
    * Comma-separated super-admin (operator/owner) emails. A super admin is an
    * admin who additionally may manage other admins, and who can never be
-   * disabled or removed from the beta — the anti-lockout invariant. Defaults to
+   * disabled or removed from rtfx.pro — the anti-lockout invariant. Defaults to
    * the first `ADMIN_EMAILS` entry when unset, so every deployment has one.
    */
   SUPER_ADMIN_EMAILS?: string;
@@ -28,6 +28,13 @@ export interface Env {
    * Leave unset to keep everything on a single origin (current behavior).
    */
   CONTENT_HOSTNAMES?: string;
+  /**
+   * Canonical public origin of the app host, e.g. "https://rtfx.pro". Used for
+   * canonical links, OpenGraph URLs, sitemap.xml and llms.txt. Defaults to
+   * `SITE.origin` (src/seo.ts); set it when deploying under another domain so a
+   * preview/staging host never competes with production in a search index.
+   */
+  PUBLIC_BASE_URL?: string;
 
   // --- User management: the app reads/writes the Cloudflare Access viewer
   //     policy directly, so Cloudflare Access is the source of truth for the
@@ -56,7 +63,7 @@ export interface ArtifactRow {
   visibility: Visibility;
   current_version: number;
   /**
-   * Email of the beta user who owns this artifact — the only non-admin who may
+   * Email of the member who owns this artifact — the only non-admin who may
    * manage it. NULL means nobody but an admin can manage it (legacy rows, and
    * anything published by a service token, which has no email).
    */

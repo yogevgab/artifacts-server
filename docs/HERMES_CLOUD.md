@@ -15,7 +15,7 @@ CLI's Access service token). **An API token can never mint another token** — t
 deliberate, so a leaked publishing credential can't grow itself new rights.
 
 ```bash
-# As an admin, for an integration that publishes on behalf of a beta user:
+# As an admin, for an integration that publishes on behalf of a member:
 node cli/artifacts.mjs token-create "hermes-cloud" \
   --owner alice@example.com \
   --scopes read,publish \
@@ -56,7 +56,7 @@ The server stores only a SHA-256 hash of the token. If you lose it, revoke it
 | Caller | May create |
 |---|---|
 | Admin | Any token: for any `owner_email`, or `"is_admin": true` for a token that manages every artifact |
-| Beta user | Only tokens that act as themselves (`owner_email` = their own email, never `is_admin`) |
+| Member | Only tokens that act as themselves (`owner_email` = their own email, never `is_admin`) |
 | API token | Nothing — `403` |
 
 ### Token fields
@@ -179,7 +179,7 @@ curl -sS -X PUT "$ARTIFACTS_URL/api/artifacts/my-page/access" \
 curl -sS -X DELETE "$ARTIFACTS_URL/api/artifacts/my-page" -H "Authorization: Bearer $RTFX_API_TOKEN"
 ```
 
-A non-admin token's grants are saved but do **not** invite anyone into the beta — the
+A non-admin token's grants are saved but do **not** invite anyone to sign in — the
 response carries `allowlistWarning` when a granted address still needs an admin invite.
 
 ## 6. Errors
@@ -210,7 +210,7 @@ node cli/artifacts.mjs token-revoke 9f2c1ab30d4e
 - Revocation is immediate and permanent; the row is kept as an audit tombstone.
 - `last_used_at` is refreshed at most every 5 minutes per token — enough to spot a token
   nobody uses, cheap enough not to write on every request.
-- Removing a user from the beta (`DELETE /api/users/:email`) revokes their tokens too, and so
+- Removing a user (`DELETE /api/users/:email`) revokes their tokens too, and so
   does pausing one (`POST /api/users/:email/disable`). Re-enabling does **not** restore them —
   mint a replacement.
 - Prefer one token per integration, with the narrowest scopes and an expiry. Rotate by

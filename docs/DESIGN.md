@@ -47,8 +47,8 @@ Five people use this product. Each one's needs shape a surface.
 | Persona | Enters at | Needs to know | Deliberately cannot |
 |---|---|---|---|
 | **Anonymous visitor** | `/` | What this is, that it's invite-only, which of "request access" / "sign in" applies to them | See any artifact, user or count |
-| **Invited beta user** | `/login` → `/admin` | That their invite works, how to publish, what's theirs | See other people's artifacts, the People panel, or anyone's tokens |
-| **Admin** | `/admin` | Who's in the beta and what state they're in; everything published | Act on another admin; disable or remove themselves |
+| **Invited member** | `/login` → `/admin` | That their invite works, how to publish, what's theirs | See other people's artifacts, the People panel, or anyone's tokens |
+| **Admin** | `/admin` | Who has access and what state they're in; everything published | Act on another admin; disable or remove themselves |
 | **Super admin / operator** | `/admin` | Everything an admin sees, plus admin-level lifecycle | Be disabled or removed — by anyone, including themselves |
 | **Agent (Claude Code / Hermes / CI)** | `/api/*` with a bearer token | Machine-readable outcomes and precise error codes | Reach any user-management route at all |
 
@@ -58,7 +58,7 @@ Notes that matter to design:
   `/login` must be complete without one. Neither may sit behind Cloudflare
   Access — a visitor meeting Cloudflare's own login screen with no context is
   the single worst first impression this product can make.
-- **The invited beta user is the persona we most often get wrong.** They see a
+- **The invited member is the persona we most often get wrong.** They see a
   narrowed dashboard, and every narrowing must read as "this isn't yours" rather
   than "something is broken".
 - **The agent has no eyes.** Its UI is the JSON error code — `invalid_token`,
@@ -172,7 +172,7 @@ they did something wrong.
 - Destructive confirmations state the blast radius *and* what survives: removing
   someone takes their sign-in, grants and tokens — **not** their artifacts.
 - Second person for the user, never "we" for the system.
-- English for the beta. Hebrew-first copy is desirable later (issue #24) and
+- English for now. Hebrew-first copy is desirable later (issue #24) and
   nothing here should block it, but mixed-language UI is worse than consistent
   English — so switch a whole surface at a time, and add `dir="rtl"` support to
   `layout()` when we do.

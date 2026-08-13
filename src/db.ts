@@ -7,7 +7,7 @@ export async function listArtifacts(env: Env): Promise<ArtifactRow[]> {
   return results ?? [];
 }
 
-/** Artifacts owned by one beta user — everything their dashboard may manage. */
+/** Artifacts owned by one member — everything their dashboard may manage. */
 export async function listArtifactsOwnedBy(env: Env, email: string): Promise<ArtifactRow[]> {
   const { results } = await env.DB.prepare(
     "SELECT * FROM artifacts WHERE lower(owner_email) = ? ORDER BY created_at DESC"

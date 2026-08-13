@@ -17,15 +17,27 @@ describe("health + landing", () => {
     expect(await res.text()).toBe("ok");
   });
 
-  it("serves the public landing page at / with waitlist + beta messaging", async () => {
+  it("serves the public landing page at / with request-access messaging", async () => {
     const res = await req("/");
     expect(res.status).toBe(200);
     const body = await res.text();
     expect(body).toContain('id="waitlist"');
     expect(body).toContain('id="wl"');
-    expect(body.toLowerCase()).toContain("beta");
+    expect(body).toContain("Request access");
     expect(body).toContain("Sign in");
     expect(body).not.toContain("No artifacts yet");
+  });
+
+  // Issue #29: rtfx.pro is a shipped product with controlled access, not a
+  // preview of one. "Invite-only" describes who may sign in and is welcome;
+  // "beta"/"MVP" describe how finished the product is, and must not appear.
+  it("public pages avoid preview-stage framing", async () => {
+    for (const path of ["/", "/docs", "/login"]) {
+      const body = (await (await req(path)).text()).toLowerCase();
+      expect(body, `${path} mentions beta`).not.toMatch(/\bbetas?\b/);
+      expect(body, `${path} mentions mvp`).not.toMatch(/\bmvp\b/);
+      expect(body, `${path} mentions early access`).not.toMatch(/\bearly access\b/);
+    }
   });
 
   it("landing page is served the same regardless of caller identity", async () => {

@@ -1,6 +1,6 @@
 # rtfx.pro production deployment runbook
 
-Production deploy for the rtfx.pro private beta: `rtfx.pro` (dashboard/API/admin) +
+Production deploy for rtfx.pro: `rtfx.pro` (public site + dashboard/API/admin) +
 `a.rtfx.pro` (artifact content only, per the origin isolation in `src/host.ts`).
 
 This document is a checklist for a **human operator** running commands locally. Every
@@ -93,14 +93,19 @@ management routes there (the Worker does, per `src/host.ts`).
    `rtfx.pro/api` (not `a.rtfx.pro` — content hosts never serve those paths), same two
    policies.
 3. **New for the public landing page (issue #5):** self-hosted app **`Artifacts (public)`**
-   with destinations `rtfx.pro/` (exact root), `rtfx.pro/waitlist` and — **added for issue
-   #24** — `rtfx.pro/login`, one policy with decision **Bypass**. Without this, the viewer
-   app above (destination `rtfx.pro`) still gates those paths, so `/` would show Access's
-   login screen instead of the public landing page. `/login` matters for the same reason and
-   more sharply: it is the page that *explains* how to sign in, so meeting Cloudflare's own
-   login screen there instead defeats its entire purpose. `a.rtfx.pro` doesn't need this — it
-   never serves `/`, `/waitlist` or `/login` (`src/host.ts` blocks management routes there
-   regardless of Access).
+   with destinations `rtfx.pro/` (exact root), `rtfx.pro/waitlist`, — **added for issue
+   #24** — `rtfx.pro/login`, and — **added for issue #29** — `rtfx.pro/docs`,
+   `rtfx.pro/robots.txt`, `rtfx.pro/sitemap.xml`, `rtfx.pro/llms.txt` and `rtfx.pro/og.svg`,
+   one policy with decision **Bypass**. Without this, the viewer app above (destination
+   `rtfx.pro`) still gates those paths, so `/` would show Access's login screen instead of
+   the public landing page. `/login` matters for the same reason and more sharply: it is the
+   page that *explains* how to sign in, so meeting Cloudflare's own login screen there
+   instead defeats its entire purpose. The issue-#29 paths matter for a third reason: a
+   crawler cannot log in, so an Access-gated `robots.txt` or `sitemap.xml` is the same as
+   not having one, and an Access-gated `/docs` is a page no search engine or AI agent can
+   ever read. `a.rtfx.pro` doesn't need this — it never serves any of them except
+   `robots.txt`, which is public there by design and answers `Disallow: /` (`src/host.ts`
+   and `src/seo.ts`).
 4. Fill in `wrangler.jsonc`:
    - `vars.ACCESS_TEAM_DOMAIN` — your `…cloudflareaccess.com` team domain.
    - `vars.ACCESS_AUD` — `"<viewer app AUD>,<admin app AUD>"`.
@@ -109,7 +114,7 @@ management routes there (the Worker does, per `src/host.ts`).
      and its `— humans` policy id.
    - `vars.ADMIN_SERVICE_TOKENS` — the `artifacts-cli` service token's client id.
 
-## 5b. Invite-only beta ownership model (issue #7) — MANUAL, mutates Cloudflare
+## 5b. Invite-only ownership model (issue #7) — MANUAL, mutates Cloudflare
 
 Do these in order; each is safe on its own, and stopping after step B leaves the deployment
 behaving exactly as it does today (admins only).
@@ -131,12 +136,12 @@ fails if the column already exists, which is a harmless no-op signal).
 **B. Deploy** (`npx wrangler deploy`). Nothing user-visible changes yet: Access still gates
 `/admin` and `/api` to admins.
 
-**C. Access path change — required before beta users can use their dashboard.** The Worker enforces
-ownership itself (`src/authz.ts`): admins manage every artifact, a signed-in beta user
+**C. Access path change — required before invited members can use their dashboard.** The Worker enforces
+ownership itself (`src/authz.ts`): admins manage every artifact, a signed-in member
 manages only artifacts whose `owner_email` is theirs, and `/api/users` (the sign-in
 allow-list) stays admin-only in code. But the `Artifacts (admin)` app from step 5.2
 still gates *all* of `/admin` and `/api` at the edge to admin emails only — so without
-this change a beta user is stopped by Access before the Worker ever sees the request.
+this change a member is stopped by Access before the Worker ever sees the request.
 
 Make the admin Access app guard only the genuinely admin-only surface:
 
@@ -145,7 +150,7 @@ Make the admin Access app guard only the genuinely admin-only surface:
    destination **`rtfx.pro/api/users`** (this also covers `/api/users/<email>`).
    Leave its policies (`— humans` = admin emails, `— cli`) unchanged.
 3. Leave `Artifacts (viewers)` exactly as-is. `/admin` and `/api/artifacts…` now fall
-   under it, so every *invited* beta user — the app-managed allow-list in
+   under it, so every *invited* member — the app-managed allow-list in
    `ACCESS_VIEWER_POLICY_ID` — reaches them, and the Worker scopes what they see.
 
 Access resolves the most specific path first, so `/api/users` stays admin-gated at the
@@ -155,13 +160,13 @@ carrying the ownership model must already be deployed before you widen the path 
 deploy first, then edit Access.
 
 If you'd rather not widen `/admin` yet, skip this step: everything keeps working exactly
-as before (admins only), and beta users simply can't reach their own dashboard.
+as before (admins only), and members simply can't reach their own dashboard.
 
 Verify after the change (in a browser, signed in as a non-admin invited user):
 
 ```bash
 # as an invited non-admin: their own dashboard, scoped to their artifacts
-open https://rtfx.pro/admin           # 200, "Beta" header, no People panel
+open https://rtfx.pro/admin           # 200, "Member" header, no People panel
 open https://rtfx.pro/api/users       # blocked by Access; 403 from the Worker if it gets through
 ```
 
@@ -192,6 +197,35 @@ npx wrangler secret put CF_API_TOKEN   # optional: only needed for in-app user m
 ```
 
 `CF_API_TOKEN` needs "Access: Apps and Policies — Edit" scope for the account.
+
+## 6b. Public site + crawler surface (issue #29)
+
+No Cloudflare mutation beyond the Access bypass destinations in step 5.3. After deploying,
+confirm each public path answers **unauthenticated** — run this from a shell with no browser
+session, so an Access redirect (302 to `…cloudflareaccess.com`) shows up as a failure:
+
+```bash
+for p in / /docs /login /robots.txt /sitemap.xml /llms.txt /og.svg; do
+  printf '%-14s ' "$p"; curl -s -o /dev/null -w '%{http_code} %{content_type}\n' "https://rtfx.pro$p"
+done
+# all 200; / /docs /login are text/html, robots+llms text/plain, sitemap application/xml
+
+curl -s https://rtfx.pro/robots.txt        # allows /, /docs, /login; Sitemap: https://rtfx.pro/sitemap.xml
+curl -s https://a.rtfx.pro/robots.txt      # Disallow: /  (artifact content is access-controlled)
+curl -sI https://a.rtfx.pro/<some-slug>/ | grep -i x-robots-tag   # noindex, nofollow, noarchive
+```
+
+Gated paths must still challenge or 404 without a session:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://rtfx.pro/admin     # 302 to Cloudflare Access
+curl -s -o /dev/null -w '%{http_code}\n' https://a.rtfx.pro/docs    # 404 — content host serves files only
+```
+
+Then, in a browser: `/` and `/docs` render, the **Request access** form returns
+"Request received", and `view-source:` shows `<link rel="canonical">` plus the OpenGraph tags.
+Finally submit `https://rtfx.pro/sitemap.xml` in Google Search Console and Bing Webmaster
+Tools — nothing in the deploy does that for you. Details: [PUBLIC_SITE.md](PUBLIC_SITE.md).
 
 ## 7. Smoke test (after deploy)
 

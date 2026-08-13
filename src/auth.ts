@@ -365,7 +365,7 @@ function invalidTokenResponse(c: Parameters<MiddlewareHandler<AuthApp>>[0]) {
  */
 function disabledResponse(c: Parameters<MiddlewareHandler<AuthApp>>[0], email: string | null) {
   if ((c.req.header("Accept") ?? "").includes("text/html")) {
-    return c.html(accountPausedPage(email), 403);
+    return c.html(accountPausedPage(c.env, email), 403);
   }
   return c.json(
     { error: "account_disabled", detail: "this account is disabled — ask an admin to re-enable it" },
@@ -393,7 +393,7 @@ export const requireAdmin: MiddlewareHandler<AuthApp> = async (c, next) => {
 };
 
 /**
- * Middleware: 403 unless the caller is an admin, or a signed-in beta user (a
+ * Middleware: 403 unless the caller is an admin, or a signed-in member (a
  * human with an email), or an API token issued for one of those. Per-artifact
  * ownership is enforced downstream — this only establishes *who* is asking.
  *

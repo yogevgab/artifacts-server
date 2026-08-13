@@ -40,7 +40,12 @@
     // Comma-separated hostnames that serve artifact content ONLY (no admin/API/
     // dashboard). Each hostname listed here must also have a `routes` entry above.
     // Leave empty to keep a single origin.
-    "CONTENT_HOSTNAMES": "a.rtfx.pro"
+    "CONTENT_HOSTNAMES": "a.rtfx.pro",
+    // Canonical public origin of the app host. Canonical links, OpenGraph URLs,
+    // sitemap.xml and llms.txt are absolute against it, and any host that isn't
+    // this one serves a disallow-everything robots.txt — so a preview deploy
+    // (*.workers.dev) can never compete with production in a search index.
+    "PUBLIC_BASE_URL": "https://rtfx.pro"
   }
 
   // Secret (NOT in this file): CF_API_TOKEN — a Cloudflare API token with
