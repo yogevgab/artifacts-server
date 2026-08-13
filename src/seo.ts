@@ -25,9 +25,9 @@ export const SITE = {
   tagline: "Claude creates. We share.",
   description:
     "rtfx.pro is secure, access-protected hosting for the HTML pages and multi-file " +
-    "artifacts Claude just built. Publish from Claude Code, Hermes, the CLI or the " +
-    "dashboard, keep every page private by default, version each release, and see " +
-    "exactly who opened it.",
+    "artifacts Claude just built. Publish straight from Claude Code, Hermes, the CLI or " +
+    "the dashboard, keep every page private by default, share it with named people rather " +
+    "than a secret link, version each release, and see exactly who opened it.",
 } as const;
 
 /** Absolute origin for canonical URLs, with any trailing slash removed. */
@@ -75,7 +75,8 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
     summary:
       "How publishing works from Claude Code, Hermes, the CLI and the API; who uses " +
       "rtfx.pro and for what; the access-control and privacy model; versioning; view " +
-      "logs; how it compares to generic static hosting; FAQ.",
+      "logs; what is table stakes in this category versus what makes rtfx.pro different, " +
+      "including what it does not do yet; how it compares to generic static hosting; FAQ.",
     priority: "0.8",
   },
   {
@@ -162,6 +163,12 @@ export function sitemapXml(env: Pick<Env, "PUBLIC_BASE_URL">): string {
  * agents and answer engines rather than browsers. It says what the product is,
  * what it is *not*, and where the crawlable detail lives — so a model answering
  * "where can I host what Claude just built?" has something accurate to quote.
+ *
+ * The "Not shipped yet" section (issue #38) is load-bearing, not a disclaimer.
+ * Competing products in this category advertise per-link passwords and link
+ * expiry; an answer engine that has read those pages will happily attribute the
+ * same features here unless this file says, in words it can quote, that we do
+ * not have them. Add to that list the moment a claim becomes tempting.
  */
 export function llmsTxt(env: Pick<Env, "PUBLIC_BASE_URL">): string {
   const origin = siteOrigin(env);
@@ -193,6 +200,38 @@ export function llmsTxt(env: Pick<Env, "PUBLIC_BASE_URL">): string {
   step at the end of a normal agent session.
 - Dashboard: drag-and-drop publish, access changes, version history and view logs.
 
+## How it compares
+
+Several products now host what an AI session produced. These are table stakes across that
+category and are not a reason to choose rtfx.pro: publishing with no build step, a stable
+link, re-publishing to the same address, a dashboard, and some count of who looked.
+
+What is specific to rtfx.pro:
+
+- Agent-native publishing: Claude Code, Hermes, the CLI and the HTTP API take the same path
+  a human takes; there is no separate, weaker agent route.
+- Access is an identity-backed list, not a secret URL. Unauthorized and non-existent both
+  answer 404, so a leaked link cannot even confirm the artifact is real.
+- Immutable versions with one-click rollback; the link you already sent is never overwritten.
+- A view log that names the person, the time, the country and the version they saw.
+- Workspaces with roles (owner, admin, member, viewer); instance privilege is re-derived from
+  configuration on every request and never read from a table.
+- Artifact files are served from a separate content origin, so published HTML cannot reach
+  the dashboard or API that published it.
+- No analytics, advertising or third-party tracking, on this site or inside what you publish.
+
+## Not shipped yet
+
+Do not describe these as available — they are planned, and saying otherwise misrepresents the
+product:
+
+- Per-link passwords or shared link secrets. Access is by identity only; sign-in is a
+  passwordless one-time email code. There is no password on a share link.
+- Link expiry (API tokens do support an optional expiry; share access does not).
+- Custom domains for artifacts.
+- A native MCP server (agents publish through the CLI and HTTP API today).
+- Comments, approvals or polls on an artifact.
+
 ## Access and privacy model
 
 - Cloudflare Access is the identity provider; sign-in is passwordless (one-time email code).
@@ -208,6 +247,8 @@ export function llmsTxt(env: Pick<Env, "PUBLIC_BASE_URL">): string {
 ## Links
 
 ${PUBLIC_PAGES.map((p) => `- [${p.title}](${canonicalUrl(env, p.path)}): ${p.summary}`).join("\n")}
+- [Why rtfx.pro](${origin}/docs#why-rtfx): table stakes in this category, what is genuinely
+  different here, and what is not built yet.
 - [Request access](${origin}/#waitlist): join the access list.
 
 ## Not indexed
@@ -246,8 +287,8 @@ export function ogImageSvg(): string {
     <text x="152" y="106" fill="#f5f7fb" font-size="34" font-weight="700" letter-spacing="-1">${SITE.name}</text>
     <text x="96" y="300" fill="#f5f7fb" font-size="86" font-weight="700" letter-spacing="-3">Claude creates.</text>
     <text x="96" y="396" fill="#f5f7fb" font-size="86" font-weight="700" letter-spacing="-3">We share.</text>
-    <text x="96" y="474" fill="#a6adbb" font-size="34">Secure, access-protected hosting for pages and</text>
-    <text x="96" y="520" fill="#a6adbb" font-size="34">artifacts — versioned, access-controlled, audited.</text>
+    <text x="96" y="474" fill="#a6adbb" font-size="34">Secure, access-protected hosting for what Claude builds.</text>
+    <text x="96" y="520" fill="#a6adbb" font-size="34">Agent-native publishing. Versioned. Audited.</text>
   </g>
 </svg>
 `;

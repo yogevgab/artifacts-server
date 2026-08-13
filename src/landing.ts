@@ -22,6 +22,12 @@ import { SITE, canonicalUrl } from "./seo";
  *    `/docs`, where somebody who wants the detail goes looking for it. Nothing
  *    was deleted: it is still crawlable, still internally linked, just not all
  *    of it above the fold.
+ *
+ * Issue #38 sharpened the claims without adding a section. Several tools now
+ * host what an AI session produced, so the page leads with the part that is
+ * ours — publishing from inside the agent session, access by identity rather
+ * than a secret URL, versions, and a workspace with roles — and points at
+ * `/docs#why-rtfx` for the full table-stakes-vs-differentiators split.
  */
 
 const LANDING_STYLE = `${PUBLIC_CHROME_STYLE}${CONSENT_STYLE}
@@ -112,10 +118,11 @@ function structuredData(env: Env): unknown[] {
           operatingSystem: "Web",
           description: SITE.description,
           featureList: [
-            "Per-artifact access control",
+            "Per-artifact access control by identity, not a secret link",
+            "Agent-native publishing from Claude Code, Hermes, the CLI or the API",
             "Immutable versions with one-click rollback",
             "View log: who opened an artifact, when, and which version",
-            "Publish from the CLI, the API, Claude Code or Hermes",
+            "Workspaces with owner, admin, member and viewer roles",
             "Passwordless sign-in through Cloudflare Access",
           ],
           publisher: { "@id": `${url}#organization` },
@@ -131,11 +138,11 @@ export function landingPage(env: Env): string {
 
     <main id="main">
     <section class="hero">
-      <div class="badge-row"><span class="pill">Built for AI-generated work</span><span class="pill">Secure, access-protected sharing</span><span class="pill">Versioned &amp; audited</span></div>
+      <div class="badge-row"><span class="pill">Agent-native publishing</span><span class="pill">Secure, access-protected sharing</span><span class="pill">Versioned &amp; audited</span><span class="pill">Workspaces &amp; roles</span></div>
       <h1>Claude creates. We share.</h1>
       <p class="lead">rtfx.pro is the secure, access-protected home for the pages and artifacts
-        Claude just built. Publish in seconds, hand out a link only the people you name can open,
-        and keep every version.</p>
+        Claude just built. Publish straight from the session that made it, hand out a link only
+        the people you name can open, and keep every version.</p>
       <div class="cta">
         <a class="link-button" href="#waitlist" data-cta="request-access">Request access</a>
         <a class="ghost link-button" href="/docs" data-cta="docs">See how it works</a>
@@ -160,21 +167,24 @@ export function landingPage(env: Env): string {
       <div class="band-head">
         <p class="eyebrow-c">The product</p>
         <h2>Hosting that assumes the page is private.</h2>
-        <p>Static hosts start public and make privacy your problem. rtfx.pro starts locked,
-          and sharing is a deliberate act you can see and undo.</p>
+        <p>Everyone can host what Claude built. rtfx.pro starts locked, publishes from inside the
+          agent session, and makes sharing a deliberate act you can see, version and undo.</p>
       </div>
       <div class="features">
-        <div class="feature"><h3>Per-artifact permissions</h3><p>Keep a page private, share it with
-          named people, or open it to everyone on your team. Anyone else gets a 404 — the page
-          never even admits it exists.</p></div>
+        <div class="feature"><h3>Access by identity, not a secret link</h3><p>Keep a page private,
+          share it with named people, or open it to every signed-in user on the instance. Anyone
+          else gets a 404 — the page never even admits it exists.</p></div>
+        <div class="feature"><h3>Agent-native publishing</h3><p>Claude Code, Hermes, the CLI and the
+          API all take the same path. Hand a session a scoped, revocable token and "publish this"
+          becomes the last step of the work.</p></div>
         <div class="feature"><h3>Immutable versions</h3><p>Every re-publish is a new version with
           its own preview URL. Roll back in one click; nothing you shipped is ever overwritten.</p></div>
-        <div class="feature"><h3>View log</h3><p>See who opened each artifact, when, from which
-          country, and which version they saw — the question every client project ends with.</p></div>
-        <div class="feature"><h3>CLI, API and dashboard</h3><p>Publish a file, a folder or a zip
-          from your terminal, script it with a scoped API token, or drag it into the dashboard.</p></div>
+        <div class="feature"><h3>View log &amp; workspace roles</h3><p>See who opened each artifact,
+          when, and which version they saw. Artifacts belong to a workspace with real roles, not to
+          one shared login.</p></div>
       </div>
-      <p class="band-more">Going deeper: <a href="/docs#use-cases">who uses it and for what</a> ·
+      <p class="band-more">Going deeper: <a href="/docs#why-rtfx">table stakes vs what's different</a> ·
+        <a href="/docs#use-cases">who uses it and for what</a> ·
         <a href="/docs#why">why not a generic static host</a> ·
         <a href="/docs#agents">publishing from Claude Code</a> ·
         <a href="/docs#faq">FAQ</a></p>

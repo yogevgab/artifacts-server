@@ -11,7 +11,7 @@ Exactly six paths are public, plus the crawler files. Everything else requires a
 | Path | What it is | Indexable |
 |---|---|---|
 | `/` | Product landing page: positioning, use cases, differentiators, Claude Code/Hermes story, request access | ✅ |
-| `/docs` | Public documentation: publishing, agents, access & privacy model, API overview, FAQ | ✅ |
+| `/docs` | Public documentation: publishing, agents, access & privacy model, `#why-rtfx` (table stakes vs differentiators vs not-yet), API overview, FAQ | ✅ |
 | `/login` | Sign-in surface (signed-out state) | ✅ |
 | `/privacy` | Privacy policy — what is stored, cookies, processors, retention, rights (issue #36) | ✅ |
 | `/terms` | Terms of use — access, ownership, acceptable use, tokens, liability (issue #36) | ✅ |
@@ -59,7 +59,9 @@ The FAQ prose and the `FAQPage` JSON-LD are generated from the same `FAQS` array
 `src/docs.ts`, so a rich result can never quote an answer the page doesn't show. JSON-LD is
 serialized with `<` escaped to `<`, so no content can close the `<script>` early.
 
-## Copy rule
+## Copy rules
+
+### Maturity language
 
 Access to rtfx.pro is by invitation, and the copy says so plainly — "invite-only",
 "request access", "we onboard a few teams at a time". That describes **who may sign in**.
@@ -70,6 +72,24 @@ enforces this ("public pages avoid preview-stage framing"); if a word belongs in
 family, add it to the assertion rather than arguing with it.
 
 Inside the app, a non-admin is a **member**, not a "beta user".
+
+### Claims (issue #38)
+
+[POSITIONING.md](POSITIONING.md) is the source of truth for *what* the public pages claim:
+the competitive field, what is table stakes, what is genuinely ours, and — the part that
+constrains copy hardest — what we have not built and must not imply.
+
+Two rules bind every public surface:
+
+- **Say "access-protected", never "password-protected".** There is no password anywhere in
+  this product: sign-in is a one-time email code through Cloudflare Access, and share links
+  carry no secret of their own. Competing products lead with password protection, so the
+  vocabulary is easy to borrow by accident.
+- **A planned feature is labelled planned, on the page.** `/docs#why-rtfx` carries a "Not
+  here yet" list, and `llms.txt` carries a "Not shipped yet" section, precisely so an answer
+  engine that has read a competitor's page cannot attribute their features to us.
+
+`test/positioning.test.ts` enforces both, plus the `#why-rtfx` anchor and its markers.
 
 ## Cookies and consent (issue #36)
 
@@ -118,10 +138,14 @@ same artwork to `/og.png` at 1200×630 and point `HeadMeta.image` at it — the 
 
 ## Changing the public copy
 
+Start at [POSITIONING.md](POSITIONING.md) if the change touches *what is claimed*. Positioning
+lives in six files at once and drifts if edited one at a time.
+
 - Landing page → `src/landing.ts` (structured data lives beside the copy it describes).
 - Docs page → `src/docs.ts`; add a question to `FAQS` and both the page and the JSON-LD
-  gain it.
-- Product summary shared with AI agents → `llmsTxt()` in `src/seo.ts`.
+  gain it. The table-stakes/differentiator/not-yet split is `#why-rtfx` in the same file.
+- Product summary shared with AI agents → `llmsTxt()` in `src/seo.ts`, including the
+  **Not shipped yet** section that keeps an answer engine from inventing features.
 - Privacy policy / terms of use → `src/legal.ts`. Both are **operator templates** and say so
   on the page; they have not been through counsel. The inventory in the privacy policy is
   written against the D1 schema and the R2 bucket, so a change to what is stored is a change

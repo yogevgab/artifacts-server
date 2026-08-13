@@ -219,6 +219,12 @@ they did something wrong.
 - Destructive confirmations state the blast radius *and* what survives: removing
   someone takes their sign-in, grants and tokens — **not** their artifacts.
 - Second person for the user, never "we" for the system.
+- **Public copy claims only what ships.** Say "access-protected", never
+  "password-protected" — there is no password in this product. Anything on the
+  roadmap is labelled *Planned* on the page it appears on, in the same vocabulary
+  Settings → "Not here yet" already uses. [POSITIONING.md](POSITIONING.md) holds
+  the full table-stakes / differentiator / not-yet split and the competitive
+  reasoning behind it; `test/positioning.test.ts` enforces the password rule.
 - English for now. Hebrew-first copy is desirable later (issue #24) and
   nothing here should block it, but mixed-language UI is worse than consistent
   English — so switch a whole surface at a time, and add `dir="rtl"` support to
@@ -258,7 +264,9 @@ Non-negotiable, and the first thing to check in review.
 | `src/admin.ts` | Portal sections: Overview, Artifacts (list + detail), Settings (incl. the Workspace panel), Platform |
 | `src/people.ts` | Portal section: People |
 | `src/integrations.ts` | Portal section: Integrations (API tokens + agent setup) |
+| `src/docs.ts` | The public `/docs` page, including `#why-rtfx` — the positioning split |
 | `docs/DESIGN.md` | This document |
+| `docs/POSITIONING.md` | What the public pages may claim, and what they may not |
 
 A new section is a new module when it owns more than a screenful, and a function
 in `admin.ts` when it doesn't. Either way it registers itself in `SECTIONS` in
@@ -277,6 +285,9 @@ smoke test drives. Keep these stable:
 
 **Auth** — `data-page="login"` · `data-state="signed-out|signed-in|paused"` ·
 `data-cta="sign-in|request-access|dashboard"`
+
+**Public docs** — `data-docs="claude-code-plugin|why-rtfx"` ·
+`data-positioning="table-stakes|differentiators|not-yet"`
 
 **Portal shell** — `data-portal` · `data-portal-top` · `data-portal-nav` ·
 `data-portal-main` · `data-section="<id>"` · `data-nav="<id>"` (plus
