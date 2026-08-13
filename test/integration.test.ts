@@ -650,11 +650,13 @@ describe("content host isolation", () => {
     expect((await appReq("/gallery")).status).toBe(200);
   });
 
-  it("redirects app host artifact requests to the content host instead of serving them", async () => {
-    await req("/api/artifacts", {
+  it("returns content-host share URLs and redirects app-host artifact requests there", async () => {
+    const publish = await appReq("/api/artifacts", {
       method: "POST",
       body: htmlForm({ title: "Solo3", slug: "solo3" }, "x.html", strToU8("<h1>solo3-secret</h1>")),
     });
+    expect((await publish.json<any>()).url).toBe(`https://${CONTENT_HOST}/solo3/`);
+
     const res = await appReq("/solo3/?foo=bar");
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe(`https://${CONTENT_HOST}/solo3/?foo=bar`);

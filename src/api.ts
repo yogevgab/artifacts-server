@@ -25,6 +25,7 @@ import {
   AccessNotConfiguredError,
   AccessApiError,
 } from "./access-api";
+import { firstContentHostname } from "./host";
 
 type Vars = { Variables: { email: string }; Bindings: Env };
 
@@ -182,9 +183,10 @@ api.post("/artifacts", async (c) => {
   await upsertArtifact(c.env, row);
 
   const url = new URL(c.req.url);
+  const publishHost = firstContentHostname(c.env) ?? url.host;
   return c.json({
     slug,
-    url: `${url.protocol}//${url.host}/${slug}/`,
+    url: `${url.protocol}//${publishHost}/${slug}/`,
     type: processed.type,
     file_count: processed.files.length,
     version,
