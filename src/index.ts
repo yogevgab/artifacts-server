@@ -1,5 +1,5 @@
-import { Hono } from "hono";
-import type { Env } from "./env";
+import { Hono, type Context } from "hono";
+import type { ArtifactRow, Env, VersionRow } from "./env";
 import { api } from "./api";
 import { waitlist } from "./waitlist";
 import { requireUser, accessEmail, getIdentity, resolveAuth, type AuthVars } from "./auth";
@@ -13,6 +13,9 @@ import {
   allGrants,
   allVersions,
   getVersion,
+  getViews,
+  listGrants,
+  listVersions,
   logView,
   viewCounts,
   recentViews,
@@ -20,14 +23,25 @@ import {
 import { canView, canManage, isOwner } from "./authz";
 import { listApiTokens, toPublicToken, type PublicApiToken } from "./tokens";
 import { allowlistView } from "./access-api";
-import { describeUsers, listUsers, privilegedEmails } from "./users";
+import { adminEmails, describeUsers, listUsers, privilegedEmails, superAdminEmails } from "./users";
 import { galleryPage, notFoundPage } from "./pages";
 import { landingPage } from "./landing";
 import { docsPage } from "./docs";
 import { loginPage } from "./login";
-import { adminPage, type DashboardViewer } from "./admin";
-import { isContentHost, isManagementPath, isPerOriginPath, firstContentHostname } from "./host";
-import { robotsTxt, sitemapXml, llmsTxt, ogImageSvg, isCanonicalHost } from "./seo";
+import {
+  overviewPage,
+  artifactsPage,
+  artifactDetailPage,
+  settingsPage,
+  platformPage,
+  type ViewsInfo,
+  type PlatformInfo,
+} from "./admin";
+import { peoplePage, type UsersInfo } from "./people";
+import { integrationsPage } from "./integrations";
+import { canSeeSection, portalNotFound, type PortalViewer } from "./portal";
+import { isContentHost, isManagementPath, isPerOriginPath, firstContentHostname, parseHostnames } from "./host";
+import { robotsTxt, sitemapXml, llmsTxt, ogImageSvg, isCanonicalHost, siteOrigin } from "./seo";
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVars }>();
 
@@ -67,7 +81,7 @@ app.get("/whoami", async (c) => {
   return c.json({ email });
 });
 
-/** Narrow a slug-keyed lookup to the artifacts this dashboard actually renders. */
+/** Narrow a slug-keyed lookup to the artifacts this portal page actually renders. */
 function scope<T>(map: Map<string, T>, slugs: Set<string>): Map<string, T> {
   const out = new Map<string, T>();
   for (const slug of slugs) {
@@ -77,60 +91,184 @@ function scope<T>(map: Map<string, T>, slugs: Set<string>): Map<string, T> {
   return out;
 }
 
-// Management dashboard. Admins see and manage every artifact; a member sees
-// and manages only the ones they own. (In production Cloudflare Access still
-// gates who can reach this path at all — see docs/DEPLOY_RTFX.md.)
-app.get("/admin", requireUser, async (c) => {
+// --- /admin: the portal (issue #28) -----------------------------------------
+// One server-rendered page per section, navigated with ordinary links. Every
+// section re-derives the caller's identity and re-checks what they may see:
+// there is no client router and no shared client state, so a URL typed by hand
+// is exactly as safe as one clicked in the nav.
+//
+// Admins see and manage every artifact; a member sees and manages only the ones
+// they own. (In production Cloudflare Access still gates who can reach /admin
+// at all — see docs/DEPLOY_RTFX.md.)
+
+type PortalContext = Context<{ Bindings: Env; Variables: AuthVars }>;
+
+function viewerOf(c: PortalContext): PortalViewer {
+  const identity = c.get("identity");
+  return {
+    email: c.get("email"),
+    isAdmin: identity.isAdmin,
+    role: identity.role,
+    isTokenCaller: !!identity.token,
+  };
+}
+
+/** The artifacts this caller manages, with everything the cards need. */
+async function artifactContext(c: PortalContext): Promise<{
+  rows: ArtifactRow[];
+  grants: Map<string, string[]>;
+  versions: Map<string, VersionRow[]>;
+  views: ViewsInfo;
+}> {
   const identity = c.get("identity");
   const rows = identity.isAdmin
     ? await listArtifacts(c.env)
     : await listArtifactsOwnedBy(c.env, identity.email!);
   const slugs = new Set(rows.map((r) => r.slug));
-
-  const [grants, versions, viewCountsMap, recentViewsMap] = await Promise.all([
+  const [grants, versions, counts, recent] = await Promise.all([
     allGrants(c.env),
     allVersions(c.env),
     viewCounts(c.env),
     recentViews(c.env),
   ]);
+  return {
+    rows,
+    grants: scope(grants, slugs),
+    versions: scope(versions, slugs),
+    views: { counts: scope(counts, slugs), recent: scope(recent, slugs) },
+  };
+}
 
-  // The user directory is admin-only data — never fetch or render it otherwise.
-  // Same shape the JSON API returns from GET /api/users, so the server-rendered
-  // panel and anything scripted against the API can never disagree.
-  let usersInfo: DashboardViewer["users"] = null;
-  if (identity.isAdmin) {
-    const [rows, allowlist] = await Promise.all([listUsers(c.env), allowlistView(c.env)]);
-    usersInfo = {
-      users: describeUsers(c.env, rows, allowlist.emails),
-      admins: privilegedEmails(c.env),
-      allowlist,
-      viewer: identity.email,
-      canManageAdmins: identity.role === "super_admin",
-    };
-  }
+/**
+ * The people directory, or null when this caller may not have it. Admin-only
+ * data, and never for a bearer token — `/api/users` refuses one outright, so
+ * the portal must not hand it the same directory by another route. Same shape
+ * the JSON API returns from GET /api/users, so the server-rendered section and
+ * anything scripted against the API can never disagree.
+ */
+async function usersInfoFor(c: PortalContext): Promise<UsersInfo | null> {
+  const identity = c.get("identity");
+  if (!identity.isAdmin || identity.token) return null;
+  const [rows, allowlist] = await Promise.all([listUsers(c.env), allowlistView(c.env)]);
+  return {
+    users: describeUsers(c.env, rows, allowlist.emails),
+    admins: privilegedEmails(c.env),
+    allowlist,
+    viewer: identity.email,
+    canManageAdmins: identity.role === "super_admin",
+  };
+}
 
-  // Token management mirrors /api/tokens: Access-authenticated callers only
-  // (see denyApiToken), so a bearer token can't even enumerate credentials via
-  // the dashboard. An admin sees every token; a member only their own.
-  let tokens: PublicApiToken[] | null = null;
-  if (!identity.token) {
-    const tokenRows = identity.isAdmin
-      ? await listApiTokens(c.env)
-      : await listApiTokens(c.env, identity.email!);
-    tokens = tokenRows.map(toPublicToken);
-  }
+/**
+ * Token metadata, or null when the caller may not manage tokens at all. Mirrors
+ * `/api/tokens`: Access-authenticated callers only (see denyApiToken), so a
+ * bearer token can't enumerate credentials via the portal. An admin sees every
+ * token; a member only their own.
+ */
+async function tokensFor(c: PortalContext): Promise<PublicApiToken[] | null> {
+  const identity = c.get("identity");
+  if (identity.token) return null;
+  const rows = identity.isAdmin
+    ? await listApiTokens(c.env)
+    : await listApiTokens(c.env, identity.email!);
+  return rows.map(toPublicToken);
+}
 
-  return c.html(
-    adminPage(
-      rows,
-      scope(grants, slugs),
-      scope(versions, slugs),
-      { counts: scope(viewCountsMap, slugs), recent: scope(recentViewsMap, slugs) },
-      c.get("email"),
-      { isAdmin: identity.isAdmin, users: usersInfo, tokens }
-    )
-  );
+app.get("/admin", requireUser, async (c) => {
+  const viewer = viewerOf(c);
+  const [{ rows, grants, versions, views }, users, tokens] = await Promise.all([
+    artifactContext(c),
+    usersInfoFor(c),
+    tokensFor(c),
+  ]);
+  return c.html(overviewPage({ viewer, rows, grants, versions, views, tokens, users }));
 });
+
+app.get("/admin/artifacts", requireUser, async (c) => {
+  const viewer = viewerOf(c);
+  const { rows, grants, versions, views } = await artifactContext(c);
+  return c.html(artifactsPage({ viewer, rows, grants, versions, views }));
+});
+
+// One artifact, with its versions, view log, access list and danger zone.
+// 404 for both "no such artifact" and "not yours", so probing a slug here can
+// never reveal one exists — the same rule the public catch-all follows.
+app.get("/admin/artifacts/:slug", requireUser, async (c) => {
+  const viewer = viewerOf(c);
+  const slug = c.req.param("slug");
+  const row = await getArtifact(c.env, slug);
+  if (!row || !canManage(c.get("identity"), row)) {
+    return c.html(portalNotFound(viewer, `The artifact "${slug}"`), 404);
+  }
+  const [emails, versions, stats] = await Promise.all([
+    listGrants(c.env, slug),
+    listVersions(c.env, slug),
+    getViews(c.env, slug),
+  ]);
+  const views: ViewsInfo = {
+    counts: new Map([[slug, { total: stats.total, unique: stats.unique }]]),
+    recent: new Map([[slug, stats.recent]]),
+  };
+  return c.html(artifactDetailPage({ viewer, row, emails, versions, views }));
+});
+
+app.get("/admin/people", requireUser, async (c) => {
+  const viewer = viewerOf(c);
+  const users = await usersInfoFor(c);
+  if (!canSeeSection(viewer, "people") || !users) {
+    return c.html(portalNotFound(viewer, "The People section"), 404);
+  }
+  return c.html(peoplePage(viewer, users));
+});
+
+app.get("/admin/integrations", requireUser, async (c) => {
+  const viewer = viewerOf(c);
+  const tokens = await tokensFor(c);
+  return c.html(integrationsPage(viewer, tokens, siteOrigin(c.env)));
+});
+
+app.get("/admin/settings", requireUser, (c) => c.html(settingsPage(viewerOf(c))));
+
+app.get("/admin/platform", requireUser, async (c) => {
+  const viewer = viewerOf(c);
+  if (!canSeeSection(viewer, "platform")) {
+    return c.html(portalNotFound(viewer, "The Platform section"), 404);
+  }
+  const [rows, versions, users, tokens] = await Promise.all([
+    listArtifacts(c.env),
+    allVersions(c.env),
+    listUsers(c.env),
+    listApiTokens(c.env),
+  ]);
+  const info: PlatformInfo = {
+    origin: siteOrigin(c.env),
+    accessConfigured: !!(c.env.ACCESS_AUD && c.env.ACCESS_TEAM_DOMAIN),
+    accessTeamDomain: c.env.ACCESS_TEAM_DOMAIN ?? "",
+    accessManagementConfigured: !!(
+      c.env.CF_API_TOKEN &&
+      c.env.CF_ACCOUNT_ID &&
+      c.env.ACCESS_VIEWER_APP_ID &&
+      c.env.ACCESS_VIEWER_POLICY_ID
+    ),
+    contentHosts: [...parseHostnames(c.env.CONTENT_HOSTNAMES)],
+    devLogin: c.env.DEV_LOGIN === "true",
+    adminCount: adminEmails(c.env).length,
+    superAdminCount: superAdminEmails(c.env).length,
+    serviceTokenCount: (c.env.ADMIN_SERVICE_TOKENS ?? "").split(",").filter((s) => s.trim()).length,
+    totals: {
+      artifacts: rows.length,
+      versions: [...versions.values()].reduce((n, v) => n + v.length, 0),
+      bytes: rows.reduce((n, r) => n + r.size_bytes, 0),
+      people: users.length,
+      tokens: tokens.length,
+    },
+  };
+  return c.html(platformPage(viewer, info));
+});
+
+// Anything else under /admin is not a section. Render the portal shell so the
+// person still has navigation, but answer 404 so a mistyped URL is never a 200.
+app.get("/admin/*", requireUser, (c) => c.html(portalNotFound(viewerOf(c), "That page"), 404));
 
 // JSON API for dashboard + CLI.
 app.route("/api", api);

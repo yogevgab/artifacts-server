@@ -19,8 +19,15 @@ Worker (Hono router)
                               anonymous → 302 to /)
    GET /<slug>/…             serve the current version's files (per-artifact authz)
    GET /v/<slug>/<n>/…       preview a specific version (admin or the artifact's owner)
-   GET /admin                dashboard (publish, access, versions; users panel = admin only).
-                              Admins see every artifact, a member only their own
+   GET /admin                portal — Overview. One server-rendered section per URL, no
+                              client router (see docs/DESIGN.md §4)
+   GET /admin/artifacts      publish + the artifact list; admins see every artifact,
+                              a member only their own
+   GET /admin/artifacts/<slug>  one artifact: versions, views, access, delete
+   GET /admin/people         directory, invites, pause/remove (admin only; refuses API tokens)
+   GET /admin/integrations   API tokens + CLI/Claude Code/Hermes setup
+   GET /admin/settings       account and security facts
+   GET /admin/platform       instance configuration readout (super admin only)
    /api/*                    JSON API (signed-in via Access *or* an API token; scoped to
                               what the caller owns. /api/users is admin-only;
                               /api/users + /api/tokens refuse API tokens entirely)

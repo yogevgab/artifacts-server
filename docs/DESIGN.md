@@ -110,12 +110,44 @@ blur — never on a flat background, where it only costs performance.
 | Component | Where | Rule |
 |---|---|---|
 | **Sheet** (`.sheet`) | `/login`, paused, future auth states | One column, max 34rem, centred. Exactly one primary action. |
+| **Shell** (`.pgrid`) | Every `/admin` section | Top bar + nav + `main`. Never rendered twice on a page. |
+| **Portal nav** (`.pnav`) | Every `/admin` section | Sidebar ≥900px, horizontally scrolling pill strip below. The current item carries `aria-current="page"`. Items are `<a>` — never buttons. |
+| **Breadcrumb** (`.crumbs`) | Detail pages only | `Section / thing`. The last crumb is the page and is not a link. A detail page without one is a dead end. |
 | **Panel** (`.panel`) | `/admin` sections | Glass card. `panel-head` = title + one line of hint. |
-| **Stat tile** (`.stat`) | `/admin` header | Number first, label above, one hint below. No sparklines. |
+| **Stat tile** (`.stat`) | Section headers | Number first, label above, one hint below. No sparklines. |
 | **Row** (`.row`) | Lists of people, tokens, versions | Info left, actions right, hairline between. Collapses to stacked on ≤720px. |
+| **Danger zone** (`.danger-zone`) | Bottom of a detail page | Quiet card, red heading, `.danger` button. Never beside a reversible action, never a red box — a danger zone is not an error. |
+| **Snippet** (`.snippet`) | Integrations | Label, copy button, `pre.code`. Copies literal text, never a live secret. |
 | **Pill** (`.badge`) | State | See the status vocabulary below. |
 | **Button** | Everywhere | Filled = primary (one per view). `.ghost` = secondary. `.danger` = destructive, outline only — never a filled red button. |
 | **Empty state** (`.empty`) | Any list that can be empty | Title says what's missing, body says how to fix it. Never just "No data". |
+
+### The portal (`/admin`)
+
+`/admin` is a portal, not a page: one server-rendered section per URL, navigated
+with ordinary links. No client router, no shared client state, no fetch-and-swap.
+A section survives a reload, a bookmark and a right-click, and works with
+JavaScript off; JavaScript only enhances what is already there.
+
+| Section | Path | For | Visible to |
+|---|---|---|---|
+| Overview | `/admin` | Usage, next steps, recent work, health | everyone |
+| Artifacts | `/admin/artifacts` | Publish, list, filter | everyone |
+| — one artifact | `/admin/artifacts/<slug>` | Versions, views, access, delete | whoever manages it |
+| People | `/admin/people` | Members, invites, paused accounts | admins with an interactive sign-in |
+| Integrations | `/admin/integrations` | API tokens, CLI/Claude Code/Hermes setup | everyone (tokens hidden from a bearer caller) |
+| Settings | `/admin/settings` | Account, security, what's not built yet | everyone |
+| Platform | `/admin/platform` | Instance configuration, operators | super admin only |
+
+Three rules the portal must keep:
+
+1. **Every section re-checks the viewer.** Hiding a nav item is courtesy; the
+   route refuses the request. A section somebody may not see answers **404**,
+   not 403 — the portal never confirms that something exists by refusing it.
+2. **One thing per section.** A section that needs a second unrelated panel is
+   usually two sections, or a detail page.
+3. **Ships only its own JavaScript.** `CORE_SCRIPT` (status, copy, file picking
+   helpers) plus that section's. A page with no tokens panel ships no token code.
 
 ### Status vocabulary
 
@@ -207,8 +239,16 @@ Non-negotiable, and the first thing to check in review.
 | `src/pages.ts` | Tokens, base elements, shared status vocabulary, `layout()` |
 | `src/landing.ts` | Public marketing page and its CTAs |
 | `src/login.ts` | The three auth states |
-| `src/admin.ts` | Dashboard: stats, publish, artifacts, People, tokens |
+| `src/portal.ts` | The `/admin` shell: section registry, nav, breadcrumbs, danger zone, shared formatting, `CORE_SCRIPT` |
+| `src/admin.ts` | Portal sections: Overview, Artifacts (list + detail), Settings, Platform |
+| `src/people.ts` | Portal section: People |
+| `src/integrations.ts` | Portal section: Integrations (API tokens + agent setup) |
 | `docs/DESIGN.md` | This document |
+
+A new section is a new module when it owns more than a screenful, and a function
+in `admin.ts` when it doesn't. Either way it registers itself in `SECTIONS` in
+`portal.ts` — that array is the single source of truth for what the nav offers
+and what `canSeeSection` allows.
 
 Page-specific CSS stays in that page's module and builds on the tokens. If two
 pages need the same rule, it belongs in `pages.ts` — that's how the status pills
@@ -217,10 +257,37 @@ got there.
 ### Test markers
 
 Tests assert on stable `data-*` hooks, never on copy or class names, so wording
-can be improved without breaking the suite. Keep these stable:
+can be improved without breaking the suite. The same hooks are what the browser
+smoke test drives. Keep these stable:
 
-`data-page="login"` · `data-state="signed-out|signed-in|paused"` ·
-`data-cta="sign-in|request-access|dashboard"` · `data-panel="users"` ·
-`data-user="<email>"` · `data-user-status` · `data-user-role` ·
-`data-user-action="disable|enable|remove"` · `data-badge="role|status|allowlist"` ·
-`data-users-unconfigured` · `data-users-error`
+**Auth** — `data-page="login"` · `data-state="signed-out|signed-in|paused"` ·
+`data-cta="sign-in|request-access|dashboard"`
+
+**Portal shell** — `data-portal` · `data-portal-top` · `data-portal-nav` ·
+`data-portal-main` · `data-section="<id>"` · `data-nav="<id>"` (plus
+`aria-current="page"` on the current one) · `data-crumbs` · `data-danger-zone` ·
+`data-viewer-email` · `data-viewer-role` · `data-empty="section"`
+
+**Overview** — `data-stat="artifacts|versions|views|storage"` · `data-stat-value` ·
+`data-panel="next-actions|recent|health"` · `data-action="publish|share|invite|token"` ·
+`data-health="sign-in|tokens|sharing|storage"` · `data-health-state="ok|warn|todo"` ·
+`data-recent="<slug>"`
+
+**Artifacts** — `data-publish-form` · `data-dropzone` · `data-publish-success` ·
+`data-manage-link` · `data-artifact="<slug>"` · `data-search` · `data-manage="<slug>"` ·
+`data-artifact-detail="<slug>"` · `data-panel="versions|views|access"` ·
+`data-newver` · `data-save="<slug>"` · `data-del="<slug>"` ·
+`data-badge="visibility|version|files|views|owner"` · `data-empty="artifacts|filter"`
+
+**People** — `data-panel="users"` · `data-user="<email>"` · `data-user-status` ·
+`data-user-role` · `data-user-action="disable|enable|remove"` ·
+`data-badge="role|status|allowlist"` · `data-users-unconfigured` · `data-users-error`
+
+**Integrations** — `data-panel="tokens|agent-setup"` · `data-token="<id>"` ·
+`data-token-state` · `data-badge="token-state|token-admin"` · `data-token-secret` ·
+`data-token-denied` · `data-snippet="<id>"` · `data-empty="tokens"`
+
+**Settings / Platform** — `data-panel="account|security|upcoming"` ·
+`data-setting="<key>"` · `data-placeholder="<key>"` ·
+`data-panel="platform-config|platform-operators"` · `data-config="<key>"` ·
+`data-config-state="ok|unset"`

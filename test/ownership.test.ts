@@ -100,24 +100,39 @@ describe("ownership: listing is scoped", () => {
   });
 
   it("a beta user's dashboard renders only their own artifacts", async () => {
-    const body = await (await req("/admin", as(BOB))).text();
+    const body = await (await req("/admin/artifacts", as(BOB))).text();
     expect(body).toContain('data-artifact="bob-one"');
     expect(body).not.toContain('data-artifact="carol-one"');
     expect(body).not.toContain("carol-one");
   });
 
   it("an admin's dashboard renders everyone's artifacts, labelled by owner", async () => {
-    const body = await (await req("/admin", as(ADMIN))).text();
+    const body = await (await req("/admin/artifacts", as(ADMIN))).text();
     expect(body).toContain('data-artifact="bob-one"');
     expect(body).toContain('data-artifact="carol-one"');
     expect(body).toContain(`data-badge="owner">${CAROL}`);
   });
 
-  it("only admins get the team panel; a beta user gets no user management", async () => {
-    expect(await (await req("/admin", as(ADMIN))).text()).toContain('data-panel="users"');
-    const betaBody = await (await req("/admin", as(BOB))).text();
-    expect(betaBody).not.toContain('data-panel="users"');
-    expect(betaBody).toContain("Your artifacts");
+  it("only admins get the People section; a beta user has no user management", async () => {
+    expect(await (await req("/admin/people", as(ADMIN))).text()).toContain('data-panel="users"');
+
+    // Not in the nav…
+    const betaOverview = await (await req("/admin", as(BOB))).text();
+    expect(betaOverview).not.toContain('data-nav="people"');
+    expect(await (await req("/admin/artifacts", as(BOB))).text()).toContain("Your artifacts");
+
+    // …and not reachable by typing the URL either.
+    const betaPeople = await req("/admin/people", as(BOB));
+    expect(betaPeople.status).toBe(404);
+    expect(await betaPeople.text()).not.toContain('data-panel="users"');
+  });
+
+  it("a beta user cannot open another member's artifact page", async () => {
+    const res = await req("/admin/artifacts/carol-one", as(BOB));
+    expect(res.status).toBe(404);
+    const body = await res.text();
+    expect(body).not.toContain('data-artifact-detail="carol-one"');
+    expect(body).not.toContain(CAROL);
   });
 
   it("a beta user's gallery excludes other people's private artifacts", async () => {

@@ -1,74 +1,38 @@
 import type { ArtifactRow, VersionRow, ViewRow } from "./env";
-import { layout, esc } from "./pages";
+import { esc } from "./pages";
 import { MAX_UPLOAD_BYTES } from "./upload";
-import { isTokenUsable, MAX_TOKEN_NAME_LENGTH, type PublicApiToken } from "./tokens";
-import { MAX_DISPLAY_NAME_LENGTH, MAX_NOTES_LENGTH, type PublicUser } from "./users";
-import type { AllowlistView } from "./access-api";
+import { tokenState } from "./integrations";
+import type { PublicApiToken } from "./tokens";
+import type { UsersInfo } from "./people";
+import {
+  portalShell,
+  statTile,
+  dangerZone,
+  num,
+  bytes,
+  plural,
+  people,
+  stamp,
+  roleLabel,
+  type PortalViewer,
+} from "./portal";
+
+/**
+ * The portal's own sections: Overview, Artifacts (list + detail), Settings and
+ * Platform. People lives in `people.ts` and Integrations in `integrations.ts`;
+ * the shell and navigation live in `portal.ts`. See docs/DESIGN.md §8.
+ */
 
 export interface ViewsInfo {
   counts: Map<string, { total: number; unique: number }>;
   recent: Map<string, ViewRow[]>;
 }
 
-/** Everything the People panel needs. Mirrors the GET /api/users payload. */
-export interface UsersInfo {
-  users: PublicUser[];
-  /** Emails that can never lose access — rendered as protected. */
-  admins: string[];
-  /** What we can see of the Cloudflare Access allow-list right now. */
-  allowlist: AllowlistView;
-  /** The signed-in admin, so the panel can refuse to let them disable themselves. */
-  viewer: string | null;
-  /** True only for a super admin, who alone may act on another admin. */
-  canManageAdmins: boolean;
-}
+/** Everything the portal needs about the signed-in person, per request. */
+export type { PortalViewer } from "./portal";
+export type { UsersInfo } from "./people";
 
-/**
- * Who is looking at the dashboard. `users` is the people directory, which is
- * admin-only data — it is null for a member, who sees only their own
- * artifacts and no team management at all. `tokens` is null when the caller
- * may not manage tokens at all (an API-token caller), mirroring the API.
- */
-export interface DashboardViewer {
-  isAdmin: boolean;
-  users: UsersInfo | null;
-  tokens: PublicApiToken[] | null;
-}
-
-// --- formatting helpers -----------------------------------------------------
-
-function num(n: number): string {
-  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-}
-
-function bytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(n < 10 * 1024 ? 1 : 0)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(n / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-}
-
-function plural(n: number, word: string): string {
-  return `${num(n)} ${word}${n === 1 ? "" : "s"}`;
-}
-
-function people(n: number): string {
-  return n === 1 ? "1 person" : `${num(n)} people`;
-}
-
-function stamp(iso: string): string {
-  return iso.replace("T", " ").slice(0, 16);
-}
-
-// --- pieces -----------------------------------------------------------------
-
-function statTile(key: string, label: string, value: string, hint: string): string {
-  return `<div class="stat" data-stat="${esc(key)}">
-    <div class="stat-label">${esc(label)}</div>
-    <div class="stat-value" data-stat-value>${esc(value)}</div>
-    <div class="stat-hint">${esc(hint)}</div>
-  </div>`;
-}
+// --- shared pieces ----------------------------------------------------------
 
 /**
  * Drag-and-drop target for a publish form. The real file inputs stay in the
@@ -89,6 +53,297 @@ function dropzone(idle: string, sub: string, compact = false): string {
     <input class="sr-file" type="file" name="bundle" accept=".zip" aria-label="Zip bundle">
   </div>`;
 }
+
+/** Totals across whatever slice of artifacts this viewer can see. */
+function totals(rows: ArtifactRow[], versions: Map<string, VersionRow[]>, views: ViewsInfo) {
+  return {
+    artifacts: rows.length,
+    versions: rows.reduce((n, r) => n + (versions.get(r.slug)?.length ?? 1), 0),
+    views: rows.reduce((n, r) => n + (views.counts.get(r.slug)?.total ?? 0), 0),
+    files: rows.reduce((n, r) => n + r.file_count, 0),
+    bytes: rows.reduce((n, r) => n + r.size_bytes, 0),
+    open: rows.filter((r) => r.visibility === "everyone").length,
+  };
+}
+
+function statsRow(rows: ArtifactRow[], versions: Map<string, VersionRow[]>, views: ViewsInfo): string {
+  const t = totals(rows, versions, views);
+  return `<section class="stats" aria-label="Usage">
+    ${statTile("artifacts", "Artifacts", num(t.artifacts), `${num(t.artifacts - t.open)} restricted · ${num(t.open)} everyone`)}
+    ${statTile("versions", "Versions", num(t.versions), "immutable, roll back anytime")}
+    ${statTile("views", "Views", num(t.views), "all-time page loads")}
+    ${statTile("storage", "Storage", bytes(t.bytes), plural(t.files, "file"))}
+  </section>`;
+}
+
+/** The badge strip an artifact carries wherever it appears. */
+function artifactBadges(
+  r: ArtifactRow,
+  emails: string[],
+  versionCount: number,
+  viewCount: number,
+  showOwner: boolean
+): string {
+  const vis =
+    r.visibility === "everyone"
+      ? `<span class="badge is-open" data-badge="visibility">Everyone</span>`
+      : `<span class="badge is-locked" data-badge="visibility">Restricted · ${num(emails.length)}</span>`;
+  const ver = `<span class="badge" data-badge="version">v${r.current_version}${
+    versionCount > 1 ? ` of ${versionCount}` : ""
+  }</span>`;
+  const owner =
+    showOwner && r.owner_email
+      ? `<span class="badge" data-badge="owner">${esc(r.owner_email)}</span>`
+      : "";
+  return `${vis}${ver}
+    <span class="badge" data-badge="files">${plural(r.file_count, "file")}</span>
+    <span class="badge" data-badge="views">${plural(viewCount, "view")}</span>
+    ${owner}<span class="badge">${esc(r.type)}</span>`;
+}
+
+// --- Overview ---------------------------------------------------------------
+
+interface HealthRow {
+  key: string;
+  label: string;
+  state: "ok" | "warn" | "todo";
+  detail: string;
+}
+
+const HEALTH_BADGE: Record<HealthRow["state"], string> = {
+  ok: `<span class="badge is-active" data-badge="health">Healthy</span>`,
+  warn: `<span class="badge is-warn" data-badge="health">Needs attention</span>`,
+  todo: `<span class="badge is-invited" data-badge="health">Not set up</span>`,
+};
+
+function healthPanel(rows: HealthRow[]): string {
+  const list = rows
+    .map(
+      (h) => `<div class="row" data-health="${esc(h.key)}" data-health-state="${h.state}">
+        <div class="info"><b>${esc(h.label)}</b><span class="hint">${h.detail}</span></div>
+        <div class="row-actions">${HEALTH_BADGE[h.state]}</div>
+      </div>`
+    )
+    .join("");
+  return `<section class="panel" data-panel="health" aria-labelledby="health-h">
+    <div class="panel-head"><div>
+      <h2 id="health-h">Health</h2>
+      <p class="hint">What is working, and what is still waiting on you.</p>
+    </div></div>
+    ${list}
+  </section>`;
+}
+
+interface NextAction {
+  key: string;
+  title: string;
+  body: string;
+  href: string;
+  cta: string;
+}
+
+function nextActionsPanel(actions: NextAction[]): string {
+  const body = actions.length
+    ? actions
+        .map(
+          (a) => `<div class="row" data-action="${esc(a.key)}">
+            <div class="info"><b>${esc(a.title)}</b><span class="hint">${esc(a.body)}</span></div>
+            <div class="row-actions"><a class="ghost link-button small-link" href="${esc(a.href)}">${esc(a.cta)}</a></div>
+          </div>`
+        )
+        .join("")
+    : `<p class="note" data-actions-done>Nothing needs you right now. Publish something new, or
+        check who has been reading what.</p>`;
+  return `<section class="panel" data-panel="next-actions" aria-labelledby="next-h">
+    <div class="panel-head"><div>
+      <h2 id="next-h">Next steps</h2>
+      <p class="hint">The shortest path from here to a link you can send someone.</p>
+    </div></div>
+    ${body}
+  </section>`;
+}
+
+function recentPanel(
+  rows: ArtifactRow[],
+  views: ViewsInfo,
+  versions: Map<string, VersionRow[]>,
+  grants: Map<string, string[]>,
+  showOwner: boolean
+): string {
+  const recent = [...rows]
+    .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
+    .slice(0, 5)
+    .map((r) => {
+      const emails = grants.get(r.slug) ?? [];
+      const viewCount = views.counts.get(r.slug)?.total ?? 0;
+      const versionCount = versions.get(r.slug)?.length ?? 1;
+      return `<div class="row" data-recent="${esc(r.slug)}">
+        <div class="info">
+          <b><a href="/admin/artifacts/${encodeURIComponent(r.slug)}">${esc(r.title)}</a></b>
+          <span class="hint mono">/${esc(r.slug)}/ · updated ${stamp(r.updated_at)}</span>
+          <div class="art-badges">${artifactBadges(r, emails, versionCount, viewCount, showOwner)}</div>
+        </div>
+        <div class="row-actions">
+          <a href="/${esc(r.slug)}/" target="_blank" rel="noopener">Open ↗</a>
+        </div>
+      </div>`;
+    })
+    .join("");
+
+  return `<section class="panel" data-panel="recent" aria-labelledby="recent-h">
+    <div class="panel-head"><div>
+      <h2 id="recent-h">Recent artifacts</h2>
+      <p class="hint">The five most recently published or updated.</p>
+    </div>
+    <a href="/admin/artifacts">All artifacts →</a></div>
+    ${
+      recent ||
+      `<div class="empty" data-empty="recent"><h3>Nothing published yet</h3>
+        <p>Publish a page and it shows up here, with its version, its audience and how often it has
+          been opened. <a href="/admin/artifacts">Publish your first artifact →</a></p></div>`
+    }
+  </section>`;
+}
+
+export interface OverviewInput {
+  viewer: PortalViewer;
+  rows: ArtifactRow[];
+  grants: Map<string, string[]>;
+  versions: Map<string, VersionRow[]>;
+  views: ViewsInfo;
+  /** Null when the caller may not manage tokens (an API-token caller). */
+  tokens: PublicApiToken[] | null;
+  /** Null for anyone who is not an admin with an interactive sign-in. */
+  users: UsersInfo | null;
+}
+
+export function overviewPage(o: OverviewInput): string {
+  const { viewer, rows, grants, versions, views, tokens, users } = o;
+  const t = totals(rows, versions, views);
+  const now = new Date();
+
+  const health: HealthRow[] = [];
+  if (users) {
+    const a = users.allowlist;
+    health.push({
+      key: "sign-in",
+      label: "Sign-in (Cloudflare Access)",
+      state: !a.configured ? "todo" : a.error ? "warn" : "ok",
+      detail: !a.configured
+        ? `Invites are recorded locally, but nobody new can sign in yet.
+           <a href="/admin/people">Finish setup →</a>`
+        : a.error
+          ? `Couldn't reach Cloudflare Access — the local directory still applies.
+             <a href="/admin/people">See the error →</a>`
+          : `${people(users.users.filter((u) => u.status !== "disabled").length)} can sign in.`,
+    });
+  }
+  if (tokens) {
+    const active = tokens.filter((tk) => tokenState(tk, now) === "active").length;
+    const stale = tokens.filter((tk) => tokenState(tk, now) === "expired").length;
+    health.push({
+      key: "tokens",
+      label: "API tokens",
+      state: stale ? "warn" : active ? "ok" : "todo",
+      detail: stale
+        ? `${plural(stale, "token")} expired — anything still using one is failing.
+           <a href="/admin/integrations">Review tokens →</a>`
+        : active
+          ? `${plural(active, "active token")} for the CLI, Claude Code and CI.`
+          : `No tokens yet — a browser is the only way to publish right now.
+             <a href="/admin/integrations">Create one →</a>`,
+    });
+  }
+  const unshared = rows.filter(
+    (r) => r.visibility === "restricted" && (grants.get(r.slug)?.length ?? 0) === 0
+  ).length;
+  health.push({
+    key: "sharing",
+    label: "Sharing",
+    state: unshared && rows.length ? "todo" : "ok",
+    detail: !rows.length
+      ? "Nothing published, so nothing to share."
+      : unshared
+        ? `${plural(unshared, "artifact")} that nobody else can open yet.
+           <a href="/admin/artifacts">Grant access →</a>`
+        : "Every artifact has an audience.",
+  });
+  health.push({
+    key: "storage",
+    label: "Storage",
+    state: "ok",
+    detail: `${bytes(t.bytes)} across ${plural(t.files, "file")} and ${plural(t.versions, "version")}.
+      Old versions are kept on purpose.`,
+  });
+
+  const actions: NextAction[] = [];
+  if (!rows.length) {
+    actions.push({
+      key: "publish",
+      title: "Publish your first artifact",
+      body: "Drop a .html page or a .zip bundle. It stays private to you until you share it.",
+      href: "/admin/artifacts",
+      cta: "Publish",
+    });
+  } else if (unshared) {
+    actions.push({
+      key: "share",
+      title: "Give somebody access",
+      body: `${
+        unshared === 1 ? "1 artifact is" : `${num(unshared)} artifacts are`
+      } private to you. Add an email to send a link that works.`,
+      href: "/admin/artifacts",
+      cta: "Open artifacts",
+    });
+  }
+  if (users && users.users.filter((u) => u.role === "member").length === 0) {
+    actions.push({
+      key: "invite",
+      title: "Invite your team",
+      body: "Members publish their own artifacts and only ever see their own.",
+      href: "/admin/people",
+      cta: "Invite",
+    });
+  }
+  if (tokens && tokens.filter((tk) => tokenState(tk, now) === "active").length === 0) {
+    actions.push({
+      key: "token",
+      title: "Connect Claude Code or the CLI",
+      body: "An API token lets an agent or a CI job publish here as you, with only the scopes you give it.",
+      href: "/admin/integrations",
+      cta: "Create a token",
+    });
+  }
+
+  const lede = viewer.isAdmin
+    ? `Everything published on this instance, who can reach it, and what still needs doing.`
+    : `Your artifacts, who can open them, and what still needs doing. You only ever see your own.`;
+
+  return portalShell({
+    viewer,
+    section: "overview",
+    title: "Overview",
+    heading: "Overview",
+    lede,
+    actions: `<a class="link-button" href="/admin/artifacts">Publish an artifact</a>`,
+    body: `${statsRow(rows, versions, views)}
+      ${nextActionsPanel(actions)}
+      ${recentPanel(rows, views, versions, grants, viewer.isAdmin)}
+      ${healthPanel(health)}`,
+    style: OVERVIEW_STYLE,
+  });
+}
+
+const OVERVIEW_STYLE = `
+.art-badges{display:flex;gap:.35rem;flex-wrap:wrap;margin-top:.28rem}
+.panel[data-panel=recent] .row .info b a{color:var(--fg);font-weight:680;letter-spacing:-.02em}
+.panel[data-panel=recent] .row .info b a:hover{color:var(--accent)}
+.panel-head a{font-size:.85rem;white-space:nowrap}
+a.ghost.link-button.small-link{padding:.42rem .85rem;font-size:.82rem}
+.panel[data-panel=health] .row .info b{font-weight:620}
+`;
+
+// --- Artifacts: the list ----------------------------------------------------
 
 function publishPanel(): string {
   const cap = `${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB`;
@@ -129,15 +384,104 @@ function publishPanel(): string {
         <input id="published-url" data-artifact-url readonly spellcheck="false">
         <button type="button" data-copy-link>Copy link</button>
       </div>
-      <p class="hint">This artifact is private until you grant access below.</p>
+      <p class="hint">This artifact is private until you grant access on its own page.</p>
       <div class="published-actions">
         <a class="ghost link-button" data-open-link target="_blank" rel="noopener">Open artifact ↗</a>
+        <a class="ghost link-button" data-manage-link>Manage &amp; share</a>
         <button type="button" class="ghost" data-publish-another>Publish another</button>
-        <button type="button" class="ghost" data-refresh>Refresh dashboard</button>
+        <button type="button" class="ghost" data-refresh>Refresh list</button>
       </div>
     </div>
   </section>`;
 }
+
+function artifactCard(
+  r: ArtifactRow,
+  emails: string[],
+  versionCount: number,
+  viewCount: number,
+  showOwner: boolean
+): string {
+  const search = `${r.title} ${r.slug} ${r.description ?? ""} ${showOwner ? (r.owner_email ?? "") : ""}`.toLowerCase();
+  const href = `/admin/artifacts/${encodeURIComponent(r.slug)}`;
+  return `<article class="artifact" data-artifact="${esc(r.slug)}" data-search="${esc(search)}">
+    <a class="art-open" href="${esc(href)}" data-manage="${esc(r.slug)}">
+      <span class="art-id">
+        <span class="art-title">${esc(r.title)}</span>
+        <span class="mono art-slug">/${esc(r.slug)}/</span>
+        ${r.description ? `<span class="hint art-desc">${esc(r.description)}</span>` : ""}
+      </span>
+      <span class="art-badges">${artifactBadges(r, emails, versionCount, viewCount, showOwner)}</span>
+    </a>
+    <div class="art-actions">
+      <a href="/${esc(r.slug)}/" target="_blank" rel="noopener">Open ↗</a>
+      <button class="ghost small" data-copy="/${esc(r.slug)}/">Copy link</button>
+      <a class="ghost link-button small-link" href="${esc(href)}">Manage</a>
+    </div>
+  </article>`;
+}
+
+export interface ArtifactsInput {
+  viewer: PortalViewer;
+  rows: ArtifactRow[];
+  grants: Map<string, string[]>;
+  versions: Map<string, VersionRow[]>;
+  views: ViewsInfo;
+}
+
+export function artifactsPage(o: ArtifactsInput): string {
+  const { viewer, rows, grants, versions, views } = o;
+  const list = rows
+    .map((r) =>
+      artifactCard(
+        r,
+        grants.get(r.slug) ?? [],
+        versions.get(r.slug)?.length ?? 1,
+        views.counts.get(r.slug)?.total ?? 0,
+        viewer.isAdmin
+      )
+    )
+    .join("");
+
+  const emptyState = `<div class="empty" data-empty="artifacts">
+    <h3>Nothing published yet</h3>
+    <p>Drop a <span class="mono">.html</span> page or a <span class="mono">.zip</span> bundle into the
+      panel above to publish your first artifact. It stays private to you until you grant access —
+      then you'll get a share link to send.</p>
+  </div>`;
+
+  const searchable = rows.length > 3;
+  const listSection = `<section aria-labelledby="artifacts-h">
+    <div class="section-head">
+      <h2 id="artifacts-h">${viewer.isAdmin ? "All artifacts" : "Your artifacts"}
+        <span class="hint">${plural(rows.length, "published artifact")}</span></h2>
+      ${searchable ? `<input id="filter" type="search" placeholder="Filter by title or slug…" aria-label="Filter artifacts">` : ""}
+    </div>
+    ${rows.length ? list : emptyState}
+    ${
+      searchable
+        ? `<div class="empty" data-empty="filter" hidden><h3>No matches</h3>
+             <p>No artifact matches that filter. Try a different title or slug.</p></div>`
+        : ""
+    }
+  </section>`;
+
+  return portalShell({
+    viewer,
+    section: "artifacts",
+    title: "Artifacts",
+    heading: "Artifacts",
+    lede: viewer.isAdmin
+      ? `Everything published here. Open one to manage its versions, its audience and its view log.`
+      : `Everything you have published. Open one to manage its versions, its audience and its
+         view log — you only ever see your own.`,
+    body: `${publishPanel()}${listSection}`,
+    style: ARTIFACTS_STYLE,
+    script: PICK_SCRIPT + PUBLISH_SCRIPT + FILTER_SCRIPT,
+  });
+}
+
+// --- Artifacts: one artifact ------------------------------------------------
 
 function versionsPanel(r: ArtifactRow, versions: VersionRow[]): string {
   const list = versions
@@ -160,17 +504,21 @@ function versionsPanel(r: ArtifactRow, versions: VersionRow[]): string {
       </div>`;
     })
     .join("");
-  return `<div class="sub-panel" data-panel="versions">
-    <h4>Versions <span class="hint">${plural(versions.length, "version")}</span></h4>
+  return `<section class="panel sub-panel" data-panel="versions" aria-labelledby="versions-h">
+    <div class="panel-head"><div>
+      <h2 id="versions-h">Versions <span class="hint">${plural(versions.length, "version")}</span></h2>
+      <p class="hint">Every publish is kept. Making an older one live is instant and reversible.</p>
+    </div></div>
     ${list || `<p class="note">No version history recorded yet.</p>`}
     <form class="newver" data-newver>
       <input type="hidden" name="slug" value="${esc(r.slug)}">
       ${dropzone("Drop a new version here", "Replaces what visitors see — older versions stay available", true)}
-      <input type="text" name="note" placeholder="What changed? (optional note)" autocomplete="off">
-      <div class="row-actions"><button type="submit" class="small">Upload new version</button>
+      <input type="text" name="note" placeholder="What changed? (optional note)" autocomplete="off"
+        aria-label="Version note">
+      <div class="row-actions"><button type="submit" class="ghost small">Upload new version</button>
         <span class="status" data-status hidden></span></div>
     </form>
-  </div>`;
+  </section>`;
 }
 
 function viewsPanel(slug: string, info: ViewsInfo): string {
@@ -182,20 +530,27 @@ function viewsPanel(slug: string, info: ViewsInfo): string {
         <span class="hint">${stamp(v.viewed_at)} · v${v.version}${v.country ? " · " + esc(v.country) : ""}${v.path ? " · /" + esc(v.path) : ""}</span></div></div>`
     )
     .join("");
-  return `<div class="sub-panel" data-panel="views">
-    <h4>Views <span class="hint">${plural(c.total, "view")} · ${plural(c.unique, "viewer")}</span></h4>
+  return `<section class="panel sub-panel" data-panel="views" aria-labelledby="views-h">
+    <div class="panel-head"><div>
+      <h2 id="views-h">Views <span class="hint">${plural(c.total, "view")} · ${plural(c.unique, "viewer")}</span></h2>
+      <p class="hint">Who opened it, when, and which version they saw.</p>
+    </div></div>
     ${
       recent.length
         ? rows
         : `<p class="note">No views yet — copy the share link above and send it to someone who has access.</p>`
     }
-  </div>`;
+  </section>`;
 }
 
 function accessPanel(r: ArtifactRow, emails: string[]): string {
   const restricted = r.visibility === "restricted";
-  return `<div class="sub-panel" data-panel="access" id="acc-${esc(r.slug)}">
-    <h4>Access</h4>
+  return `<section class="panel sub-panel" data-panel="access" id="acc-${esc(r.slug)}" aria-labelledby="access-h">
+    <div class="panel-head"><div>
+      <h2 id="access-h">Access</h2>
+      <p class="hint">Cloudflare Access decides who may sign in; this decides who may open
+        this artifact once they have.</p>
+    </div></div>
     <label for="vis-${esc(r.slug)}">Who can open this artifact</label>
     <select id="vis-${esc(r.slug)}" name="visibility" data-vis="${esc(r.slug)}">
       <option value="restricted"${restricted ? " selected" : ""}>Restricted — only the people you list (plus admins)</option>
@@ -212,353 +567,295 @@ function accessPanel(r: ArtifactRow, emails: string[]): string {
     </div>
     <div class="row-actions"><button class="small" data-save="${esc(r.slug)}">Save access</button>
       <span class="status acc-status" data-status hidden></span></div>
-  </div>`;
+  </section>`;
 }
 
-function artifactCard(
-  r: ArtifactRow,
-  emails: string[],
-  vers: VersionRow[],
-  views: ViewsInfo,
-  showOwner = false
-): string {
-  const viewCount = views.counts.get(r.slug)?.total ?? 0;
-  const visBadge =
-    r.visibility === "everyone"
-      ? `<span class="badge is-open" data-badge="visibility">Everyone</span>`
-      : `<span class="badge is-locked" data-badge="visibility">Restricted · ${num(emails.length)}</span>`;
-  const verBadge = `<span class="badge" data-badge="version">v${r.current_version}${
-    vers.length > 1 ? ` of ${vers.length}` : ""
-  }</span>`;
-  const fileBadge = `<span class="badge" data-badge="files">${plural(r.file_count, "file")}</span>`;
-  const viewBadge = `<span class="badge" data-badge="views">${plural(viewCount, "view")}</span>`;
-  // Admins manage everyone's artifacts, so they need to see whose each one is.
-  const ownerBadge =
-    showOwner && r.owner_email
-      ? `<span class="badge" data-badge="owner">${esc(r.owner_email)}</span>`
-      : "";
-
-  const search = `${r.title} ${r.slug} ${r.description ?? ""} ${showOwner ? r.owner_email ?? "" : ""}`.toLowerCase();
-  const bodyId = `art-${esc(r.slug)}`;
-  // A disclosure button (rather than <details>/<summary>) keeps the row's own
-  // links and buttons out of the summary's activation target — nesting them
-  // there makes them unreliable for keyboard and screen-reader users.
-  return `<article class="artifact" data-artifact="${esc(r.slug)}" data-search="${esc(search)}">
-    <div class="art-head">
-      <button type="button" class="art-toggle" aria-expanded="false" aria-controls="${bodyId}">
-        <span class="chevron" aria-hidden="true">▸</span>
-        <span class="art-id">
-          <span class="art-title">${esc(r.title)}</span>
-          <span class="mono art-slug">/${esc(r.slug)}/</span>
-          ${r.description ? `<span class="hint art-desc">${esc(r.description)}</span>` : ""}
-        </span>
-        <span class="art-badges">${visBadge}${verBadge}${fileBadge}${viewBadge}${ownerBadge}
-          <span class="badge">${esc(r.type)}</span></span>
-      </button>
-      <div class="art-actions">
-        <a href="/${esc(r.slug)}/" target="_blank" rel="noopener">Open ↗</a>
-        <button class="ghost small" data-copy="/${esc(r.slug)}/">Copy link</button>
-        <button class="danger small" data-del="${esc(r.slug)}">Delete</button>
-      </div>
-    </div>
-    <div class="art-body" id="${bodyId}" hidden>
-      ${versionsPanel(r, vers)}
-      ${viewsPanel(r.slug, views)}
-      ${accessPanel(r, emails)}
-    </div>
-  </article>`;
+export interface ArtifactDetailInput {
+  viewer: PortalViewer;
+  row: ArtifactRow;
+  emails: string[];
+  versions: VersionRow[];
+  views: ViewsInfo;
 }
 
-// --- people -----------------------------------------------------------------
+export function artifactDetailPage(o: ArtifactDetailInput): string {
+  const { viewer, row, emails, versions, views } = o;
+  const viewCount = views.counts.get(row.slug)?.total ?? 0;
+  const badges = artifactBadges(row, emails, versions.length, viewCount, viewer.isAdmin);
 
-const ROLE_LABEL: Record<PublicUser["role"], string> = {
-  super_admin: "Owner",
-  admin: "Admin",
-  member: "Member",
-};
-
-const STATUS_LABEL: Record<PublicUser["status"], string> = {
-  active: "Active",
-  invited: "Invited",
-  disabled: "Paused",
-};
-
-/**
- * How the Cloudflare Access side of things is doing, as a calm sentence rather
- * than a red box. Only a genuine API failure is an error — "not configured yet"
- * is a setup step, and dressing it up as a fault trains people to ignore red.
- */
-function allowlistNote(view: AllowlistView): string {
-  if (!view.configured) {
-    return `<p class="note" data-users-unconfigured>Cloudflare Access isn't connected yet, so
-      invites are recorded here but nobody new can sign in. Set <span class="mono">CF_API_TOKEN</span>,
-      <span class="mono">CF_ACCOUNT_ID</span>, <span class="mono">ACCESS_VIEWER_APP_ID</span> and
-      <span class="mono">ACCESS_VIEWER_POLICY_ID</span> to manage sign-in from here. Pausing
-      somebody still works — this app refuses a paused account either way.</p>`;
-  }
-  if (view.error) {
-    return `<p class="status is-error" data-users-error>Couldn't reach Cloudflare Access: ${esc(view.error)}</p>
-      <p class="note">Check that <span class="mono">CF_API_TOKEN</span> is valid and has the
-        <b>Access: Apps and Policies — Edit</b> permission, then reload. Everything below is the
-        local directory, which still applies.</p>`;
-  }
-  return "";
-}
-
-/** The timeline of one person, in the order it actually reads: newest fact last. */
-function userMeta(u: PublicUser): string {
-  const bits: string[] = [];
-  if (u.invited_at) bits.push(`invited ${stamp(u.invited_at)}${u.invited_by ? ` by ${u.invited_by}` : ""}`);
-  else if (u.created_at) bits.push(`added ${stamp(u.created_at)}`);
-  if (u.status === "disabled" && u.disabled_at) bits.push(`paused ${stamp(u.disabled_at)}`);
-  else if (u.last_seen_at) bits.push(`last seen ${stamp(u.last_seen_at)}`);
-  else bits.push("never signed in");
-  if (!u.in_directory) bits.push("allow-list only");
-  return bits.join(" · ");
-}
-
-function userRow(u: PublicUser, info: UsersInfo): string {
-  const isSelf = !!info.viewer && info.viewer === u.email;
-  // Who may act on this row — the same rules userActionDenial enforces server
-  // side. Rendering them here is courtesy, not security: hiding a button never
-  // protects anything, so the API re-checks every one of these.
-  const locked = u.is_protected || (u.role !== "member" && !info.canManageAdmins);
-  const badges = [
-    `<span class="badge is-role" data-badge="role">${esc(ROLE_LABEL[u.role])}</span>`,
-    `<span class="badge is-${u.status === "disabled" ? "disabled" : u.status}" data-badge="status">${esc(STATUS_LABEL[u.status])}</span>`,
-  ];
-  // Drift: the directory says they're a member, but Access won't let them in.
-  if (u.allowlisted === false && u.status !== "disabled" && !u.is_protected) {
-    badges.push(`<span class="badge is-warn" data-badge="allowlist">No sign-in</span>`);
-  }
-
-  let actions: string;
-  if (locked) {
-    actions = `<span class="hint" data-locked>${
-      u.is_protected ? "Protected owner" : "Owner-only"
-    }</span>`;
-  } else if (isSelf) {
-    actions = `<span class="hint" data-locked>That's you</span>`;
-  } else if (u.status === "disabled") {
-    actions = `<button class="ghost small" data-user-action="enable" data-user-email="${esc(u.email)}">Re-enable</button>
-      <button class="danger small" data-user-action="remove" data-user-email="${esc(u.email)}">Remove</button>`;
-  } else {
-    actions = `<button class="ghost small" data-user-action="disable" data-user-email="${esc(u.email)}">Pause</button>
-      <button class="danger small" data-user-action="remove" data-user-email="${esc(u.email)}">Remove</button>`;
-  }
-
-  return `<div class="row user-row" data-user="${esc(u.email)}" data-user-status="${esc(u.status)}" data-user-role="${esc(u.role)}">
-    <div class="info">
-      <b>${u.display_name ? esc(u.display_name) : esc(u.email)}</b>
-      ${u.display_name ? `<span class="hint mono">${esc(u.email)}</span>` : ""}
-      <div class="art-badges">${badges.join("")}</div>
-      <div class="hint" data-user-meta>${esc(userMeta(u))}</div>
-      ${u.notes ? `<div class="hint user-note" data-user-notes>${esc(u.notes)}</div>` : ""}
-    </div>
-    <div class="row-actions">${actions}<span class="status" data-status hidden></span></div>
-  </div>`;
-}
-
-/**
- * The People panel: the local directory first, Cloudflare Access as a fact about
- * each person rather than the list itself. That inversion is the point of issue
- * #24 — an operator thinks in people ("has Dana signed in yet?"), not in policy
- * rows.
- */
-function usersPanel(info: UsersInfo): string {
-  const counts = {
-    active: info.users.filter((u) => u.status === "active").length,
-    invited: info.users.filter((u) => u.status === "invited").length,
-    paused: info.users.filter((u) => u.status === "disabled").length,
-  };
-  const summary = [
-    `${counts.active} active`,
-    counts.invited ? `${counts.invited} invited` : "",
-    counts.paused ? `${counts.paused} paused` : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
-
-  const rows = info.users.map((u) => userRow(u, info)).join("");
-
-  return `<section class="panel" data-panel="users" aria-labelledby="users-h">
+  const summary = `<section class="panel art-summary" data-artifact-detail="${esc(row.slug)}"
+      aria-labelledby="summary-h">
     <div class="panel-head"><div>
-      <h2 id="users-h">People <span class="hint" data-user-summary>${esc(summary)}</span></h2>
-      <p class="hint">Cloudflare Access verifies every sign-in; this is who the product knows
-        about. Inviting somebody adds them to the Access allow-list — grant them individual
-        artifacts below.</p>
+      <h2 id="summary-h" class="sr-only">Summary</h2>
+      <div class="art-badges">${badges}</div>
+      ${row.description ? `<p class="hint art-desc-full">${esc(row.description)}</p>` : ""}
     </div></div>
-    ${allowlistNote(info.allowlist)}
-    <form id="userform" class="userform" data-invite-form>
-      <input id="newuser" type="email" placeholder="person@example.com" autocomplete="off"
-        aria-label="Email to invite" required>
-      <input id="newuser-name" type="text" placeholder="Name (optional)" autocomplete="off"
-        aria-label="Display name" maxlength="${MAX_DISPLAY_NAME_LENGTH}">
-      <input id="newuser-notes" type="text" placeholder="Note (optional)" autocomplete="off"
-        aria-label="Internal note" maxlength="${MAX_NOTES_LENGTH}">
-      <button type="submit" class="small">Send invite</button>
-      <span id="users-status" class="status" data-status hidden></span>
-    </form>
-    <div class="user-list">${
-      rows ||
-      `<div class="empty" data-empty="users"><h3>No one here yet</h3>
-        <p>Invite your first teammate above. They'll get a one-time code by email the first
-          time they open the dashboard — there's no password to share.</p></div>`
+    <label for="share-url">Share link</label>
+    <div class="linkrow">
+      <input id="share-url" data-share-url readonly spellcheck="false" value="/${esc(row.slug)}/">
+      <button type="button" data-copy="/${esc(row.slug)}/">Copy link</button>
+    </div>
+    <p class="hint">${
+      row.visibility === "everyone"
+        ? "Anyone signed in to this instance can open it."
+        : emails.length
+          ? `${people(emails.length)} can open it, plus admins.`
+          : "Only you and admins can open it — grant access below before sending the link."
+    } Published ${stamp(row.created_at)} · updated ${stamp(row.updated_at)}${
+      row.owner_email ? ` · owned by ${esc(row.owner_email)}` : ""
+    }.</p>
+  </section>`;
+
+  const danger = dangerZone(
+    "Delete this artifact",
+    `Removes every version, every file and every grant. The slug becomes free again, and
+     nothing here can be recovered. The view log goes with it.`,
+    `<button class="danger small" data-del="${esc(row.slug)}">Delete ${esc(row.slug)}</button>
+     <span class="status" data-status hidden></span>`
+  );
+
+  return portalShell({
+    viewer,
+    section: "artifacts",
+    title: `${row.title} · Artifacts`,
+    heading: row.title,
+    lede: `Everything about <span class="mono">/${esc(row.slug)}/</span> — its versions, who has
+      opened it, and who may.`,
+    crumbs: [
+      { label: "Artifacts", href: "/admin/artifacts" },
+      { label: row.title },
+    ],
+    actions: `<a class="ghost link-button" href="/${esc(row.slug)}/" target="_blank" rel="noopener">Open ↗</a>`,
+    body: `${summary}
+      <div class="pcols">
+        ${versionsPanel(row, versions)}
+        ${viewsPanel(row.slug, views)}
+      </div>
+      ${accessPanel(row, emails)}
+      ${danger}`,
+    style: ARTIFACTS_STYLE,
+    script: PICK_SCRIPT + DETAIL_SCRIPT,
+  });
+}
+
+// --- Settings ---------------------------------------------------------------
+
+export function settingsPage(viewer: PortalViewer): string {
+  const account = `<section class="panel" data-panel="account" aria-labelledby="account-h">
+    <div class="panel-head"><div>
+      <h2 id="account-h">Account</h2>
+      <p class="hint">Who you are on this instance. Roles come from deployment configuration, so
+        nobody can change their own.</p>
+    </div></div>
+    <div class="row" data-setting="email">
+      <div class="info"><b>Email</b><span class="hint">Verified by Cloudflare Access on every request.</span></div>
+      <div class="row-actions"><span class="mono">${esc(viewer.email)}</span></div>
+    </div>
+    <div class="row" data-setting="role">
+      <div class="info"><b>Role</b><span class="hint">${
+        viewer.role === "super_admin"
+          ? "The operator. Can manage other admins, and can never be paused or removed."
+          : viewer.role === "admin"
+            ? "Manages every artifact and every member, but not other admins."
+            : "Publishes and manages your own artifacts. You never see anyone else's."
+      }</span></div>
+      <div class="row-actions"><span class="badge is-role" data-badge="role">${esc(roleLabel(viewer.role))}</span></div>
+    </div>
+    <div class="row" data-setting="sign-in">
+      <div class="info"><b>Sign-in</b><span class="hint">Passwordless — a one-time code by email,
+        issued by Cloudflare Access. There is no password to change here.</span></div>
+      <div class="row-actions"><a href="/login">Sign-in page →</a></div>
+    </div>
+  </section>`;
+
+  const security = `<section class="panel" data-panel="security" aria-labelledby="security-h">
+    <div class="panel-head"><div>
+      <h2 id="security-h">Security</h2>
+      <p class="hint">Two independent layers decide every request, and both must say yes.</p>
+    </div></div>
+    <div class="row" data-setting="access-layer">
+      <div class="info"><b>Who may sign in</b><span class="hint">Cloudflare Access, in front of the
+        whole app. Pausing somebody signs them out everywhere and revokes their API tokens.</span></div>
+      <div class="row-actions">${
+        viewer.isAdmin ? `<a href="/admin/people">People →</a>` : `<span class="hint">Managed by an admin</span>`
+      }</div>
+    </div>
+    <div class="row" data-setting="artifact-layer">
+      <div class="info"><b>Who may open an artifact</b><span class="hint">Set per artifact:
+        restricted to a list, or everyone signed in. Granting access never grants management.</span></div>
+      <div class="row-actions"><a href="/admin/artifacts">Artifacts →</a></div>
+    </div>
+    <div class="row" data-setting="tokens-layer">
+      <div class="info"><b>Machine credentials</b><span class="hint">API tokens act as their owner
+        and carry only the scopes you gave them. They can never manage tokens or people.</span></div>
+      <div class="row-actions"><a href="/admin/integrations">Integrations →</a></div>
+    </div>
+  </section>`;
+
+  const later = `<section class="panel" data-panel="upcoming" aria-labelledby="upcoming-h">
+    <div class="panel-head"><div>
+      <h2 id="upcoming-h">Not here yet</h2>
+      <p class="hint">Listed so you know they're deliberate gaps rather than things you failed to
+        find.</p>
+    </div></div>
+    <div class="row" data-placeholder="custom-domain">
+      <div class="info"><b>Custom domains</b><span class="hint">Serve artifacts from your own
+        hostname. Content already runs on its own origin, which is the hard part.</span></div>
+      <div class="row-actions"><span class="badge is-locked">Planned</span></div>
+    </div>
+    <div class="row" data-placeholder="webhooks">
+      <div class="info"><b>Webhooks</b><span class="hint">Notify a system when an artifact is
+        published or viewed.</span></div>
+      <div class="row-actions"><span class="badge is-locked">Planned</span></div>
+    </div>
+    <div class="row" data-placeholder="audit-log">
+      <div class="info"><b>Audit log</b><span class="hint">A durable record of every access change,
+        beyond the per-artifact view log.</span></div>
+      <div class="row-actions"><span class="badge is-locked">Planned</span></div>
+    </div>
+  </section>`;
+
+  return portalShell({
+    viewer,
+    section: "settings",
+    title: "Settings",
+    heading: "Settings",
+    lede: `Your account, and how this instance decides who reaches what.`,
+    body: `${account}${security}${later}`,
+  });
+}
+
+// --- Platform (super admin only) --------------------------------------------
+
+/**
+ * A read-only picture of how this deployment is configured. Deliberately says
+ * *whether* a secret is set and never what it is — this page exists so an
+ * operator can diagnose an instance, not so a screenshot can leak one.
+ */
+export interface PlatformInfo {
+  origin: string;
+  accessConfigured: boolean;
+  accessTeamDomain: string;
+  accessManagementConfigured: boolean;
+  contentHosts: string[];
+  devLogin: boolean;
+  adminCount: number;
+  superAdminCount: number;
+  serviceTokenCount: number;
+  totals: { artifacts: number; versions: number; bytes: number; people: number; tokens: number };
+}
+
+function configRow(key: string, label: string, ok: boolean, detail: string, okWord = "Configured"): string {
+  return `<div class="row" data-config="${esc(key)}" data-config-state="${ok ? "ok" : "unset"}">
+    <div class="info"><b>${esc(label)}</b><span class="hint">${detail}</span></div>
+    <div class="row-actions">${
+      ok
+        ? `<span class="badge is-active">${esc(okWord)}</span>`
+        : `<span class="badge is-locked">Not set</span>`
     }</div>
-  </section>`;
-}
-
-// --- API tokens -------------------------------------------------------------
-
-type TokenState = "active" | "expired" | "revoked";
-
-/** Revoked wins over expired, so a revoked row never reads as merely stale. */
-function tokenState(t: PublicApiToken, now: Date): TokenState {
-  if (t.revoked_at) return "revoked";
-  return isTokenUsable(t, now) ? "active" : "expired";
-}
-
-function tokenRow(t: PublicApiToken, now: Date, showOwner: boolean): string {
-  const state = tokenState(t, now);
-  const stateBadge =
-    state === "revoked"
-      ? `<span class="badge is-revoked" data-badge="token-state">Revoked</span>`
-      : state === "expired"
-        ? `<span class="badge is-locked" data-badge="token-state">Expired</span>`
-        : `<span class="badge is-open" data-badge="token-state">Active</span>`;
-  // An admin token manages every artifact, so it is worth calling out even in a
-  // member's own list (an admin may have issued one on their behalf).
-  const adminBadge = t.is_admin ? `<span class="badge" data-badge="token-admin">admin</span>` : "";
-  const meta = [
-    `<span class="mono">${esc(t.id)}</span>`,
-    esc(t.scopes.join(" · ")),
-    // Only an admin sees other people's tokens, so only they need the owner.
-    showOwner ? esc(t.owner_email ?? "no owner") : "",
-    `created ${stamp(t.created_at)}`,
-    t.last_used_at ? `last used ${stamp(t.last_used_at)}` : "never used",
-    t.revoked_at
-      ? `revoked ${stamp(t.revoked_at)}`
-      : t.expires_at
-        ? `expires ${stamp(t.expires_at)}`
-        : "no expiry",
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  // Revoking is a tombstone, so an already-revoked token has no action left —
-  // the badge and the meta line already say so.
-  const action =
-    state === "revoked"
-      ? ""
-      : `<button class="ghost small" data-revoke="${esc(t.id)}">Revoke</button>`;
-  return `<div class="row" data-token="${esc(t.id)}" data-token-state="${state}" data-token-name="${esc(t.name)}">
-    <div class="info"><b>${esc(t.name)} ${stateBadge}${adminBadge}</b>
-      <span class="hint">${meta}</span></div>
-    <div class="row-actions">${action}<span class="status" data-status hidden></span></div>
   </div>`;
 }
 
-/**
- * Token management. The secret is shown exactly once, right after creation —
- * the list can only ever render metadata, because that is all the API returns.
- * A member may only mint tokens that act as themselves, so the owner/admin
- * controls are rendered for admins only (the API enforces this regardless).
- */
-function tokensPanel(tokens: PublicApiToken[], isAdmin: boolean): string {
-  const now = new Date();
-  const active = tokens.filter((t) => tokenState(t, now) === "active").length;
-  const rows = tokens.map((t) => tokenRow(t, now, isAdmin)).join("");
-
-  const scopeBox = (value: string, hint: string, checked: boolean) =>
-    `<label class="check"><input type="checkbox" name="scope" value="${value}"${checked ? " checked" : ""}>
-      <span><b>${value}</b> <span class="faint">— ${esc(hint)}</span></span></label>`;
-
-  const adminFields = isAdmin
-    ? `<div class="field-grid" data-token-admin-fields>
-        <div><label for="tok-owner">Owner email <span class="faint">(the member it acts as)</span></label>
-          <input id="tok-owner" name="owner_email" type="email" placeholder="person@example.com" autocomplete="off"></div>
-        <div><span class="field-label">Admin token</span>
-          <label class="check"><input type="checkbox" id="tok-admin" name="is_admin">
-            <span>Manages every artifact <span class="faint">— admin reach wins even when an owner is set</span></span></label></div>
-      </div>`
-    : `<p class="note" data-token-self-only>Tokens you create act as you — same artifacts, never more.
-        Ask an admin if you need a token for someone else.</p>`;
-
-  return `<section class="panel" data-panel="tokens" aria-labelledby="tokens-h">
+export function platformPage(viewer: PortalViewer, info: PlatformInfo): string {
+  const config = `<section class="panel" data-panel="platform-config" aria-labelledby="config-h">
     <div class="panel-head"><div>
-      <h2 id="tokens-h">API tokens <span class="hint" data-token-active-count="${active}">${plural(active, "active token")}</span></h2>
-      <p class="hint">Bearer credentials for the CLI, Hermes Cloud and CI. A token publishes as its
-        owner and can be narrowed by scope — it can never manage tokens or team members.</p>
+      <h2 id="config-h">Instance configuration</h2>
+      <p class="hint">Read-only. Every value below comes from deployment configuration — this page
+        reports whether a secret is set, never what it is.</p>
     </div></div>
+    ${configRow(
+      "origin",
+      "Canonical origin",
+      true,
+      `<span class="mono">${esc(info.origin)}</span> — canonical links, sitemap and share URLs.`,
+      "Set"
+    )}
+    ${configRow(
+      "access",
+      "Cloudflare Access (sign-in)",
+      info.accessConfigured,
+      info.accessConfigured
+        ? `Team domain <span class="mono">${esc(info.accessTeamDomain)}</span>. Every request carries a verified identity.`
+        : `<span class="mono">ACCESS_AUD</span> / <span class="mono">ACCESS_TEAM_DOMAIN</span> are unset.
+           Sign-in is not enforced by Access on this deployment.`
+    )}
+    ${configRow(
+      "access-management",
+      "Access management API",
+      info.accessManagementConfigured,
+      info.accessManagementConfigured
+        ? `Invites and pauses are written straight to the Access allow-list.`
+        : `<span class="mono">CF_API_TOKEN</span>, <span class="mono">CF_ACCOUNT_ID</span>,
+           <span class="mono">ACCESS_VIEWER_APP_ID</span> and
+           <span class="mono">ACCESS_VIEWER_POLICY_ID</span> are needed to manage sign-in from here.`
+    )}
+    ${configRow(
+      "content-hosts",
+      "Content-origin isolation",
+      info.contentHosts.length > 0,
+      info.contentHosts.length
+        ? `Artifacts are served only from <span class="mono">${esc(info.contentHosts.join(", "))}</span>,
+           so uploaded HTML never runs on the app origin.`
+        : `<span class="mono">CONTENT_HOSTNAMES</span> is unset, so uploaded artifact HTML runs on the
+           same origin as this portal. Set it before serving untrusted content.`
+    )}
+    ${configRow(
+      "dev-login",
+      "Dev login bypass",
+      !info.devLogin,
+      info.devLogin
+        ? `<span class="mono">DEV_LOGIN</span> is on: any caller is trusted as the email they claim.
+           This must never be set in production.`
+        : `Off — identity always comes from a verified Access token.`,
+      "Off"
+    )}
+  </section>`;
 
-    <form id="tokenform" data-token-form>
-      <div class="field-grid">
-        <div><label for="tok-name">Name *</label>
-          <input id="tok-name" name="name" required maxlength="${MAX_TOKEN_NAME_LENGTH}"
-            placeholder="hermes-cloud" autocomplete="off"></div>
-        <div><label for="tok-expires">Expires</label>
-          <select id="tok-expires" name="expires_in_days">
-            <option value="30">In 30 days</option>
-            <option value="90" selected>In 90 days</option>
-            <option value="365">In 365 days</option>
-            <option value="">Never — until revoked</option>
-          </select></div>
-      </div>
-      <fieldset class="scopes" data-token-scopes>
-        <legend>Scopes</legend>
-        ${scopeBox("read", "list artifacts, versions and views", true)}
-        ${scopeBox("publish", "upload new artifacts and versions, roll back", true)}
-        ${scopeBox("manage", "change who can open an artifact, delete artifacts", false)}
-      </fieldset>
-      ${adminFields}
-      <div class="row-actions"><button type="submit" class="small">Create token</button>
-        <span class="status" id="token-status" data-status hidden></span></div>
-    </form>
-
-    <div class="token-secret" data-token-secret hidden>
-      <div class="published-head"><span class="tick" aria-hidden="true">✓</span>
-        <div><b data-secret-title>Token created</b>
-          <div class="hint">Copy it now — only a hash is stored, so this is the only time it can be
-            shown. Store it as <span class="mono">RTFX_API_TOKEN</span>.</div></div>
-      </div>
-      <label for="token-value">Token</label>
-      <div class="linkrow">
-        <input id="token-value" data-token-value readonly spellcheck="false" aria-label="New API token">
-        <button type="button" data-copy-token>Copy token</button>
-      </div>
-      <div class="published-actions">
-        <button type="button" class="ghost" data-token-another>Create another</button>
-        <button type="button" class="ghost" data-token-refresh>Refresh list</button>
-      </div>
+  const operators = `<section class="panel" data-panel="platform-operators" aria-labelledby="ops-h">
+    <div class="panel-head"><div>
+      <h2 id="ops-h">Operators</h2>
+      <p class="hint">Roles are configuration, not data — nothing in the product can grant or revoke
+        them, which is what makes lockout impossible.</p>
+    </div></div>
+    <div class="row" data-operator="super-admins">
+      <div class="info"><b>Super admins</b><span class="hint"><span class="mono">SUPER_ADMIN_EMAILS</span>
+        — can manage other admins, and can never be paused or removed.</span></div>
+      <div class="row-actions"><span class="badge is-role">${num(info.superAdminCount)}</span></div>
     </div>
-
-    <div class="token-list" data-token-list>
-      ${rows || `<p class="note" data-empty="tokens">No API tokens yet — create one above to publish from the CLI or CI.</p>`}
+    <div class="row" data-operator="admins">
+      <div class="info"><b>Admins</b><span class="hint"><span class="mono">ADMIN_EMAILS</span>
+        — manage every artifact and every member.</span></div>
+      <div class="row-actions"><span class="badge is-role">${num(info.adminCount)}</span></div>
+    </div>
+    <div class="row" data-operator="service-tokens">
+      <div class="info"><b>Admin service tokens</b><span class="hint"><span class="mono">ADMIN_SERVICE_TOKENS</span>
+        — non-interactive callers with admin reach, capped below super admin.</span></div>
+      <div class="row-actions"><span class="badge is-role">${num(info.serviceTokenCount)}</span></div>
     </div>
   </section>`;
+
+  const t = info.totals;
+  const stats = `<section class="stats" aria-label="Instance totals">
+    ${statTile("instance-artifacts", "Artifacts", num(t.artifacts), `${plural(t.versions, "version")} kept`)}
+    ${statTile("instance-people", "People", num(t.people), "in the directory")}
+    ${statTile("instance-tokens", "API tokens", num(t.tokens), "issued, all states")}
+    ${statTile("instance-storage", "Storage", bytes(t.bytes), "across every version")}
+  </section>`;
+
+  return portalShell({
+    viewer,
+    section: "platform",
+    title: "Platform",
+    heading: "Platform",
+    lede: `Operator tools for this deployment. Only a super admin can open this page.`,
+    body: `${stats}${config}${operators}`,
+  });
 }
 
-// --- client script ----------------------------------------------------------
+// --- client scripts ---------------------------------------------------------
 
-const SCRIPT = `
-var $ = function(s, r){ return (r||document).querySelector(s); };
-var $$ = function(s, r){ return Array.prototype.slice.call((r||document).querySelectorAll(s)); };
-
-function setStatus(el, text, kind){
-  if(!el) return;
-  el.textContent = text || '';
-  el.hidden = !text;
-  el.className = 'status' + (el.classList.contains('acc-status') ? ' acc-status' : '') + (kind ? ' is-' + kind : '');
-}
-function fmtBytes(n){
-  if(n < 1024) return n + ' B';
-  if(n < 1048576) return (n/1024).toFixed(1) + ' KB';
-  return (n/1048576).toFixed(1) + ' MB';
-}
-async function detail(res){
-  try { var d = await res.json(); return d.detail || d.error || ''; } catch(e){ return ''; }
-}
-
-/* ---- file picking: drag/drop + browse, shared by every publish form ---- */
+/** File picking: drag/drop + browse. Needed by any page with a publish form. */
+const PICK_SCRIPT = `
 var picks = new WeakMap();
 function pickOf(form){
   var p = picks.get(form);
@@ -647,40 +944,17 @@ function initDropzone(zone){
   if(clear) clear.addEventListener('click', function(){ clearPick(form); setStatus(status, ''); });
   renderPick(form);
 }
-/* Dropping outside a dropzone should not navigate away from the dashboard. */
+/* Dropping outside a dropzone should not navigate away from the portal. */
 ['dragover','drop'].forEach(function(ev){
   document.addEventListener(ev, function(e){
     var t = e.target;
     if(!t || !t.closest || !t.closest('[data-dropzone]')) e.preventDefault();
   });
 });
+$$('[data-dropzone]').forEach(initDropzone);
+`;
 
-/* ---- copy to clipboard ---- */
-async function copyText(text){
-  try { await navigator.clipboard.writeText(text); return true; } catch(e){}
-  try {
-    var ta = document.createElement('textarea');
-    ta.value = text; ta.setAttribute('readonly',''); ta.style.position = 'fixed'; ta.style.opacity = '0';
-    document.body.appendChild(ta); ta.select();
-    var ok = document.execCommand('copy');
-    document.body.removeChild(ta);
-    return ok;
-  } catch(e){ return false; }
-}
-function wireCopy(btn, getText){
-  btn.addEventListener('click', async function(){
-    var idle = btn.getAttribute('data-idle') || btn.textContent;
-    btn.setAttribute('data-idle', idle);
-    var ok = await copyText(getText());
-    btn.textContent = ok ? 'Copied!' : 'Copy failed — select and press ⌘C';
-    btn.classList.toggle('is-copied', ok);
-    setTimeout(function(){ btn.textContent = idle; btn.classList.remove('is-copied'); }, 2000);
-  });
-}
-$$('[data-copy]').forEach(function(b){
-  wireCopy(b, function(){ return new URL(b.getAttribute('data-copy'), location.href).href; });
-});
-
+const PUBLISH_SCRIPT = `
 /* ---- publish ---- */
 var upForm = $('#up');
 var publishMsg = $('#publish-msg');
@@ -719,6 +993,7 @@ function showPublished(data){
   var input = $('[data-artifact-url]', success);
   input.value = url;
   $('[data-open-link]', success).href = url;
+  $('[data-manage-link]', success).href = '/admin/artifacts/' + encodeURIComponent(data.slug);
   $('[data-published-title]', success).textContent = 'Published to /' + data.slug + '/';
   $('[data-published-meta]', success).textContent =
     'Version ' + data.version + ' · ' + data.file_count + ' file' + (data.file_count === 1 ? '' : 's') + ' · ' + data.type;
@@ -739,8 +1014,36 @@ if(success){
   });
   $('[data-refresh]', success).addEventListener('click', function(){ location.reload(); });
 }
+`;
 
-/* ---- new version per artifact ---- */
+const FILTER_SCRIPT = `
+/* ---- filter ---- */
+var filter = $('#filter');
+if(filter){
+  filter.addEventListener('input', function(){
+    var q = filter.value.trim().toLowerCase();
+    var shown = 0;
+    $$('.artifact').forEach(function(el){
+      var hit = !q || (el.getAttribute('data-search') || '').indexOf(q) !== -1;
+      el.hidden = !hit;
+      if(hit) shown++;
+    });
+    var none = $('[data-empty=filter]');
+    if(none) none.hidden = shown !== 0;
+  });
+}
+`;
+
+/** Everything the single-artifact page does: new version, rollback, access, delete. */
+const DETAIL_SCRIPT = `
+/* ---- share link is stored relative, shown absolute ---- */
+var shareUrl = $('[data-share-url]');
+if(shareUrl){
+  shareUrl.value = new URL(shareUrl.value, location.href).href;
+  shareUrl.addEventListener('focus', function(e){ e.target.select(); });
+}
+
+/* ---- new version ---- */
 $$('form[data-newver]').forEach(function(form){
   form.addEventListener('submit', async function(e){
     e.preventDefault();
@@ -765,25 +1068,7 @@ $$('form[data-newver]').forEach(function(form){
   });
 });
 
-/* ---- artifact actions ---- */
-$$('.art-toggle').forEach(function(btn){
-  btn.addEventListener('click', function(){
-    var open = btn.getAttribute('aria-expanded') === 'true';
-    btn.setAttribute('aria-expanded', open ? 'false' : 'true');
-    document.getElementById(btn.getAttribute('aria-controls')).hidden = open;
-    btn.closest('.artifact').classList.toggle('is-open', !open);
-  });
-});
-$$('button[data-del]').forEach(function(b){
-  b.addEventListener('click', async function(){
-    var slug = b.getAttribute('data-del');
-    if(!confirm('Delete "' + slug + '"? This removes every version and file. It cannot be undone.')) return;
-    b.disabled = true;
-    var res = await fetch('/api/artifacts/' + encodeURIComponent(slug), { method:'DELETE' });
-    if(res.ok) location.reload();
-    else { b.disabled = false; alert((await detail(res)) || 'Delete failed — try again.'); }
-  });
-});
+/* ---- roll back to an older version ---- */
 $$('button[data-current]').forEach(function(b){
   b.addEventListener('click', async function(){
     var slug = b.getAttribute('data-slug'), version = b.getAttribute('data-current');
@@ -827,7 +1112,7 @@ $$('button[data-save]').forEach(function(b){
         : 'Saved — ' + (data.emails.length === 1 ? '1 person' : data.emails.length + ' people') + ' can open it.';
       setStatus(status, data.allowlistWarning ? who + ' (sign-in list warning: ' + data.allowlistWarning + ')' : who,
         data.allowlistWarning ? 'error' : 'ok');
-      var badge = $('[data-artifact="' + slug + '"] [data-badge=visibility]');
+      var badge = $('[data-artifact-detail="' + slug + '"] [data-badge=visibility]');
       if(badge){
         badge.textContent = data.visibility === 'everyone' ? 'Everyone' : 'Restricted · ' + data.emails.length;
         badge.classList.toggle('is-open', data.visibility === 'everyone');
@@ -838,225 +1123,30 @@ $$('button[data-save]').forEach(function(b){
   });
 });
 
-/* ---- people ----
-   Every mutation reloads on success. The server re-derives the whole directory
-   (D1 + the Access allow-list) after each write, so re-rendering from source is
-   both simpler and more honest than patching rows client-side. */
-var userForm = $('#userform');
-if(userForm){
-  userForm.addEventListener('submit', async function(e){
-    e.preventDefault();
-    var status = $('#users-status');
-    var email = $('#newuser').value.trim();
-    if(!email){ setStatus(status, 'Enter an email address.', 'error'); return; }
-    var payload = { email: email };
-    var name = $('#newuser-name').value.trim(); if(name) payload.display_name = name;
-    var note = $('#newuser-notes').value.trim(); if(note) payload.notes = note;
-    var btn = $('button[type=submit]', userForm);
-    btn.disabled = true;
-    setStatus(status, 'Inviting…');
-    try {
-      var res = await fetch('/api/users', {
-        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
-      });
-      if(!res.ok){ setStatus(status, (await detail(res)) || 'Could not invite that person.', 'error'); return; }
-      var data = await res.json();
-      /* A warning means the write landed but Access didn't — say so rather than
-         letting the reload imply everything is fine. */
-      if(data.warning){ alert(data.warning); }
-      location.reload();
-    } catch(err){ setStatus(status, 'Network error — try again.', 'error'); }
-    finally { btn.disabled = false; }
-  });
-}
-
-var USER_ACTIONS = {
-  disable: {
-    confirm: function(e){ return 'Pause ' + e + '?\\n\\nThey are signed out everywhere and their API tokens are revoked. Their artifacts are kept, and you can re-enable them at any time.'; },
-    url: function(e){ return '/api/users/' + encodeURIComponent(e) + '/disable'; },
-    method: 'POST', busy: 'Pausing…', fail: 'Could not pause that account.'
-  },
-  enable: {
-    confirm: function(e){ return 'Re-enable ' + e + '?\\n\\nThey can sign in again. Previously revoked API tokens stay revoked.'; },
-    url: function(e){ return '/api/users/' + encodeURIComponent(e) + '/enable'; },
-    method: 'POST', busy: 'Re-enabling…', fail: 'Could not re-enable that account.'
-  },
-  remove: {
-    confirm: function(e){ return 'Remove ' + e + ' from rtfx.pro?\\n\\nThey lose sign-in, every artifact grant, and every API token. Artifacts they published are NOT deleted. This cannot be undone.'; },
-    url: function(e){ return '/api/users/' + encodeURIComponent(e); },
-    method: 'DELETE', busy: 'Removing…', fail: 'Could not remove that person.'
-  }
-};
-
-$$('button[data-user-action]').forEach(function(b){
+/* ---- danger zone: delete ---- */
+$$('button[data-del]').forEach(function(b){
   b.addEventListener('click', async function(){
-    var action = USER_ACTIONS[b.getAttribute('data-user-action')];
-    var email = b.getAttribute('data-user-email');
-    if(!action || !confirm(action.confirm(email))) return;
-    var row = $('[data-user="' + email + '"]');
-    var status = row ? $('[data-status]', row) : null;
+    var slug = b.getAttribute('data-del');
+    if(!confirm('Delete "' + slug + '"? This removes every version and file. It cannot be undone.')) return;
+    var status = $('[data-status]', b.parentNode);
     b.disabled = true;
-    setStatus(status, action.busy);
-    try {
-      var res = await fetch(action.url(email), { method: action.method });
-      if(!res.ok){
-        b.disabled = false;
-        setStatus(status, (await detail(res)) || action.fail, 'error');
-        return;
-      }
-      var data = await res.json();
-      if(data.warning){ alert(data.warning); }
-      location.reload();
-    } catch(err){
+    setStatus(status, 'Deleting…');
+    var res = await fetch('/api/artifacts/' + encodeURIComponent(slug), { method:'DELETE' });
+    if(res.ok) location.href = '/admin/artifacts';
+    else {
       b.disabled = false;
-      setStatus(status, 'Network error — try again.', 'error');
+      setStatus(status, (await detail(res)) || 'Delete failed — try again.', 'error');
     }
   });
 });
-
-/* ---- API tokens ---- */
-var tokenForm = $('#tokenform');
-var tokenSecret = $('[data-token-secret]');
-function showToken(data){
-  if(!tokenSecret) return;
-  $('[data-token-value]', tokenSecret).value = data.token;
-  $('[data-secret-title]', tokenSecret).textContent =
-    'Created "' + data.name + '" · ' + data.id + ' · ' + (data.scopes || []).join(', ');
-  setStatus($('#token-status'), '');
-  tokenForm.hidden = true;
-  tokenSecret.hidden = false;
-  $('[data-copy-token]', tokenSecret).focus();
-}
-if(tokenForm){
-  tokenForm.addEventListener('submit', async function(e){
-    e.preventDefault();
-    var status = $('#token-status');
-    var name = $('#tok-name').value.trim();
-    if(!name){ setStatus(status, 'Give the token a name so you can recognise it later.', 'error'); return; }
-    var scopes = $$('input[name=scope]:checked', tokenForm).map(function(i){ return i.value; });
-    if(!scopes.length){ setStatus(status, 'Pick at least one scope.', 'error'); return; }
-    var payload = { name: name, scopes: scopes };
-    var days = $('#tok-expires').value;
-    if(days) payload.expires_in_days = Number(days);
-    /* Owner/admin controls exist for admins only; the API enforces the same rule. */
-    var ownerInput = $('#tok-owner'), adminBox = $('#tok-admin');
-    if(ownerInput){
-      var owner = ownerInput.value.trim();
-      var wantsAdmin = !!(adminBox && adminBox.checked);
-      if(!owner && !wantsAdmin){
-        setStatus(status, 'Enter an owner email, or tick the admin-token box.', 'error');
-        return;
-      }
-      if(owner) payload.owner_email = owner;
-      if(wantsAdmin) payload.is_admin = true;
-    }
-    var btn = $('button[type=submit]', tokenForm);
-    btn.disabled = true;
-    setStatus(status, 'Creating…');
-    try {
-      var res = await fetch('/api/tokens', {
-        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
-      });
-      if(!res.ok){
-        setStatus(status, (await detail(res)) || 'Could not create that token.', 'error');
-        return;
-      }
-      showToken(await res.json());
-    } catch(err){ setStatus(status, 'Network error — try again.', 'error'); }
-    finally { btn.disabled = false; }
-  });
-}
-if(tokenSecret){
-  wireCopy($('[data-copy-token]', tokenSecret), function(){ return $('[data-token-value]', tokenSecret).value; });
-  $('[data-token-value]', tokenSecret).addEventListener('focus', function(e){ e.target.select(); });
-  $('[data-token-another]', tokenSecret).addEventListener('click', function(){
-    /* Drop the secret from the DOM as soon as the user is done with it. */
-    $('[data-token-value]', tokenSecret).value = '';
-    tokenForm.reset();
-    tokenSecret.hidden = true; tokenForm.hidden = false;
-    var n = $('#tok-name'); if(n) n.focus();
-  });
-  $('[data-token-refresh]', tokenSecret).addEventListener('click', function(){ location.reload(); });
-}
-$$('button[data-revoke]').forEach(function(b){
-  b.addEventListener('click', async function(){
-    var id = b.getAttribute('data-revoke');
-    var row = $('[data-token="' + id + '"]');
-    var name = (row && row.getAttribute('data-token-name')) || id;
-    if(!confirm('Revoke "' + name + '"? Anything using this token stops working immediately. This cannot be undone.')) return;
-    var status = row ? $('[data-status]', row) : null;
-    b.disabled = true;
-    setStatus(status, 'Revoking…');
-    try {
-      var res = await fetch('/api/tokens/' + encodeURIComponent(id), { method:'DELETE' });
-      if(!res.ok){
-        b.disabled = false;
-        setStatus(status, (await detail(res)) || 'Could not revoke that token.', 'error');
-        return;
-      }
-      /* Update in place rather than reloading — a just-created secret may still
-         be on screen, and a reload would take it away for good. */
-      if(row){
-        row.setAttribute('data-token-state', 'revoked');
-        var badge = $('[data-badge=token-state]', row);
-        if(badge){ badge.textContent = 'Revoked'; badge.className = 'badge is-revoked'; }
-        var count = $('[data-token-active-count]');
-        if(count){
-          var n = Math.max(0, Number(count.getAttribute('data-token-active-count') || '0') - 1);
-          count.setAttribute('data-token-active-count', String(n));
-          count.textContent = n + ' active token' + (n === 1 ? '' : 's');
-        }
-      }
-      b.remove();
-      setStatus(status, 'Revoked — it no longer works.', 'ok');
-    } catch(err){
-      b.disabled = false;
-      setStatus(status, 'Network error — try again.', 'error');
-    }
-  });
-});
-
-/* ---- filter ---- */
-var filter = $('#filter');
-if(filter){
-  filter.addEventListener('input', function(){
-    var q = filter.value.trim().toLowerCase();
-    var shown = 0;
-    $$('.artifact').forEach(function(el){
-      var hit = !q || (el.getAttribute('data-search') || '').indexOf(q) !== -1;
-      el.hidden = !hit;
-      if(hit) shown++;
-    });
-    var none = $('[data-empty=filter]');
-    if(none) none.hidden = shown !== 0;
-  });
-}
-
-$$('[data-dropzone]').forEach(initDropzone);
 `;
 
-const ADMIN_STYLE = `
-.wrap{max-width:1180px}
-header.top{align-items:center;padding:1rem 1.15rem;border:1px solid var(--border);border-radius:28px;background:var(--elev);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);box-shadow:var(--shadow);margin-bottom:1.35rem}
-header.top .brand{font-weight:750;letter-spacing:-.03em}
-header.top .eyebrow{font-size:.72rem;text-transform:uppercase;letter-spacing:.1em;color:var(--faint)}
-.faint{color:var(--faint);font-weight:400}
+// --- artifact styles --------------------------------------------------------
+
+const ARTIFACTS_STYLE = `
 .sr-file{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;opacity:0}
-
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:.8rem;margin-bottom:1.35rem}
-.stat{position:relative;overflow:hidden;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:1.05rem 1.1rem;box-shadow:var(--shadow);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}
-.stat:after{content:"";position:absolute;inset:auto -20% -55% 38%;height:5rem;background:radial-gradient(circle,rgba(10,132,255,.18),transparent 65%)}
-.stat-label{font-size:.72rem;text-transform:uppercase;letter-spacing:.07em;color:var(--faint)}
-.stat-value{font-size:1.85rem;font-weight:780;line-height:1.1;letter-spacing:-.045em;margin:.2rem 0}
-.stat-hint{font-size:.8rem;color:var(--muted)}
-
-.panel{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:1.35rem;margin-bottom:1.35rem;box-shadow:var(--shadow);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}
-.panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:1.05rem}
-.panel h2{font-size:1.2rem;margin:0 0 .22rem;letter-spacing:-.035em}
-.panel-head p{margin:0}
 .publish{background:linear-gradient(145deg,var(--card),rgba(10,132,255,.08))}
 .publish form{display:grid;gap:.95rem}
-.field-grid{display:grid;grid-template-columns:1fr 1fr;gap:.95rem}
 .publish-foot{display:flex;align-items:center;gap:.9rem;flex-wrap:wrap}
 .publish-foot .hint{flex:1;min-width:14rem}
 
@@ -1081,126 +1171,33 @@ header.top .eyebrow{font-size:.72rem;text-transform:uppercase;letter-spacing:.1e
 .published-actions{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.9rem}
 
 .section-head{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin:0 0 .95rem}
-.section-head h2{font-size:1.22rem;margin:0;letter-spacing:-.035em}
+.section-head h2{font-size:1.15rem;margin:0;letter-spacing:-.035em}
 .section-head input{width:auto;min-width:16rem}
 
-.artifact{border:1px solid var(--border);border-radius:var(--radius);background:var(--card);margin-bottom:.78rem;box-shadow:var(--shadow);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);transition:border-color .15s,transform .15s}
+.artifact{border:1px solid var(--border);border-radius:var(--radius);background:var(--card);margin-bottom:.78rem;box-shadow:var(--shadow);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);transition:border-color .15s,transform .15s;display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;padding:1rem 1.15rem}
 .artifact:hover{border-color:var(--border-strong);transform:translateY(-1px)}
-.artifact.is-open{border-color:rgba(10,132,255,.55)}
-.art-head{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;padding:1rem 1.15rem}
-.art-toggle{flex:1;min-width:14rem;display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;text-align:left;background:transparent;border:0;padding:0;color:inherit;font:inherit;font-weight:400;cursor:pointer;border-radius:12px;box-shadow:none}
-.art-toggle:hover{opacity:1;transform:none;box-shadow:none;background:transparent}
-.art-toggle:hover .art-title{color:var(--accent)}
+.artifact:focus-within{border-color:rgba(10,132,255,.55)}
+.art-open{flex:1;min-width:14rem;display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;color:inherit;border-radius:14px}
+.art-open:hover{color:inherit}
+.art-open:hover .art-title{color:var(--accent)}
 .art-id{display:flex;flex-direction:column;min-width:11rem;flex:1}
 .art-title{font-weight:680;letter-spacing:-.025em;transition:color .15s}
 .art-slug{color:var(--muted)}
 .art-desc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:36rem}
 .art-badges{display:flex;gap:.35rem;flex-wrap:wrap}
-.art-actions{display:flex;gap:.42rem;align-items:center}
-.chevron{color:var(--faint);font-size:.8rem;flex:none;transition:transform .15s}
-.art-toggle[aria-expanded=true] .chevron{transform:rotate(90deg)}
-.art-body{display:grid;grid-template-columns:1fr 1fr;gap:.78rem;align-items:start;padding:0 1.15rem 1.15rem}
-.sub-panel{border:1px solid var(--border);border-radius:18px;padding:.92rem 1rem;background:rgba(255,255,255,.04)}
-.sub-panel[data-panel=access]{grid-column:1/-1}
-.sub-panel h4{margin:0 0 .55rem;font-size:.78rem;text-transform:uppercase;letter-spacing:.075em;color:var(--faint);display:flex;align-items:baseline;gap:.5rem}
-.sub-panel h4 .hint{text-transform:none;letter-spacing:0}
-.sub-panel .row{padding:.55rem 0}
-.row-actions{display:flex;gap:.5rem;align-items:center;flex:none}
-form.newver{display:grid;gap:.55rem;margin-top:.75rem;padding-top:.75rem;border-top:1px solid var(--border)}
-.emails-wrap{margin-bottom:.5rem}
-.userform{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin-bottom:.75rem}
-.userform input{flex:1;min-width:11rem}
-.userform input#newuser{min-width:15rem;flex:1.4}
-.user-row{align-items:flex-start}
-.user-row .info{display:grid;gap:.3rem}
-.user-row .info b{font-weight:650;letter-spacing:-.015em}
-.user-row .art-badges{margin-top:.1rem}
-.user-note{border-left:2px solid var(--border-strong);padding-left:.6rem;color:var(--faint)}
-.user-row .row-actions{align-items:center;flex-wrap:wrap;justify-content:flex-end}
-.user-list .empty{padding:2.4rem 1.5rem}
+.art-actions{display:flex;gap:.42rem;align-items:center;flex-wrap:wrap}
+a.ghost.link-button.small-link{padding:.42rem .85rem;font-size:.82rem}
 
-#tokenform{display:grid;gap:.95rem;margin-bottom:.5rem}
-.badge.is-revoked{color:var(--danger);border-color:var(--danger);background:var(--danger-weak)}
-fieldset.scopes{border:1px solid var(--border);border-radius:18px;padding:.82rem .95rem;margin:0;display:grid;gap:.45rem;background:rgba(255,255,255,.03)}
-fieldset.scopes legend{font-size:.85rem;color:var(--muted);padding:0 .35rem}
-label.check{display:flex;align-items:flex-start;gap:.5rem;margin:0;font-size:.88rem;color:var(--fg)}
-label.check input{width:auto;flex:none;margin-top:.2rem}
-.field-label{display:block;font-size:.85rem;color:var(--muted);margin-bottom:.25rem}
-.token-secret{border:1px solid rgba(48,209,88,.55);background:var(--ok-weak);border-radius:22px;padding:1.15rem;margin-bottom:1rem}
-.token-secret .linkrow input{font-family:var(--mono);font-size:.85rem;background:rgba(255,255,255,.05)}
-.token-list .row [data-token-state]{min-width:0}
-.token-list .row .info b{display:flex;align-items:center;gap:.35rem;flex-wrap:wrap}
-.token-list .hint{overflow-wrap:anywhere}
+.art-summary .art-badges{margin-bottom:.5rem}
+.art-desc-full{margin:0;max-width:46rem}
+.sub-panel{margin-bottom:0}
+.sub-panel h2{font-size:1.02rem}
+form.newver{display:grid;gap:.55rem;margin-top:.9rem;padding-top:.9rem;border-top:1px solid var(--border)}
+.emails-wrap{margin-bottom:.5rem}
+.panel[data-panel=views] .row{padding:.55rem 0}
 
 @media(max-width:720px){
-  .field-grid,.art-body{grid-template-columns:1fr}
   .art-actions{width:100%;justify-content:flex-start}
   .linkrow{align-items:stretch;flex-direction:column}
 }
 `;
-
-export function adminPage(
-  rows: ArtifactRow[],
-  grants: Map<string, string[]>,
-  versions: Map<string, VersionRow[]>,
-  views: ViewsInfo,
-  email: string,
-  viewer: DashboardViewer
-): string {
-  const totalVersions = rows.reduce((n, r) => n + (versions.get(r.slug)?.length ?? 1), 0);
-  const totalViews = rows.reduce((n, r) => n + (views.counts.get(r.slug)?.total ?? 0), 0);
-  const totalFiles = rows.reduce((n, r) => n + r.file_count, 0);
-  const totalBytes = rows.reduce((n, r) => n + r.size_bytes, 0);
-  const openCount = rows.filter((r) => r.visibility === "everyone").length;
-
-  const stats = `<section class="stats" aria-label="Overview">
-    ${statTile("artifacts", "Artifacts", num(rows.length), `${num(rows.length - openCount)} restricted · ${num(openCount)} everyone`)}
-    ${statTile("versions", "Versions", num(totalVersions), "immutable, roll back anytime")}
-    ${statTile("views", "Views", num(totalViews), "all-time page loads")}
-    ${statTile("storage", "Storage", bytes(totalBytes), plural(totalFiles, "file"))}
-  </section>`;
-
-  const list = rows
-    .map((r) =>
-      artifactCard(r, grants.get(r.slug) ?? [], versions.get(r.slug) ?? [], views, viewer.isAdmin)
-    )
-    .join("");
-
-  const emptyState = `<div class="empty" data-empty="artifacts">
-    <h3>Nothing published yet</h3>
-    <p>Drop a <span class="mono">.html</span> page or a <span class="mono">.zip</span> bundle into the
-      panel above to publish your first artifact. It stays private to you until you grant access —
-      then you'll get a share link to send.</p>
-  </div>`;
-
-  const searchable = rows.length > 3;
-  const artifactsSection = `<section aria-labelledby="artifacts-h">
-    <div class="section-head">
-      <h2 id="artifacts-h">${viewer.isAdmin ? "Artifacts" : "Your artifacts"} <span class="hint">${plural(rows.length, "published artifact")}</span></h2>
-      ${searchable ? `<input id="filter" type="search" placeholder="Filter by title or slug…" aria-label="Filter artifacts">` : ""}
-    </div>
-    ${rows.length ? list : emptyState}
-    ${
-      searchable
-        ? `<div class="empty" data-empty="filter" hidden><h3>No matches</h3>
-             <p>No artifact matches that filter. Try a different title or slug.</p></div>`
-        : ""
-    }
-  </section>`;
-
-  const body = `<header class="top">
-      <div><div class="eyebrow">${viewer.isAdmin ? "Admin" : "Member"}</div><h1>Dashboard</h1>
-        <div class="sub">Signed in as ${esc(email)}${
-          viewer.isAdmin ? "" : " · you only see artifacts you published"
-        }</div></div>
-      <div><a href="/gallery">View gallery →</a></div>
-    </header>
-
-    ${stats}
-    ${publishPanel()}
-    ${artifactsSection}
-    ${viewer.tokens ? tokensPanel(viewer.tokens, viewer.isAdmin) : ""}
-    ${viewer.isAdmin && viewer.users ? usersPanel(viewer.users) : ""}
-    <script>${SCRIPT}</script>`;
-  return layout("Dashboard · Artifacts", body, ADMIN_STYLE);
-}
