@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "rtfx",
+  "description": "Claude Code integration for rtfx.pro — publish what a session just built, behind real access control",
+  "owner": {
+    "name": "rtfx.pro",
+    "url": "https://rtfx.pro"
+  },
+  "plugins": [
+    {
+      "name": "rtfx",
+      "source": "./plugins/rtfx",
+      "description": "Publish HTML pages and multi-file artifacts to rtfx.pro from a Claude Code session — versioned, access-controlled, with a stable URL",
+      "category": "deployment",
+      "homepage": "https://rtfx.pro/docs"
+    }
+  ]
+}

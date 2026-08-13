@@ -26,10 +26,11 @@
     "deploy": "wrangler deploy",
     "setup": "node scripts/setup.mjs",
     "validate:deploy": "node scripts/validate-deploy-config.mjs",
+    "validate:plugin": "node scripts/validate-plugin.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "check": "tsc --noEmit && vitest run"
+    "check": "tsc --noEmit && vitest run && node scripts/validate-plugin.mjs"
   },
   "dependencies": {
     "fflate": "^0.8.2",

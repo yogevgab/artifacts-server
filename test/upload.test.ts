@@ -82,12 +82,14 @@ describe("processZip", () => {
     expect(() => processZip(zip)).toThrow(UploadError);
   });
 
-  it("ignores directory entries, __MACOSX, and hidden dot dirs", () => {
+  it("ignores directory entries, __MACOSX, and hidden dot dirs/files", () => {
     const zip = zipSync({
       "index.html": strToU8("<h1>hi</h1>"),
       "assets/": new Uint8Array(0),
       "__MACOSX/index.html": strToU8("junk"),
       "assets/.git/config": strToU8("junk"),
+      ".env": strToU8("SECRET=1"),
+      ".DS_Store": strToU8("junk"),
     });
     const r = processZip(zip);
     expect(r.files.map((f) => f.path).sort()).toEqual(["index.html"]);

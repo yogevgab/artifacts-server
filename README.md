@@ -14,6 +14,7 @@ or multi-file static bundles — are published from a web dashboard, a CLI, or a
 - 📈 **Views log** — see who viewed each artifact, when, which version, and from where.
 - 🖼️ **Gallery + dashboard** — a filtered index for viewers, an admin UI to publish and manage.
 - 🧑‍💻 **CLI** — publish and manage from your terminal.
+- 🤖 **Claude Code plugin** — [`plugins/rtfx`](plugins/rtfx): a skill plus `/rtfx:*` commands, so "publish this" in a session ends with a versioned, access-controlled URL.
 - 🔑 **API tokens** — hashed bearer tokens for server-to-server publishing (Hermes Cloud, CI), scoped and revocable.
 - ☁️ **All Cloudflare** — Worker + R2 (files) + D1 (metadata). No servers, no database to run.
 
@@ -226,6 +227,34 @@ node cli/artifacts.mjs token-revoke <token-id>
 `token-*` and `user-*` require an Access login (or the Access service token) — an API token
 can't mint or revoke tokens, or change who may sign in.
 
+### Claude Code plugin
+
+This repository is also a Claude Code marketplace. Installing the plugin makes publishing part of
+the conversation rather than a separate step:
+
+```
+/plugin marketplace add yogevgab/artifacts-server
+/plugin install rtfx@rtfx
+```
+
+```bash
+export RTFX_API_TOKEN=rtfx_…            # dashboard → Integrations (scopes: read, publish)
+export ARTIFACTS_URL=https://rtfx.pro   # only when self-hosting
+```
+
+| | |
+|---|---|
+| Skill `publishing-to-rtfx` | Loads on its own when someone says "publish this" / "ship it". |
+| `/rtfx:publish [path] [slug]` | Publish or re-publish, then report the URL. |
+| `/rtfx:list` · `/rtfx:versions` · `/rtfx:rollback` | Inventory, history, and going back. |
+| `/rtfx:setup` | Check credentials and connectivity (prints a token's id, never the token). |
+
+The publisher (`plugins/rtfx/scripts/rtfx.mjs`) is dependency-free Node 18+, so it also works as a
+plain CLI on a machine that has never checked this repo out. It refuses to upload `.env`, `*.pem`,
+`*.key` and similar, and skips `.git`/`node_modules`, printing everything it left out.
+
+Details, testing and design notes: [`docs/CLAUDE_CODE.md`](docs/CLAUDE_CODE.md).
+
 ### API tokens (server-to-server)
 
 Automated publishers — Hermes Cloud, CI, scripts — authenticate with a hashed API token sent
@@ -292,7 +321,8 @@ npm install
 npm run dev        # wrangler dev on http://localhost:8787 (no Access gate; you are admin)
 npm test           # vitest (unit + integration via @cloudflare/vitest-pool-workers)
 npm run typecheck
-npm run check      # typecheck + tests
+npm run validate:plugin  # structural check of the Claude Code plugin files
+npm run check      # typecheck + tests + plugin validation
 ```
 
 Locally there's no Access gate. To simulate a specific viewer, send an `X-Dev-Email` header; to

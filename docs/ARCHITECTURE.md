@@ -124,6 +124,7 @@ preserving admin emails.
 | `src/landing.ts` | Server-rendered public landing page + waitlist form. |
 | `src/waitlist.ts` | `/waitlist` endpoint: email validation, join/redirect. |
 | `src/util.ts` | Slug validation (+ reserved slugs), content-type map. |
+| `plugins/rtfx/` | Claude Code plugin (skill, `/rtfx:*` commands, dependency-free publisher). Talks to `/api` like any other client — see [CLAUDE_CODE.md](CLAUDE_CODE.md). |
 
 ## Testing
 
