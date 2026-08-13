@@ -21,8 +21,9 @@ Worker (Hono router)
    GET /v/<slug>/<n>/…       preview a specific version (admin or the artifact's owner)
    GET /admin                dashboard (publish, access, versions; users panel = admin only).
                               Admins see every artifact, a beta user only their own
-   /api/*                    JSON API (signed-in; scoped to what the caller owns.
-                              /api/users is admin-only)
+   /api/*                    JSON API (signed-in via Access *or* an API token; scoped to
+                              what the caller owns. /api/users is admin-only;
+                              /api/users + /api/tokens refuse API tokens entirely)
         │
         ├── R2  (binding FILES)  — files at  <slug>/v<N>/<path>
         └── D1  (binding DB)     — metadata (+ waitlist emails)
@@ -36,6 +37,17 @@ Worker (Hono router)
   Access app scoped to those two paths with a **Bypass** policy — see README) so the public
   landing page and waitlist signup work with no login. `getIdentity` (`src/auth.ts`) still
   handles the case gracefully at the Worker layer: no valid Access JWT → `null` identity.
+- **API tokens** (`src/tokens.ts`) are the second authentication path, for callers that can't do
+  an interactive login (Hermes Cloud, CI). `Authorization: Bearer rtfx_<id>_<secret>` is resolved
+  by `resolveAuth` *before* Access, and a bad token is a `401` — never a silent downgrade to the
+  Access (or dev) identity. Only a SHA-256 hash is stored; the 256-bit secret makes a fast hash
+  the right primitive (nothing to dictionary-attack) and the lookup an indexed equality match, so
+  no secret is compared in the Worker. A token carries an `owner_email` (or the admin bit), so it
+  inherits — and never exceeds — the rights of the person it was issued for; `scopes`
+  (`read`/`publish`/`manage`) narrow it further. `/api/users` and `/api/tokens` refuse tokens
+  outright (`denyApiToken`), so a leaked token can neither mint another nor widen the login
+  allow-list. This is *additional* to Cloudflare Access, which still gates the edge — see
+  `docs/HERMES_CLOUD.md`.
 - **Authorization** is the Worker's job. It verifies the Access JWT (`src/auth.ts`) against
   either configured application AUD, derives the caller's identity (`getIdentity`), and decides:
   - **admin** — email in `ADMIN_EMAILS`, or a service-token `common_name` in
@@ -67,6 +79,10 @@ Worker decides what each signed-in person may see and manage. Widening the Acces
   type/entry/counts/note.
 - `artifact_views` — one row per HTML page load by a signed-in person (slug, version, email,
   path, country, referrer, timestamp). Written non-blocking via `waitUntil`.
+- `api_tokens` — one row per bearer credential: public `id`, `token_hash` (SHA-256, unique),
+  name, `owner_email`, `is_admin`, `scopes`, audit fields (`created_by`, `last_used_at`) and
+  `expires_at` / `revoked_at`. Revocation is a tombstone, not a delete, so the audit trail
+  survives. `last_used_at` is refreshed at most once every 5 minutes per token.
 
 The full schema is `schema.sql`; incremental changes live in `migrations/`.
 
@@ -89,10 +105,11 @@ preserving admin emails.
 | File | Responsibility |
 |---|---|
 | `src/index.ts` | Routing; landing vs. gallery split; gallery filtering; version-aware serving; `/v/` preview. |
-| `src/auth.ts` | Access JWT verification, `getIdentity`, `requireAdmin`, `requireUser`. |
-| `src/authz.ts` | Pure policy: `canView`, `canManage`, `isOwner`, `canUseDashboard`. |
+| `src/auth.ts` | Access JWT + bearer-token authentication, `resolveAuth`/`getIdentity`, `requireAdmin`, `requireUser`, `requireScope`, `denyApiToken`. |
+| `src/authz.ts` | Pure policy: `canView`, `canManage`, `isOwner`, `canUseDashboard`, `hasScope`. |
+| `src/tokens.ts` | API tokens: generation, hashing, scopes, lifecycle queries. |
 | `src/serve.ts` | R2 file serving + content types. |
-| `src/api.ts` | `/api` endpoints: publish, delete, access, versions, users. |
+| `src/api.ts` | `/api` endpoints: publish, delete, access, versions, users, tokens. |
 | `src/db.ts` | All D1 queries (including waitlist). |
 | `src/access-api.ts` | Cloudflare Access allow-list management. |
 | `src/upload.ts` | Zip processing / single-file wrapping. |
@@ -106,5 +123,7 @@ preserving admin emails.
 `vitest` with `@cloudflare/vitest-pool-workers` runs tests inside a real Workers runtime with
 local R2/D1. Integration tests drive the Hono app via `app.request(...)` and impersonate viewers
 with the dev-only `X-Dev-Email` header, or simulate a signed-out visitor with `X-Dev-Anonymous:
-true` (DEV_LOGIN mode otherwise always resolves an identity). No Cloudflare account is needed to
-run the suite.
+true` (DEV_LOGIN mode otherwise always resolves an identity). API-token flows are exercised
+end-to-end with real tokens minted through `/api/tokens` (`withToken` in `test/fixtures.ts`); the
+bearer path is checked before dev impersonation, so those tests hit the same code production
+does. No Cloudflare account is needed to run the suite.

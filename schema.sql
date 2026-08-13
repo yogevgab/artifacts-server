@@ -59,3 +59,22 @@ CREATE TABLE IF NOT EXISTS waitlist (
   email      TEXT NOT NULL UNIQUE,
   created_at TEXT NOT NULL
 );
+
+-- Bearer credentials for server-to-server publishing. Only the SHA-256 hash of
+-- the token is stored; `id` is the non-secret handle embedded in the token
+-- string (rtfx_<id>_<secret>).
+CREATE TABLE IF NOT EXISTS api_tokens (
+  id           TEXT PRIMARY KEY,
+  token_hash   TEXT NOT NULL UNIQUE,
+  name         TEXT NOT NULL,
+  owner_email  TEXT,
+  is_admin     INTEGER NOT NULL DEFAULT 0,
+  scopes       TEXT NOT NULL DEFAULT 'read,publish',
+  created_by   TEXT NOT NULL,
+  created_at   TEXT NOT NULL,
+  last_used_at TEXT,
+  expires_at   TEXT,
+  revoked_at   TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_tokens_owner ON api_tokens (owner_email);

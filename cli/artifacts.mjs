@@ -1,10 +1,16 @@
 #!/usr/bin/env node
 // Artifacts CLI — publish/list/delete/version artifacts on your instance.
 //
-// Auth: uses a Cloudflare Access service token via env vars.
+// Auth: an API token, a Cloudflare Access service token, or both.
 //   ARTIFACTS_URL            your instance URL (default http://localhost:8787 for dev)
-//   CF_ACCESS_CLIENT_ID      service token client id
-//   CF_ACCESS_CLIENT_SECRET  service token client secret
+//   RTFX_API_TOKEN           API token (rtfx_…) — sent as `Authorization: Bearer`
+//   CF_ACCESS_CLIENT_ID      Access service token client id
+//   CF_ACCESS_CLIENT_SECRET  Access service token client secret
+//
+// The two are independent layers and can be combined: while Cloudflare Access
+// still gates /api at the edge, the service token gets the request *through the
+// gate* and RTFX_API_TOKEN identifies you *to the app*. With both set, the API
+// token decides who you are and what scopes you have.
 //
 // Usage:
 //   artifacts publish <path> [--slug s] [--title t] [--description d] [--overwrite]
@@ -20,6 +26,7 @@ import { zipSync } from "fflate";
 const BASE = (process.env.ARTIFACTS_URL || "http://localhost:8787").replace(/\/+$/, "");
 const ID = process.env.CF_ACCESS_CLIENT_ID;
 const SECRET = process.env.CF_ACCESS_CLIENT_SECRET;
+const API_TOKEN = process.env.RTFX_API_TOKEN;
 
 function authHeaders() {
   const h = {};
@@ -27,6 +34,7 @@ function authHeaders() {
     h["CF-Access-Client-Id"] = ID;
     h["CF-Access-Client-Secret"] = SECRET;
   }
+  if (API_TOKEN) h["Authorization"] = `Bearer ${API_TOKEN}`;
   return h;
 }
 
@@ -42,7 +50,7 @@ function parseFlags(args) {
     const a = args[i];
     if (a.startsWith("--")) {
       const key = a.slice(2);
-      if (key === "overwrite") flags.overwrite = true;
+      if (key === "overwrite" || key === "admin") flags[key] = true;
       else flags[key] = args[++i];
     } else positional.push(a);
   }
@@ -119,8 +127,9 @@ async function rollback(slug, version) {
 
 async function list() {
   const res = await fetch(`${BASE}/api/artifacts`, { headers: authHeaders() });
-  if (!res.ok) die(`${res.status} ${res.statusText}`);
-  const { artifacts } = await res.json();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) die(`${res.status} ${data.detail || data.error || res.statusText}`);
+  const { artifacts } = data;
   if (!artifacts.length) return console.log("(no artifacts)");
   for (const a of artifacts) {
     const vis = a.visibility === "everyone" ? "everyone" : "restricted";
@@ -223,6 +232,50 @@ async function userRemove(email) {
   console.log(`removed ${email} (${data.users.length} user(s) remain)`);
 }
 
+async function tokens() {
+  const res = await fetch(`${BASE}/api/tokens`, { headers: authHeaders() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) die(`${res.status} ${data.detail || data.error || res.statusText}`);
+  if (!data.tokens.length) return console.log("(no tokens)");
+  for (const t of data.tokens) {
+    const who = t.is_admin ? "admin" : t.owner_email;
+    const state = t.revoked_at ? "revoked" : t.expires_at ? `expires ${t.expires_at.slice(0, 10)}` : "active";
+    const used = t.last_used_at ? `last used ${t.last_used_at.slice(0, 10)}` : "never used";
+    console.log(`${t.id}  ${String(who).padEnd(24)} ${t.scopes.join(",").padEnd(20)} ${state.padEnd(20)} ${used}  ${t.name}`);
+  }
+}
+
+async function tokenCreate(name, flags) {
+  if (!name) die("token-create requires a <name>");
+  const body = { name };
+  if (flags.scopes) body.scopes = flags.scopes.split(",").map((s) => s.trim()).filter(Boolean);
+  if (flags.owner) body.owner_email = flags.owner;
+  if (flags.admin) body.is_admin = true;
+  if (flags["expires-days"]) body.expires_in_days = Number(flags["expires-days"]);
+  const res = await fetch(`${BASE}/api/tokens`, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) die(`${res.status} ${data.detail || data.error || res.statusText}`);
+  // Printed once — the server only keeps a hash.
+  console.log(`token ${data.id} created (${data.scopes.join(",")}${data.is_admin ? ", admin" : ""})`);
+  console.log(`\n  ${data.token}\n`);
+  console.log("copy it now — it cannot be shown again. Use it as RTFX_API_TOKEN.");
+}
+
+async function tokenRevoke(id) {
+  if (!id) die("token-revoke requires a <token-id>");
+  const res = await fetch(`${BASE}/api/tokens/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) die(`${res.status} ${data.detail || data.error || res.statusText}`);
+  console.log(data.already_revoked ? `${data.revoked} was already revoked` : `revoked ${data.revoked}`);
+}
+
 async function del(slug) {
   if (!slug) die("delete requires a <slug>");
   const res = await fetch(`${BASE}/api/artifacts/${encodeURIComponent(slug)}`, {
@@ -277,6 +330,15 @@ switch (cmd) {
   case "user-remove":
     await userRemove(positional[0]);
     break;
+  case "tokens":
+    await tokens();
+    break;
+  case "token-create":
+    await tokenCreate(positional[0], flags);
+    break;
+  case "token-revoke":
+    await tokenRevoke(positional[0]);
+    break;
   default:
     console.log("usage: artifacts <command> ...");
     console.log("  publish <path> [--slug s] [--title t] [--description d] [--note n]");
@@ -293,5 +355,12 @@ switch (cmd) {
     console.log("  users                            list who can log in (Cloudflare Access)");
     console.log("  user-add <email>                 allow a person to log in");
     console.log("  user-remove <email>              revoke login + all artifact access");
+    console.log("  tokens                           list API tokens");
+    console.log("  token-create <name> [--scopes read,publish,manage] [--owner e] [--admin] [--expires-days n]");
+    console.log("        (prints the token once — store it as RTFX_API_TOKEN)");
+    console.log("  token-revoke <token-id>          revoke an API token");
+    console.log("");
+    console.log("auth: RTFX_API_TOKEN (bearer) and/or CF_ACCESS_CLIENT_ID/SECRET (Access gate).");
+    console.log("      token-* and user-* commands require an Access login, not an API token.");
     process.exit(cmd ? 1 : 0);
 }

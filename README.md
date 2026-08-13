@@ -14,6 +14,7 @@ static bundles — from a web dashboard or a CLI. With **per-artifact permission
 - 📈 **Views log** — see who viewed each artifact, when, which version, and from where.
 - 🖼️ **Gallery + dashboard** — a filtered index for viewers, an admin UI to publish and manage.
 - 🧑‍💻 **CLI** — publish and manage from your terminal.
+- 🔑 **API tokens** — hashed bearer tokens for server-to-server publishing (Hermes Cloud, CI), scoped and revocable.
 - ☁️ **All Cloudflare** — Worker + R2 (files) + D1 (metadata). No servers, no database to run.
 
 > **Stack:** TypeScript · [Hono](https://hono.dev) · Cloudflare Workers / R2 / D1 · Cloudflare Access
@@ -164,6 +165,9 @@ filtered to what each viewer may see; visiting it signed out redirects back to t
 
 ```bash
 export ARTIFACTS_URL=https://<your-domain>
+# Authenticate with an API token, a Cloudflare Access service token, or both
+# (Access gets you through the edge gate; the API token identifies you to the app).
+export RTFX_API_TOKEN=<rtfx_… token>
 export CF_ACCESS_CLIENT_ID=<service-token-client-id>
 export CF_ACCESS_CLIENT_SECRET=<service-token-client-secret>
 
@@ -177,7 +181,38 @@ node cli/artifacts.mjs grant my-page alice@example.com
 node cli/artifacts.mjs views my-page   # total/unique + recent views log
 node cli/artifacts.mjs users
 node cli/artifacts.mjs user-add bob@example.com
+
+node cli/artifacts.mjs token-create "hermes-cloud" --owner alice@example.com --scopes read,publish
+node cli/artifacts.mjs tokens
+node cli/artifacts.mjs token-revoke <token-id>
 ```
+
+`token-*` and `user-*` require an Access login (or the Access service token) — an API token
+can't mint or revoke tokens, or change who may sign in.
+
+### API tokens (server-to-server)
+
+Automated publishers — Hermes Cloud, CI, scripts — authenticate with a hashed API token sent
+as `Authorization: Bearer <token>`, instead of a browser login:
+
+```bash
+curl -X POST "$ARTIFACTS_URL/api/artifacts" \
+  -H "Authorization: Bearer $RTFX_API_TOKEN" \
+  -F "slug=my-page" -F "title=My Page" -F "file=@./page.html;type=text/html"
+```
+
+- Only a **SHA-256 hash** of each token is stored; the plaintext is shown once, at creation.
+- Every token has an **owner** and so inherits that person's ownership rules — an admin token
+  manages everything, a user's token only their own artifacts.
+- **Scopes** (`read`, `publish`, `manage`) narrow a token below its owner's rights; they never
+  widen anyone's. Default is `read,publish`, so a publishing integration can't delete.
+- Tokens are revocable (`token-revoke`), can carry an expiry, and are revoked automatically
+  when their owner is removed from the beta.
+- Bearer auth is an **additional** app-layer check — it does not bypass Cloudflare Access,
+  which still gates the edge.
+
+Full request/response contract, error codes and rollback flow:
+[`docs/HERMES_CLOUD.md`](docs/HERMES_CLOUD.md).
 
 ### Permissions
 Cloudflare Access decides **who can log in** (managed in the app's *Users* panel, which writes
@@ -198,7 +233,8 @@ allow-list — only an admin invites people into the beta.
 
 Artifacts with no owner (published before this model, or by a service token, which has no
 email) are manageable by admins only. Run `migrations/0005_owner_email.sql` on an existing
-database; it backfills owners from `created_by` where that was a real email.
+database; it backfills owners from `created_by` where that was a real email. API tokens live
+in `migrations/0006_api_tokens.sql`.
 
 ### Versioning
 Each publish to an existing slug creates a new immutable version and makes it live; previous
