@@ -1,7 +1,7 @@
 {
   "name": "rtfx",
-  "version": "1.0.0",
-  "description": "Publish HTML pages and multi-file artifacts to rtfx.pro from a Claude Code session — versioned, access-controlled, with a stable URL",
+  "version": "1.1.0",
+  "description": "Publish HTML pages and multi-file artifacts to rtfx.pro from a Claude Code session or any MCP client — versioned, access-controlled, with a stable URL",
   "author": {
     "name": "rtfx.pro",
     "url": "https://rtfx.pro"
@@ -9,5 +9,11 @@
   "homepage": "https://rtfx.pro/docs",
   "repository": "https://github.com/yogevgab/artifacts-server",
   "license": "MIT",
-  "keywords": ["publishing", "artifacts", "hosting", "cloudflare", "rtfx"]
+  "keywords": ["publishing", "artifacts", "hosting", "cloudflare", "mcp", "rtfx"],
+  "mcpServers": {
+    "rtfx": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/rtfx-mcp.mjs"]
+    }
+  }
 }

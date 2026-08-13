@@ -10,7 +10,7 @@
     {
       "name": "rtfx",
       "source": "./plugins/rtfx",
-      "description": "Publish HTML pages and multi-file artifacts to rtfx.pro from a Claude Code session — versioned, access-controlled, with a stable URL",
+      "description": "Publish HTML pages and multi-file artifacts to rtfx.pro from a Claude Code session or any MCP client — versioned, access-controlled, with a stable URL",
       "category": "deployment",
       "homepage": "https://rtfx.pro/docs"
     }

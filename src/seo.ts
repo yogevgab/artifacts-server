@@ -196,8 +196,10 @@ export function llmsTxt(env: Pick<Env, "PUBLIC_BASE_URL">): string {
 
 - CLI: \`artifacts publish ./index.html --title "Report"\` (single file, folder or zip).
 - API: \`POST /api/artifacts\` with a bearer API token minted from the dashboard.
-- Agents: Claude Code and Hermes publish through the same CLI/API, so "ship this" is one
-  step at the end of a normal agent session.
+- MCP: a native MCP server ships with the Claude Code plugin, so an MCP client (Claude Desktop,
+  Claude Code, or another) publishes, lists versions and rolls back as tool calls.
+- Agents: Claude Code, an MCP client and Hermes publish through the same CLI/API, so "ship this"
+  is one step at the end of a normal agent session.
 - Dashboard: drag-and-drop publish, access changes, version history and view logs.
 
 ## How it compares
@@ -208,8 +210,9 @@ link, re-publishing to the same address, a dashboard, and some count of who look
 
 What is specific to rtfx.pro:
 
-- Agent-native publishing: Claude Code, Hermes, the CLI and the HTTP API take the same path
-  a human takes; there is no separate, weaker agent route.
+- Agent-native publishing: Claude Code, the native MCP server, Hermes, the CLI and the HTTP API
+  take the same path a human takes; there is no separate, weaker agent route. The MCP tools are
+  wrappers over the same code as the CLI, holding the same scoped, revocable token.
 - Access is an identity-backed list, not a secret URL. Unauthorized and non-existent both
   answer 404, so a leaked link cannot even confirm the artifact is real.
 - Immutable versions with one-click rollback; the link you already sent is never overwritten.
@@ -229,7 +232,6 @@ product:
   passwordless one-time email code. There is no password on a share link.
 - Link expiry (API tokens do support an optional expiry; share access does not).
 - Custom domains for artifacts.
-- A native MCP server (agents publish through the CLI and HTTP API today).
 - Comments, approvals or polls on an artifact.
 
 ## Access and privacy model

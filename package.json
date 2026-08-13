@@ -19,7 +19,8 @@
     "url": "https://github.com/yogevgab/artifacts-server.git"
   },
   "bin": {
-    "artifacts": "cli/artifacts.mjs"
+    "artifacts": "cli/artifacts.mjs",
+    "rtfx-mcp": "plugins/rtfx/scripts/rtfx-mcp.mjs"
   },
   "scripts": {
     "dev": "wrangler dev --var DEV_LOGIN:true",

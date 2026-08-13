@@ -504,4 +504,15 @@ describe("the product surfaces point at the plugin", () => {
     expect(html).toContain('data-snippet="setup-plugin"');
     expect(html).toContain("/plugin install rtfx@rtfx");
   });
+
+  it("both surfaces also carry the MCP server the plugin registers (issue #39)", async () => {
+    const docs = await (await req("/docs")).text();
+    expect(docs).toContain('data-docs="mcp-server"');
+    expect(docs).toContain("rtfx-mcp.mjs");
+    const panel = await (await req("/admin/integrations", as("admin@test.com"))).text();
+    expect(panel).toContain('data-snippet="setup-mcp"');
+    expect(panel).toContain("rtfx-mcp.mjs");
+    // The example config must show a placeholder, never anything token-shaped.
+    for (const html of [docs, panel]) expect(html).not.toMatch(/rtfx_[A-Za-z0-9]{4,}_[A-Za-z0-9_-]{8,}/);
+  });
 });

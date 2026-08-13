@@ -25,4 +25,10 @@ export function checkPluginRootRefs(
   text: string,
   exists: (ref: string) => boolean
 ): CheckResult;
+export function checkMcpConfig(
+  path: string,
+  config: unknown,
+  exists: (ref: string) => boolean
+): CheckResult;
+export function checkMcpAgreement(manifestServers: unknown, fileServers: unknown): CheckResult;
 export function mergeResults(results: CheckResult[]): CheckResult;

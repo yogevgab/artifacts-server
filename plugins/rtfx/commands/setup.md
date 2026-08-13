@@ -31,3 +31,14 @@ repository, and never in a commit.
 If `doctor` reports a `403` while the token looks right, the instance is gating `/api` behind
 Cloudflare Access. That needs the service-token headers `CF_ACCESS_CLIENT_ID` and
 `CF_ACCESS_CLIENT_SECRET` from the same dashboard as well.
+
+The plugin also registers an **MCP server** with the same tools, for clients with no shell (Claude
+Desktop). It reads the same `RTFX_API_TOKEN`. If the user asks about it, run:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/rtfx-mcp.mjs" --help
+```
+
+That prints the client configuration and how the current environment resolves — endpoint, token id,
+exposed tools. Claude Desktop does not inherit the shell environment, so its config file needs the
+token in an `env` block; recommend a short expiry for that one, since it sits in plaintext.

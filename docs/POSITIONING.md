@@ -25,7 +25,10 @@ Read from each product's own public pages. Positions move; re-read before rewrit
 
 What that adds up to: hosting an AI artifact is solved, and **"upload your HTML" is no longer
 a position.** Everyone offers a link. Several offer analytics, custom domains and some form of
-access control. Two offer versions. One offers MCP.
+access control. Two offer versions. One offers MCP — and as of issue #39, so do we, which is why
+MCP is no longer a gap and is no longer worth leading with either. Being reachable from an agent is
+converging on table stakes; what stays ours is that the agent's path is the *same* path, with the
+same scoped credential and the same access rules, rather than a connector bolted onto a web form.
 
 ## Table stakes
 
@@ -43,11 +46,15 @@ and move on — a landing page that spends its hero on these reads like a 2025 p
 These are the load-bearing claims. Each one is shipped, each one is defensible against every
 product in the table above, and each one is enforced somewhere in the test suite.
 
-1. **Agent-native publishing.** Claude Code, a Hermes run, the CLI and the HTTP API take the
-   *same* path a human takes — there is no separate, weaker agent route, and no connector that
-   is really a web form. The agent holds a scoped, owner-bound, revocable token, so it can
-   publish as you and can never become you. Competitors have a "Claude connector"; we have the
-   publish path being the product's front door.
+1. **Agent-native publishing.** Claude Code, a native MCP server, a Hermes run, the CLI and the
+   HTTP API take the *same* path a human takes — there is no separate, weaker agent route, and no
+   connector that is really a web form. The agent holds a scoped, owner-bound, revocable token, so
+   it can publish as you and can never become you. Competitors have a "Claude connector"; we have
+   the publish path being the product's front door. The MCP tools are wrappers over the same
+   libraries the CLI uses, so an agent cannot reach anything a person could not, and the credential
+   filters that keep a `.env` out of a bundle apply identically
+   ([`MCP.md`](MCP.md)). What we still do not claim: sharing through an agent is opt-in per
+   operator, and no agent surface can mint a token or invite a person.
 2. **Access is an identity, not a secret URL.** Every artifact is restricted until its owner
    names someone. Unauthorized and non-existent return the identical 404 — a leaked link can't
    confirm the artifact is real. This is the sharpest contrast in the field: the category norm
@@ -77,7 +84,6 @@ borrows their vocabulary starts making claims we cannot honour.
 | **Per-link passwords / shared link secrets** | "Access-protected", "shared with named people", "sign-in is passwordless (one-time email code)". Never "password-protected". |
 | **Link expiry** | Access is revoked by hand. *API tokens* do support an optional expiry — that is a different object; don't blur them. |
 | **Custom domains for artifacts** | Content already runs on its own origin, which is the hard part. Listed as planned. |
-| **A native MCP server** | Agents publish through the CLI and HTTP API today. Listed as planned. |
 | **Comments, approvals, polls** | rtfx.pro publishes and controls the artifact; it is not the review tool around it. |
 | **Leaderboards, game hosting, templates** | Not a goal. Star's category is not ours. |
 
@@ -96,6 +102,7 @@ remembered.
 | `src/docs.ts` → `FAQS` | "Can I put a password on a share link?" and "How is this different…" — both answers reach rich results through `FAQPage` JSON-LD. |
 | `src/seo.ts` → `llmsTxt()` | The same split for answer engines, including an explicit **Not shipped yet** section. |
 | `src/seo.ts` → `ogImageSvg()` | The tagline plus "Agent-native publishing. Versioned. Audited." |
+| `docs/MCP.md` | The MCP surface itself, and the plugin-vs-MCP choice. Not public copy, but the thing the claim points at. |
 | `README.md` | The developer-facing version of the same order of claims. |
 
 ## Changing this

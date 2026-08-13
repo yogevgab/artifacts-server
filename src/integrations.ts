@@ -177,8 +177,13 @@ function setupPanel(origin: string): string {
       `/plugin marketplace add yogevgab/artifacts-server\n/plugin install rtfx@rtfx\n/rtfx:setup   # confirms the token above reaches this instance`
     )}
     ${snippet(
+      "setup-mcp",
+      "4 · Or connect the MCP server, for a client with no shell (Claude Desktop)",
+      `{ "mcpServers": { "rtfx": {\n    "command": "node",\n    "args": ["/path/to/plugins/rtfx/scripts/rtfx-mcp.mjs"],\n    "env": { "RTFX_API_TOKEN": "rtfx_…" } } } }\n\ntools: publish · list_artifacts · get_versions · rollback · doctor`
+    )}
+    ${snippet(
       "setup-http",
-      "4 · Or straight over HTTP, from CI",
+      "5 · Or straight over HTTP, from CI",
       `curl -X POST ${origin}/api/artifacts \\\n  -H "Authorization: Bearer $RTFX_API_TOKEN" \\\n  -F slug=q3-report -F title="Q3 Report" -F file=@./dist.zip`
     )}
 

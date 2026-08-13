@@ -8,7 +8,7 @@ gallery of everything shared with them. Artifacts — single HTML files
 or multi-file static bundles — are published from a web dashboard, a CLI, or an agent session
 (Claude Code, Hermes). With **per-artifact permissions** and **versioning**.
 
-- 🤖 **Agent-native publishing** — Claude Code, Hermes, the CLI and the HTTP API all take the same path a human takes; no separate, weaker agent route. See [`plugins/rtfx`](plugins/rtfx).
+- 🤖 **Agent-native publishing** — Claude Code, a native MCP server, Hermes, the CLI and the HTTP API all take the same path a human takes; no separate, weaker agent route. See [`plugins/rtfx`](plugins/rtfx) and [`docs/MCP.md`](docs/MCP.md).
 - 👥 **Access by identity, not a secret link** — each artifact is private, shared with named people, or open to all signed-in users. Unauthorized and non-existent both return **404**.
 - 🕓 **Versioning** — every re-publish is a new immutable version; roll back anytime.
 - 📈 **Views log** — see who viewed each artifact, when, which version, and from where — per person, not an aggregate counter.
@@ -22,8 +22,8 @@ or multi-file static bundles — are published from a web dashboard, a CLI, or a
 > **Stack:** TypeScript · [Hono](https://hono.dev) · Cloudflare Workers / R2 / D1 · Cloudflare Access
 
 **Not built yet**, and deliberately not implied anywhere in the copy: per-link passwords or
-shared link secrets, link expiry, custom domains for artifacts, a native MCP server, and
-comments/approvals. Access is by identity only. The competitive reasoning, and the full
+shared link secrets, link expiry, custom domains for artifacts, and comments/approvals. Access is
+by identity only. The competitive reasoning, and the full
 table-stakes-vs-differentiators split, is in [`docs/POSITIONING.md`](docs/POSITIONING.md) and
 published at [`/docs#why-rtfx`](https://rtfx.pro/docs#why-rtfx).
 
@@ -264,6 +264,33 @@ plain CLI on a machine that has never checked this repo out. It refuses to uploa
 `*.key` and similar, and skips `.git`/`node_modules`, printing everything it left out.
 
 Details, testing and design notes: [`docs/CLAUDE_CODE.md`](docs/CLAUDE_CODE.md).
+
+### MCP server
+
+The plugin also ships a native **MCP server** (`plugins/rtfx/scripts/rtfx-mcp.mjs`), so a client
+with no shell to run a command in — Claude Desktop, or anything else that speaks MCP — publishes
+through tool calls instead. Installing the plugin registers it; for Claude Desktop, point
+`claude_desktop_config.json` at the script:
+
+```json
+{
+  "mcpServers": {
+    "rtfx": {
+      "command": "node",
+      "args": ["/absolute/path/to/plugins/rtfx/scripts/rtfx-mcp.mjs"],
+      "env": { "RTFX_API_TOKEN": "rtfx_…" }
+    }
+  }
+}
+```
+
+Tools: `publish` (with a `dry_run` that uploads nothing), `list_artifacts`, `get_versions`,
+`rollback`, `doctor`, and `update_access` behind an opt-in env var. Same token, same scopes, same
+bundle filters — it is a wrapper over the same libraries as the CLI, not a second implementation.
+Zero dependencies, no MCP SDK, Node 18+.
+
+Tool schemas, client configuration and when to use the plugin instead:
+[`docs/MCP.md`](docs/MCP.md).
 
 ### API tokens (server-to-server)
 
