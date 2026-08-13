@@ -1,5 +1,9 @@
 import type { Env } from "./env";
 
+function isMissingAccountColumn(e: unknown): boolean {
+  return e instanceof Error && /no such column: account_id|table api_tokens has no column named account_id/i.test(e.message);
+}
+
 /**
  * API tokens — long-lived bearer credentials for server-to-server publishing
  * (Hermes Cloud, CI, scripts) that need to reach `/api` without a browser login.
@@ -26,8 +30,19 @@ export interface ApiTokenRow {
   /** Public, non-secret identifier — safe to log, display, and revoke by. */
   id: string;
   name: string;
-  /** The member this token acts as. NULL only for admin tokens. */
+  /**
+   * The identity this token acts as — the *creating identity* in #27 terms.
+   * NULL only for admin/platform tokens. Retained as the primary scoping key, so
+   * revoking a person still revokes their tokens.
+   */
   owner_email: string | null;
+  /**
+   * The account/workspace this token acts inside (issue #27). NULL on legacy
+   * tokens and on admin tokens, which are platform credentials rather than
+   * workspace ones. A token is pinned to this account and can never reach
+   * another, even if its owner belongs to several.
+   */
+  account_id?: string | null;
   /** 1 = the token carries admin rights (manages every artifact). */
   is_admin: number;
   /** Comma-separated {@link Scope} list. */
@@ -123,6 +138,8 @@ export function toPublicToken(row: ApiTokenRow): PublicApiToken {
 export interface CreateTokenInput {
   name: string;
   ownerEmail: string | null;
+  /** The account this token acts inside, or null for a legacy/platform token. */
+  accountId?: string | null;
   isAdmin: boolean;
   scopes: Scope[];
   createdBy: string;
@@ -144,6 +161,7 @@ export async function createApiToken(
     id,
     name: input.name,
     owner_email: input.ownerEmail ? input.ownerEmail.trim().toLowerCase() : null,
+    account_id: input.accountId ?? null,
     is_admin: input.isAdmin ? 1 : 0,
     scopes: input.scopes.join(","),
     created_by: input.createdBy,
@@ -152,51 +170,113 @@ export async function createApiToken(
     expires_at: input.expiresAt,
     revoked_at: null,
   };
-  await env.DB.prepare(
-    `INSERT INTO api_tokens
-       (id, token_hash, name, owner_email, is_admin, scopes, created_by, created_at, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      row.id,
-      await hashToken(token),
-      row.name,
-      row.owner_email,
-      row.is_admin,
-      row.scopes,
-      row.created_by,
-      row.created_at,
-      row.expires_at
+  try {
+    await env.DB.prepare(
+      `INSERT INTO api_tokens
+         (id, token_hash, name, owner_email, account_id, is_admin, scopes, created_by, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run();
+      .bind(
+        row.id,
+        await hashToken(token),
+        row.name,
+        row.owner_email,
+        row.account_id,
+        row.is_admin,
+        row.scopes,
+        row.created_by,
+        row.created_at,
+        row.expires_at
+      )
+      .run();
+  } catch (e) {
+    if (!isMissingAccountColumn(e)) throw e;
+    await env.DB.prepare(
+      `INSERT INTO api_tokens
+         (id, token_hash, name, owner_email, is_admin, scopes, created_by, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+      .bind(
+        row.id,
+        await hashToken(token),
+        row.name,
+        row.owner_email,
+        row.is_admin,
+        row.scopes,
+        row.created_by,
+        row.created_at,
+        row.expires_at
+      )
+      .run();
+  }
   return { token, row };
 }
 
-const TOKEN_COLUMNS =
-  "id, name, owner_email, is_admin, scopes, created_by, created_at, last_used_at, expires_at, revoked_at";
+const TOKEN_COLUMNS_WITH_ACCOUNT =
+  "id, name, owner_email, account_id, is_admin, scopes, created_by, created_at, last_used_at, expires_at, revoked_at";
+const TOKEN_COLUMNS_LEGACY =
+  "id, name, owner_email, NULL AS account_id, is_admin, scopes, created_by, created_at, last_used_at, expires_at, revoked_at";
+
+async function tokenQuery<T>(
+  env: Env,
+  sqlWithAccount: string,
+  sqlLegacy: string,
+  binds: unknown[] = []
+): Promise<T[]> {
+  try {
+    const { results } = await env.DB.prepare(sqlWithAccount).bind(...binds).all<T>();
+    return results ?? [];
+  } catch (e) {
+    if (!isMissingAccountColumn(e)) throw e;
+    const { results } = await env.DB.prepare(sqlLegacy).bind(...binds).all<T>();
+    return results ?? [];
+  }
+}
+
+async function tokenFirst<T>(
+  env: Env,
+  sqlWithAccount: string,
+  sqlLegacy: string,
+  binds: unknown[] = []
+): Promise<T | null> {
+  try {
+    return await env.DB.prepare(sqlWithAccount).bind(...binds).first<T>();
+  } catch (e) {
+    if (!isMissingAccountColumn(e)) throw e;
+    return await env.DB.prepare(sqlLegacy).bind(...binds).first<T>();
+  }
+}
 
 /** Look a token up by its plaintext, via the stored hash. Null if unknown. */
 export async function findApiToken(env: Env, token: string): Promise<ApiTokenRow | null> {
-  return env.DB.prepare(`SELECT ${TOKEN_COLUMNS} FROM api_tokens WHERE token_hash = ?`)
-    .bind(await hashToken(token))
-    .first<ApiTokenRow>();
+  const hash = await hashToken(token);
+  return tokenFirst<ApiTokenRow>(
+    env,
+    `SELECT ${TOKEN_COLUMNS_WITH_ACCOUNT} FROM api_tokens WHERE token_hash = ?`,
+    `SELECT ${TOKEN_COLUMNS_LEGACY} FROM api_tokens WHERE token_hash = ?`,
+    [hash]
+  );
 }
 
 /** All tokens (admin view), or just one owner's. Never returns hashes. */
 export async function listApiTokens(env: Env, ownerEmail?: string): Promise<ApiTokenRow[]> {
-  const stmt = ownerEmail
-    ? env.DB.prepare(
-        `SELECT ${TOKEN_COLUMNS} FROM api_tokens WHERE lower(owner_email) = ? ORDER BY created_at DESC`
-      ).bind(ownerEmail.trim().toLowerCase())
-    : env.DB.prepare(`SELECT ${TOKEN_COLUMNS} FROM api_tokens ORDER BY created_at DESC`);
-  const { results } = await stmt.all<ApiTokenRow>();
-  return results ?? [];
+  const bind = ownerEmail ? [ownerEmail.trim().toLowerCase()] : [];
+  const where = ownerEmail ? " WHERE lower(owner_email) = ?" : "";
+  return tokenQuery<ApiTokenRow>(
+    env,
+    `SELECT ${TOKEN_COLUMNS_WITH_ACCOUNT} FROM api_tokens${where} ORDER BY created_at DESC`,
+    `SELECT ${TOKEN_COLUMNS_LEGACY} FROM api_tokens${where} ORDER BY created_at DESC`,
+    bind
+  );
 }
 
 export async function getApiToken(env: Env, id: string): Promise<ApiTokenRow | null> {
-  return env.DB.prepare(`SELECT ${TOKEN_COLUMNS} FROM api_tokens WHERE id = ?`)
-    .bind(id)
-    .first<ApiTokenRow>();
+  return tokenFirst<ApiTokenRow>(
+    env,
+    `SELECT ${TOKEN_COLUMNS_WITH_ACCOUNT} FROM api_tokens WHERE id = ?`,
+    `SELECT ${TOKEN_COLUMNS_LEGACY} FROM api_tokens WHERE id = ?`,
+    [id]
+  );
 }
 
 /**

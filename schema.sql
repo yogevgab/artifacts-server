@@ -11,11 +11,15 @@ CREATE TABLE IF NOT EXISTS artifacts (
   updated_at      TEXT NOT NULL,
   visibility      TEXT NOT NULL DEFAULT 'restricted',
   current_version INTEGER NOT NULL DEFAULT 1,
-  owner_email     TEXT
+  owner_email     TEXT,
+  -- Owning account/workspace (issue #27). Nullable: a row with only owner_email
+  -- is authorized exactly as it was before accounts existed.
+  account_id      TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_artifacts_created_at ON artifacts (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_artifacts_owner ON artifacts (owner_email);
+CREATE INDEX IF NOT EXISTS idx_artifacts_account ON artifacts (account_id);
 
 CREATE TABLE IF NOT EXISTS artifact_grants (
   slug       TEXT NOT NULL,
@@ -88,6 +92,9 @@ CREATE TABLE IF NOT EXISTS api_tokens (
   token_hash   TEXT NOT NULL UNIQUE,
   name         TEXT NOT NULL,
   owner_email  TEXT,
+  -- The workspace this credential acts inside (issue #27). NULL for a legacy or
+  -- admin/platform token.
+  account_id   TEXT,
   is_admin     INTEGER NOT NULL DEFAULT 0,
   scopes       TEXT NOT NULL DEFAULT 'read,publish',
   created_by   TEXT NOT NULL,
@@ -98,3 +105,44 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 );
 
 CREATE INDEX IF NOT EXISTS idx_api_tokens_owner ON api_tokens (owner_email);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_account ON api_tokens (account_id);
+
+-- Accounts / workspaces / organizations (issue #27): the product container that
+-- OWNS artifacts, tokens, settings and — later — a plan.
+--
+-- Kept strictly apart from platform authority. An account role (`owner` down to
+-- `viewer`, in account_members below) reaches exactly one workspace's data.
+-- Operator authority over the whole instance comes from ADMIN_EMAILS /
+-- SUPER_ADMIN_EMAILS only and is never stored in any table, so no write here can
+-- escalate anybody. See src/accounts.ts.
+CREATE TABLE IF NOT EXISTS accounts (
+  id             TEXT PRIMARY KEY,
+  name           TEXT NOT NULL,
+  -- 'personal' (one auto-provisioned workspace per identity) | 'team'.
+  kind           TEXT NOT NULL DEFAULT 'personal',
+  status         TEXT NOT NULL DEFAULT 'active',
+  plan           TEXT NOT NULL DEFAULT 'free',
+  -- For kind='personal', the identity it belongs to. UNIQUE, which is what makes
+  -- both the backfill and `ensurePersonalAccount` idempotent and race-safe.
+  personal_email TEXT UNIQUE,
+  created_by     TEXT,
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_accounts_kind ON accounts (kind);
+
+-- Membership: identity × account × ACCOUNT role.
+CREATE TABLE IF NOT EXISTS account_members (
+  account_id TEXT NOT NULL,
+  email      TEXT NOT NULL,
+  -- 'owner' | 'admin' | 'member' | 'viewer'. Workspace-scoped, never platform.
+  role       TEXT NOT NULL DEFAULT 'member',
+  status     TEXT NOT NULL DEFAULT 'active',
+  invited_by TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (account_id, email)
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_members_email ON account_members (email);

@@ -1,8 +1,34 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import type { Env, ArtifactRow } from "./env";
-import { requireAdmin, requireUser, requireScope, denyApiToken, type AuthVars } from "./auth";
-import { canManage, userActionDenial, type UserAction } from "./authz";
+import { requireAdmin, requireUser, requireScope, denyApiToken, accountsFor, type AuthVars } from "./auth";
+import {
+  canManage,
+  canManageMembers,
+  canReadAccount,
+  isPlatformAdmin,
+  memberChangeDenial,
+  userActionDenial,
+  type UserAction,
+} from "./authz";
+import {
+  accountIdsWithAtLeast,
+  createAccount,
+  ensurePersonalAccount,
+  getAccount,
+  isAccountRole,
+  listMembers,
+  memberRole,
+  ownerCount,
+  removeMember,
+  removeMemberEverywhere,
+  toPublicAccount,
+  toPublicMember,
+  upsertMember,
+  MANAGE_ARTIFACTS,
+  MAX_ACCOUNT_NAME_LENGTH,
+  type AccountRole,
+} from "./accounts";
 import {
   cleanText,
   deleteUser,
@@ -39,7 +65,7 @@ import { isValidSlug, slugify, contentType } from "./util";
 import { processZip, singleHtml, UploadError, MAX_UPLOAD_BYTES, type ProcessedUpload } from "./upload";
 import {
   listArtifacts,
-  listArtifactsOwnedBy,
+  listArtifactsForCaller,
   getArtifact,
   upsertArtifact,
   deleteArtifactRow,
@@ -78,6 +104,15 @@ api.use("/users/*", requireAdmin, denyApiToken);
 // Same for the tokens themselves — a token must never be able to mint another.
 api.use("/tokens", denyApiToken);
 api.use("/tokens/*", denyApiToken);
+// Changing who is in a workspace hands out reach over that workspace's artifacts,
+// so — like inviting a user — it takes an interactive login. Reading the list is
+// fine for a token, which is why only the mutating routes are covered.
+api.use("/accounts", async (c, next) =>
+  c.req.method === "GET" ? next() : denyApiToken(c, next)
+);
+api.use("/accounts/*", async (c, next) =>
+  c.req.method === "GET" ? next() : denyApiToken(c, next)
+);
 
 /**
  * Load an artifact the caller is allowed to manage, or null. Returns null both
@@ -87,7 +122,8 @@ api.use("/tokens/*", denyApiToken);
  */
 async function manageable(c: Context<Vars>, slug: string): Promise<ArtifactRow | null> {
   const art = await getArtifact(c.env, slug);
-  return art && canManage(c.get("identity"), art) ? art : null;
+  if (!art) return null;
+  return canManage(c.get("identity"), art, (await accountsFor(c)).roles) ? art : null;
 }
 
 /**
@@ -135,9 +171,16 @@ function limitBodyBytes(body: ReadableStream<Uint8Array>, maxBytes: number): Rea
 
 api.get("/artifacts", requireScope("read"), async (c) => {
   const identity = c.get("identity");
-  const artifacts = identity.isAdmin
+  // A platform admin sees the instance; everybody else sees what they own by
+  // email plus what their workspaces own (issue #27). For the personal account
+  // every identity gets, those are the same rows as before.
+  const artifacts = isPlatformAdmin(identity)
     ? await listArtifacts(c.env)
-    : await listArtifactsOwnedBy(c.env, identity.email!);
+    : await listArtifactsForCaller(
+        c.env,
+        identity.email,
+        accountIdsWithAtLeast((await accountsFor(c)).roles, MANAGE_ARTIFACTS)
+      );
   // `content_base` is additive: rows keep their exact shape, and a machine
   // client gets the one piece it cannot derive — where artifacts are served.
   return c.json({ artifacts, content_base: contentBase(c) });
@@ -191,7 +234,8 @@ api.post("/artifacts", requireScope("publish"), async (c) => {
   // Publishing to an existing slug adds a version to *that* artifact, so it is
   // only allowed for its owner (or an admin). Slugs are a shared namespace, so
   // "taken" is unavoidably observable — but nothing about the artifact is.
-  if (existing && !canManage(c.get("identity"), existing)) {
+  const accounts = await accountsFor(c);
+  if (existing && !canManage(c.get("identity"), existing, accounts.roles)) {
     return c.json(
       { error: "slug_taken", detail: `the slug "${slug}" is already in use — pick another` },
       409
@@ -268,6 +312,10 @@ api.post("/artifacts", requireScope("publish"), async (c) => {
     // Ownership is set once, at creation, and never transferred by a republish.
     // A service token (no email) creates an unowned, admin-only artifact.
     owner_email: existing?.owner_email ?? c.get("identity").email,
+    // The workspace this artifact belongs to (issue #27), also set once. Null
+    // when the publisher has no account yet (un-migrated instance, or a platform
+    // token) — the row then lives on `owner_email` alone, exactly as before.
+    account_id: existing?.account_id ?? accounts.active?.id ?? null,
   };
   await upsertArtifact(c.env, row);
 
@@ -492,6 +540,11 @@ api.delete("/users/:email", async (c) => {
   const now = new Date().toISOString();
   await removeEmailFromAllGrants(c.env, target.email);
   await revokeTokensForEmail(c.env, target.email, now);
+  // Drop them from every workspace too, or a removed identity would still be
+  // listed as a member (and would regain reach if the email were ever re-invited).
+  // Their personal account and its artifacts survive — published work outlives
+  // the account, exactly as the artifact rows do.
+  await removeMemberEverywhere(c.env, target.email);
   await deleteUser(c.env, target.email);
   return c.json(await directory(c.env, { warning, removed: target.email }));
 });
@@ -573,14 +626,31 @@ api.post("/tokens", async (c) => {
     expiresAt = new Date(Date.now() + days * 86400_000).toISOString();
   }
 
+  const now = new Date().toISOString();
+
+  // Pin the token to a workspace (issue #27). For the caller's own token that is
+  // the workspace they are acting in; for a token an admin mints on somebody
+  // else's behalf it is that person's personal account, provisioned if needed —
+  // never the admin's own, which would hand the credential the wrong workspace.
+  // An admin/platform token (no owner_email) stays account-less on purpose.
+  let accountId: string | null = null;
+  if (ownerEmail) {
+    const ctx = await accountsFor(c);
+    accountId =
+      ownerEmail === identity.email
+        ? (ctx.active?.id ?? (await ensurePersonalAccount(c.env, ownerEmail, now))?.id ?? null)
+        : ((await ensurePersonalAccount(c.env, ownerEmail, now))?.id ?? null);
+  }
+
   const { token, row } = await createApiToken(c.env, {
     name,
     ownerEmail,
+    accountId,
     isAdmin: isAdminToken,
     scopes,
     createdBy: c.get("email"),
     expiresAt,
-    now: new Date().toISOString(),
+    now,
   });
   // `token` is shown exactly once — only its hash is stored.
   return c.json({ token, ...toPublicToken(row) }, 201);
@@ -598,6 +668,168 @@ api.delete("/tokens/:id", async (c) => {
   if (!mine) return c.json({ error: "not_found" }, 404);
   const revoked = await revokeApiToken(c.env, id, new Date().toISOString());
   return c.json({ revoked: id, already_revoked: !revoked });
+});
+
+// --- Accounts / workspaces (issue #27) --------------------------------------
+//
+// The container that owns artifacts, tokens and — later — a plan. Roles here
+// (`owner` > `admin` > `member` > `viewer`) are ACCOUNT roles: they reach one
+// workspace's data and nothing else. They are stored in D1 and are therefore
+// customer data; platform authority (super_admin / admin over the whole
+// instance) is never read from this table and cannot be granted through these
+// routes. See the note at the top of src/accounts.ts.
+
+/** The caller's own workspaces, and which one this request acts in. */
+api.get("/accounts", async (c) => {
+  const ctx = await accountsFor(c);
+  return c.json({
+    accounts: ctx.memberships.map((m) => toPublicAccount(m.account, m.role)),
+    active: ctx.active?.id ?? null,
+    /** True when an API token pinned this request to one workspace. */
+    pinned: ctx.pinned,
+  });
+});
+
+/**
+ * Create a team workspace. Platform-admin only for now: this instance is
+ * invite-only, so who gets a workspace is an operator decision. The creator is
+ * *not* made a member — they say who the owner is, so an operator provisioning a
+ * customer's organization does not end up inside it.
+ */
+api.post("/accounts", requireAdmin, async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const name = String(body?.name ?? "").trim();
+  if (!name || name.length > MAX_ACCOUNT_NAME_LENGTH) {
+    return c.json(
+      { error: "bad_request", detail: `name is required (max ${MAX_ACCOUNT_NAME_LENGTH} chars)` },
+      400
+    );
+  }
+  const ownerEmail = normalizeEmail(String(body?.owner_email ?? ""));
+  if (!ownerEmail) {
+    return c.json({ error: "bad_request", detail: "owner_email must be a valid email" }, 400);
+  }
+  const now = new Date().toISOString();
+  const account = await createAccount(c.env, {
+    name,
+    kind: "team",
+    personalEmail: null,
+    createdBy: c.get("email"),
+    now,
+  });
+  await upsertMember(c.env, {
+    accountId: account.id,
+    email: ownerEmail,
+    role: "owner",
+    invitedBy: c.get("email"),
+    now,
+  });
+  return c.json(
+    { ...toPublicAccount(account, null), members: (await listMembers(c.env, account.id)).map(toPublicMember) },
+    201
+  );
+});
+
+/**
+ * Resolve an account the caller may at least read, or a 404. Answering 404 (not
+ * 403) for a workspace they don't belong to keeps account ids unprobeable, the
+ * same rule artifacts follow.
+ */
+async function readableAccount(c: Context<Vars>, id: string) {
+  const account = await getAccount(c.env, id);
+  if (!account) return null;
+  const ctx = await accountsFor(c);
+  return canReadAccount(c.get("identity"), ctx.roles, id) ? { account, ctx } : null;
+}
+
+api.get("/accounts/:id/members", async (c) => {
+  const found = await readableAccount(c, c.req.param("id"));
+  if (!found) return c.json({ error: "not_found" }, 404);
+  return c.json({
+    account: toPublicAccount(found.account, found.ctx.roles.get(found.account.id) ?? null),
+    members: (await listMembers(c.env, found.account.id)).map(toPublicMember),
+  });
+});
+
+/**
+ * Add somebody to a workspace, or change the role they hold there.
+ *
+ * This grants reach over that workspace's artifacts, so it takes `admin` or
+ * `owner` *in that account* (or platform-admin rights) — and an interactive
+ * login, never an API token. It grants nothing outside the workspace: writing
+ * `owner` here cannot make anybody a platform admin.
+ *
+ * It deliberately does NOT touch the Cloudflare Access allow-list. Being a
+ * member of a workspace is not permission to sign in; that stays an admin action
+ * through /api/users, so an account owner cannot widen who reaches the instance.
+ */
+api.put("/accounts/:id/members/:email", async (c) => {
+  const id = c.req.param("id");
+  const found = await readableAccount(c, id);
+  if (!found) return c.json({ error: "not_found" }, 404);
+  if (!canManageMembers(c.get("identity"), found.ctx.roles, id)) {
+    return c.json({ error: "forbidden", detail: "you cannot manage members of this workspace" }, 403);
+  }
+  const email = normalizeEmail(c.req.param("email"));
+  if (!email) return c.json({ error: "bad_request", detail: "valid email required" }, 400);
+
+  const body = await c.req.json().catch(() => null);
+  const nextRole: unknown = body?.role;
+  if (!isAccountRole(nextRole)) {
+    return c.json(
+      { error: "bad_request", detail: "role must be 'owner' | 'admin' | 'member' | 'viewer'" },
+      400
+    );
+  }
+  const denial = memberChangeDenial(c.get("identity"), found.ctx.roles.get(id) ?? null, {
+    targetCurrentRole: await memberRole(c.env, id, email),
+    nextRole: nextRole as AccountRole,
+    ownerCount: await ownerCount(c.env, id),
+  });
+  if (denial) return c.json({ error: "forbidden", detail: denial }, 403);
+
+  await upsertMember(c.env, {
+    accountId: id,
+    email,
+    role: nextRole as AccountRole,
+    invitedBy: c.get("email"),
+    now: new Date().toISOString(),
+  });
+  return c.json({
+    account: toPublicAccount(found.account, found.ctx.roles.get(id) ?? null),
+    members: (await listMembers(c.env, id)).map(toPublicMember),
+  });
+});
+
+/**
+ * Remove somebody from a workspace. Their identity, their artifacts and their
+ * other memberships are untouched — this only ends their reach into this one
+ * account. The account's last owner cannot be removed.
+ */
+api.delete("/accounts/:id/members/:email", async (c) => {
+  const id = c.req.param("id");
+  const found = await readableAccount(c, id);
+  if (!found) return c.json({ error: "not_found" }, 404);
+  if (!canManageMembers(c.get("identity"), found.ctx.roles, id)) {
+    return c.json({ error: "forbidden", detail: "you cannot manage members of this workspace" }, 403);
+  }
+  const email = normalizeEmail(c.req.param("email"));
+  if (!email) return c.json({ error: "bad_request", detail: "valid email required" }, 400);
+
+  const current = await memberRole(c.env, id, email);
+  if (!current) return c.json({ error: "not_found" }, 404);
+  const denial = memberChangeDenial(c.get("identity"), found.ctx.roles.get(id) ?? null, {
+    targetCurrentRole: current,
+    nextRole: null,
+    ownerCount: await ownerCount(c.env, id),
+  });
+  if (denial) return c.json({ error: "forbidden", detail: denial }, 403);
+
+  await removeMember(c.env, id, email);
+  return c.json({
+    account: toPublicAccount(found.account, found.ctx.roles.get(id) ?? null),
+    members: (await listMembers(c.env, id)).map(toPublicMember),
+  });
 });
 
 api.get("/artifacts/:slug/versions", requireScope("read"), async (c) => {

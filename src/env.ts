@@ -66,8 +66,18 @@ export interface ArtifactRow {
    * Email of the member who owns this artifact — the only non-admin who may
    * manage it. NULL means nobody but an admin can manage it (legacy rows, and
    * anything published by a service token, which has no email).
+   *
+   * Retained as the primary authorization key even after #27: `account_id` is
+   * additive, and a row that only has `owner_email` behaves exactly as it always
+   * has. See `canManage` in src/authz.ts.
    */
   owner_email: string | null;
+  /**
+   * The account/workspace that owns this artifact (issue #27). NULL on legacy
+   * rows that migration 0010 has not adopted, and on anything published before
+   * the publisher had an account — those stay on the `owner_email` path.
+   */
+  account_id?: string | null;
 }
 
 export interface ViewRow {

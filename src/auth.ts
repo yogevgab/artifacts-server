@@ -1,7 +1,8 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import type { MiddlewareHandler } from "hono";
+import type { Context, MiddlewareHandler } from "hono";
 import type { Env } from "./env";
 import { canUseDashboard, hasScope } from "./authz";
+import { resolveAccountContext, type AccountContext } from "./accounts";
 import {
   findApiToken,
   isTokenUsable,
@@ -133,6 +134,15 @@ export interface Identity {
    * scope. See `hasScope` in authz.ts.
    */
   token?: { id: string; scopes: Scope[] } | null;
+  /**
+   * The account/workspace this request is pinned to (issue #27), read straight
+   * off the API token's row — so it costs no extra query. Null for an
+   * Access-authenticated human, whose workspaces are resolved on demand by
+   * `resolveAccountContext` (src/accounts.ts) only on the surfaces that need
+   * them. Account membership never confers platform authority: `isAdmin` and
+   * `role` above stay config-derived.
+   */
+  accountId?: string | null;
 }
 
 /** Minimal request shape the auth helpers need (a Hono context satisfies it). */
@@ -184,6 +194,9 @@ async function identityFromApiToken(c: AuthContext, presented: string): Promise<
     // Capped at admin on purpose: a bearer credential is never the operator.
     role: isAdminToken ? "admin" : "member",
     token: { id: row.id, scopes: rowScopes(row) },
+    // The workspace this credential was issued for. Legacy tokens have none and
+    // stay on the owner_email path.
+    accountId: row.account_id ?? null,
   };
 }
 
@@ -332,8 +345,38 @@ export function isAdmin(env: Env, email: string | null): boolean {
   return configuredRole(env, email) !== null;
 }
 
-/** Hono per-request variables set by requireAdmin / requireUser. */
-export type AuthVars = { email: string; identity: Identity };
+/**
+ * Hono per-request variables set by requireAdmin / requireUser.
+ *
+ * `accountCtx` is populated lazily by {@link accountsFor}, never by the auth
+ * middleware: resolving workspaces costs a database read, and the surfaces that
+ * need it (`/admin`, `/api`) are a small fraction of the requests this Worker
+ * serves.
+ */
+export type AuthVars = { email: string; identity: Identity; accountCtx?: AccountContext };
+
+/** A Hono context carrying the auth variables (both `/api` and `/admin` match). */
+type AccountAwareContext = Context<{ Bindings: Env; Variables: AuthVars }>;
+
+/**
+ * The caller's account context for this request, resolved once and cached on the
+ * context. Safe to call from several helpers in the same handler.
+ *
+ * Never throws: on an un-migrated or unavailable database this resolves to an
+ * empty context, and every consumer then falls back to the legacy `owner_email`
+ * authorization path (issue #27).
+ */
+export async function accountsFor(c: AccountAwareContext): Promise<AccountContext> {
+  const cached = c.get("accountCtx");
+  if (cached) return cached;
+  const identity = c.get("identity") ?? null;
+  const ctx = await resolveAccountContext(
+    c.env,
+    identity && { email: identity.email, accountId: identity.accountId, isToken: !!identity.token }
+  );
+  c.set("accountCtx", ctx);
+  return ctx;
+}
 
 /** Display/audit name for an identity: their email, the token, or the service token. */
 function displayName(id: Identity): string {

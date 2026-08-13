@@ -71,6 +71,25 @@ The server stores only a SHA-256 hash of the token. If you lose it, revoke it
 | `is_admin` | Admin token: manages every artifact. Admin-only to create. |
 | `scopes` | Subset of `read`, `publish`, `manage`. Defaults to `["read","publish"]`. |
 | `expires_in_days` | 1–365. Omit for a token that never expires. |
+| `account_id` | **Read-only, set by the server.** The workspace this token acts inside. |
+
+### Workspace pinning
+
+A token is **pinned** to one workspace at mint time — the owner's personal account, or the
+workspace the creator was acting in. That pin is permanent and is not a field you can set:
+
+- The token reaches that workspace's artifacts and no others. If its owner later joins a second
+  workspace, **the token does not follow them.** Mint a separate token for the second workspace.
+- An admin minting a token for somebody else pins it to *that person's* workspace, never their own.
+- An `"is_admin": true` token has no workspace at all — it is a platform credential and manages
+  every artifact directly.
+- Tokens minted before workspaces existed have no `account_id` and keep working unchanged, scoped
+  by `owner_email` exactly as before.
+
+`GET /api/accounts` returns the workspaces the caller can act in and which one is active; for a
+bearer token that is always the single pinned one, with `"pinned": true`. The mutating
+`/api/accounts/*` routes refuse API tokens outright (`403`) — changing who is in a workspace
+requires an interactive login, for the same reason minting a token does.
 
 ### Scopes
 
@@ -127,9 +146,10 @@ Content-Type: multipart/form-data
 | `description` | no | |
 | `note` | no | per-version changelog line |
 
-Publishing to a **new** slug creates the artifact at v1 and sets its owner to the token's
-owner. Publishing to an **existing** slug you own appends a new version and makes it live
-immediately. Ownership is never transferred by a republish.
+Publishing to a **new** slug creates the artifact at v1, sets its owner to the token's owner and
+files it in the token's workspace. Publishing to an **existing** slug you own appends a new
+version and makes it live immediately. Neither ownership nor workspace is ever transferred by a
+republish — an artifact cannot be moved into another workspace by publishing to it.
 
 ```json
 200 OK

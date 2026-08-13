@@ -303,6 +303,32 @@ in `migrations/0006_api_tokens.sql`, and the local user directory in
 `migrations/0007_users.sql` (additive and backfilled from artifact owners — an Access-allowed
 person with no row is still a valid user, so applying it can't lock anyone out).
 
+**Accounts / workspaces.** An artifact also belongs to an **account** — the workspace that owns
+it, and later the thing a plan is billed to (`artifacts.account_id`). Every person gets a
+personal workspace automatically; a team workspace can have several members with an *account
+role* of `owner`, `admin`, `member` or `viewer`. `member` and up manage the workspace's
+artifacts; a `viewer` can open them but not change them.
+
+Four ideas are kept apart on purpose, and it is worth reading the row you care about twice:
+
+| | Answers | Comes from |
+|---|---|---|
+| **Identity** | who you are | Cloudflare Access + `users` |
+| **Account** | whose artifacts these are | `accounts` |
+| **Membership** | what you may do *in one workspace* | `account_members` |
+| **Instance role** | what you may do to *this deployment* | `ADMIN_EMAILS` / `SUPER_ADMIN_EMAILS` |
+
+Being `owner` of a workspace is **not** being an admin of the instance, and there is no way to
+become one by writing to the database: instance privilege is re-derived from configuration on
+every request and is never read from a table. That is the property the test suite guards hardest.
+
+This is entirely additive. `account_id` is nullable everywhere, `owner_email` is still checked
+first, and an artifact the backfill never adopted behaves exactly as it did before. Run
+`migrations/0008_accounts.sql`, `0009_account_links.sql` and `0010_backfill_accounts.sql` on an
+existing database — 0008 and 0010 are safe to re-run, 0009 adds two columns and is not (check
+`PRAGMA table_info(artifacts)` first). None of them is strictly required: the Worker provisions
+the same rows on first use. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full model.
+
 ### Versioning
 Each publish to an existing slug creates a new immutable version and makes it live; previous
 versions are kept. Admins preview any version at `/v/<slug>/<n>/`; roll back from the dashboard

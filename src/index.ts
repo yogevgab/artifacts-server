@@ -2,11 +2,11 @@ import { Hono, type Context } from "hono";
 import type { ArtifactRow, Env, VersionRow } from "./env";
 import { api } from "./api";
 import { waitlist } from "./waitlist";
-import { requireUser, accessEmail, getIdentity, resolveAuth, type AuthVars } from "./auth";
+import { requireUser, accessEmail, accountsFor, getIdentity, resolveAuth, type AuthVars } from "./auth";
 import { serveArtifact } from "./serve";
 import {
   listArtifacts,
-  listArtifactsOwnedBy,
+  listArtifactsForCaller,
   getArtifact,
   grantedSlugs,
   hasGrant,
@@ -20,7 +20,15 @@ import {
   viewCounts,
   recentViews,
 } from "./db";
-import { canView, canManage, isOwner } from "./authz";
+import { canView, canManage, isOwner, belongsToCaller } from "./authz";
+import {
+  accountIdsWithAtLeast,
+  atLeast,
+  memberRole,
+  resolveAccountContext,
+  MANAGE_ARTIFACTS,
+} from "./accounts";
+import type { Identity } from "./auth";
 import { listApiTokens, toPublicToken, type PublicApiToken } from "./tokens";
 import { allowlistView } from "./access-api";
 import { adminEmails, describeUsers, listUsers, privilegedEmails, superAdminEmails } from "./users";
@@ -103,13 +111,34 @@ function scope<T>(map: Map<string, T>, slugs: Set<string>): Map<string, T> {
 
 type PortalContext = Context<{ Bindings: Env; Variables: AuthVars }>;
 
-function viewerOf(c: PortalContext): PortalViewer {
+/**
+ * Who is looking at the portal, including which workspace they are acting in
+ * (issue #27).
+ *
+ * The two role systems are carried side by side and never merged: `role` is
+ * PLATFORM authority derived from configuration, `workspace.role` is the
+ * ACCOUNT role read from D1. Nothing in the workspace half can change what the
+ * platform half permits — the nav, for example, still gates the Platform section
+ * on `role === 'super_admin'` alone.
+ */
+async function viewerOf(c: PortalContext): Promise<PortalViewer> {
   const identity = c.get("identity");
+  const ctx = await accountsFor(c);
   return {
     email: c.get("email"),
     isAdmin: identity.isAdmin,
     role: identity.role,
     isTokenCaller: !!identity.token,
+    workspace:
+      ctx.active && ctx.role
+        ? {
+            id: ctx.active.id,
+            name: ctx.active.name,
+            kind: ctx.active.kind,
+            role: ctx.role,
+            count: ctx.memberships.length,
+          }
+        : null,
   };
 }
 
@@ -121,9 +150,15 @@ async function artifactContext(c: PortalContext): Promise<{
   views: ViewsInfo;
 }> {
   const identity = c.get("identity");
+  // Platform admins see the instance; everybody else sees what they own by email
+  // plus what their workspaces own. Identical results for a personal account.
   const rows = identity.isAdmin
     ? await listArtifacts(c.env)
-    : await listArtifactsOwnedBy(c.env, identity.email!);
+    : await listArtifactsForCaller(
+        c.env,
+        identity.email,
+        accountIdsWithAtLeast((await accountsFor(c)).roles, MANAGE_ARTIFACTS)
+      );
   const slugs = new Set(rows.map((r) => r.slug));
   const [grants, versions, counts, recent] = await Promise.all([
     allGrants(c.env),
@@ -175,7 +210,7 @@ async function tokensFor(c: PortalContext): Promise<PublicApiToken[] | null> {
 }
 
 app.get("/admin", requireUser, async (c) => {
-  const viewer = viewerOf(c);
+  const viewer = await viewerOf(c);
   const [{ rows, grants, versions, views }, users, tokens] = await Promise.all([
     artifactContext(c),
     usersInfoFor(c),
@@ -185,7 +220,7 @@ app.get("/admin", requireUser, async (c) => {
 });
 
 app.get("/admin/artifacts", requireUser, async (c) => {
-  const viewer = viewerOf(c);
+  const viewer = await viewerOf(c);
   const { rows, grants, versions, views } = await artifactContext(c);
   return c.html(artifactsPage({ viewer, rows, grants, versions, views }));
 });
@@ -194,10 +229,10 @@ app.get("/admin/artifacts", requireUser, async (c) => {
 // 404 for both "no such artifact" and "not yours", so probing a slug here can
 // never reveal one exists — the same rule the public catch-all follows.
 app.get("/admin/artifacts/:slug", requireUser, async (c) => {
-  const viewer = viewerOf(c);
+  const viewer = await viewerOf(c);
   const slug = c.req.param("slug");
   const row = await getArtifact(c.env, slug);
-  if (!row || !canManage(c.get("identity"), row)) {
+  if (!row || !canManage(c.get("identity"), row, (await accountsFor(c)).roles)) {
     return c.html(portalNotFound(viewer, `The artifact "${slug}"`), 404);
   }
   const [emails, versions, stats] = await Promise.all([
@@ -213,7 +248,7 @@ app.get("/admin/artifacts/:slug", requireUser, async (c) => {
 });
 
 app.get("/admin/people", requireUser, async (c) => {
-  const viewer = viewerOf(c);
+  const viewer = await viewerOf(c);
   const users = await usersInfoFor(c);
   if (!canSeeSection(viewer, "people") || !users) {
     return c.html(portalNotFound(viewer, "The People section"), 404);
@@ -222,15 +257,15 @@ app.get("/admin/people", requireUser, async (c) => {
 });
 
 app.get("/admin/integrations", requireUser, async (c) => {
-  const viewer = viewerOf(c);
+  const viewer = await viewerOf(c);
   const tokens = await tokensFor(c);
   return c.html(integrationsPage(viewer, tokens, siteOrigin(c.env)));
 });
 
-app.get("/admin/settings", requireUser, (c) => c.html(settingsPage(viewerOf(c))));
+app.get("/admin/settings", requireUser, async (c) => c.html(settingsPage(await viewerOf(c))));
 
 app.get("/admin/platform", requireUser, async (c) => {
-  const viewer = viewerOf(c);
+  const viewer = await viewerOf(c);
   if (!canSeeSection(viewer, "platform")) {
     return c.html(portalNotFound(viewer, "The Platform section"), 404);
   }
@@ -268,7 +303,9 @@ app.get("/admin/platform", requireUser, async (c) => {
 
 // Anything else under /admin is not a section. Render the portal shell so the
 // person still has navigation, but answer 404 so a mistyped URL is never a 200.
-app.get("/admin/*", requireUser, (c) => c.html(portalNotFound(viewerOf(c), "That page"), 404));
+app.get("/admin/*", requireUser, async (c) =>
+  c.html(portalNotFound(await viewerOf(c), "That page"), 404)
+);
 
 // JSON API for dashboard + CLI.
 app.route("/api", api);
@@ -356,13 +393,47 @@ app.get("/gallery", async (c) => {
   const rows = await listArtifacts(c.env);
   let visible = rows;
   if (!identity.isAdmin) {
-    const granted = identity.email ? await grantedSlugs(c.env, identity.email) : new Set<string>();
+    // `ensure: false` — the gallery is a read path and must not provision an
+    // account as a side effect of looking at it.
+    const [granted, accounts] = await Promise.all([
+      identity.email ? grantedSlugs(c.env, identity.email) : Promise.resolve(new Set<string>()),
+      resolveAccountContext(
+        c.env,
+        { email: identity.email, accountId: identity.accountId, isToken: !!identity.token },
+        { ensure: false }
+      ),
+    ]);
     visible = rows.filter(
-      (r) => r.visibility === "everyone" || granted.has(r.slug) || isOwner(identity, r)
+      (r) =>
+        r.visibility === "everyone" ||
+        granted.has(r.slug) ||
+        // Owner by email, or any member of the artifact's workspace — including a
+        // `viewer`, whose whole purpose is to see without changing (issue #27).
+        belongsToCaller(identity, r, accounts.roles)
     );
   }
   return c.html(galleryPage(visible));
 });
+
+/**
+ * Does this caller manage the artifact, for the two routes that authenticate
+ * without the portal middleware (`/v/…` preview and the public catch-all)?
+ *
+ * Account membership is consulted only *after* the free checks — platform admin,
+ * then `owner_email` — have already failed, and only when the artifact actually
+ * belongs to an account. So the ordinary case (an owner previewing their own
+ * work) costs no extra database read, and the serving hot path below pays for
+ * the membership lookup only on a request that would otherwise 404.
+ */
+async function manages(
+  env: Env,
+  identity: Identity | null,
+  art: ArtifactRow
+): Promise<boolean> {
+  if (canManage(identity, art)) return true;
+  if (!art.account_id || !identity?.email) return false;
+  return atLeast(await memberRole(env, art.account_id, identity.email), MANAGE_ARTIFACTS);
+}
 
 // Version preview for people who manage the artifact (admin or owner):
 // /v/<slug>/<n>/<path> serves a specific version. Relative assets resolve within
@@ -375,7 +446,8 @@ app.get("/v/*", async (c) => {
   const filePath = parts.slice(2).map(decodeURIComponent).join("/");
   if (!slug || !Number.isInteger(version) || version < 1) return c.html(notFoundPage(slug), 404);
   const art = await getArtifact(c.env, slug);
-  if (!art || !canManage(identity, art)) return c.html(notFoundPage(slug), 404);
+  if (!art) return c.html(notFoundPage(slug), 404);
+  if (!(await manages(c.env, identity, art))) return c.html(notFoundPage(slug), 404);
   if (!(await getVersion(c.env, slug, version))) return c.html(notFoundPage(slug), 404);
   return serveArtifact(c, slug, version, filePath);
 });
@@ -392,10 +464,21 @@ app.get("*", async (c) => {
   const art = await getArtifact(c.env, slug);
   // 404 for both missing and unauthorized, so probing a slug can't reveal it exists.
   if (!art) return c.html(notFoundPage(slug), 404);
-  const owned = isOwner(identity, art);
+  let owned = isOwner(identity, art);
   let granted = false;
   if (art.visibility === "restricted" && !identity?.isAdmin && !owned && identity?.email) {
     granted = await hasGrant(c.env, slug, identity.email);
+  }
+  // Workspace membership is the last thing tried, and only on a request that
+  // would otherwise be refused — so serving a page costs no extra read in any
+  // case that already worked before #27. Any role qualifies, `viewer` included.
+  if (
+    !canView(identity, art.visibility, granted, owned) &&
+    art.account_id &&
+    identity?.email &&
+    (await memberRole(c.env, art.account_id, identity.email))
+  ) {
+    owned = true;
   }
   if (!canView(identity, art.visibility, granted, owned)) return c.html(notFoundPage(slug), 404);
 
