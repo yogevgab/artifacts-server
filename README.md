@@ -3,16 +3,17 @@
 Private, access-gated hosting for landing pages and HTML/[Claude](https://claude.ai) artifacts,
 running entirely on **Cloudflare Workers**. A public product site at `/` (plus `/docs` and
 `/login`) explains the product and collects access requests; invited people sign in (Cloudflare
-Access, email one-time-PIN) to reach their gallery at `/gallery`. Artifacts — single HTML files
+Access, email one-time-PIN) to reach one dashboard at `/admin` — publishing, sharing and the
+gallery of everything shared with them. Artifacts — single HTML files
 or multi-file static bundles — are published from a web dashboard, a CLI, or an agent session
 (Claude Code, Hermes). With **per-artifact permissions** and **versioning**.
 
 - 🌐 **Public product site** — `/`, `/docs`, `/login` and `/waitlist` are reachable by anyone, with SEO metadata, `sitemap.xml`, `robots.txt` and `llms.txt`; everything else needs an identity.
-- 🔒 **Access-gated dashboard** — Cloudflare Access handles login for `/gallery`, `/admin`, and the API; no passwords stored by the app.
+- 🔒 **Access-gated dashboard** — Cloudflare Access handles login for `/admin` and the API; no passwords stored by the app.
 - 👥 **Per-artifact permissions** — each artifact is private, shared with specific people, or open to all signed-in users.
 - 🕓 **Versioning** — every re-publish is a new immutable version; roll back anytime.
 - 📈 **Views log** — see who viewed each artifact, when, which version, and from where.
-- 🖼️ **Gallery + dashboard** — a filtered index for viewers, an admin UI to publish and manage.
+- 🖼️ **One dashboard** — publish and manage under **Artifacts**; everything shared with you under **Gallery**. Same shell, same nav, same brand.
 - 🧑‍💻 **CLI** — publish and manage from your terminal.
 - 🤖 **Claude Code plugin** — [`plugins/rtfx`](plugins/rtfx): a skill plus `/rtfx:*` commands, so "publish this" in a session ends with a versioned, access-controlled URL.
 - 🔑 **API tokens** — hashed bearer tokens for server-to-server publishing (Hermes Cloud, CI), scoped and revocable.
@@ -31,7 +32,7 @@ Browser / CLI ──────────────────────
                     ┌──────────── Cloudflare Access ────────────┐          │
                     │  login gate (email OTP) + allow-list      │────▶     │
                     └───────────────────────────────────────────┘          │
-                          /gallery · files · /admin · /api                 │
+                            files · /admin · /api                          │
                         ┌───────────────────────┬────────────────────┐      │
                         ▼                       ▼                    ▼      │
                   R2  (files at            D1 (metadata:        Cloudflare  │
@@ -41,10 +42,10 @@ Browser / CLI ──────────────────────
 
 - **`/` and `/waitlist`** are never behind Cloudflare Access — the public landing page and
   waitlist signup must be reachable by anyone.
-- **Cloudflare Access** authenticates every other request (`/gallery`, `/admin`, `/api`, artifact
+- **Cloudflare Access** authenticates every other request (`/admin`, `/api`, artifact
   files) and holds the login allow-list.
 - The **Worker** authorizes per-artifact (who sees what), serves the current version of each
-  artifact, renders the landing page/gallery/dashboard, and exposes a JSON API.
+  artifact, renders the public site and the dashboard, and exposes a JSON API.
 - **R2** stores files under `<slug>/v<N>/…`; **D1** stores metadata.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for details.
@@ -121,8 +122,8 @@ npx wrangler deploy
 3. So the public landing page and waitlist are reachable without logging in, add a third
    **self-hosted app** `Artifacts (public)` on paths `your-domain/` (exact root) **and**
    `your-domain/waitlist`, with a single policy action **Bypass** (no rule criteria needed). Access
-   evaluates the most specific matching app, so this exempts just those two paths — `/gallery`,
-   artifact links, `/admin`, and `/api` stay behind the viewer/admin apps above.
+   evaluates the most specific matching app, so this exempts just those two paths — artifact
+   links, `/admin` (the gallery included), and `/api` stay behind the viewer/admin apps above.
 4. Put the **admin app's AUD** and the **viewer app's AUD** into `ACCESS_AUD` as
    `"<viewerAud>,<adminAud>"`. Put the viewer app id and its `— humans` policy id into
    `ACCESS_VIEWER_APP_ID` / `ACCESS_VIEWER_POLICY_ID`, and the service token's client id into
@@ -168,8 +169,10 @@ auth anywhere in this product by design.
 ### Dashboard
 `https://<your-domain>/admin` — publish artifacts, manage per-artifact access, upload new
 versions / roll back, and (admins only) manage people. Admins see every artifact, labelled
-with its owner; a member sees only the ones they published. The gallery at `/gallery` is
-filtered to what each viewer may see; visiting it signed out redirects to `/login`.
+with its owner; a member sees only the ones they published. The **Gallery** section at
+`/admin/gallery` is filtered to what each viewer may *open* — what they own plus what has been
+shared with them. `/gallery` is kept as a redirect into it; visiting it signed out goes to
+`/login`.
 
 ### People (user management)
 Admin-only, in the dashboard and at `/api/users`. Cloudflare Access remains the authentication
@@ -352,7 +355,7 @@ npm run check      # typecheck + tests + plugin validation
 ```
 
 Locally there's no Access gate. To simulate a specific viewer, send an `X-Dev-Email` header; to
-simulate a signed-out visitor (e.g. to see `/gallery` redirect to the landing page), send
+simulate a signed-out visitor (e.g. to see `/gallery` redirect to `/login`), send
 `X-Dev-Anonymous: true`. Both are honored only when `DEV_LOGIN=true`, which `npm run dev` sets —
 never in production.
 

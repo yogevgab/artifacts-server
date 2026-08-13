@@ -4,9 +4,15 @@ The durable source of truth for how rtfx.pro looks, reads and behaves. When a
 change and this document disagree, one of them is wrong; decide which, then fix
 it here first.
 
-Scope: the app surfaces we render — landing, `/login`, `/gallery`, `/admin`,
-error pages. Uploaded artifacts are the customer's own HTML and are never
-restyled by us.
+Scope: the app surfaces we render — landing, `/docs`, `/login`, `/admin` (the
+whole portal, gallery included) and error pages. Uploaded artifacts are the
+customer's own HTML and are never restyled by us.
+
+One brand, one shell (issue #35). Every one of those surfaces opens with the
+same rtfx lockup (`brandMark`/`brandLockup` in `src/pages.ts`) and the same
+mark the favicon and the social card draw. The three public pages share one
+header and one footer (`siteHeader`/`siteFooter` + `PUBLIC_CHROME_STYLE`); the
+signed-in surfaces share `portalShell`. Nothing renders its own chrome.
 
 ---
 

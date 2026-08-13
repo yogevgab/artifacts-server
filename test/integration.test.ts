@@ -47,13 +47,19 @@ describe("health + landing", () => {
   });
 });
 
+/**
+ * The gallery is a dashboard section now (issue #35), not a separate page. Its
+ * *behaviour* is unchanged — same filtering, same empty state, same redirect for
+ * an anonymous visitor — so these tests moved with it, and the old `/gallery`
+ * URL is covered below as a permanent alias.
+ */
 describe("gallery", () => {
   it("gallery shows empty state then artifacts", async () => {
-    let res = await req("/gallery");
+    let res = await req("/admin/gallery");
     expect(await res.text()).toContain("No artifacts yet");
 
     await req("/api/artifacts", { method: "POST", body: htmlForm({ title: "Hello Page" }, "x.html", strToU8("<h1>hi</h1>")) });
-    res = await req("/gallery");
+    res = await req("/admin/gallery");
     const body = await res.text();
     expect(body).toContain("Hello Page");
     expect(body).toContain('href="/hello-page/"');
@@ -64,21 +70,39 @@ describe("gallery", () => {
   });
 
   it("gallery empty state explains what to expect", async () => {
-    const body = await (await req("/gallery")).text();
+    const body = await (await req("/admin/gallery")).text();
     expect(body).toContain('data-empty="gallery"');
     expect(body.toLowerCase()).toContain("grants you access");
+  });
+
+  // The point of the merge: the gallery is no longer its own product. It comes
+  // with the portal's navigation, so there is always a way back to the rest of
+  // the dashboard from it.
+  it("renders inside the portal shell, with navigation and the shared lockup", async () => {
+    const body = await (await req("/admin/gallery")).text();
+    expect(body).toContain("data-portal-nav");
+    expect(body).toContain('data-section="gallery"');
+    expect(body).toMatch(/data-nav="gallery"[^>]*aria-current="page"/);
+    expect(body).toContain("data-brand-lockup");
+  });
+
+  it("keeps /gallery working, as a redirect into the dashboard section", async () => {
+    const res = await req("/gallery", { redirect: "manual" });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/admin/gallery");
   });
 
   it("not-found page explains the likely cause and links back", async () => {
     const body = await (await req("/nope/")).text();
     expect(body).toContain('data-empty="not-found"');
     expect(body.toLowerCase()).toContain("access");
-    expect(body).toContain('href="/gallery"');
+    expect(body).toContain('href="/admin"');
   });
 
   // Issue #24: /login, not /, is the right landing spot for someone who tried to
   // reach a signed-in surface — it explains how to get in rather than re-pitching
-  // the product.
+  // the product. The alias keeps doing that itself rather than bouncing an
+  // anonymous visitor into /admin's JSON 403.
   it("redirects anonymous visitors to /login instead of an empty gallery", async () => {
     const res = await req("/gallery", { headers: { "X-Dev-Anonymous": "true" }, redirect: "manual" });
     expect(res.status).toBe(302);
@@ -383,7 +407,7 @@ describe("per-artifact permissions", () => {
     await publish("secret", "Secret");
     expect((await req("/secret/")).status).toBe(200); // admin
     expect((await req("/secret/", viewer("bob@x.com"))).status).toBe(404); // viewer
-    const g = await (await req("/gallery", viewer("bob@x.com"))).text();
+    const g = await (await req("/admin/gallery", viewer("bob@x.com"))).text();
     expect(g).not.toContain("Secret");
     expect(g).toContain("No artifacts yet");
   });
@@ -393,15 +417,20 @@ describe("per-artifact permissions", () => {
     expect((await setAcc("shared", "restricted", ["bob@x.com"])).status).toBe(200);
     expect((await req("/shared/", viewer("bob@x.com"))).status).toBe(200);
     expect((await req("/shared/", viewer("eve@x.com"))).status).toBe(404);
-    expect(await (await req("/gallery", viewer("bob@x.com"))).text()).toContain("Shared");
-    expect(await (await req("/gallery", viewer("eve@x.com"))).text()).not.toContain("Shared");
+    // The card marker, not the title: "Shared with you" is now section chrome.
+    expect(await (await req("/admin/gallery", viewer("bob@x.com"))).text()).toContain(
+      'data-artifact="shared"'
+    );
+    expect(await (await req("/admin/gallery", viewer("eve@x.com"))).text()).not.toContain(
+      'data-artifact="shared"'
+    );
   });
 
   it("'everyone' visibility is visible to any logged-in viewer", async () => {
     await publish("pub", "PublicOne");
     await setAcc("pub", "everyone", []);
     expect((await req("/pub/", viewer("anyone@x.com"))).status).toBe(200);
-    expect(await (await req("/gallery", viewer("anyone@x.com"))).text()).toContain("PublicOne");
+    expect(await (await req("/admin/gallery", viewer("anyone@x.com"))).text()).toContain("PublicOne");
   });
 
   it("GET access reflects grants; revoke removes a user", async () => {
@@ -668,7 +697,10 @@ describe("content host isolation", () => {
     expect((await appReq("/health")).status).toBe(200);
     expect((await appReq("/admin")).status).toBe(200);
     expect((await appReq("/")).status).toBe(200);
-    expect((await appReq("/gallery")).status).toBe(200);
+    expect((await appReq("/admin/gallery")).status).toBe(200);
+    // The /gallery alias still resolves on the app host — into the dashboard,
+    // never into a redirect to the content origin.
+    expect((await appReq("/gallery", { redirect: "manual" })).status).toBe(302);
   });
 
   it("returns content-host share URLs and redirects app-host artifact requests there", async () => {

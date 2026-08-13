@@ -1,4 +1,4 @@
-import { layout, esc } from "./pages";
+import { layout, esc, brandLockup, BRAND_STYLE } from "./pages";
 import type { UserRole } from "./users";
 import { accountRoleLabel, type AccountRole } from "./accounts";
 
@@ -17,6 +17,7 @@ import { accountRoleLabel, type AccountRole } from "./accounts";
 export type SectionId =
   | "overview"
   | "artifacts"
+  | "gallery"
   | "people"
   | "integrations"
   | "settings"
@@ -82,6 +83,17 @@ const SECTIONS: SectionDef[] = [
     path: "/admin/artifacts",
     label: "Artifacts",
     blurb: "Publish and manage",
+    visible: () => true,
+  },
+  {
+    id: "gallery",
+    path: "/admin/gallery",
+    label: "Gallery",
+    blurb: "Shared with you",
+    // What used to be the standalone /gallery page (issue #35). It is the only
+    // section that answers "what can I open?" rather than "what do I manage?",
+    // and it is the whole product for somebody who has only ever been granted
+    // access to other people's work.
     visible: () => true,
   },
   {
@@ -264,12 +276,11 @@ export function portalShell(o: ShellOptions): string {
   const { viewer } = o;
   const body = `<a class="skip" href="#main">Skip to content</a>
     <header class="ptop" data-portal-top>
-      <a class="brand" href="/admin">rtfx<span>.pro</span></a>
+      ${brandLockup("/admin")}
       <div class="who" data-portal-identity>
         ${workspaceChip(viewer)}
         <span class="badge is-role" data-viewer-role>${esc(roleLabel(viewer.role))}</span>
         <span class="mono" data-viewer-email>${esc(viewer.email)}</span>
-        <a href="/gallery">Gallery</a>
         <a href="/docs">Docs</a>
       </div>
     </header>
@@ -290,7 +301,7 @@ export function portalShell(o: ShellOptions): string {
       </main>
     </div>
     <script>${CORE_SCRIPT}${o.script ?? ""}</script>`;
-  return layout(`${o.title} · rtfx.pro`, body, PORTAL_STYLE + (o.style ?? ""));
+  return layout(`${o.title} · rtfx.pro`, body, BRAND_STYLE + PORTAL_STYLE + (o.style ?? ""));
 }
 
 /**
@@ -395,9 +406,6 @@ export const PORTAL_STYLE = `
 .ptop{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;
   padding:.75rem 1.15rem;border:1px solid var(--border);border-radius:999px;background:var(--elev);
   backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);box-shadow:var(--shadow);margin-bottom:1.25rem}
-.ptop .brand{font-weight:750;letter-spacing:-.03em;color:var(--fg);font-size:1.02rem}
-.ptop .brand span{color:var(--muted);font-weight:600}
-.ptop .brand:hover{color:var(--accent)}
 .ptop .who{display:flex;align-items:center;gap:.85rem;font-size:.85rem;color:var(--muted);flex-wrap:wrap}
 .ptop .who .mono{color:var(--fg);font-size:.8rem}
 /* The workspace chip sits left of the role badge: whose stuff, then who you are.

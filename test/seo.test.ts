@@ -260,7 +260,7 @@ describe("private surfaces stay out of every index", () => {
   it("signed-in and gated pages are noindex", async () => {
     const pages = [
       await req("/login", as("admin@test.com")),
-      await req("/gallery", as("admin@test.com")),
+      await req("/admin/gallery", as("admin@test.com")),
       await req("/admin", as("admin@test.com")),
       await req("/does-not-exist/"),
     ];

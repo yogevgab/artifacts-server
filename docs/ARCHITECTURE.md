@@ -15,8 +15,8 @@ Cloudflare Access (login gate + allow-list, everything else)
 Worker (Hono router)
    GET /                     public landing page — product pitch, use cases, request-access form
    POST /waitlist            join the waitlist (public; validates + dedupes by email)
-   GET /gallery              gallery, filtered to what the viewer may see (signed-in only;
-                              anonymous → 302 to /)
+   GET /gallery              back-compat alias → 302 to /admin/gallery (signed-in only;
+                              anonymous → 302 to /login, paused → the paused sheet)
    GET /<slug>/…             serve the current version's files (per-artifact authz)
    GET /v/<slug>/<n>/…       preview a specific version (admin or the artifact's owner)
    GET /admin                portal — Overview. One server-rendered section per URL, no
@@ -24,6 +24,8 @@ Worker (Hono router)
    GET /admin/artifacts      publish + the artifact list; admins see every artifact,
                               a member only their own
    GET /admin/artifacts/<slug>  one artifact: versions, views, access, delete
+   GET /admin/gallery        everything the viewer may *open* (owned + granted + everyone),
+                              as opposed to everything they manage
    GET /admin/people         directory, invites, pause/remove (admin only; refuses API tokens)
    GET /admin/integrations   API tokens + CLI/Claude Code/Hermes setup
    GET /admin/settings       account and security facts
@@ -220,7 +222,7 @@ token-denial on those routes in code. See DEPLOY_RTFX.md §5d.
 
 | File | Responsibility |
 |---|---|
-| `src/index.ts` | Routing; landing vs. gallery split; gallery filtering; version-aware serving; `/v/` preview. |
+| `src/index.ts` | Routing; public vs. portal split; gallery filtering (`readableArtifacts`); version-aware serving; `/v/` preview. |
 | `src/auth.ts` | Access JWT + bearer-token authentication, `resolveAuth`/`getIdentity`, `requireAdmin`, `requireUser`, `requireScope`, `denyApiToken`. |
 | `src/authz.ts` | Pure policy: `canView`, `canManage`, `isOwner`, `canUseDashboard`, `hasScope`, and the platform-vs-account split (`isPlatformAdmin`, `canManageMembers`, `memberChangeDenial`). |
 | `src/accounts.ts` | Accounts/workspaces: account roles, memberships, personal-account provisioning, per-request account context. |
@@ -231,7 +233,8 @@ token-denial on those routes in code. See DEPLOY_RTFX.md §5d.
 | `src/access-api.ts` | Cloudflare Access allow-list management. |
 | `src/cors.ts` | Browser preflight + allowed-origin policy for `/api` (issue #37). Never wildcards, never trusts a content host. |
 | `src/upload.ts` | Zip processing / single-file wrapping. |
-| `src/pages.ts`, `src/admin.ts` | Server-rendered gallery, 404, and admin HTML. |
+| `src/pages.ts` | Shared shell: `layout`, the rtfx mark/lockup, the public header+footer chrome (`siteHeader`/`siteFooter`), and the 404. |
+| `src/admin.ts` | Portal sections: Overview, Artifacts (list + detail), Gallery, Settings, Platform. |
 | `src/landing.ts` | Server-rendered public landing page + waitlist form. |
 | `src/waitlist.ts` | `/waitlist` endpoint: email validation, join/redirect. |
 | `src/util.ts` | Slug validation (+ reserved slugs), content-type map. |

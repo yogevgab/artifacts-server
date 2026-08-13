@@ -32,7 +32,7 @@ import type { Identity } from "./auth";
 import { listApiTokens, toPublicToken, type PublicApiToken } from "./tokens";
 import { allowlistView } from "./access-api";
 import { adminEmails, describeUsers, listUsers, privilegedEmails, superAdminEmails } from "./users";
-import { galleryPage, notFoundPage } from "./pages";
+import { notFoundPage } from "./pages";
 import { landingPage } from "./landing";
 import { docsPage } from "./docs";
 import { loginPage } from "./login";
@@ -40,6 +40,7 @@ import {
   overviewPage,
   artifactsPage,
   artifactDetailPage,
+  galleryPage,
   settingsPage,
   platformPage,
   type ViewsInfo,
@@ -175,6 +176,38 @@ async function artifactContext(c: PortalContext): Promise<{
 }
 
 /**
+ * Every artifact this caller may *open* — what the Gallery section lists.
+ *
+ * Deliberately a different question from `artifactContext`, which answers "what
+ * may I manage?". A member sees what they own, what their workspaces own, what
+ * has been granted to them by name, and anything published to everyone signed
+ * in. An admin sees the instance.
+ */
+async function readableArtifacts(c: PortalContext): Promise<ArtifactRow[]> {
+  const identity = c.get("identity");
+  const rows = await listArtifacts(c.env);
+  if (identity.isAdmin) return rows;
+  const [granted, accounts] = await Promise.all([
+    identity.email ? grantedSlugs(c.env, identity.email) : Promise.resolve(new Set<string>()),
+    // `ensure: false` — the gallery is a read path and must not provision an
+    // account as a side effect of somebody looking at it.
+    resolveAccountContext(
+      c.env,
+      { email: identity.email, accountId: identity.accountId, isToken: !!identity.token },
+      { ensure: false }
+    ),
+  ]);
+  return rows.filter(
+    (r) =>
+      r.visibility === "everyone" ||
+      granted.has(r.slug) ||
+      // Owner by email, or any member of the artifact's workspace — including a
+      // `viewer`, whose whole purpose is to see without changing (issue #27).
+      belongsToCaller(identity, r, accounts.roles)
+  );
+}
+
+/**
  * The people directory, or null when this caller may not have it. Admin-only
  * data, and never for a bearer token — `/api/users` refuses one outright, so
  * the portal must not hand it the same directory by another route. Same shape
@@ -245,6 +278,13 @@ app.get("/admin/artifacts/:slug", requireUser, async (c) => {
     recent: new Map([[slug, stats.recent]]),
   };
   return c.html(artifactDetailPage({ viewer, row, emails, versions, views }));
+});
+
+// The Gallery section (issue #35): what this person can open, rather than what
+// they manage. Formerly the standalone /gallery page, which now redirects here.
+app.get("/admin/gallery", requireUser, async (c) => {
+  const viewer = await viewerOf(c);
+  return c.html(galleryPage(viewer, await readableArtifacts(c)));
 });
 
 app.get("/admin/people", requireUser, async (c) => {
@@ -383,36 +423,22 @@ app.get("/login", async (c) => {
   return c.html(loginPage(c.env, { kind: "signed-out" }));
 });
 
-// Gallery — filtered to what the viewer may see. Requires sign-in; anonymous
-// visitors are sent to /login, which explains how to get in, rather than an
-// empty gallery. A paused account is told so instead of looking signed out.
+/**
+ * The gallery is a dashboard section now (issue #35). This route is kept as a
+ * permanent alias, because the old URL is in bookmarks, in sent links and in
+ * this repo's own documentation — but it renders nothing, so there is exactly
+ * one gallery to maintain.
+ *
+ * The identity checks stay *here* rather than being left to `/admin/gallery`:
+ * an anonymous visitor gets `/login`, which explains how to get in, instead of
+ * `requireUser`'s JSON 403; and a paused account is told it is paused rather
+ * than being bounced somewhere that looks like being signed out.
+ */
 app.get("/gallery", async (c) => {
   const { identity, disabled, disabledEmail } = await resolveAuth(c);
   if (disabled) return c.html(loginPage(c.env, { kind: "paused", email: disabledEmail }), 403);
   if (!identity) return c.redirect("/login", 302);
-  const rows = await listArtifacts(c.env);
-  let visible = rows;
-  if (!identity.isAdmin) {
-    // `ensure: false` — the gallery is a read path and must not provision an
-    // account as a side effect of looking at it.
-    const [granted, accounts] = await Promise.all([
-      identity.email ? grantedSlugs(c.env, identity.email) : Promise.resolve(new Set<string>()),
-      resolveAccountContext(
-        c.env,
-        { email: identity.email, accountId: identity.accountId, isToken: !!identity.token },
-        { ensure: false }
-      ),
-    ]);
-    visible = rows.filter(
-      (r) =>
-        r.visibility === "everyone" ||
-        granted.has(r.slug) ||
-        // Owner by email, or any member of the artifact's workspace — including a
-        // `viewer`, whose whole purpose is to see without changing (issue #27).
-        belongsToCaller(identity, r, accounts.roles)
-    );
-  }
-  return c.html(galleryPage(visible));
+  return c.redirect("/admin/gallery", 302);
 });
 
 /**

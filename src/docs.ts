@@ -1,4 +1,4 @@
-import { layout, esc } from "./pages";
+import { layout, esc, siteHeader, siteFooter, PUBLIC_CHROME_STYLE } from "./pages";
 import type { Env } from "./env";
 import { SITE, canonicalUrl } from "./seo";
 
@@ -15,11 +15,8 @@ import { SITE, canonicalUrl } from "./seo";
  * rich result can never quote an answer the page doesn't actually show.
  */
 
-const DOCS_STYLE = `
+const DOCS_STYLE = `${PUBLIC_CHROME_STYLE}
 .wrap{max-width:980px}
-header.top{position:sticky;top:0;z-index:5;margin:-.75rem 0 2.2rem;padding:.72rem .9rem;border:1px solid var(--border);border-radius:999px;background:var(--elev);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);box-shadow:var(--shadow)}
-.brand{font-weight:750;letter-spacing:-.03em;display:flex;align-items:center;gap:.45rem;color:var(--fg)}.brand:before{content:"";width:.72rem;height:.72rem;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));box-shadow:0 0 0 5px var(--accent-weak)}
-.nav{display:flex;gap:.9rem;align-items:center}.nav a{color:var(--muted);font-size:.9rem}.nav a.primary{color:var(--fg);border:1px solid var(--border);border-radius:999px;padding:.42rem .78rem;background:rgba(255,255,255,.05)}
 .doc-hero{padding:2.4rem 0 1.4rem;max-width:46rem}
 .doc-hero p.eyebrow{font-size:.72rem;text-transform:uppercase;letter-spacing:.09em;color:var(--faint);margin:0 0 .7rem}
 .doc-hero h1{font-size:clamp(2.2rem,5.5vw,3.6rem);letter-spacing:-.06em;line-height:1.02;margin:0 0 .9rem}
@@ -46,9 +43,19 @@ pre.code code{background:none;border:0;padding:0;font-size:inherit;color:inherit
 .doc-cta{border:1px solid var(--border);border-radius:32px;background:linear-gradient(135deg,var(--card),rgba(10,132,255,.09));padding:2.1rem;text-align:center;box-shadow:var(--shadow)}
 .doc-cta h2{margin:0 0 .5rem}
 .doc-cta .actions{display:flex;gap:.6rem;justify-content:center;flex-wrap:wrap;margin-top:1.3rem}
-footer.site{text-align:center;color:var(--muted);font-size:.88rem;padding:2.4rem 0 1rem;border-top:1px solid var(--border);margin-top:3rem}
-footer.site nav{display:flex;gap:1.1rem;justify-content:center;flex-wrap:wrap;margin-bottom:.9rem}
-@media(max-width:760px){header.top{position:static;border-radius:22px}.nav a[data-nav="hide-sm"]{display:none}}
+/* --- long-form sections that moved here from the landing page (issue #35) --- */
+.cases{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:1rem;margin:0 0 .9rem}
+.case{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:1.4rem;box-shadow:var(--shadow);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}
+.case h3{margin:.15rem 0 .5rem;font-size:1.08rem;letter-spacing:-.025em}.case p{margin:0;color:var(--muted);font-size:.93rem}
+.case .pill{display:inline-block;border:1px solid var(--border);border-radius:999px;padding:.28rem .72rem;font-size:.78rem;color:var(--muted);background:rgba(255,255,255,.05)}
+/* A 3-column table has a min-content width no phone can honour, and a table that
+   can't shrink widens the whole page. It scrolls inside its own box instead. */
+.table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius);background:var(--card);box-shadow:var(--shadow);-webkit-overflow-scrolling:touch;margin:0 0 .9rem}
+.compare{width:100%;min-width:34rem;border-collapse:collapse}
+.compare th,.compare td{text-align:left;padding:.9rem 1.1rem;border-bottom:1px solid var(--border);font-size:.94rem}
+.compare thead th{font-size:.78rem;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);font-weight:600}
+.compare tbody th{font-weight:650;color:var(--fg)}.compare td{color:var(--muted)}
+.compare tr:last-child th,.compare tr:last-child td{border-bottom:0}
 `;
 
 const TITLE = "Docs — publishing, access control and the API · rtfx.pro";
@@ -152,12 +159,7 @@ function structuredData(env: Env): unknown[] {
 
 export function docsPage(env: Env): string {
   const body = `
-    <header class="top"><a class="brand" href="/">rtfx.pro</a><nav class="nav" aria-label="Primary">
-      <a href="/#use-cases" data-nav="hide-sm">Use cases</a>
-      <a href="/#why" data-nav="hide-sm">Why rtfx.pro</a>
-      <a href="/#waitlist" class="primary" data-cta="request-access">Request access</a>
-      <a href="/login" data-cta="sign-in">Sign in →</a>
-    </nav></header>
+    ${siteHeader("docs")}
 
     <div class="doc-hero">
       <p class="eyebrow">Documentation</p>
@@ -169,10 +171,12 @@ export function docsPage(env: Env): string {
 
     <nav class="toc" aria-label="On this page">
       <a href="#overview">Overview</a>
+      <a href="#use-cases">Use cases</a>
       <a href="#publishing">Publishing</a>
       <a href="#agents">Claude Code &amp; Hermes</a>
       <a href="#access">Access &amp; privacy</a>
       <a href="#versions">Versions &amp; views</a>
+      <a href="#why">Why not a static host</a>
       <a href="#api">API</a>
       <a href="#faq">FAQ</a>
     </nav>
@@ -190,6 +194,27 @@ export function docsPage(env: Env): string {
           <li><b>Versioned.</b> Re-publishing creates the next version at the same address.</li>
           <li><b>Observable.</b> The owner sees every view: person, time, country, version.</li>
         </ul>
+      </section>
+
+      <section id="use-cases">
+        <h2>Who uses it, and for what</h2>
+        <p>Made for the work that comes out of an AI session: a finished page, a dashboard, a
+          prototype, a report — something real, that needs a link today and shouldn't be on the
+          open web.</p>
+        <div class="cases">
+          <div class="case"><span class="pill">Developers</span>
+            <h3>Ship an agent's output without a pipeline</h3>
+            <p>Claude Code just produced a working page. Publish it straight from the session —
+              no repo, no build, no CDN config — and send the link before you lose the context.</p></div>
+          <div class="case"><span class="pill">Consultants &amp; agencies</span>
+            <h3>Client-ready links that stay off the open web</h3>
+            <p>Share a deliverable with exactly the people on the account, watch who actually
+              opened it, and roll back the moment a revision lands badly.</p></div>
+          <div class="case"><span class="pill">Product &amp; data teams</span>
+            <h3>An internal home for dashboards and prototypes</h3>
+            <p>Stop mailing HTML attachments and unlisted URLs. Publish once, grant the team,
+              and let the version history be the changelog.</p></div>
+        </div>
       </section>
 
       <section id="publishing">
@@ -256,7 +281,7 @@ $ artifacts grant prototype teammate@example.com</code></pre>
           404, so a link can't be used to confirm that a page exists. Artifact content is served from
           a dedicated origin that hosts files only — never the dashboard or the API — so uploaded
           HTML can't reach the app it was published from.</p>
-        <p>None of it is crawlable: artifacts, the gallery, the dashboard and the API are excluded in
+        <p>None of it is crawlable: artifacts, the dashboard and the API are excluded in
           <a href="/robots.txt">robots.txt</a>, marked <code>noindex</code>, and served with an
           <code>X-Robots-Tag: noindex</code> header. The only indexable pages are this one, the
           landing page and the sign-in page.</p>
@@ -271,6 +296,22 @@ $ artifacts grant prototype teammate@example.com</code></pre>
         <p>The view log answers the question client work always ends with: who opened it, when, from
           where, and which version they saw. Views are recorded for signed-in people opening a page —
           not for asset requests or machine tokens.</p>
+      </section>
+
+      <section id="why">
+        <h2>Why not a generic static host?</h2>
+        <p>You could put this on any bucket or edge host. Here's what you'd then have to build
+          yourself.</p>
+        <div class="table-wrap"><table class="compare">
+          <thead><tr><th scope="col">What you need</th><th scope="col">Generic static hosting</th><th scope="col">rtfx.pro</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Privacy</th><td>Public by default; an unlisted URL is the whole defence — anyone with the link is in.</td><td>Private by default. Access is per artifact, per person, and revocable.</td></tr>
+            <tr><th scope="row">Identity</th><td>Bring your own auth, or bolt on a password everyone shares.</td><td>Passwordless sign-in through Cloudflare Access, with a managed people list.</td></tr>
+            <tr><th scope="row">Versions</th><td>A deploy overwrites the last one; rollback means a rebuild.</td><td>Every publish is an immutable version with its own preview and one-click rollback.</td></tr>
+            <tr><th scope="row">Audit</th><td>Raw request logs, if you wire up analytics.</td><td>A per-artifact view log: person, time, country, version.</td></tr>
+            <tr><th scope="row">Agent workflow</th><td>Git push, build, wait, configure.</td><td>One command, or one API call, from inside the session that made the page.</td></tr>
+          </tbody>
+        </table></div>
       </section>
 
       <section id="api">
@@ -306,15 +347,7 @@ $ artifacts grant prototype teammate@example.com</code></pre>
       </section>
     </article>
 
-    <footer class="site">
-      <nav aria-label="Footer">
-        <a href="/">Home</a>
-        <a href="/#use-cases">Use cases</a>
-        <a href="/login" data-cta="sign-in">Sign in</a>
-        <a href="/llms.txt">llms.txt</a>
-      </nav>
-      <div>rtfx.pro — private, versioned hosting for pages and artifacts.</div>
-    </footer>`;
+    ${siteFooter()}`;
   return layout(TITLE, body, DOCS_STYLE, {
     description: DESCRIPTION,
     canonical: canonicalUrl(env, "/docs"),
