@@ -23,9 +23,11 @@ import { allowlistView } from "./access-api";
 import { describeUsers, listUsers, privilegedEmails } from "./users";
 import { galleryPage, notFoundPage } from "./pages";
 import { landingPage } from "./landing";
+import { docsPage } from "./docs";
 import { loginPage } from "./login";
 import { adminPage, type DashboardViewer } from "./admin";
-import { isContentHost, isManagementPath, firstContentHostname } from "./host";
+import { isContentHost, isManagementPath, isPerOriginPath, firstContentHostname } from "./host";
+import { robotsTxt, sitemapXml, llmsTxt, ogImageSvg, isCanonicalHost } from "./seo";
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVars }>();
 
@@ -41,8 +43,13 @@ app.use("*", async (c, next) => {
   }
   const onContentHost = isContentHost(c.env, c.req.url);
   if (onContentHost) {
+    // robots.txt is answered by whichever origin was asked (see isPerOriginPath).
+    if (isPerOriginPath(c.req.path)) {
+      await next();
+      return;
+    }
     if (isManagementPath(c.req.path)) return c.html(notFoundPage(), 404);
-  } else if (!isManagementPath(c.req.path)) {
+  } else if (!isManagementPath(c.req.path) && !isPerOriginPath(c.req.path)) {
     if (c.req.method === "GET" || c.req.method === "HEAD") {
       const target = new URL(c.req.url);
       target.host = contentHost;
@@ -70,7 +77,7 @@ function scope<T>(map: Map<string, T>, slugs: Set<string>): Map<string, T> {
   return out;
 }
 
-// Management dashboard. Admins see and manage every artifact; a beta user sees
+// Management dashboard. Admins see and manage every artifact; a member sees
 // and manages only the ones they own. (In production Cloudflare Access still
 // gates who can reach this path at all — see docs/DEPLOY_RTFX.md.)
 app.get("/admin", requireUser, async (c) => {
@@ -104,7 +111,7 @@ app.get("/admin", requireUser, async (c) => {
 
   // Token management mirrors /api/tokens: Access-authenticated callers only
   // (see denyApiToken), so a bearer token can't even enumerate credentials via
-  // the dashboard. An admin sees every token; a beta user only their own.
+  // the dashboard. An admin sees every token; a member only their own.
   let tokens: PublicApiToken[] | null = null;
   if (!identity.token) {
     const tokenRows = identity.isAdmin
@@ -131,9 +138,64 @@ app.route("/api", api);
 // Public landing-page waitlist signup (unauthenticated).
 app.route("/waitlist", waitlist);
 
-// Public landing page: marketing pitch, pricing/beta messaging, waitlist signup.
-// Reachable by anyone — never gates on identity.
-app.get("/", (c) => c.html(landingPage()));
+// --- Public product surface (issue #29) -------------------------------------
+// Everything below is served to anyone, identically, without reading an identity:
+// the two marketing/doc pages plus the files crawlers and AI agents look for.
+// These paths must sit OUTSIDE the Cloudflare Access application in production
+// (see docs/DEPLOY_RTFX.md), or a visitor meets Access's login screen instead.
+
+/** Public pages are the same bytes for everyone, so they cache at the edge. */
+const PUBLIC_HTML_CACHE = "public, max-age=300";
+const PUBLIC_FILE_CACHE = "public, max-age=3600";
+
+app.get("/", (c) =>
+  c.html(landingPage(c.env), 200, { "Cache-Control": PUBLIC_HTML_CACHE })
+);
+
+// Public product documentation: use cases, publishing (CLI/API/Claude Code/
+// Hermes), the access-control and privacy model, and the FAQ that backs the
+// FAQPage structured data on the page.
+app.get("/docs", (c) => c.html(docsPage(c.env), 200, { "Cache-Control": PUBLIC_HTML_CACHE }));
+
+// robots.txt is answered by whichever origin was asked, with three different
+// answers: crawl the product pages (canonical app host), crawl nothing (the
+// artifact content host), crawl nothing (a preview/staging host, so it can
+// never compete with rtfx.pro in an index).
+app.get("/robots.txt", (c) => {
+  const audience = isContentHost(c.env, c.req.url)
+    ? "content"
+    : isCanonicalHost(c.env, c.req.url)
+      ? "public"
+      : "non-canonical";
+  return c.text(robotsTxt(c.env, audience), 200, { "Cache-Control": PUBLIC_FILE_CACHE });
+});
+
+app.get(
+  "/sitemap.xml",
+  (c) =>
+    new Response(sitemapXml(c.env), {
+      headers: {
+        "Content-Type": "application/xml; charset=utf-8",
+        "Cache-Control": PUBLIC_FILE_CACHE,
+      },
+    })
+);
+
+// llms.txt (llmstxt.org): the machine-readable product summary for AI agents and
+// answer engines — what this is, who it's for, how publishing works, and what is
+// deliberately not crawlable.
+app.get("/llms.txt", (c) => c.text(llmsTxt(c.env), 200, { "Cache-Control": PUBLIC_FILE_CACHE }));
+
+app.get(
+  "/og.svg",
+  (c) =>
+    new Response(ogImageSvg(), {
+      headers: {
+        "Content-Type": "image/svg+xml; charset=utf-8",
+        "Cache-Control": "public, max-age=86400",
+      },
+    })
+);
 
 // Sign-in surface. Public on purpose: it explains how to get in, so it must sit
 // OUTSIDE the Cloudflare Access application (see docs/DEPLOY_RTFX.md). It never
@@ -141,9 +203,9 @@ app.get("/", (c) => c.html(landingPage()));
 // /admin, which Access gates, which is what sends the one-time code.
 app.get("/login", async (c) => {
   const { identity, disabled, disabledEmail } = await resolveAuth(c);
-  if (disabled) return c.html(loginPage({ kind: "paused", email: disabledEmail }), 403);
-  if (identity?.email) return c.html(loginPage({ kind: "signed-in", email: identity.email }));
-  return c.html(loginPage({ kind: "signed-out" }));
+  if (disabled) return c.html(loginPage(c.env, { kind: "paused", email: disabledEmail }), 403);
+  if (identity?.email) return c.html(loginPage(c.env, { kind: "signed-in", email: identity.email }));
+  return c.html(loginPage(c.env, { kind: "signed-out" }));
 });
 
 // Gallery — filtered to what the viewer may see. Requires sign-in; anonymous
@@ -151,7 +213,7 @@ app.get("/login", async (c) => {
 // empty gallery. A paused account is told so instead of looking signed out.
 app.get("/gallery", async (c) => {
   const { identity, disabled, disabledEmail } = await resolveAuth(c);
-  if (disabled) return c.html(loginPage({ kind: "paused", email: disabledEmail }), 403);
+  if (disabled) return c.html(loginPage(c.env, { kind: "paused", email: disabledEmail }), 403);
   if (!identity) return c.redirect("/login", 302);
   const rows = await listArtifacts(c.env);
   let visible = rows;

@@ -25,7 +25,7 @@ export interface UsersInfo {
 
 /**
  * Who is looking at the dashboard. `users` is the people directory, which is
- * admin-only data — it is null for a beta user, who sees only their own
+ * admin-only data — it is null for a member, who sees only their own
  * artifacts and no team management at all. `tokens` is null when the caller
  * may not manage tokens at all (an API-token caller), mirroring the API.
  */
@@ -402,7 +402,7 @@ function usersPanel(info: UsersInfo): string {
     <div class="user-list">${
       rows ||
       `<div class="empty" data-empty="users"><h3>No one here yet</h3>
-        <p>Invite the first beta user above. They'll get a one-time code by email the first
+        <p>Invite your first teammate above. They'll get a one-time code by email the first
           time they open the dashboard — there's no password to share.</p></div>`
     }</div>
   </section>`;
@@ -427,7 +427,7 @@ function tokenRow(t: PublicApiToken, now: Date, showOwner: boolean): string {
         ? `<span class="badge is-locked" data-badge="token-state">Expired</span>`
         : `<span class="badge is-open" data-badge="token-state">Active</span>`;
   // An admin token manages every artifact, so it is worth calling out even in a
-  // beta user's own list (an admin may have issued one on their behalf).
+  // member's own list (an admin may have issued one on their behalf).
   const adminBadge = t.is_admin ? `<span class="badge" data-badge="token-admin">admin</span>` : "";
   const meta = [
     `<span class="mono">${esc(t.id)}</span>`,
@@ -460,7 +460,7 @@ function tokenRow(t: PublicApiToken, now: Date, showOwner: boolean): string {
 /**
  * Token management. The secret is shown exactly once, right after creation —
  * the list can only ever render metadata, because that is all the API returns.
- * A beta user may only mint tokens that act as themselves, so the owner/admin
+ * A member may only mint tokens that act as themselves, so the owner/admin
  * controls are rendered for admins only (the API enforces this regardless).
  */
 function tokensPanel(tokens: PublicApiToken[], isAdmin: boolean): string {
@@ -474,7 +474,7 @@ function tokensPanel(tokens: PublicApiToken[], isAdmin: boolean): string {
 
   const adminFields = isAdmin
     ? `<div class="field-grid" data-token-admin-fields>
-        <div><label for="tok-owner">Owner email <span class="faint">(the beta user it acts as)</span></label>
+        <div><label for="tok-owner">Owner email <span class="faint">(the member it acts as)</span></label>
           <input id="tok-owner" name="owner_email" type="email" placeholder="person@example.com" autocomplete="off"></div>
         <div><span class="field-label">Admin token</span>
           <label class="check"><input type="checkbox" id="tok-admin" name="is_admin">
@@ -882,7 +882,7 @@ var USER_ACTIONS = {
     method: 'POST', busy: 'Re-enabling…', fail: 'Could not re-enable that account.'
   },
   remove: {
-    confirm: function(e){ return 'Remove ' + e + ' from the beta?\\n\\nThey lose sign-in, every artifact grant, and every API token. Artifacts they published are NOT deleted. This cannot be undone.'; },
+    confirm: function(e){ return 'Remove ' + e + ' from rtfx.pro?\\n\\nThey lose sign-in, every artifact grant, and every API token. Artifacts they published are NOT deleted. This cannot be undone.'; },
     url: function(e){ return '/api/users/' + encodeURIComponent(e); },
     method: 'DELETE', busy: 'Removing…', fail: 'Could not remove that person.'
   }
@@ -1189,7 +1189,7 @@ export function adminPage(
   </section>`;
 
   const body = `<header class="top">
-      <div><div class="eyebrow">${viewer.isAdmin ? "Admin" : "Beta"}</div><h1>Dashboard</h1>
+      <div><div class="eyebrow">${viewer.isAdmin ? "Admin" : "Member"}</div><h1>Dashboard</h1>
         <div class="sub">Signed in as ${esc(email)}${
           viewer.isAdmin ? "" : " · you only see artifacts you published"
         }</div></div>

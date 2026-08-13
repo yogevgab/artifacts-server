@@ -20,7 +20,7 @@ export function isOwner(identity: Identity | null, artifact: Owned): boolean {
 /**
  * Can this identity *manage* an artifact — list it in the dashboard, publish a
  * new version, roll back, change access, read analytics, delete it?
- * Admins can manage every artifact; a beta user only their own. Being granted
+ * Admins can manage every artifact; a member only their own. Being granted
  * view access to someone else's artifact never confers management rights.
  */
 export function canManage(identity: Identity | null, artifact: Owned): boolean {
@@ -30,7 +30,7 @@ export function canManage(identity: Identity | null, artifact: Owned): boolean {
 
 /**
  * May this identity use the management surface (/admin, /api) at all?
- * Admins always may. A beta user may, but only reaches their own artifacts.
+ * Admins always may. A member may, but only reaches their own artifacts.
  * A non-admin service token may NOT: ownership is keyed on an email, so a token
  * has nothing it could own and would otherwise be able to publish unowned
  * (admin-only) artifacts merely by satisfying the viewer Access policy.

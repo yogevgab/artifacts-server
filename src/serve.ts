@@ -27,6 +27,10 @@ export async function serveArtifact<E extends { Bindings: Env }>(
   const headers = new Headers();
   headers.set("Content-Type", contentType(rel));
   headers.set("Cache-Control", "private, max-age=300");
+  // Published artifacts are access-controlled, never public content. The header
+  // is belt-and-braces next to robots.txt on the content origin: a crawler that
+  // somehow holds a session must still not index or archive what it sees.
+  headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
   headers.set("ETag", obj.httpEtag);
   return new Response(obj.body, { headers });
 }

@@ -1,13 +1,13 @@
 # artifacts-server
 
 Private, access-gated hosting for landing pages and HTML/[Claude](https://claude.ai) artifacts,
-running entirely on **Cloudflare Workers**. A public landing page at `/` explains the product and
-collects waitlist signups; authorized people sign in (Cloudflare Access, email one-time-PIN) to
-reach their gallery at `/gallery`. An admin publishes artifacts — single HTML files or multi-file
-static bundles — from a web dashboard or a CLI. With **per-artifact permissions** and
-**versioning**.
+running entirely on **Cloudflare Workers**. A public product site at `/` (plus `/docs` and
+`/login`) explains the product and collects access requests; invited people sign in (Cloudflare
+Access, email one-time-PIN) to reach their gallery at `/gallery`. Artifacts — single HTML files
+or multi-file static bundles — are published from a web dashboard, a CLI, or an agent session
+(Claude Code, Hermes). With **per-artifact permissions** and **versioning**.
 
-- 🌐 **Public landing page** — `/` and `/waitlist` are reachable by anyone, logged in or not.
+- 🌐 **Public product site** — `/`, `/docs`, `/login` and `/waitlist` are reachable by anyone, with SEO metadata, `sitemap.xml`, `robots.txt` and `llms.txt`; everything else needs an identity.
 - 🔒 **Access-gated dashboard** — Cloudflare Access handles login for `/gallery`, `/admin`, and the API; no passwords stored by the app.
 - 👥 **Per-artifact permissions** — each artifact is private, shared with specific people, or open to all signed-in users.
 - 🕓 **Versioning** — every re-publish is a new immutable version; roll back anytime.
@@ -144,18 +144,22 @@ All config lives in `wrangler.jsonc` (`vars`) plus one secret. See the comments 
 | `ACCESS_AUD` | Comma-separated `viewerAud,adminAud`; the Worker verifies JWTs against either. |
 | `CF_ACCOUNT_ID`, `ACCESS_VIEWER_APP_ID`, `ACCESS_VIEWER_POLICY_ID` | Used to manage the login allow-list via the Cloudflare API. |
 | `CF_API_TOKEN` *(secret)* | Token with "Access: Apps and Policies — Edit". Only for in-app user management. |
+| `PUBLIC_BASE_URL` *(optional)* | Canonical public origin, e.g. `https://rtfx.pro`. Canonical links, OpenGraph URLs, `sitemap.xml` and `llms.txt` are absolute against it, and any other hostname serves a disallow-everything `robots.txt`. Defaults to `https://rtfx.pro` (`SITE.origin` in `src/seo.ts`). |
+| `CONTENT_HOSTNAMES` *(optional)* | Hostnames that serve artifact files only — no dashboard, API or product pages. |
 
 ## Usage
 
-### Landing page
-`https://<your-domain>/` — public, no login required. Pitches the product, explains beta/pricing
-status, and collects `/waitlist` signups. Its two CTAs are deliberately distinct: **Request
-access** (waitlist, for people not yet invited) and **Sign in** (`/login`, for people who are).
+### Public product site
+`https://<your-domain>/` — public, no login required. Positions the product, covers use cases and
+differentiators, and collects `/waitlist` access requests. Its two CTAs are deliberately distinct:
+**Request access** (for people without an account) and **Sign in** (`/login`, for people with one).
+`/docs` is the public documentation page (publishing, Claude Code/Hermes, the access model, FAQ).
+See [docs/PUBLIC_SITE.md](docs/PUBLIC_SITE.md) for the SEO/crawler surface and the copy rules.
 
 ### Sign-in
 `https://<your-domain>/login` — **public, and must stay outside the Cloudflare Access
-application.** It authenticates nobody: it explains that the beta is invite-only and that
-invited users get a one-time code by email, then hands off to `/admin`, which Access gates —
+application.** It authenticates nobody: it explains that access is by invitation and that invited
+users get a one-time code by email, then hands off to `/admin`, which Access gates —
 and that hand-off is what triggers the login. It renders three states: signed out, already
 signed in, and *paused* (a valid login whose account an admin disabled). There is no password
 auth anywhere in this product by design.
@@ -163,7 +167,7 @@ auth anywhere in this product by design.
 ### Dashboard
 `https://<your-domain>/admin` — publish artifacts, manage per-artifact access, upload new
 versions / roll back, and (admins only) manage people. Admins see every artifact, labelled
-with its owner; a beta user sees only the ones they published. The gallery at `/gallery` is
+with its owner; a member sees only the ones they published. The gallery at `/gallery` is
 filtered to what each viewer may see; visiting it signed out redirects to `/login`.
 
 ### People (user management)
@@ -187,7 +191,7 @@ admin, nobody may disable their own account, and API tokens are refused from the
 entirely.
 
 > If Cloudflare Access gates `/admin` and `/api` to admins only (the default in
-> [docs/DEPLOY_RTFX.md](docs/DEPLOY_RTFX.md) step 5), beta users are stopped at the edge before
+> [docs/DEPLOY_RTFX.md](docs/DEPLOY_RTFX.md) step 5), invited members are stopped at the edge before
 > the Worker's ownership rules apply. Step 5b there narrows the admin Access app to
 > `/api/users` so invited users can reach their own dashboard.
 
@@ -239,7 +243,7 @@ curl -X POST "$ARTIFACTS_URL/api/artifacts" \
 - **Scopes** (`read`, `publish`, `manage`) narrow a token below its owner's rights; they never
   widen anyone's. Default is `read,publish`, so a publishing integration can't delete.
 - Tokens are revocable (`token-revoke`), can carry an expiry, and are revoked automatically
-  when their owner is removed from the beta.
+  when their owner is removed from rtfx.pro.
 - Bearer auth is an **additional** app-layer check — it does not bypass Cloudflare Access,
   which still gates the edge.
 
@@ -252,16 +256,16 @@ the Access allow-list). The Worker decides **who sees each artifact**: `restrict
 emails + admins) or `everyone` (any signed-in user). New artifacts are private by default. A
 direct URL a viewer lacks access to returns 404.
 
-**Ownership (invite-only beta).** Every artifact belongs to the person who published it
+**Ownership (invite-only access).** Every artifact belongs to the person who published it
 (`artifacts.owner_email`). Admins (`ADMIN_EMAILS`, plus `ADMIN_SERVICE_TOKENS`) manage
-everything; a signed-in beta user manages only their own — their dashboard, `/api/artifacts`
+everything; a signed-in member manages only their own — their dashboard, `/api/artifacts`
 list, version previews and analytics are scoped to artifacts they own, and any attempt to
 read or change someone else's returns **404**, so a slug they don't own is indistinguishable
 from one that doesn't exist. Being *granted* view access to an artifact never confers
 management rights, and publishing to a slug someone else owns is refused (`409 slug_taken`)
 rather than adding a version to their artifact. Managing the sign-in allow-list (`/api/users`)
 is admin-only, and a non-admin owner's grants deliberately do **not** add anyone to that
-allow-list — only an admin invites people into the beta.
+allow-list — only an admin invites new people.
 
 Artifacts with no owner (published before this model, or by a service token, which has no
 email) are manageable by admins only. Run `migrations/0005_owner_email.sql` on an existing

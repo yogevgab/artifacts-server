@@ -26,7 +26,7 @@ export interface ApiTokenRow {
   /** Public, non-secret identifier — safe to log, display, and revoke by. */
   id: string;
   name: string;
-  /** The beta user this token acts as. NULL only for admin tokens. */
+  /** The member this token acts as. NULL only for admin tokens. */
   owner_email: string | null;
   /** 1 = the token carries admin rights (manages every artifact). */
   is_admin: number;
@@ -231,7 +231,7 @@ export async function touchApiToken(env: Env, id: string, now: string): Promise<
   }
 }
 
-/** Drop every token belonging to an email (when a user is removed from the beta). */
+/** Drop every token belonging to an email (when a user is removed from rtfx.pro). */
 export async function revokeTokensForEmail(env: Env, email: string, now: string): Promise<void> {
   await env.DB.prepare(
     "UPDATE api_tokens SET revoked_at = ? WHERE lower(owner_email) = ? AND revoked_at IS NULL"

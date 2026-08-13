@@ -4,6 +4,7 @@ import {
   requestHostname,
   isContentHost,
   isManagementPath,
+  isPerOriginPath,
   firstContentHostname,
 } from "../src/host";
 import type { Env } from "../src/env";
@@ -54,6 +55,13 @@ describe("isManagementPath", () => {
       expect(isManagementPath(p)).toBe(true);
     }
   });
+  // Issue #29: the public product pages and their crawler files belong to the
+  // app host only — a content origin serves artifact files and nothing else.
+  it("blocks the public product pages and crawler files", () => {
+    for (const p of ["/login", "/docs", "/sitemap.xml", "/llms.txt", "/og.svg"]) {
+      expect(isManagementPath(p)).toBe(true);
+    }
+  });
   it("blocks nested management paths", () => {
     for (const p of ["/admin/", "/api/artifacts", "/v/slug/1/index.html"]) {
       expect(isManagementPath(p)).toBe(true);
@@ -68,5 +76,18 @@ describe("isManagementPath", () => {
     for (const p of ["/solo/", "/bundle/app.js"]) {
       expect(isManagementPath(p)).toBe(false);
     }
+  });
+  // robots.txt is per-origin, not app-only: every host answers it for itself.
+  it("leaves robots.txt to the per-origin rule", () => {
+    expect(isManagementPath("/robots.txt")).toBe(false);
+  });
+});
+
+describe("isPerOriginPath", () => {
+  it("is true only for robots.txt", () => {
+    expect(isPerOriginPath("/robots.txt")).toBe(true);
+    expect(isPerOriginPath("/sitemap.xml")).toBe(false);
+    expect(isPerOriginPath("/robots.txt/x")).toBe(false);
+    expect(isPerOriginPath("/")).toBe(false);
   });
 });

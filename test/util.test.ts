@@ -14,7 +14,11 @@ describe("isValidSlug", () => {
     expect(isValidSlug("a".repeat(101))).toBe(false);
   });
   it("rejects reserved route slugs", () => {
-    for (const s of ["api", "admin", "health", "whoami", "v", "waitlist", "gallery"]) expect(isValidSlug(s)).toBe(false);
+    for (const s of ["api", "admin", "health", "whoami", "v", "waitlist", "gallery", "login"]) expect(isValidSlug(s)).toBe(false);
+  });
+  // Issue #29: the public product pages and crawler files own these names.
+  it("rejects slugs that would shadow a public page or crawler file", () => {
+    for (const s of ["docs", "robots", "sitemap", "llms", "og"]) expect(isValidSlug(s)).toBe(false);
   });
 });
 

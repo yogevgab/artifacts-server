@@ -1,4 +1,6 @@
-import { layout, esc } from "./pages";
+import { layout, esc, type HeadMeta } from "./pages";
+import type { Env } from "./env";
+import { canonicalUrl } from "./seo";
 
 /**
  * The sign-in surface (issue #24).
@@ -38,7 +40,8 @@ function sheet(state: string, inner: string): string {
   return `<header class="top"><a class="brand" href="/">rtfx.pro</a>
       <nav class="nav" aria-label="Primary"><a href="/">Home</a></nav></header>
     <main class="auth"><section class="sheet" data-page="login" data-state="${esc(state)}">${inner}</section></main>
-    <footer class="auth-foot">Invite-only beta · Cloudflare Access secures every sign-in</footer>`;
+    <footer class="auth-foot"><a href="/docs">Docs</a> · Access is by invitation · Cloudflare Access
+      secures every sign-in</footer>`;
 }
 
 /**
@@ -51,8 +54,8 @@ function signedOut(): string {
     "signed-out",
     `<p class="eyebrow">rtfx.pro</p>
      <h1>Sign in</h1>
-     <p class="lede">Invited to the beta? Continue with the email address your invitation
-       was sent to. We'll email you a one-time code — there's no password to remember.</p>
+     <p class="lede">Continue with the email address your invitation was sent to. We'll email
+       you a one-time code — there's no password to remember.</p>
      <div class="actions">
        <a class="link-button" href="/admin" data-cta="sign-in">Continue with email</a>
        <a class="ghost link-button" href="/#waitlist" data-cta="request-access">Request access</a>
@@ -63,9 +66,9 @@ function signedOut(): string {
        <li>You land in your dashboard.</li>
      </ol>
      <hr class="divider">
-     <p class="hint">Not invited yet? <a href="/#waitlist">Request access</a> and we'll be in
-       touch — the beta is invite-only, so signing in only works once someone has added
-       your address.</p>`
+     <p class="hint">No account yet? <a href="/#waitlist">Request access</a> and we'll be in
+       touch — rtfx.pro is invite-only, so signing in only works once your address has been
+       added. New here? <a href="/docs">Read the docs</a>.</p>`
   );
 }
 
@@ -115,17 +118,33 @@ export type LoginState =
   | { kind: "signed-in"; email: string }
   | { kind: "paused"; email: string | null };
 
-export function loginPage(state: LoginState): string {
+/**
+ * Only the signed-out sheet is public content worth indexing: it explains how
+ * to get in. The signed-in and paused sheets describe a specific person's
+ * account, so they stay `noindex` (the default when `layout` gets no metadata).
+ */
+function signedOutMeta(env: Env): HeadMeta {
+  return {
+    description:
+      "Sign in to rtfx.pro. Access is by invitation and sign-in is passwordless — we email " +
+      "you a one-time code. No account yet? Request access in a click.",
+    canonical: canonicalUrl(env, "/login"),
+    image: canonicalUrl(env, "/og.svg"),
+    socialTitle: "Sign in to rtfx.pro",
+  };
+}
+
+export function loginPage(env: Env, state: LoginState): string {
   if (state.kind === "signed-in") {
     return layout("Signed in · rtfx.pro", signedIn(state.email), LOGIN_STYLE);
   }
   if (state.kind === "paused") {
     return layout("Access paused · rtfx.pro", paused(state.email), LOGIN_STYLE);
   }
-  return layout("Sign in · rtfx.pro", signedOut(), LOGIN_STYLE);
+  return layout("Sign in · rtfx.pro", signedOut(), LOGIN_STYLE, signedOutMeta(env));
 }
 
 /** The paused sheet on its own, for HTML routes that reject a disabled caller. */
-export function accountPausedPage(email: string | null): string {
-  return loginPage({ kind: "paused", email });
+export function accountPausedPage(env: Env, email: string | null): string {
+  return loginPage(env, { kind: "paused", email });
 }

@@ -1,7 +1,30 @@
 import type { Env } from "./env";
 
-const MANAGEMENT_PATHS = new Set(["/", "/health", "/whoami", "/waitlist", "/gallery", "/login"]);
+const MANAGEMENT_PATHS = new Set([
+  "/",
+  "/health",
+  "/whoami",
+  "/waitlist",
+  "/gallery",
+  "/login",
+  "/docs",
+  "/sitemap.xml",
+  "/llms.txt",
+  "/og.svg",
+]);
 const MANAGEMENT_PREFIXES = ["/admin", "/api", "/v"];
+
+/**
+ * Paths every host answers for itself, whatever else it serves. `robots.txt` is
+ * per-origin by definition: a crawler asks the *content* host what it may crawl
+ * there, so answering 404 (as management paths do) would leave that question
+ * unanswered instead of "nothing". The body differs per host — see `robotsTxt`.
+ */
+const PER_ORIGIN_PATHS = new Set(["/robots.txt"]);
+
+export function isPerOriginPath(path: string): boolean {
+  return PER_ORIGIN_PATHS.has(path);
+}
 
 /** Parse a comma-separated hostname list (env var) into a lowercase set. */
 export function parseHostnames(raw: string | undefined): Set<string> {
@@ -36,9 +59,9 @@ export function firstContentHostname(env: Env): string | undefined {
 }
 
 /**
- * True for app-only routes (public landing, gallery, admin, API, whoami,
- * health, version preview, waitlist) that must never be reachable from a
- * content host.
+ * True for app-only routes (public product pages, gallery, admin, API, whoami,
+ * health, version preview, waitlist, sitemap/llms.txt) that must never be
+ * reachable from a content host.
  */
 export function isManagementPath(path: string): boolean {
   if (MANAGEMENT_PATHS.has(path)) return true;

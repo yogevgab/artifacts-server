@@ -68,10 +68,10 @@ export const api = new Hono<Vars>();
 
 // Every API route needs an authenticated caller — an Access login or an API
 // token. Per-artifact ownership is enforced per route below (admins manage
-// everything, beta users only what they own), and API tokens are additionally
+// everything, members only what they own), and API tokens are additionally
 // narrowed by scope (`requireScope`).
 api.use("*", requireUser);
-// Managing who can sign in to the beta stays admin-only, and is off-limits to
+// Managing who can sign in stays admin-only, and is off-limits to
 // API tokens: issuing credentials always requires an interactive login.
 api.use("/users", requireAdmin, denyApiToken);
 api.use("/users/*", requireAdmin, denyApiToken);
@@ -82,7 +82,7 @@ api.use("/tokens/*", denyApiToken);
 /**
  * Load an artifact the caller is allowed to manage, or null. Returns null both
  * when the slug does not exist and when it belongs to somebody else, so every
- * caller answers 404 either way and a beta user can't probe for the existence
+ * caller answers 404 either way and a member can't probe for the existence
  * of another user's artifacts.
  */
 async function manageable(c: Context<Vars>, slug: string): Promise<ArtifactRow | null> {
@@ -452,7 +452,7 @@ api.post("/users/:email/enable", async (c) => {
 });
 
 /**
- * Remove somebody from the beta entirely. The Access allow-list is written first
+ * Remove somebody from rtfx.pro entirely. The Access allow-list is written first
  * and a failure aborts: deleting the local row while Access still lets them in
  * would leave a signed-in stranger with no directory entry at all.
  *
@@ -485,7 +485,7 @@ api.delete("/users/:email", async (c) => {
 // --- API tokens (bearer credentials for Hermes Cloud / CI / scripts) ---
 //
 // These routes are Access-only (see denyApiToken above): a token can never mint
-// or revoke another token. An admin sees and manages every token; a beta user
+// or revoke another token. An admin sees and manages every token; a member
 // only their own, and may only issue tokens that act as themselves.
 
 api.get("/tokens", async (c) => {
@@ -519,7 +519,7 @@ api.post("/tokens", async (c) => {
   const wantsAdmin = body?.is_admin === true;
   const requestedOwner = String(body?.owner_email ?? "").trim().toLowerCase();
 
-  // A beta user can only ever issue a token that is *themselves*: same email, no
+  // A member can only ever issue a token that is *themselves*: same email, no
   // admin bit. Otherwise a token would be a privilege-escalation primitive.
   let ownerEmail: string | null;
   let isAdminToken: boolean;
@@ -647,13 +647,13 @@ api.put("/artifacts/:slug/access", requireScope("manage"), async (c) => {
   await setAccess(c.env, slug, visibility, emails, new Date().toISOString());
 
   // Ensure granted users can actually log in: add them to the Access allow-list.
-  // Admin-only — the beta is invite-only, so an owner sharing their own artifact
+  // Admin-only — access is invite-only, so an owner sharing their own artifact
   // must not be able to widen who can sign in. Their grants still apply; the
   // recipient just needs an admin to invite them first.
   let allowlistWarning: string | undefined;
   if (emails.length && isConfigured(c.env)) {
     if (!c.get("identity").isAdmin) {
-      allowlistWarning = "anyone who hasn't been invited to the beta yet needs an admin to add them";
+      allowlistWarning = "anyone who hasn't been invited to rtfx.pro yet needs an admin to add them";
     } else {
       try {
         await addUsers(c.env, emails);

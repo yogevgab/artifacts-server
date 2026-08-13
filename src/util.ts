@@ -1,7 +1,24 @@
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
 
-// Slugs that would collide with the Worker's own routes.
-const RESERVED_SLUGS = new Set(["api", "admin", "health", "whoami", "v", "waitlist", "gallery"]);
+// Slugs that would collide with the Worker's own routes. Dotted public files
+// (robots.txt, sitemap.xml, llms.txt, og.svg) can't be slugs at all — SLUG_RE
+// rejects the dot — but their stems are reserved so a slug can never read as
+// one of the site's own crawler files.
+const RESERVED_SLUGS = new Set([
+  "api",
+  "admin",
+  "health",
+  "whoami",
+  "v",
+  "waitlist",
+  "gallery",
+  "login",
+  "docs",
+  "robots",
+  "sitemap",
+  "llms",
+  "og",
+]);
 
 export function isValidSlug(s: string): boolean {
   return SLUG_RE.test(s) && s.length <= 100 && !RESERVED_SLUGS.has(s);
