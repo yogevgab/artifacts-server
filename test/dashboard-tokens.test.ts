@@ -18,7 +18,8 @@ beforeEach(async () => {
   await clearR2();
 });
 
-const dash = async (email: string) => await (await req("/admin", as(email))).text();
+/** The Integrations section, which owns token management in the portal. */
+const dash = async (email: string) => await (await req("/admin/integrations", as(email))).text();
 
 /** Mint a token the way the panel does. */
 async function createToken(email: string, body: Record<string, unknown>) {
@@ -172,17 +173,30 @@ describe("token panel — listing", () => {
 describe("token panel — access control", () => {
   it("is not rendered for an API-token caller, who may not manage tokens", async () => {
     const { body: created } = await createToken(ADMIN, { name: "ci", is_admin: true });
-    const res = await req("/admin", withToken(created.token));
+    const res = await req("/admin/integrations", withToken(created.token));
     expect(res.status).toBe(200);
     const body = await res.text();
-    // A bearer token is refused by /api/tokens, so the dashboard must not hand
+    // A bearer token is refused by /api/tokens, so the portal must not hand
     // it the same data (not even token ids) by another route.
     expect(body).not.toContain('data-panel="tokens"');
     expect(body).not.toContain(`data-token="${created.id}"`);
-    // No create form either (the shared client script still ships, but it wires
-    // up nothing — there is no panel markup for it to find).
+    // No create form either, and no script to wire one up.
     expect(body).not.toContain('id="tokenform"');
     expect(body).not.toContain('id="tok-name"');
+    // It is told why, rather than shown an empty panel.
+    expect(body).toContain("data-token-denied");
+  });
+
+  it("keeps the People section away from an API-token caller entirely", async () => {
+    const { body: created } = await createToken(ADMIN, { name: "ci2", is_admin: true });
+    // /api/users refuses a bearer token outright, so the portal must too — not
+    // in the nav, and not by typing the URL.
+    expect(await (await req("/admin", withToken(created.token))).text()).not.toContain(
+      'data-nav="people"'
+    );
+    const res = await req("/admin/people", withToken(created.token));
+    expect(res.status).toBe(404);
+    expect(await res.text()).not.toContain('data-panel="users"');
   });
 });
 
@@ -250,11 +264,11 @@ describe("token panel — API assumptions the client script relies on", () => {
 });
 
 describe("token panel — existing flows are untouched", () => {
-  it("keeps the publish panel, artifact list and team panel intact", async () => {
-    const body = await dash(ADMIN);
-    expect(body).toContain('id="up"');
-    expect(body).toContain("data-dropzone");
-    expect(body).toContain('data-panel="users"');
+  it("keeps the publish panel, artifact list and People section intact", async () => {
+    const artifacts = await (await req("/admin/artifacts", as(ADMIN))).text();
+    expect(artifacts).toContain('id="up"');
+    expect(artifacts).toContain("data-dropzone");
+    expect(await (await req("/admin/people", as(ADMIN))).text()).toContain('data-panel="users"');
   });
 
   it("a bearer token still publishes and reads normally", async () => {

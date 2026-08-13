@@ -370,11 +370,13 @@ describe("resilience", () => {
 });
 
 describe("dashboard People panel", () => {
-  const dash = async (email: string) => await (await req("/admin", as(email))).text();
+  const dash = async (email: string) => await (await req("/admin/people", as(email))).text();
 
-  it("renders the panel for an admin only", async () => {
+  it("renders the section for an admin only", async () => {
     expect(await dash(SUPER)).toContain('data-panel="users"');
-    expect(await dash(BOB)).not.toContain('data-panel="users"');
+    const beta = await req("/admin/people", as(BOB));
+    expect(beta.status).toBe(404);
+    expect(await beta.text()).not.toContain('data-panel="users"');
   });
 
   it("shows role, status and lifecycle actions per person", async () => {

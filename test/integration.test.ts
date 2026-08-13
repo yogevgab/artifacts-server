@@ -197,17 +197,23 @@ describe("list + delete + admin", () => {
     expect((await req("/td/")).status).toBe(404);
   });
 
-  it("admin page renders the upload form", async () => {
-    const res = await req("/admin");
+  it("the portal's artifacts section renders the upload form", async () => {
+    const res = await req("/admin/artifacts");
     expect(res.status).toBe(200);
     const body = await res.text();
-    expect(body).toContain("Admin");
+    expect(body).toContain('data-section="artifacts"');
     expect(body).toContain('id="up"');
   });
 });
 
 describe("admin dashboard UX", () => {
-  const admin = async () => await (await req("/admin")).text();
+  /** The Artifacts section: publish panel + the list. */
+  const admin = async () => await (await req("/admin/artifacts")).text();
+  /** The Overview section, which owns the usage tiles. */
+  const overview = async () => await (await req("/admin")).text();
+  /** One artifact's own page, which owns versions/views/access/delete. */
+  const detail = async (slug: string) =>
+    await (await req(`/admin/artifacts/${encodeURIComponent(slug)}`)).text();
   const publish = (slug: string, title: string, note = "") =>
     req("/api/artifacts", {
       method: "POST",
@@ -215,7 +221,7 @@ describe("admin dashboard UX", () => {
     });
 
   it("shows header stats that reflect the real artifact/view/storage totals", async () => {
-    let body = await admin();
+    let body = await overview();
     expect(body).toContain('data-stat="artifacts"');
     expect(body).toContain('data-stat="versions"');
     expect(body).toContain('data-stat="views"');
@@ -225,7 +231,7 @@ describe("admin dashboard UX", () => {
 
     await publish("one", "One");
     await publish("two", "Two");
-    body = await admin();
+    body = await overview();
     expect(body).toMatch(/data-stat="artifacts"[\s\S]*?data-stat-value>2</);
     expect(body).toMatch(/data-stat="versions"[\s\S]*?data-stat-value>2</);
   });
@@ -251,6 +257,8 @@ describe("admin dashboard UX", () => {
     expect(body).toContain("showPublished");
     expect(body).toContain('class="ghost link-button" data-open-link');
     expect(body).not.toContain('<a data-open-link target="_blank" rel="noopener"><button');
+    // …and a way straight into the new artifact's own page, to share it.
+    expect(body).toContain("data-manage-link");
   });
 
   it("gives an actionable empty state when nothing is published", async () => {
@@ -300,29 +308,60 @@ describe("admin dashboard UX", () => {
     expect(card).toMatch(/data-badge="visibility">Everyone</);
   });
 
-  it("keeps versions, views and access management on every artifact card", async () => {
+  it("links every listed artifact to its own management page", async () => {
     await publish("full", "Full");
     const card = (await admin()).split('data-artifact="full"')[1];
-    expect(card).toContain('data-panel="versions"');
-    expect(card).toContain('data-panel="views"');
-    expect(card).toContain('data-panel="access"');
-    expect(card).toContain("data-newver"); // drag/drop new-version form
-    expect(card).not.toContain('data-current="1"'); // v1 is already live
-    expect(card).toContain('href="/v/full/1/"'); // version preview link
-    expect(card).toContain('data-save="full"'); // save access
-    expect(card).toContain('data-del="full"'); // delete
+    expect(card).toContain('data-manage="full"');
+    expect(card).toContain('href="/admin/artifacts/full"');
     expect(card).toContain('data-copy="/full/"'); // per-artifact copy link
+    // Management itself moved to the detail page — the list stays a list.
+    expect(card).not.toContain('data-panel="versions"');
+    expect(card).not.toContain('data-del="full"');
+  });
+
+  it("keeps versions, views and access management on the artifact's own page", async () => {
+    await publish("full", "Full");
+    const page = await detail("full");
+    expect(page).toContain('data-artifact-detail="full"');
+    expect(page).toContain('data-panel="versions"');
+    expect(page).toContain('data-panel="views"');
+    expect(page).toContain('data-panel="access"');
+    expect(page).toContain("data-newver"); // drag/drop new-version form
+    expect(page).not.toContain('data-current="1"'); // v1 is already live
+    expect(page).toContain('href="/v/full/1/"'); // version preview link
+    expect(page).toContain('data-save="full"'); // save access
+    expect(page).toContain('data-copy="/full/"'); // share-link copy control
+    // Breadcrumb back to the list, so the detail view is not a dead end.
+    expect(page).toContain("data-crumbs");
+    expect(page).toContain('href="/admin/artifacts"');
+  });
+
+  it("isolates deletion in a danger zone on the artifact's own page", async () => {
+    await publish("doomed", "Doomed");
+    const page = await detail("doomed");
+    expect(page).toContain("data-danger-zone");
+    const zone = page.slice(page.indexOf("data-danger-zone"));
+    expect(zone).toContain('data-del="doomed"');
+    // The destructive control lives only there — never beside ordinary actions.
+    expect(page.slice(0, page.indexOf("data-danger-zone"))).not.toContain("data-del=");
+  });
+
+  it("404s an artifact page for a slug that does not exist", async () => {
+    const res = await req("/admin/artifacts/nope");
+    expect(res.status).toBe(404);
+    // Still inside the portal, so there is somewhere to go from here.
+    expect(await res.text()).toContain("data-portal-nav");
   });
 
   it("explains empty views instead of showing a bare dash", async () => {
     await publish("quiet", "Quiet");
-    const card = (await admin()).split('data-artifact="quiet"')[1];
-    expect(card).toContain("No views yet");
-    expect(card.toLowerCase()).toContain("share link");
+    const page = await detail("quiet");
+    expect(page).toContain("No views yet");
+    expect(page.toLowerCase()).toContain("share link");
   });
 
   it("tells the admin how to fix an unconfigured user-management setup", async () => {
-    const body = await admin();
+    const body = await (await req("/admin/people")).text();
     expect(body).toContain("data-users-unconfigured");
     expect(body).toContain("CF_API_TOKEN");
     expect(body).toContain("ACCESS_VIEWER_POLICY_ID");

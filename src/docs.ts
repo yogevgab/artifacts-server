@@ -198,7 +198,7 @@ export function docsPage(env: Env): string {
           relative paths, so <code>./assets/app.js</code> resolves the way it did locally.</p>
         <h3>From the terminal</h3>
         <pre class="code"><code>$ export ARTIFACTS_URL=https://rtfx.pro
-$ export RTFX_API_TOKEN=rtfx_…    # dashboard → API tokens
+$ export RTFX_API_TOKEN=rtfx_…    # dashboard → Integrations
 
 $ artifacts publish ./index.html --slug q3-report --title "Q3 Report"
 $ artifacts publish ./site --slug q3-report --note "revised charts"   # next version
@@ -206,8 +206,9 @@ $ artifacts grant q3-report alex@example.com
 $ artifacts views q3-report
 $ artifacts list</code></pre>
         <h3>From the dashboard</h3>
-        <p>Drop a file or zip into the publish panel, set a title and visibility, and it's live at
-          its slug. The same panel holds version history, sharing and the view log.</p>
+        <p>Drop a file or zip into the publish panel under <b>Artifacts</b>, set a title, and it's
+          live at its slug. Each artifact then has its own page, holding version history, sharing
+          and the view log.</p>
         <h3>Over HTTP</h3>
         <pre class="code"><code>$ curl -X POST https://rtfx.pro/api/artifacts \\
     -H "Authorization: Bearer $RTFX_API_TOKEN" \\
