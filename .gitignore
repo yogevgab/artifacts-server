@@ -1,5 +1,6 @@
 node_modules/
 .wrangler/
+.shots-tmp/
 .dev.vars
 .dev.local
 dist/

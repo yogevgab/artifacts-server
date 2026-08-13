@@ -4,7 +4,11 @@ import app from "../src/index";
 import { initDb, clearR2, req, as, withToken, htmlForm } from "./fixtures";
 import {
   DEFAULT_ENDPOINT,
+  MACHINE_API_PREFIX,
   TOKEN_VAR,
+  describeNonJsonResponse,
+  machineApiPath,
+  shouldRetryOnLegacyApi,
   INCLUDE,
   SKIP_DIR,
   SKIP_FILE,
@@ -239,6 +243,69 @@ describe("API error guidance", () => {
     expect(
       publishSummary({ slug: "q3", version: 2, type: "bundle", file_count: 3, url: "https://a.rtfx.pro/q3/" })
     ).toBe("published q3 v2 (bundle, 3 files)\nhttps://a.rtfx.pro/q3/");
+  });
+
+  it("tells a missing token apart from a rejected one", () => {
+    expect(describeApiError(401, { error: "unauthorized" }).hint).toMatch(/No bearer token/);
+    expect(describeApiError(401, { error: "invalid_token" }).hint).toMatch(/revoked or expired/);
+  });
+});
+
+/**
+ * The machine surface. `/api` is the dashboard's API and is gated by Cloudflare
+ * Access on a real deployment, so a client holding only a bearer token cannot
+ * reach it. Everything the plugin does goes to `/api/machine` instead, which
+ * takes the bearer token and nothing else.
+ */
+describe("machine API routing", () => {
+  it("rewrites an /api path onto the machine surface and leaves others alone", () => {
+    expect(MACHINE_API_PREFIX).toBe("/api/machine");
+    expect(machineApiPath("/api/artifacts")).toBe("/api/machine/artifacts");
+    expect(machineApiPath("api/artifacts/q3/versions")).toBe("/api/machine/artifacts/q3/versions");
+    expect(machineApiPath("/api/artifacts/q3/current")).toBe("/api/machine/artifacts/q3/current");
+    // Not an /api path, and — importantly — never doubled up.
+    expect(machineApiPath("/health")).toBe("/health");
+    expect(machineApiPath("/api/machine/artifacts")).toBe("/api/machine/machine/artifacts");
+  });
+
+  it("retries on /api only for the bare 404 of an instance without the surface", () => {
+    // A server that has never heard of /api/machine: the framework's own 404.
+    expect(shouldRetryOnLegacyApi(404, {})).toBe(true);
+    // Every 404 the machine surface produces names itself, and is final: an
+    // artifact that isn't yours must not be re-asked for on the gated path.
+    expect(shouldRetryOnLegacyApi(404, { error: "not_found" })).toBe(false);
+    // Nothing else is ever retried.
+    for (const status of [200, 401, 403, 409, 413, 500]) {
+      expect(shouldRetryOnLegacyApi(status, {}), String(status)).toBe(false);
+    }
+  });
+
+  it("names Cloudflare Access as the culprit when a sign-in page comes back", () => {
+    const challenged = describeNonJsonResponse(
+      "https://rtfx.pro/api/machine/artifacts",
+      "https://team.cloudflareaccess.com/cdn-cgi/access/login/rtfx.pro"
+    );
+    expect(challenged.message).toMatch(/Cloudflare Access/);
+    expect(challenged.hint).toMatch(/Bypass/);
+
+    const elsewhere = describeNonJsonResponse(
+      "https://rtfx.pro/api/machine/artifacts",
+      "https://proxy.example.com/login"
+    );
+    expect(elsewhere.message).toContain("proxy.example.com");
+
+    // Same origin, just not JSON: no redirect to blame.
+    const plain = describeNonJsonResponse(
+      "https://rtfx.pro/api/machine/artifacts",
+      "https://rtfx.pro/api/machine/artifacts"
+    );
+    expect(plain.message).toBe("the server did not return JSON");
+    expect(plain.hint).toMatch(/ARTIFACTS_URL/);
+
+    // A hostname that merely ends in something similar is not Access.
+    expect(
+      describeNonJsonResponse("https://rtfx.pro/x", "https://notcloudflareaccess.com.evil.test/x").message
+    ).not.toMatch(/Cloudflare Access/);
   });
 });
 

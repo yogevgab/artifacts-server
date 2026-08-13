@@ -102,7 +102,7 @@ needs, plus how the current environment resolves.
 |---|---|---|
 | `RTFX_API_TOKEN` | yes | Scoped API token from the dashboard → Integrations. Bound to its owner, revocable on its own. |
 | `ARTIFACTS_URL` | no | Instance URL, default `https://rtfx.pro`. `RTFX_URL` is an accepted alias. |
-| `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` | no | Cloudflare Access **service token**, for an instance that still gates `/api` at the edge ([`HERMES_CLOUD.md`](HERMES_CLOUD.md) §2). Pass-through only: it gets a request past Access and grants nothing inside the app. |
+| `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` | no | **Advanced / self-host only.** Cloudflare Access service token, for an instance that gates every path at the edge. Not needed on rtfx.pro: the tools call `/api/machine`, which authenticates the bearer token alone ([`HERMES_CLOUD.md`](HERMES_CLOUD.md) §2). Pass-through only: it gets a request past Access and grants nothing inside the app. |
 | `RTFX_MCP_ALLOW_ACCESS` | no | Set to `1` to also expose `update_access`. Off by default — see §5. |
 | `RTFX_MCP_DEBUG` | no | Log method names to stderr. Never logs arguments. |
 

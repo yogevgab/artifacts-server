@@ -21,6 +21,7 @@ Exactly six paths are public, plus the crawler files. Everything else requires a
 | `/llms.txt` | [llmstxt.org](https://llmstxt.org) product summary for AI agents/answer engines | — |
 | `/og.svg` | 1200×630 SVG source social card | — |
 | `/og.png` | 1200×630 PNG social card used by OpenGraph/Twitter previews | — |
+| `/logo.png` | 512×512 PNG of the rtfx mark — `Organization.logo` in the landing page's JSON-LD | — |
 
 Gated, and excluded from every index: `/admin/*` (the gallery included), `/api/*`, `/gallery`
 (a redirect into `/admin/gallery`), `/v/*`, `/whoami`, `/health`, and every artifact URL.
@@ -150,8 +151,13 @@ Access app needs Bypass destinations for all of:
 rtfx.pro/            rtfx.pro/docs         rtfx.pro/login        rtfx.pro/waitlist
 rtfx.pro/privacy     rtfx.pro/terms
 rtfx.pro/robots.txt  rtfx.pro/sitemap.xml  rtfx.pro/llms.txt     rtfx.pro/og.svg
-rtfx.pro/og.png
+rtfx.pro/og.png      rtfx.pro/logo.png
 ```
+
+`rtfx.pro/logo.png` is the newest of these. It serves a static image and reads nothing about
+the caller, so bypassing Access on it exposes exactly what `/og.png` already does — but it
+does have to be added, or the JSON-LD points every consumer of the graph at Cloudflare's
+login screen.
 
 See [DEPLOY_RTFX.md](DEPLOY_RTFX.md) step 5.3 for the full runbook step and the post-deploy
 verification (`curl -I` each path expecting `200` and no `CF_Authorization` challenge).
@@ -160,7 +166,29 @@ verification (`curl -I` each path expecting `200` and no `CF_Authorization` chal
 
 `HeadMeta.image` points at `/og.png`, a 1200×630 PNG social card for platforms that do not
 render SVG previews reliably. `/og.svg` remains the readable/vector source for the same card.
-Both are public app-host files and blocked on the artifact content host.
+`Organization.logo` in the landing page's JSON-LD points at `/logo.png` instead — a 512×512
+render of the mark alone. That property is consumed as a *logo* (cropped towards square in a
+knowledge panel), so pointing it at the landscape card, which is mostly headline copy, gave
+every consumer of the graph the wrong image. All three are public app-host files and blocked
+on the artifact content host.
+
+### Regenerating the rasters
+
+A Worker has no image encoder, so `/og.png` and `/logo.png` are base64 constants in
+`src/seo.ts`, rendered from `ogImageSvg()` and `logoSvg()` in the same file. That once drifted
+badly — the card was redesigned and the constant went on serving the previous design to every
+unfurl — so the two are now bound together in both directions:
+
+```bash
+npm run generate:rasters   # rasterizes with headless Chrome, rewrites src/seo.ts in place
+npm test                   # test/brand-raster.test.ts proves the two now agree
+```
+
+Run it after **any** change to `ogImageSvg()`, `logoSvg()`, `MARK_PATH`, `MARK_BLUE`,
+`SITE.name` or `SITE.tagline`. `test/brand-raster.test.ts` fails otherwise: it compares
+SHA-256 of the current SVG against the digest the rasters were rendered from, *and* decodes
+both PNGs to check the mark's tile is where today's SVG puts it — so neither a forgotten
+re-render nor a hand-pasted digest gets through.
 
 The Worker adds baseline app headers (`X-Content-Type-Options: nosniff`,
 `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY`). Artifact files get

@@ -14,6 +14,7 @@ const MANAGEMENT_PATHS = new Set([
   "/llms.txt",
   "/og.svg",
   "/og.png",
+  "/logo.png",
 ]);
 const MANAGEMENT_PREFIXES = ["/admin", "/api", "/v"];
 

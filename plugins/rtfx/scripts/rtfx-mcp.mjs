@@ -15,7 +15,9 @@
 //
 // Optional:
 //   CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET   Access service-token headers,
-//                    only for an instance that still gates /api at the edge
+//                    only for a self-hosted instance that gates every path at the
+//                    edge. Not needed on rtfx.pro: the tools call /api/machine,
+//                    which authenticates the bearer token on its own.
 //   RTFX_MCP_ALLOW_ACCESS=1   also expose `update_access` (needs a `manage` token)
 //   RTFX_MCP_DEBUG=1          log method names to stderr (never arguments)
 //

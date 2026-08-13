@@ -267,12 +267,16 @@ describe("integrations", () => {
     expect(html).toContain("node cli/artifacts.mjs publish");
   });
 
-  it("gives a curl that clears Access and uses the right upload field", async () => {
+  it("gives a curl that runs with the token on this page and nothing else", async () => {
     const html = await page("/admin/integrations");
-    // A bearer token authenticates to the app; it does not get past Access,
-    // which still gates /api at the edge.
-    expect(html).toContain("CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID");
-    expect(html).toContain("CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET");
+    // The machine surface: it authenticates the bearer token on its own, so the
+    // token this very page mints is sufficient. Sending somebody to Cloudflare
+    // Zero Trust for a service token would make the panel's own credential a
+    // half-measure — and an invited member cannot get one at all.
+    expect(html).toContain("/api/machine/artifacts");
+    expect(html).toContain("Authorization: Bearer $RTFX_API_TOKEN");
+    expect(html).not.toContain("CF-Access-Client-Id");
+    expect(html).not.toContain("CF-Access-Client-Secret");
     // `bundle` is the zip field; `file` is one HTML document.
     expect(html).toContain("-F bundle=@./dist.zip");
     expect(html).not.toMatch(/file=@\S*\.zip/);

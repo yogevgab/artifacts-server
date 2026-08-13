@@ -1,7 +1,15 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import type { Env, ArtifactRow } from "./env";
-import { requireAdmin, requireUser, requireScope, denyApiToken, accountsFor, type AuthVars } from "./auth";
+import {
+  requireAdmin,
+  requireApiToken,
+  requireUser,
+  requireScope,
+  denyApiToken,
+  accountsFor,
+  type AuthVars,
+} from "./auth";
 import {
   canManage,
   canManageMembers,
@@ -93,6 +101,15 @@ type Vars = { Variables: AuthVars; Bindings: Env };
 
 export const api = new Hono<Vars>();
 
+/**
+ * The artifact surface: publish, list, versions, rollback, views, sharing and
+ * delete. Kept as its own router because it is mounted twice — once at `/api`
+ * for the dashboard and for Access-authenticated callers, and once at
+ * `/api/machine` for bearer-token clients (see the mounts at the bottom of this
+ * file). One definition, so the two can never drift apart in what they enforce.
+ */
+const artifactRoutes = new Hono<Vars>();
+
 // Browser preflight and cross-origin policy, FIRST — before any authentication.
 // A CORS preflight carries no credentials by definition, so authenticating one
 // refuses a request that would have been authorized, and the browser reports
@@ -100,11 +117,24 @@ export const api = new Hono<Vars>();
 // see the long note in src/cors.ts.
 api.use("*", apiCors);
 
-// Every API route needs an authenticated caller — an Access login or an API
-// token. Per-artifact ownership is enforced per route below (admins manage
+// The machine surface, FIRST — before the general gate below, so a request to
+// `/api/machine/*` is authenticated by the bearer-only rule and never by an
+// Access session. See `requireApiToken` in src/auth.ts for why that is stricter
+// rather than looser, and the mount at the bottom of this file for what it
+// covers.
+api.use("/machine", requireApiToken);
+api.use("/machine/*", requireApiToken);
+
+// Every other API route needs an authenticated caller — an Access login or an
+// API token. Per-artifact ownership is enforced per route below (admins manage
 // everything, members only what they own), and API tokens are additionally
 // narrowed by scope (`requireScope`).
-api.use("*", requireUser);
+//
+// A request the machine gate already authenticated is passed straight through:
+// it has an identity, so re-running `requireUser` would only repeat the token
+// lookup — and must never be able to *widen* the machine surface by resolving a
+// second, Access-shaped identity for it.
+api.use("*", async (c, next) => (c.get("identity") ? next() : requireUser(c, next)));
 // Managing who can sign in stays admin-only, and is off-limits to
 // API tokens: issuing credentials always requires an interactive login.
 api.use("/users", requireAdmin, denyApiToken);
@@ -177,7 +207,7 @@ function limitBodyBytes(body: ReadableStream<Uint8Array>, maxBytes: number): Rea
   );
 }
 
-api.get("/artifacts", requireScope("read"), async (c) => {
+artifactRoutes.get("/artifacts", requireScope("read"), async (c) => {
   const identity = c.get("identity");
   // A platform admin sees the instance; everybody else sees what they own by
   // email plus what their workspaces own (issue #27). For the personal account
@@ -194,7 +224,7 @@ api.get("/artifacts", requireScope("read"), async (c) => {
   return c.json({ artifacts, content_base: contentBase(c) });
 });
 
-api.post("/artifacts", requireScope("publish"), async (c) => {
+artifactRoutes.post("/artifacts", requireScope("publish"), async (c) => {
   // Fast path: if the client declares an honest, oversized Content-Length, reject
   // before reading any of the body. This is purely an optimization — a missing or
   // inaccurate Content-Length (e.g. chunked transfer encoding) skips this check
@@ -878,7 +908,7 @@ api.delete("/accounts/:id/members/:email", async (c) => {
   });
 });
 
-api.get("/artifacts/:slug/versions", requireScope("read"), async (c) => {
+artifactRoutes.get("/artifacts/:slug/versions", requireScope("read"), async (c) => {
   const slug = c.req.param("slug");
   const art = await manageable(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
@@ -889,7 +919,7 @@ api.get("/artifacts/:slug/versions", requireScope("read"), async (c) => {
   });
 });
 
-api.get("/artifacts/:slug/views", requireScope("read"), async (c) => {
+artifactRoutes.get("/artifacts/:slug/views", requireScope("read"), async (c) => {
   const slug = c.req.param("slug");
   const art = await manageable(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
@@ -900,7 +930,7 @@ api.get("/artifacts/:slug/views", requireScope("read"), async (c) => {
 
 // Rollback: pointing a slug at an existing version is a publish operation —
 // it changes what the world sees — so it rides on the `publish` scope.
-api.post("/artifacts/:slug/current", requireScope("publish"), async (c) => {
+artifactRoutes.post("/artifacts/:slug/current", requireScope("publish"), async (c) => {
   const slug = c.req.param("slug");
   const art = await manageable(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
@@ -914,14 +944,14 @@ api.post("/artifacts/:slug/current", requireScope("publish"), async (c) => {
   return c.json({ slug, current: version, url: artifactUrl(c, slug) });
 });
 
-api.get("/artifacts/:slug/access", requireScope("read"), async (c) => {
+artifactRoutes.get("/artifacts/:slug/access", requireScope("read"), async (c) => {
   const slug = c.req.param("slug");
   const art = await manageable(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
   return c.json({ visibility: art.visibility, emails: await listGrants(c.env, slug) });
 });
 
-api.put("/artifacts/:slug/access", requireScope("manage"), async (c) => {
+artifactRoutes.put("/artifacts/:slug/access", requireScope("manage"), async (c) => {
   const slug = c.req.param("slug");
   const art = await manageable(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
@@ -961,7 +991,7 @@ api.put("/artifacts/:slug/access", requireScope("manage"), async (c) => {
   return c.json({ slug, visibility, emails: await listGrants(c.env, slug), allowlistWarning });
 });
 
-api.delete("/artifacts/:slug", requireScope("manage"), async (c) => {
+artifactRoutes.delete("/artifacts/:slug", requireScope("manage"), async (c) => {
   const slug = c.req.param("slug");
   const existing = await manageable(c, slug);
   if (!existing) return c.json({ error: "not_found" }, 404);
@@ -969,6 +999,42 @@ api.delete("/artifacts/:slug", requireScope("manage"), async (c) => {
   await deleteArtifactRow(c.env, slug);
   return c.json({ deleted: slug });
 });
+
+// --- Where the artifact routes are mounted ----------------------------------
+//
+// Twice, from the single definition above.
+//
+// 1. `/api/artifacts…` — unchanged. The dashboard's own fetches, the Access-
+//    authenticated CLI, and bearer tokens presented alongside an Access session
+//    all keep working exactly as they did.
+//
+// 2. `/api/machine/artifacts…` — the same routes, gated by `requireApiToken`
+//    (registered near the top of this file, before the general one) instead of
+//    `requireUser`. This is the surface an operator puts on an Access **Bypass**
+//    policy, so an invited person can publish with the scoped token they minted
+//    at /admin/integrations and nothing else. Without it, every machine caller
+//    on an Access-gated instance also needs Cloudflare service-token
+//    credentials — which are per-deployment secrets an operator cannot hand out
+//    per user, and which grant edge entry rather than product identity.
+//
+// Nothing else is mounted there. User management, token issuance and workspace
+// membership stay on `/api` alone: they are the routes that hand out
+// credentials, they already refuse API tokens outright (`denyApiToken`), and
+// there is no reason for the un-gated surface to answer for them at all.
+api.route("/", artifactRoutes);
+api.route("/machine", artifactRoutes);
+
+/**
+ * Anything else under `/api/machine` is not a route. Answered here — after the
+ * mount above — as JSON with an explicit code, rather than falling through to
+ * the framework's plain-text 404: a client can then tell "this server has no
+ * such machine route" (an older deployment) from "that artifact isn't yours"
+ * (`{"error":"not_found"}` from a real handler), and fall back accordingly.
+ */
+const noMachineRoute = (c: Context<Vars>) =>
+  c.json({ error: "not_found", detail: "no such machine API route" }, 404);
+api.all("/machine", noMachineRoute);
+api.all("/machine/*", noMachineRoute);
 
 /** Delete every R2 object under `<slug>/`. */
 async function deletePrefix(env: Env, slug: string): Promise<void> {

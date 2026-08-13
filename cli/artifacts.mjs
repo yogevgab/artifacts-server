@@ -6,13 +6,18 @@
 //   RTFX_URL                 alias for ARTIFACTS_URL, so the Claude Code plugin and this
 //                            CLI accept the same environment (ARTIFACTS_URL still wins)
 //   RTFX_API_TOKEN           API token (rtfx_…) — sent as `Authorization: Bearer`
-//   CF_ACCESS_CLIENT_ID      Access service token client id
-//   CF_ACCESS_CLIENT_SECRET  Access service token client secret
+//   CF_ACCESS_CLIENT_ID      Access service token client id      (advanced/self-host)
+//   CF_ACCESS_CLIENT_SECRET  Access service token client secret  (advanced/self-host)
 //
-// The two are independent layers and can be combined: while Cloudflare Access
-// still gates /api at the edge, the service token gets the request *through the
-// gate* and RTFX_API_TOKEN identifies you *to the app*. With both set, the API
-// token decides who you are and what scopes you have.
+// The artifact commands go to the machine API (/api/machine/…), which
+// authenticates the bearer token and nothing else — RTFX_API_TOKEN on its own is
+// enough, with no Cloudflare credential. The service-token headers stay
+// supported for a self-hosted instance that gates every path at the edge; they
+// get a request *through the gate* and grant nothing inside the app.
+//
+// The user-* and token-* commands are different: they manage credentials, so
+// they stay on /api, refuse API tokens outright, and need a real login (or, from
+// a shell, the service-token headers).
 //
 // Usage:
 //   artifacts publish <path> [--slug s] [--title t] [--description d] [--overwrite]
@@ -24,6 +29,11 @@
 import { readFileSync, statSync, readdirSync } from "node:fs";
 import { join, relative, basename, extname, sep } from "node:path";
 import { zipSync } from "fflate";
+import {
+  describeNonJsonResponse,
+  machineApiPath,
+  shouldRetryOnLegacyApi,
+} from "../plugins/rtfx/scripts/rtfx.lib.mjs";
 
 const BASE = (process.env.ARTIFACTS_URL || process.env.RTFX_URL || "http://localhost:8787").replace(/\/+$/, "");
 const ID = process.env.CF_ACCESS_CLIENT_ID;
@@ -44,6 +54,57 @@ function die(msg) {
   console.error("error:", msg);
   process.exit(1);
 }
+
+/** One HTTP attempt. Exits with a readable message if the host can't be reached. */
+async function attempt(path, init) {
+  const url = `${BASE}${path}`;
+  let res;
+  try {
+    res = await fetch(url, { ...init, headers: { ...authHeaders(), ...(init.headers ?? {}) } });
+  } catch (e) {
+    die(`could not reach ${BASE}: ${e.message}`);
+  }
+  try {
+    return { res, url, body: await res.json(), json: true };
+  } catch {
+    return { res, url, body: {}, json: false };
+  }
+}
+
+/**
+ * Call the API and return the parsed body, or exit with a readable error.
+ *
+ * Artifact work goes to the machine surface (`/api/machine/…`), which takes the
+ * bearer token and nothing else — so publishing needs no Cloudflare credential
+ * even on an Access-gated instance. An instance too old to have that surface
+ * answers with a bare 404 and the call is retried once against `/api`.
+ *
+ * `{ admin: true }` opts out for the routes that manage credentials: they stay
+ * on `/api`, where Cloudflare Access can still gate them, and they refuse API
+ * tokens in the Worker regardless.
+ */
+async function call(path, init = {}, { admin = false } = {}) {
+  const target = admin ? path : machineApiPath(path);
+  let out = await attempt(target, init);
+  if (target !== path && shouldRetryOnLegacyApi(out.res.status, out.body)) {
+    out = await attempt(path, init);
+  }
+  if (!out.json) {
+    const { message, hint } = describeNonJsonResponse(out.url, out.res.url);
+    die(`${message}\nhint: ${hint}`);
+  }
+  if (!out.res.ok) {
+    die(`${out.res.status} ${out.body.detail || out.body.error || out.res.statusText}`);
+  }
+  return out.body;
+}
+
+/** JSON request init, for the handful of routes that send a body. */
+const asJson = (method, body) => ({
+  method,
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(body),
+});
 
 function parseFlags(args) {
   const flags = {};
@@ -97,17 +158,13 @@ async function publish(path, flags) {
     else die(`unsupported file type "${ext}" (use .html, .zip, or a directory)`);
   }
 
-  const res = await fetch(`${BASE}/api/artifacts`, { method: "POST", headers: authHeaders(), body: form });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) die(`${res.status} ${data.detail || data.error || res.statusText}`);
+  const data = await call("/api/artifacts", { method: "POST", body: form });
   console.log(`published: ${data.url}  (v${data.version}, ${data.type}, ${data.file_count} file(s))`);
 }
 
 async function versions(slug) {
   if (!slug) die("versions requires a <slug>");
-  const res = await fetch(`${BASE}/api/artifacts/${encodeURIComponent(slug)}/versions`, { headers: authHeaders() });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) die(`${res.status} ${data.detail || data.error || res.statusText}`);
+  const data = await call(`/api/artifacts/${encodeURIComponent(slug)}/versions`);
   if (data.url) console.log(data.url);
   for (const v of data.versions) {
     const cur = v.version === data.current ? " (current)" : "";
@@ -118,22 +175,16 @@ async function versions(slug) {
 
 async function rollback(slug, version) {
   if (!slug || !version) die("rollback requires <slug> <version>");
-  const res = await fetch(`${BASE}/api/artifacts/${encodeURIComponent(slug)}/current`, {
-    method: "POST",
-    headers: { ...authHeaders(), "Content-Type": "application/json" },
-    body: JSON.stringify({ version: Number(version) }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) die(`${res.status} ${data.detail || data.error || res.statusText}`);
+  const data = await call(
+    `/api/artifacts/${encodeURIComponent(slug)}/current`,
+    asJson("POST", { version: Number(version) })
+  );
   console.log(`${slug} is now live on v${data.current}`);
   if (data.url) console.log(data.url);
 }
 
 async function list() {
-  const res = await fetch(`${BASE}/api/artifacts`, { headers: authHeaders() });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) die(`${res.status} ${data.detail || data.error || res.statusText}`);
-  const { artifacts } = data;
+  const { artifacts } = await call("/api/artifacts");
   if (!artifacts.length) return console.log("(no artifacts)");
   for (const a of artifacts) {
     const vis = a.visibility === "everyone" ? "everyone" : "restricted";
@@ -142,21 +193,14 @@ async function list() {
 }
 
 async function getAccess(slug) {
-  const res = await fetch(`${BASE}/api/artifacts/${encodeURIComponent(slug)}/access`, { headers: authHeaders() });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) die(`${res.status} ${data.detail || data.error || res.statusText}`);
-  return data;
+  return call(`/api/artifacts/${encodeURIComponent(slug)}/access`);
 }
 
 async function putAccess(slug, visibility, emails) {
-  const res = await fetch(`${BASE}/api/artifacts/${encodeURIComponent(slug)}/access`, {
-    method: "PUT",
-    headers: { ...authHeaders(), "Content-Type": "application/json" },
-    body: JSON.stringify({ visibility, emails }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) die(`${res.status} ${data.detail || data.error || res.statusText}`);
-  return data;
+  return call(
+    `/api/artifacts/${encodeURIComponent(slug)}/access`,
+    asJson("PUT", { visibility, emails })
+  );
 }
 
 async function access(slug) {
@@ -194,9 +238,7 @@ async function visibility(slug, mode) {
 
 async function views(slug) {
   if (!slug) die("views requires a <slug>");
-  const res = await fetch(`${BASE}/api/artifacts/${encodeURIComponent(slug)}/views`, { headers: authHeaders() });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) die(`${res.status} ${data.detail || data.error || res.statusText}`);
+  const data = await call(`/api/artifacts/${encodeURIComponent(slug)}/views`);
   console.log(`${slug}: ${data.total} total · ${data.unique} unique viewer(s)`);
   for (const v of data.recent) {
     const where = v.country ? ` ${v.country}` : "";
@@ -225,10 +267,12 @@ function printWarning(data) {
   if (data.warning) console.log(`  ! ${data.warning}`);
 }
 
+// The credential-management commands below all pass `{ admin: true }`: they stay
+// on /api, which an operator can keep gated at the edge, and which refuses API
+// tokens in the Worker whatever the path.
+
 async function users() {
-  const res = await fetch(`${BASE}/api/users`, { headers: authHeaders() });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) die(`${res.status} ${data.detail || data.error || res.statusText}`);
+  const data = await call("/api/users", {}, { admin: true });
   const list = data.users || [];
   if (!list.length) return console.log("(no users)");
   for (const u of list) printUser(u);
@@ -244,13 +288,7 @@ async function userAdd(email, flags = {}) {
   const body = { email };
   if (flags.name) body.display_name = flags.name;
   if (flags.note) body.notes = flags.note;
-  const res = await fetch(`${BASE}/api/users`, {
-    method: "POST",
-    headers: { ...authHeaders(), "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) die(`${res.status} ${data.detail || data.error || res.statusText}`);
+  const data = await call("/api/users", asJson("POST", body), { admin: true });
   console.log(`invited ${email} (${(data.users || []).length} user(s) known)`);
   if (data.user) printUser(data.user);
   printWarning(data);
@@ -258,12 +296,11 @@ async function userAdd(email, flags = {}) {
 
 async function userRemove(email) {
   if (!email) die("user-remove requires <email>");
-  const res = await fetch(`${BASE}/api/users/${encodeURIComponent(email)}`, {
-    method: "DELETE",
-    headers: authHeaders(),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) die(`${res.status} ${data.detail || data.error || res.statusText}`);
+  const data = await call(
+    `/api/users/${encodeURIComponent(email)}`,
+    { method: "DELETE" },
+    { admin: true }
+  );
   console.log(`removed ${email} (${(data.users || []).length} user(s) remain)`);
   printWarning(data);
 }
@@ -272,21 +309,18 @@ async function userRemove(email) {
 async function userSetEnabled(email, enabled) {
   const verb = enabled ? "enable" : "disable";
   if (!email) die(`user-${verb} requires <email>`);
-  const res = await fetch(`${BASE}/api/users/${encodeURIComponent(email)}/${verb}`, {
-    method: "POST",
-    headers: authHeaders(),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) die(`${res.status} ${data.detail || data.error || res.statusText}`);
+  const data = await call(
+    `/api/users/${encodeURIComponent(email)}/${verb}`,
+    { method: "POST" },
+    { admin: true }
+  );
   console.log(`${enabled ? "re-enabled" : "paused"} ${email}`);
   if (data.user) printUser(data.user);
   printWarning(data);
 }
 
 async function tokens() {
-  const res = await fetch(`${BASE}/api/tokens`, { headers: authHeaders() });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) die(`${res.status} ${data.detail || data.error || res.statusText}`);
+  const data = await call("/api/tokens", {}, { admin: true });
   if (!data.tokens.length) return console.log("(no tokens)");
   for (const t of data.tokens) {
     const who = t.is_admin ? "admin" : t.owner_email;
@@ -303,13 +337,7 @@ async function tokenCreate(name, flags) {
   if (flags.owner) body.owner_email = flags.owner;
   if (flags.admin) body.is_admin = true;
   if (flags["expires-days"]) body.expires_in_days = Number(flags["expires-days"]);
-  const res = await fetch(`${BASE}/api/tokens`, {
-    method: "POST",
-    headers: { ...authHeaders(), "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) die(`${res.status} ${data.detail || data.error || res.statusText}`);
+  const data = await call("/api/tokens", asJson("POST", body), { admin: true });
   // Printed once — the server only keeps a hash.
   console.log(`token ${data.id} created (${data.scopes.join(",")}${data.is_admin ? ", admin" : ""})`);
   console.log(`\n  ${data.token}\n`);
@@ -318,23 +346,17 @@ async function tokenCreate(name, flags) {
 
 async function tokenRevoke(id) {
   if (!id) die("token-revoke requires a <token-id>");
-  const res = await fetch(`${BASE}/api/tokens/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-    headers: authHeaders(),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) die(`${res.status} ${data.detail || data.error || res.statusText}`);
+  const data = await call(
+    `/api/tokens/${encodeURIComponent(id)}`,
+    { method: "DELETE" },
+    { admin: true }
+  );
   console.log(data.already_revoked ? `${data.revoked} was already revoked` : `revoked ${data.revoked}`);
 }
 
 async function del(slug) {
   if (!slug) die("delete requires a <slug>");
-  const res = await fetch(`${BASE}/api/artifacts/${encodeURIComponent(slug)}`, {
-    method: "DELETE",
-    headers: authHeaders(),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) die(`${res.status} ${data.detail || data.error || res.statusText}`);
+  const data = await call(`/api/artifacts/${encodeURIComponent(slug)}`, { method: "DELETE" });
   console.log(`deleted: ${data.deleted}`);
 }
 
@@ -419,7 +441,9 @@ switch (cmd) {
     console.log("        (prints the token once — store it as RTFX_API_TOKEN)");
     console.log("  token-revoke <token-id>          revoke an API token");
     console.log("");
-    console.log("auth: RTFX_API_TOKEN (bearer) and/or CF_ACCESS_CLIENT_ID/SECRET (Access gate).");
+    console.log("auth: RTFX_API_TOKEN (bearer) is all the artifact commands need — they use the");
+    console.log("      machine API (/api/machine/…). CF_ACCESS_CLIENT_ID/SECRET is only for a");
+    console.log("      self-hosted instance that gates every path at the edge.");
     console.log("      token-* and user-* commands require an Access login, not an API token.");
     process.exit(cmd ? 1 : 0);
 }

@@ -13,7 +13,7 @@ or multi-file static bundles — are published from a web dashboard, a CLI, or a
 - 🕓 **Versioning** — every re-publish is a new immutable version; roll back anytime.
 - 📈 **Views log** — see who viewed each artifact, when, which version, and from where — per person, not an aggregate counter.
 - 🏢 **Workspaces & roles** — artifacts belong to an account with `owner`/`admin`/`member`/`viewer` roles; instance privilege is re-derived from config, never read from a table.
-- 🌐 **Public product site** — `/`, `/docs`, `/login` and `/waitlist` are reachable by anyone, with SEO metadata, `sitemap.xml`, `robots.txt` and `llms.txt`; everything else needs an identity.
+- 🌐 **Public product site** — `/`, `/docs`, `/login`, `/privacy`, `/terms` and `/waitlist` are reachable by anyone, with SEO metadata, `sitemap.xml`, `robots.txt` and `llms.txt`; everything else needs an identity.
 - 🔒 **Access-gated dashboard** — Cloudflare Access handles login for `/admin` and the API; sign-in is passwordless (one-time email code) and the app stores no passwords.
 - 🖼️ **One dashboard** — publish and manage under **Artifacts**; everything shared with you under **Gallery**. Same shell, same nav, same brand.
 - 🔑 **API tokens** — hashed bearer tokens for server-to-server publishing (Hermes Cloud, CI), scoped, owner-bound and revocable.
@@ -22,7 +22,9 @@ or multi-file static bundles — are published from a web dashboard, a CLI, or a
 > **Stack:** TypeScript · [Hono](https://hono.dev) · Cloudflare Workers / R2 / D1 · Cloudflare Access
 
 **Not built yet**, and deliberately not implied anywhere in the copy: per-link passwords or
-shared link secrets, link expiry, custom domains for artifacts, and comments/approvals. Access is
+shared link secrets, link expiry, custom domains for artifacts, comments/approvals, a public
+gallery of artifacts, and **self-serve signup or billing of any kind** — access is granted by
+invitation, by a person, and nothing is charged for rtfx.pro today. Access is
 by identity only. The competitive reasoning, and the full
 table-stakes-vs-differentiators split, is in [`docs/POSITIONING.md`](docs/POSITIONING.md) and
 published at [`/docs#why-rtfx`](https://rtfx.pro/docs#why-rtfx).
@@ -210,11 +212,15 @@ entirely.
 
 ```bash
 export ARTIFACTS_URL=https://<your-domain>
-# Authenticate with an API token, a Cloudflare Access service token, or both
-# (Access gets you through the edge gate; the API token identifies you to the app).
+# One credential: the artifact commands go to /api/machine/…, which authenticates
+# this bearer token and nothing else.
 export RTFX_API_TOKEN=<rtfx_… token>
-export CF_ACCESS_CLIENT_ID=<service-token-client-id>
-export CF_ACCESS_CLIENT_SECRET=<service-token-client-secret>
+
+# Advanced / self-host only: on an instance that gates every path at the edge,
+# these get a request past Cloudflare Access. They grant nothing inside the app,
+# and rtfx.pro does not need them (see docs/DEPLOY_RTFX.md §5e).
+# export CF_ACCESS_CLIENT_ID=<service-token-client-id>
+# export CF_ACCESS_CLIENT_SECRET=<service-token-client-secret>
 
 node cli/artifacts.mjs publish ./page.html --slug my-page --title "My Page"
 node cli/artifacts.mjs publish ./site/ --slug demo --title "Demo"   # a folder is zipped
@@ -298,7 +304,7 @@ Automated publishers — Hermes Cloud, CI, scripts — authenticate with a hashe
 as `Authorization: Bearer <token>`, instead of a browser login:
 
 ```bash
-curl -X POST "$ARTIFACTS_URL/api/artifacts" \
+curl -X POST "$ARTIFACTS_URL/api/machine/artifacts" \
   -H "Authorization: Bearer $RTFX_API_TOKEN" \
   -F "slug=my-page" -F "title=My Page" -F "file=@./page.html;type=text/html"
 ```
@@ -310,8 +316,17 @@ curl -X POST "$ARTIFACTS_URL/api/artifacts" \
   widen anyone's. Default is `read,publish`, so a publishing integration can't delete.
 - Tokens are revocable (`token-revoke`), can carry an expiry, and are revoked automatically
   when their owner is removed from rtfx.pro.
-- Bearer auth is an **additional** app-layer check — it does not bypass Cloudflare Access,
-  which still gates the edge.
+
+**Two surfaces, on purpose.** `/api/…` is the dashboard's API: Cloudflare Access gates it at the
+edge and a browser session identifies you, so bearer auth there is an *additional* app-layer
+check that bypasses nothing. `/api/machine/…` is the same artifact routes for machines — publish,
+list, versions, rollback, views, sharing, delete — behind a **stricter** gate that requires a
+bearer token and refuses a session outright (`requireApiToken` in `src/auth.ts`). That is what
+lets an operator put it on an Access **Bypass** policy, so an invited user can publish with the
+token they minted and no Cloudflare credential at all — see
+[`docs/DEPLOY_RTFX.md`](docs/DEPLOY_RTFX.md) §5e. User management, token issuance and workspace
+membership are deliberately *not* mounted there: they stay edge-gated on `/api`, and refuse API
+tokens whatever the path.
 
 Full request/response contract, error codes and rollback flow:
 [`docs/HERMES_CLOUD.md`](docs/HERMES_CLOUD.md).

@@ -32,6 +32,20 @@ export function resolveConfig(env?: Record<string, string | undefined>): RtfxCon
 export function authHeaders(config: RtfxConfig): Record<string, string>;
 export function apiUrl(endpoint: string, path: string): string;
 
+export const MACHINE_API_PREFIX: string;
+export function machineApiPath(path: string): string;
+export function shouldRetryOnLegacyApi(status: number, body?: unknown): boolean;
+
+export interface NonJsonResponseDescription {
+  message: string;
+  hint: string;
+}
+
+export function describeNonJsonResponse(
+  requestedUrl: string,
+  finalUrl: string
+): NonJsonResponseDescription;
+
 export const BOOLEAN_FLAGS: ReadonlySet<string>;
 
 export interface ParsedArgs {

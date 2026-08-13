@@ -40,9 +40,13 @@ guess, or write a token into a file, a commit, or the transcript.** Two variable
 | `RTFX_API_TOKEN` | yes | Scoped token, `rtfx_…`. Bound to its owner; revocable on its own. |
 | `ARTIFACTS_URL` | no | The instance. Defaults to `https://rtfx.pro`. `RTFX_URL` also works. |
 
-`CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` are optional pass-through, and only needed on an
-instance that still gates `/api` behind Cloudflare Access. They are not a Cloudflare account
-credential and grant nothing inside the app.
+The token really is the whole credential set: publishing goes to `/api/machine`, which
+authenticates the bearer token and nothing else. `CF_ACCESS_CLIENT_ID` /
+`CF_ACCESS_CLIENT_SECRET` are optional pass-through for a self-hosted instance that gates every
+path at the edge with Cloudflare Access. They are not a Cloudflare account credential, grant
+nothing inside the app, and are never needed on rtfx.pro — if a call reports that Cloudflare
+Access answered instead of the API, say so plainly and point the user at their operator rather
+than inventing a credential.
 
 ## Publishing
 

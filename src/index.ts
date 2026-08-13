@@ -51,7 +51,16 @@ import { peoplePage, type UsersInfo } from "./people";
 import { integrationsPage } from "./integrations";
 import { canSeeSection, portalNotFound, type PortalViewer } from "./portal";
 import { isContentHost, isManagementPath, isPerOriginPath, firstContentHostname, parseHostnames } from "./host";
-import { robotsTxt, sitemapXml, llmsTxt, ogImageSvg, OG_IMAGE_PNG_BASE64, isCanonicalHost, siteOrigin } from "./seo";
+import {
+  robotsTxt,
+  sitemapXml,
+  llmsTxt,
+  ogImageSvg,
+  OG_IMAGE_PNG_BASE64,
+  LOGO_PNG_BASE64,
+  isCanonicalHost,
+  siteOrigin,
+} from "./seo";
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVars }>();
 
@@ -428,17 +437,24 @@ app.get(
       },
     })
 );
-app.get(
-  "/og.png",
-  (c) =>
-    new Response(Uint8Array.from(atob(OG_IMAGE_PNG_BASE64), (ch) => ch.charCodeAt(0)), {
-      headers: {
-        "Content-Type": "image/png",
-        "Cache-Control": "public, max-age=86400",
-        "X-Content-Type-Options": "nosniff",
-      },
-    })
-);
+/** One of the two checked-in brand rasters, decoded from base64 (see src/seo.ts). */
+const pngResponse = (base64: string) =>
+  new Response(Uint8Array.from(atob(base64), (ch) => ch.charCodeAt(0)), {
+    headers: {
+      "Content-Type": "image/png",
+      "Cache-Control": "public, max-age=86400",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+
+app.get("/og.png", () => pngResponse(OG_IMAGE_PNG_BASE64));
+
+// The square mark, for `Organization.logo` in the landing page's JSON-LD. That
+// pointed at /og.png — a 1200×630 card that is mostly headline copy — which is
+// not what a consumer of the graph is promised when it asks for a logo. Public,
+// like the rest of the crawler-facing files, so it needs an Access Bypass
+// destination alongside /og.png (docs/DEPLOY_RTFX.md §5.3).
+app.get("/logo.png", () => pngResponse(LOGO_PNG_BASE64));
 
 
 // Sign-in surface. Public on purpose: it explains how to get in, so it must sit

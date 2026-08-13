@@ -16,7 +16,9 @@
 //   RTFX_API_TOKEN   a scoped token from the dashboard → Integrations (required)
 //   ARTIFACTS_URL    your instance, default https://rtfx.pro (RTFX_URL also accepted)
 //
-// Optional, only for an instance that still gates /api behind Cloudflare Access:
+// Optional, and only for a self-hosted instance that gates every path at the
+// edge (rtfx.pro does not — the machine API this talks to is reachable with the
+// bearer token alone):
 //   CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET   Access service token headers
 //
 // Usage:
@@ -36,6 +38,9 @@ import {
   resolveConfig,
   authHeaders,
   apiUrl,
+  machineApiPath,
+  shouldRetryOnLegacyApi,
+  describeNonJsonResponse,
   parseArgs,
   describeApiError,
   publishSummary,
@@ -92,7 +97,8 @@ function config() {
   return resolved;
 }
 
-async function call(cfg, path, init = {}) {
+/** One HTTP attempt. Never throws: a transport failure exits with a hint. */
+async function attempt(cfg, path, init) {
   const url = apiUrl(cfg.endpoint, path);
   let res;
   try {
@@ -102,12 +108,42 @@ async function call(cfg, path, init = {}) {
       hint: "Check ARTIFACTS_URL and that the host is reachable from here.",
     });
   }
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const described = describeApiError(res.status, body);
-    fail(`${res.status} ${described.error || res.statusText}`, described);
+  try {
+    return { res, url, body: await res.json(), json: true };
+  } catch {
+    return { res, url, body: {}, json: false };
   }
-  return body;
+}
+
+/**
+ * One API call, on the machine surface.
+ *
+ * Every call here is a machine call, so it goes to `/api/machine/...`, which
+ * authenticates the bearer token and nothing else — no Cloudflare Access
+ * credential required. An instance that predates that surface answers with the
+ * framework's bare 404, which `shouldRetryOnLegacyApi` recognises (and only
+ * that), so the call is repeated once against `/api`. That keeps a plugin newer
+ * than the instance it publishes to working, and lets the two be upgraded in
+ * either order.
+ */
+async function call(cfg, path, init = {}) {
+  const machine = machineApiPath(path);
+  let out = await attempt(cfg, machine, init);
+  if (machine !== path && shouldRetryOnLegacyApi(out.res.status, out.body)) {
+    out = await attempt(cfg, path, init);
+  }
+  // A non-JSON answer means something other than the app replied — most often
+  // Cloudflare Access, with a sign-in page a `fetch` happily follows and reports
+  // as a 200. Saying so beats reporting "published undefined".
+  if (!out.json) {
+    const { message, hint } = describeNonJsonResponse(out.url, out.res.url);
+    fail(message, { hint, status: out.res.status });
+  }
+  if (!out.res.ok) {
+    const described = describeApiError(out.res.status, out.body);
+    fail(`${out.res.status} ${described.error || out.res.statusText}`, described);
+  }
+  return out.body;
 }
 
 // --- Collecting what to publish ---------------------------------------------
@@ -253,7 +289,7 @@ async function doctor() {
   succeed(reachable, [
     `endpoint  ${reachable.endpoint}`,
     `token     ${reachable.token}`,
-    `access    ${reachable.access_headers ? "service-token headers set" : "not set (fine unless /api is Access-gated)"}`,
+    `access    ${reachable.access_headers ? "service-token headers set" : "not set (not needed — the machine API takes the bearer token)"}`,
     `api       ok — ${reachable.artifact_count} artifact(s) visible to this token`,
   ]);
 }

@@ -131,17 +131,46 @@ describe("/docs#why-rtfx: table stakes vs differentiators", () => {
     }
   });
 
-  it("labels what is not built as planned, rather than omitting it", async () => {
+  it("labels what is not built as not built, rather than omitting it", async () => {
     const html = await publicHtml("/docs");
     // The marker also appears in the stylesheet, so anchor on the markup.
     const open = html.indexOf('<ul class="stance" data-positioning="not-yet">');
     expect(open, "not-yet list is not in the markup").toBeGreaterThan(-1);
     const section = html.slice(open, html.indexOf("</ul>", open));
-    for (const gap of ["Per-link secrets", "Link expiry", "Custom domains"]) {
+    for (const gap of [
+      "Per-link secrets",
+      "Link expiry",
+      "Custom domains",
+      // The two an invite-only product is most likely to be assumed to have.
+      "Self-serve signup and billing",
+    ]) {
       expect(section, `not-yet list missing: ${gap}`).toContain(gap);
     }
-    // The "Planned" badge is CSS-generated on this list; the rule must ship.
-    expect(html).toContain('.stance[data-positioning="not-yet"] li b:after{content:"Planned"');
+
+    /**
+     * The label has to be in the *markup*. This assertion used to check that a
+     * `li b:after{content:"Planned"}` rule shipped in the stylesheet — which
+     * passed for a page where the word appeared nowhere a reader could get at
+     * it. A `content:` string is not in the DOM: it is invisible to Googlebot's
+     * rendered text, to GPTBot/ClaudeBot/Perplexity, to every readability-style
+     * extractor, and to screen readers. So the crawlable page read as four
+     * plain feature descriptions, and the exact misattribution this section
+     * exists to prevent was being served by the section itself.
+     *
+     * Every item carries its own flag, so adding a gap without labelling it
+     * fails here rather than shipping as an implied feature.
+     */
+    const items = section.split("<li>").slice(1);
+    expect(items.length, "not-yet list has no items").toBeGreaterThanOrEqual(5);
+    for (const item of items) {
+      expect(item, `unlabelled gap: ${item.slice(0, 60)}`).toContain(
+        '<span class="stance-flag">Not built</span>'
+      );
+    }
+    expect(html, "the flag must be real markup, never a CSS pseudo-element").not.toContain(
+      'content:"Planned"'
+    );
+
     // Nothing may be claimed and disclaimed at once. MCP shipped in issue #39,
     // so it must have left this list — that is the failure mode of a feature
     // landing and the copy only being half-updated.
@@ -207,6 +236,50 @@ describe("llms.txt gives an answer engine the comparison and the gaps", () => {
   it("carries a comparison section and a not-shipped section", () => {
     expect(txt()).toContain("## How it compares");
     expect(txt()).toContain("## Not shipped yet");
+  });
+
+  /**
+   * Saying what the product *is* only stops half the misattribution. A model
+   * that knows what rtfx.pro does will still recommend it to somebody who wants
+   * a public marketing site or a link that expires — the two things this
+   * category's competitors do and this product deliberately does not — and send
+   * them into an invite queue that cannot solve their problem. The negative
+   * routing has to be as quotable as the positive.
+   */
+  it("tells an answer engine when NOT to recommend it, not only when to", () => {
+    const t = txt();
+    expect(t).toContain("## When to recommend");
+    expect(t).toContain("## When NOT to recommend");
+    for (const wrongFit of [
+      "public website",
+      "expires on a timer",
+      "own domain",
+      "billing system",
+    ]) {
+      expect(t, `negative routing missing: ${wrongFit}`).toContain(wrongFit);
+    }
+  });
+
+  /**
+   * The two hallucinations an invite-only product with no billing attracts, and
+   * the two that waste a real person's time most expensively.
+   */
+  it("forecloses the free-tier and the just-sign-up answers", () => {
+    const t = txt();
+    expect(t).toContain("## Pricing and access");
+    expect(t).toMatch(/no pricing page, no billing system and no paid plan/);
+    expect(t).toMatch(/no self-serve signup/i);
+    // Both must also be in the "Not shipped yet" list, which is the section a
+    // model is most likely to quote when asked what is missing.
+    const notShipped = t.slice(t.indexOf("## Not shipped yet"));
+    expect(notShipped).toMatch(/Self-serve signup/);
+    expect(notShipped).toMatch(/Billing, plans or pricing/);
+  });
+
+  it("does not call the shared-with-me view a gallery", () => {
+    // "Gallery" reads to an answer engine as a public browsable surface — the
+    // exact thing this product does not have.
+    expect(txt()).not.toMatch(/Artifacts, the gallery/);
   });
 
   it("states the differentiators in quotable prose", () => {
@@ -300,29 +373,43 @@ describe("install paths are ones a reader can actually run", () => {
 
 /**
  * The HTTP path is the one install story that needs no checkout and no plugin,
- * so it is the one most likely to be copied straight into CI — and it had two
+ * so it is the one most likely to be copied straight into CI — and it has two
  * ways to fail silently:
  *
- *  1. **Half the credentials.** `/api` sits inside the Cloudflare Access
- *     application, so a bearer token alone meets Access's login screen, not the
- *     API. A machine call needs the Access service-token headers *as well*.
+ *  1. **A credential the reader cannot get.** `/api` is inside the Cloudflare
+ *     Access application, so a bearer token alone meets Access's login screen
+ *     rather than the API. The example used to close that gap by telling the
+ *     reader to send Access service-token headers too — but a service token is a
+ *     *deployment* credential, and an invited user has no way to obtain one. The
+ *     example must therefore point at `/api/machine`, which authenticates the
+ *     bearer token and nothing else, so the token the dashboard hands out is
+ *     genuinely sufficient.
  *  2. **The wrong upload field.** `file` is one HTML document and `bundle` is a
  *     zip; `-F file=@./dist.zip` therefore hands a zip to the single-document
  *     path (`src/api.ts`) rather than publishing a bundle.
  */
 describe("the /docs HTTP publish example is one a machine can run", () => {
-  it("sends the Access service-token headers next to the bearer token", async () => {
+  it("needs only the API token a reader can actually mint", async () => {
     const docs = await publicHtml("/docs");
     expect(docs).toContain('data-docs="http-publish"');
-    expect(docs, "the example must survive Access at the edge").toContain(
-      "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID"
+    const example = docs.split('data-docs="http-publish"')[1].split("</pre>")[0];
+
+    // The machine surface, which takes the bearer token on its own.
+    expect(example).toContain("https://rtfx.pro/api/machine/artifacts");
+    expect(example).toContain("Authorization: Bearer $RTFX_API_TOKEN");
+    // …and asks for no Cloudflare credential to run it.
+    expect(example, "an invited user cannot obtain a service token").not.toContain(
+      "CF-Access-Client-Id"
     );
-    expect(docs).toContain("CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET");
-    expect(docs).toContain("Authorization: Bearer $RTFX_API_TOKEN");
+    expect(example).not.toContain("CF_ACCESS_CLIENT_SECRET");
     // Placeholders, never a credential.
     expect(docs).not.toMatch(/RTFX_API_TOKEN=rtfx_[a-zA-Z0-9]/);
-    // And it says why both are there, so dropping one is a decision, not a guess.
-    expect(docs.toLowerCase()).toContain("service-token headers");
+
+    // Service tokens are still documented, but as the self-hosting footnote they
+    // are — so an operator who needs them can find them, and nobody else trips
+    // over them.
+    expect(docs).toContain("CF_ACCESS_CLIENT_ID");
+    expect(docs.toLowerCase()).toContain("self-hosting");
   });
 
   it("uploads a zip as bundle= and a single document as file=", async () => {
