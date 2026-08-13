@@ -1,5 +1,6 @@
 import type { Identity } from "./auth";
 import type { Visibility } from "./env";
+import type { Scope } from "./tokens";
 
 /** Just the ownership-relevant part of an artifact row. */
 type Owned = { owner_email: string | null };
@@ -36,6 +37,20 @@ export function canManage(identity: Identity | null, artifact: Owned): boolean {
 export function canUseDashboard(identity: Identity | null): identity is Identity {
   if (!identity) return false;
   return identity.isAdmin || !!identity.email;
+}
+
+/**
+ * Does this identity hold a given API scope?
+ * A caller authenticated through Cloudflare Access (a human, or an admin
+ * service token) holds every scope — scopes exist to *narrow* an API token
+ * below its owner's rights, never to widen anyone's. Scope is checked in
+ * addition to ownership: a `manage`-scoped token still only reaches artifacts
+ * its owner owns.
+ */
+export function hasScope(identity: Identity | null, scope: Scope): boolean {
+  if (!identity) return false;
+  if (!identity.token) return true;
+  return identity.token.scopes.includes(scope);
 }
 
 /**

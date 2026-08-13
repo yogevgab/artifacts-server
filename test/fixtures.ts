@@ -8,7 +8,14 @@ import app from "../src/index";
  * mirrors schema.sql, so keep the two in step.
  */
 export async function initDb() {
-  for (const table of ["artifacts", "artifact_grants", "artifact_versions", "artifact_views", "waitlist"]) {
+  for (const table of [
+    "artifacts",
+    "artifact_grants",
+    "artifact_versions",
+    "artifact_views",
+    "waitlist",
+    "api_tokens",
+  ]) {
     await env.DB.prepare(`DROP TABLE IF EXISTS ${table}`).run();
   }
   await env.DB.prepare(
@@ -41,6 +48,13 @@ export async function initDb() {
     `CREATE TABLE waitlist (
       id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL)`
   ).run();
+  await env.DB.prepare(
+    `CREATE TABLE api_tokens (
+      id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+      owner_email TEXT, is_admin INTEGER NOT NULL DEFAULT 0,
+      scopes TEXT NOT NULL DEFAULT 'read,publish', created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL, last_used_at TEXT, expires_at TEXT, revoked_at TEXT)`
+  ).run();
 }
 
 export async function clearR2() {
@@ -55,6 +69,15 @@ export const req = async (path: string, init?: RequestInit): Promise<Response> =
 export const as = (email: string, init: RequestInit = {}): RequestInit => ({
   ...init,
   headers: { ...(init.headers as Record<string, string> | undefined), "X-Dev-Email": email },
+});
+
+/** Request authenticated with an API token instead of an Access login. */
+export const withToken = (token: string, init: RequestInit = {}): RequestInit => ({
+  ...init,
+  headers: {
+    ...(init.headers as Record<string, string> | undefined),
+    Authorization: `Bearer ${token}`,
+  },
 });
 
 export function htmlForm(

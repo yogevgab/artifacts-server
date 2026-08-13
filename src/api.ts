@@ -1,8 +1,20 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import type { Env, ArtifactRow } from "./env";
-import { requireAdmin, requireUser, type AuthVars } from "./auth";
+import { requireAdmin, requireUser, requireScope, denyApiToken, type AuthVars } from "./auth";
 import { canManage } from "./authz";
+import {
+  createApiToken,
+  getApiToken,
+  listApiTokens,
+  revokeApiToken,
+  revokeTokensForEmail,
+  parseScopes,
+  toPublicToken,
+  DEFAULT_SCOPES,
+  MAX_TOKEN_NAME_LENGTH,
+  MAX_EXPIRES_IN_DAYS,
+} from "./tokens";
 import { isValidSlug, slugify, contentType } from "./util";
 import { processZip, singleHtml, UploadError, MAX_UPLOAD_BYTES, type ProcessedUpload } from "./upload";
 import {
@@ -34,12 +46,18 @@ type Vars = { Variables: AuthVars; Bindings: Env };
 
 export const api = new Hono<Vars>();
 
-// Every API route needs a signed-in caller; per-artifact ownership is enforced
-// per route below (admins manage everything, beta users only what they own).
+// Every API route needs an authenticated caller — an Access login or an API
+// token. Per-artifact ownership is enforced per route below (admins manage
+// everything, beta users only what they own), and API tokens are additionally
+// narrowed by scope (`requireScope`).
 api.use("*", requireUser);
-// Managing who can sign in to the beta stays admin-only.
-api.use("/users", requireAdmin);
-api.use("/users/*", requireAdmin);
+// Managing who can sign in to the beta stays admin-only, and is off-limits to
+// API tokens: issuing credentials always requires an interactive login.
+api.use("/users", requireAdmin, denyApiToken);
+api.use("/users/*", requireAdmin, denyApiToken);
+// Same for the tokens themselves — a token must never be able to mint another.
+api.use("/tokens", denyApiToken);
+api.use("/tokens/*", denyApiToken);
 
 /**
  * Load an artifact the caller is allowed to manage, or null. Returns null both
@@ -81,7 +99,7 @@ function limitBodyBytes(body: ReadableStream<Uint8Array>, maxBytes: number): Rea
   );
 }
 
-api.get("/artifacts", async (c) => {
+api.get("/artifacts", requireScope("read"), async (c) => {
   const identity = c.get("identity");
   const artifacts = identity.isAdmin
     ? await listArtifacts(c.env)
@@ -89,7 +107,7 @@ api.get("/artifacts", async (c) => {
   return c.json({ artifacts });
 });
 
-api.post("/artifacts", async (c) => {
+api.post("/artifacts", requireScope("publish"), async (c) => {
   // Fast path: if the client declares an honest, oversized Content-Length, reject
   // before reading any of the body. This is purely an optimization — a missing or
   // inaccurate Content-Length (e.g. chunked transfer encoding) skips this check
@@ -263,8 +281,11 @@ api.delete("/users/:email", async (c) => {
   const email = c.req.param("email").trim().toLowerCase();
   try {
     const users = await removeUser(c.env, email);
-    // Also drop this user from every artifact's grant list.
+    // Also drop this user from every artifact's grant list, and kill any API
+    // token issued for them — otherwise revoking a login would leave a working
+    // credential behind.
     await removeEmailFromAllGrants(c.env, email);
+    await revokeTokensForEmail(c.env, email, new Date().toISOString());
     return c.json({ users, admins: adminEmailSet(c) });
   } catch (e) {
     if (e instanceof AccessNotConfiguredError) return c.json({ error: "not_configured" }, 503);
@@ -272,14 +293,118 @@ api.delete("/users/:email", async (c) => {
   }
 });
 
-api.get("/artifacts/:slug/versions", async (c) => {
+// --- API tokens (bearer credentials for Hermes Cloud / CI / scripts) ---
+//
+// These routes are Access-only (see denyApiToken above): a token can never mint
+// or revoke another token. An admin sees and manages every token; a beta user
+// only their own, and may only issue tokens that act as themselves.
+
+api.get("/tokens", async (c) => {
+  const identity = c.get("identity");
+  const rows = identity.isAdmin
+    ? await listApiTokens(c.env)
+    : await listApiTokens(c.env, identity.email!);
+  return c.json({ tokens: rows.map(toPublicToken) });
+});
+
+api.post("/tokens", async (c) => {
+  const identity = c.get("identity");
+  const body = await c.req.json().catch(() => null);
+
+  const name = String(body?.name ?? "").trim();
+  if (!name || name.length > MAX_TOKEN_NAME_LENGTH) {
+    return c.json(
+      { error: "bad_request", detail: `name is required (max ${MAX_TOKEN_NAME_LENGTH} chars)` },
+      400
+    );
+  }
+
+  const scopes = body?.scopes === undefined ? DEFAULT_SCOPES : parseScopes(body.scopes);
+  if (!scopes) {
+    return c.json(
+      { error: "bad_request", detail: "scopes must be a non-empty array of 'read' | 'publish' | 'manage'" },
+      400
+    );
+  }
+
+  const wantsAdmin = body?.is_admin === true;
+  const requestedOwner = String(body?.owner_email ?? "").trim().toLowerCase();
+
+  // A beta user can only ever issue a token that is *themselves*: same email, no
+  // admin bit. Otherwise a token would be a privilege-escalation primitive.
+  let ownerEmail: string | null;
+  let isAdminToken: boolean;
+  if (identity.isAdmin) {
+    ownerEmail = requestedOwner || null;
+    isAdminToken = wantsAdmin;
+    if (ownerEmail && !ownerEmail.includes("@")) {
+      return c.json({ error: "bad_request", detail: "owner_email must be a valid email" }, 400);
+    }
+    // A token with no owner and no admin bit could never own or reach anything.
+    if (!ownerEmail && !isAdminToken) {
+      return c.json(
+        { error: "bad_request", detail: "provide owner_email, or set is_admin for an admin token" },
+        400
+      );
+    }
+  } else {
+    if (wantsAdmin || (requestedOwner && requestedOwner !== identity.email)) {
+      return c.json(
+        { error: "forbidden", detail: "you can only create tokens that act as you" },
+        403
+      );
+    }
+    ownerEmail = identity.email;
+    isAdminToken = false;
+  }
+
+  let expiresAt: string | null = null;
+  if (body?.expires_in_days !== undefined && body?.expires_in_days !== null) {
+    const days = Number(body.expires_in_days);
+    if (!Number.isInteger(days) || days < 1 || days > MAX_EXPIRES_IN_DAYS) {
+      return c.json(
+        { error: "bad_request", detail: `expires_in_days must be an integer 1–${MAX_EXPIRES_IN_DAYS}` },
+        400
+      );
+    }
+    expiresAt = new Date(Date.now() + days * 86400_000).toISOString();
+  }
+
+  const { token, row } = await createApiToken(c.env, {
+    name,
+    ownerEmail,
+    isAdmin: isAdminToken,
+    scopes,
+    createdBy: c.get("email"),
+    expiresAt,
+    now: new Date().toISOString(),
+  });
+  // `token` is shown exactly once — only its hash is stored.
+  return c.json({ token, ...toPublicToken(row) }, 201);
+});
+
+api.delete("/tokens/:id", async (c) => {
+  const identity = c.get("identity");
+  const id = c.req.param("id");
+  const row = await getApiToken(c.env, id);
+  // Someone else's token is not yours to revoke, and its existence stays hidden.
+  const mine =
+    row &&
+    (identity.isAdmin ||
+      (!!row.owner_email && row.owner_email.toLowerCase() === identity.email?.toLowerCase()));
+  if (!mine) return c.json({ error: "not_found" }, 404);
+  const revoked = await revokeApiToken(c.env, id, new Date().toISOString());
+  return c.json({ revoked: id, already_revoked: !revoked });
+});
+
+api.get("/artifacts/:slug/versions", requireScope("read"), async (c) => {
   const slug = c.req.param("slug");
   const art = await manageable(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
   return c.json({ current: art.current_version, versions: await listVersions(c.env, slug) });
 });
 
-api.get("/artifacts/:slug/views", async (c) => {
+api.get("/artifacts/:slug/views", requireScope("read"), async (c) => {
   const slug = c.req.param("slug");
   const art = await manageable(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
@@ -288,7 +413,9 @@ api.get("/artifacts/:slug/views", async (c) => {
   return c.json(await getViews(c.env, slug, limit));
 });
 
-api.post("/artifacts/:slug/current", async (c) => {
+// Rollback: pointing a slug at an existing version is a publish operation —
+// it changes what the world sees — so it rides on the `publish` scope.
+api.post("/artifacts/:slug/current", requireScope("publish"), async (c) => {
   const slug = c.req.param("slug");
   const art = await manageable(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
@@ -302,14 +429,14 @@ api.post("/artifacts/:slug/current", async (c) => {
   return c.json({ slug, current: version });
 });
 
-api.get("/artifacts/:slug/access", async (c) => {
+api.get("/artifacts/:slug/access", requireScope("read"), async (c) => {
   const slug = c.req.param("slug");
   const art = await manageable(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
   return c.json({ visibility: art.visibility, emails: await listGrants(c.env, slug) });
 });
 
-api.put("/artifacts/:slug/access", async (c) => {
+api.put("/artifacts/:slug/access", requireScope("manage"), async (c) => {
   const slug = c.req.param("slug");
   const art = await manageable(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
@@ -349,7 +476,7 @@ api.put("/artifacts/:slug/access", async (c) => {
   return c.json({ slug, visibility, emails: await listGrants(c.env, slug), allowlistWarning });
 });
 
-api.delete("/artifacts/:slug", async (c) => {
+api.delete("/artifacts/:slug", requireScope("manage"), async (c) => {
   const slug = c.req.param("slug");
   const existing = await manageable(c, slug);
   if (!existing) return c.json({ error: "not_found" }, 404);
