@@ -1,5 +1,10 @@
 import type { Env, ArtifactRow, VersionRow, ViewRow } from "./env";
 
+function isMissingAccountColumn(e: unknown): boolean {
+  const message = e instanceof Error ? e.message : String(e);
+  return /no such column: account_id|table artifacts has no column named account_id/i.test(message);
+}
+
 export async function listArtifacts(env: Env): Promise<ArtifactRow[]> {
   const { results } = await env.DB.prepare(
     "SELECT * FROM artifacts ORDER BY created_at DESC"
@@ -17,39 +22,120 @@ export async function listArtifactsOwnedBy(env: Env, email: string): Promise<Art
   return results ?? [];
 }
 
+/**
+ * Everything a non-platform-admin caller may reach: artifacts they own by
+ * `owner_email` (the legacy path, unchanged) **plus** artifacts belonging to any
+ * account they are a member of (issue #27).
+ *
+ * The union is inclusive on purpose. A row that migration 0010 never adopted has
+ * `account_id IS NULL` and is still returned via `owner_email`; a row in a team
+ * account the caller joined is returned via `account_id` even though its
+ * `owner_email` is somebody else's. Neither path can hide a row the other would
+ * have shown, so this can only ever widen the pre-#27 result set — and for a
+ * personal account, which has exactly one member who is also every row's
+ * `owner_email`, it returns precisely the same rows as before.
+ *
+ * `accountIds` is inlined as bound placeholders rather than a join, so this stays
+ * one indexed query and works identically on a database where the accounts
+ * tables do not exist yet (the list is simply empty).
+ */
+export async function listArtifactsForCaller(
+  env: Env,
+  email: string | null,
+  accountIds: readonly string[]
+): Promise<ArtifactRow[]> {
+  const ids = [...new Set(accountIds)];
+  if (!email && !ids.length) return [];
+  const clauses: string[] = [];
+  const binds: unknown[] = [];
+  if (email) {
+    clauses.push("lower(owner_email) = ?");
+    binds.push(email.trim().toLowerCase());
+  }
+  if (ids.length) {
+    clauses.push(`account_id IN (${ids.map(() => "?").join(", ")})`);
+    binds.push(...ids);
+  }
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT * FROM artifacts WHERE ${clauses.join(" OR ")} ORDER BY created_at DESC`
+    )
+      .bind(...binds)
+      .all<ArtifactRow>();
+    return results ?? [];
+  } catch (e) {
+    if (ids.length && isMissingAccountColumn(e)) {
+      // Worker deployed before 0009: fall back to the exact pre-account query.
+      return email ? listArtifactsOwnedBy(env, email) : [];
+    }
+    throw e;
+  }
+}
+
 export async function getArtifact(env: Env, slug: string): Promise<ArtifactRow | null> {
   return env.DB.prepare("SELECT * FROM artifacts WHERE slug = ?").bind(slug).first<ArtifactRow>();
 }
 
 export async function upsertArtifact(env: Env, row: ArtifactRow): Promise<void> {
-  // visibility and owner_email are set on INSERT but intentionally NOT in
-  // DO UPDATE SET, so publishing a new version preserves the artifact's existing
-  // access setting and can never re-home it to whoever uploaded last.
-  await env.DB.prepare(
-    `INSERT INTO artifacts
-       (slug, title, description, type, entry, file_count, size_bytes, created_by, created_at, updated_at, visibility, current_version, owner_email)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(slug) DO UPDATE SET
-       title=excluded.title, description=excluded.description, type=excluded.type,
-       entry=excluded.entry, file_count=excluded.file_count, size_bytes=excluded.size_bytes,
-       updated_at=excluded.updated_at, current_version=excluded.current_version`
-  )
-    .bind(
-      row.slug,
-      row.title,
-      row.description,
-      row.type,
-      row.entry,
-      row.file_count,
-      row.size_bytes,
-      row.created_by,
-      row.created_at,
-      row.updated_at,
-      row.visibility,
-      row.current_version,
-      row.owner_email
+  // visibility, owner_email and account_id are set on INSERT but intentionally
+  // NOT in DO UPDATE SET, so publishing a new version preserves the artifact's
+  // existing access setting and can never re-home it — to whoever uploaded last,
+  // or into whichever workspace they happened to be acting in.
+  try {
+    await env.DB.prepare(
+      `INSERT INTO artifacts
+         (slug, title, description, type, entry, file_count, size_bytes, created_by, created_at, updated_at, visibility, current_version, owner_email, account_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(slug) DO UPDATE SET
+         title=excluded.title, description=excluded.description, type=excluded.type,
+         entry=excluded.entry, file_count=excluded.file_count, size_bytes=excluded.size_bytes,
+         updated_at=excluded.updated_at, current_version=excluded.current_version`
     )
-    .run();
+      .bind(
+        row.slug,
+        row.title,
+        row.description,
+        row.type,
+        row.entry,
+        row.file_count,
+        row.size_bytes,
+        row.created_by,
+        row.created_at,
+        row.updated_at,
+        row.visibility,
+        row.current_version,
+        row.owner_email,
+        row.account_id ?? null
+      )
+      .run();
+  } catch (e) {
+    if (!isMissingAccountColumn(e)) throw e;
+    await env.DB.prepare(
+      `INSERT INTO artifacts
+         (slug, title, description, type, entry, file_count, size_bytes, created_by, created_at, updated_at, visibility, current_version, owner_email)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(slug) DO UPDATE SET
+         title=excluded.title, description=excluded.description, type=excluded.type,
+         entry=excluded.entry, file_count=excluded.file_count, size_bytes=excluded.size_bytes,
+         updated_at=excluded.updated_at, current_version=excluded.current_version`
+    )
+      .bind(
+        row.slug,
+        row.title,
+        row.description,
+        row.type,
+        row.entry,
+        row.file_count,
+        row.size_bytes,
+        row.created_by,
+        row.created_at,
+        row.updated_at,
+        row.visibility,
+        row.current_version,
+        row.owner_email
+      )
+      .run();
+  }
 }
 
 /**

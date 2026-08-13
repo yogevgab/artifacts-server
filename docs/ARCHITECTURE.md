@@ -29,12 +29,55 @@ Worker (Hono router)
    GET /admin/settings       account and security facts
    GET /admin/platform       instance configuration readout (super admin only)
    /api/*                    JSON API (signed-in via Access *or* an API token; scoped to
-                              what the caller owns. /api/users is admin-only;
-                              /api/users + /api/tokens refuse API tokens entirely)
+                              what the caller owns and to their workspaces. /api/users is
+                              admin-only; /api/users + /api/tokens refuse API tokens
+                              entirely, as do the mutating /api/accounts routes)
+   GET  /api/accounts                    the caller's workspaces + which one is active
+   POST /api/accounts                    create a team workspace (platform admin only)
+   GET  /api/accounts/<id>/members       member list (any member of that account)
+   PUT/DELETE  …/members/<email>         add / re-role / remove (account admin or owner)
         │
         ├── R2  (binding FILES)  — files at  <slug>/v<N>/<path>
         └── D1  (binding DB)     — metadata (+ waitlist emails)
 ```
+
+## The product model: identity, account, membership, platform role
+
+Four concepts, deliberately separate (issue #27). Conflating any two of them is the class of bug
+this split exists to prevent.
+
+| Concept | Means | Source of truth | Grants |
+|---|---|---|---|
+| **Identity / user** | a human email | Cloudflare Access + `users` | who you are |
+| **Account** (workspace / organization) | the container that OWNS artifacts, tokens, settings, and later a plan | `accounts` | whose stuff it is |
+| **Membership** | identity × account × account role (`owner` > `admin` > `member` > `viewer`) | `account_members` | what you may do *inside one account* |
+| **Platform role** | operator authority over the whole instance (`super_admin`, `admin`) | `ADMIN_EMAILS` / `SUPER_ADMIN_EMAILS` **only** | what you may do to the *deployment* |
+
+**The load-bearing rule: an account role is never platform authority.** Account roles are
+customer data — anybody who can write to `account_members` can make themselves `owner` there, and
+that is fine, because `owner` reaches exactly one workspace's artifacts and members. Platform
+authority is never read from D1 at all: `effectiveRole` (`src/users.ts`) re-derives it from
+configuration on every request, so no row, no API payload and no bug in `src/accounts.ts` can
+escalate anybody to admin or super admin. `src/authz.ts` names its helpers for which system they
+consult (`isPlatformAdmin` vs `accountRole` / `canManageMembers`) so a reader never has to guess.
+
+Every identity gets a **personal account** on first use, provisioned by `ensurePersonalAccount`
+and race-safe via a `UNIQUE` constraint on `accounts.personal_email`. Migration `0010` does the
+same thing in bulk for existing data; the two converge on identical rows, so an instance that
+skips the backfill self-heals as people sign in.
+
+**Everything about accounts is additive.** `artifacts.account_id` and `api_tokens.account_id` are
+nullable, `owner_email` is retained and still checked *first*, and every account helper fails soft
+(a missing table or a D1 error resolves to "no account context"). A row that the backfill never
+adopted is authorized exactly as it was before #27. Accounts can only ever *widen* what somebody
+reaches, never narrow it — so failing soft is also failing closed.
+
+Account context is resolved on demand (`resolveAccountContext`, cached per request by
+`accountsFor` in `src/auth.ts`), **not** in `resolveAuth`. Authentication runs on every request
+including the artifact-serving hot path; workspaces are only needed by `/admin` and `/api`. An API
+token carries its account on its own row, so a bearer caller costs no extra read at all, and is
+**pinned** to that one workspace — a credential issued for one account never reaches another, even
+if the person who owns it later joins others.
 
 ## Authentication vs authorization
 
@@ -61,13 +104,25 @@ Worker (Hono router)
     `ADMIN_SERVICE_TOKENS`. A valid token is not admin by itself.
   - **dashboard access** (`canUseDashboard`) — admins, and signed-in humans. A non-admin
     service token is refused: ownership is keyed on an email, so a token owns nothing.
-  - **per-artifact management** (`src/authz.ts`, `canManage`/`isOwner`) — admins manage every
-    artifact; a member manages only those whose `owner_email` is theirs. Everything else
-    answers 404, never 403, so another user's slugs stay unprobeable. A view grant confers no
-    management rights, and an artifact with no owner is admin-only.
-  - **per-artifact view** (`canView`) — admins see all; the owner always sees their own;
-    `everyone` artifacts are visible to any signed-in user; `restricted` artifacts only to
-    granted emails.
+  - **per-artifact management** (`src/authz.ts`, `canManage`/`isOwner`) — three paths, checked in
+    order of authority: a **platform admin** manages every artifact; the **legacy owner**
+    (`owner_email` matches) manages theirs, checked before any account lookup so un-backfilled
+    rows behave identically to before #27; an **account member** holding `member` or better
+    manages anything their workspace owns. A `viewer` falls below that line — see the read side
+    below. Everything else answers 404, never 403, so another user's slugs stay unprobeable. A
+    view grant confers no management rights, and an artifact with neither owner nor account is
+    platform-admin-only.
+  - **per-artifact view** (`canView`, `belongsToCaller`) — admins see all; the owner always sees
+    their own; any member of the owning account — `viewer` included — sees the workspace's
+    artifacts; `everyone` artifacts are visible to any signed-in user; `restricted` artifacts
+    only to granted emails. The membership lookup on the serving path runs *last* and only on a
+    request that would otherwise 404, so it adds no read to anything that already worked.
+  - **account membership** (`canManageMembers`, `memberChangeDenial`) — changing who is in a
+    workspace takes `admin`/`owner` *in that account* (or platform rights) and an interactive
+    login; only an account `owner` may create or demote another `owner`; and nobody, platform
+    admins included, may remove an account's last owner. Membership deliberately does **not**
+    touch the Cloudflare Access allow-list: being in a workspace is not permission to sign in, so
+    an account owner cannot widen who reaches the instance.
 
 The invite-only access model relies on both layers: Access decides who may sign in at all, and the
 Worker decides what each signed-in person may see and manage. Widening the Access path gating
@@ -77,21 +132,44 @@ Worker decides what each signed-in person may see and manage. Widening the Acces
 ## Data model (D1)
 
 - `artifacts` — one row per artifact: slug, title, description, current type/entry/counts,
-  `visibility` (`restricted` | `everyone`), `current_version`, and `owner_email` (the member
-  who may manage it; NULL = admin-only). `owner_email` is set once at creation and never
-  changed by a republish, so an admin uploading a new version can't take over someone's
-  artifact.
+  `visibility` (`restricted` | `everyone`), `current_version`, `owner_email` (the member
+  who may manage it; NULL = platform-admin-only) and `account_id` (the owning workspace;
+  NULL = legacy row, authorized by `owner_email` alone). Both are set once at creation and
+  neither is changed by a republish, so an admin uploading a new version can't take over
+  someone's artifact or move it into their own workspace.
 - `artifact_grants` — `(slug, email)` allow-list for restricted artifacts.
 - `artifact_versions` — `(slug, version)` one row per immutable version, with per-version
   type/entry/counts/note.
 - `artifact_views` — one row per HTML page load by a signed-in person (slug, version, email,
   path, country, referrer, timestamp). Written non-blocking via `waitUntil`.
 - `api_tokens` — one row per bearer credential: public `id`, `token_hash` (SHA-256, unique),
-  name, `owner_email`, `is_admin`, `scopes`, audit fields (`created_by`, `last_used_at`) and
-  `expires_at` / `revoked_at`. Revocation is a tombstone, not a delete, so the audit trail
-  survives. `last_used_at` is refreshed at most once every 5 minutes per token.
+  name, `owner_email` (the creating identity), `account_id` (the workspace it acts inside; NULL
+  for legacy and admin/platform tokens), `is_admin`, `scopes`, audit fields (`created_by`,
+  `last_used_at`) and `expires_at` / `revoked_at`. Revocation is a tombstone, not a delete, so
+  the audit trail survives. `last_used_at` is refreshed at most once every 5 minutes per token.
+- `accounts` — one row per workspace/organization: opaque `id` (`acct_<16 hex>`, never derived
+  from an email so it is safe in a URL), `name`, `kind` (`personal` | `team`), `status`, `plan`,
+  and `personal_email` (set for a personal account; `UNIQUE`, which is what makes both the
+  backfill and runtime provisioning idempotent and race-safe).
+- `account_members` — `(account_id, email)` with an account `role` (`owner` | `admin` | `member`
+  | `viewer`). Customer data; carries no platform authority.
 
 The full schema is `schema.sql`; incremental changes live in `migrations/`.
+
+**Migration drift.** This database's migration history has diverged from `migrations/` in the
+past, so the #27 migrations are split by re-runnability rather than by topic:
+
+| File | Re-runnable? | Notes |
+|---|---|---|
+| `0008_accounts.sql` | ✅ yes | `CREATE TABLE IF NOT EXISTS` only |
+| `0009_account_links.sql` | ❌ no | two `ALTER TABLE ADD COLUMN`; SQLite has no `IF NOT EXISTS` for these. Check with `PRAGMA table_info(artifacts)` / `PRAGMA table_info(api_tokens)` first and skip what already applied — a "duplicate column name" error here is benign |
+| `0010_backfill_accounts.sql` | ✅ yes | guarded by `NOT EXISTS` / `ON CONFLICT DO NOTHING` / `WHERE account_id IS NULL` |
+
+`0010`'s first half (accounts + memberships) does not depend on `0009` and its second half
+(linking artifacts and tokens) does, so applying them out of order partially succeeds and
+converges correctly on a re-run. The only recovery action for a partial failure is: fix the
+cause, run the file again. And none of it is required for correctness — the Worker provisions the
+same rows on first use, so an instance that never runs `0010` still ends up in the right state.
 
 ## Storage layout (R2)
 
@@ -101,11 +179,19 @@ Every version's files live under `<slug>/v<N>/…`. A single HTML upload becomes
 
 ## User management → Cloudflare Access
 
-Cloudflare Access is the **source of truth** for the login allow-list. The app doesn't keep a
-user table; instead `src/access-api.ts` reads and writes the viewer application's `— humans`
-policy directly via the Cloudflare API (requires `CF_API_TOKEN` + the account/app/policy ids).
-`setAllowlist` round-trips the whole policy and only overrides the email include list, always
-preserving admin emails.
+Cloudflare Access is the **source of truth** for the login allow-list: `src/access-api.ts` reads
+and writes the viewer application's `— humans` policy directly via the Cloudflare API (requires
+`CF_API_TOKEN` + the account/app/policy ids). `setAllowlist` round-trips the whole policy and only
+overrides the email include list, always preserving admin emails.
+
+The local `users` table (issue #24) sits *above* that and never grants a login. It holds product
+state — lifecycle `status`, display name, operator notes, timestamps — and its `role` column
+merely *records* the configured role; privilege is always re-derived from `ADMIN_EMAILS` /
+`SUPER_ADMIN_EMAILS`. `status` is the one authoritative field: a `disabled` row is refused by the
+Worker on every surface, so pausing somebody takes effect even if the Access write fails.
+
+Workspace membership (`account_members`) is a third, independent thing again, and deliberately
+does not touch the allow-list — see the table at the top of this document.
 
 ## Modules
 
@@ -113,7 +199,8 @@ preserving admin emails.
 |---|---|
 | `src/index.ts` | Routing; landing vs. gallery split; gallery filtering; version-aware serving; `/v/` preview. |
 | `src/auth.ts` | Access JWT + bearer-token authentication, `resolveAuth`/`getIdentity`, `requireAdmin`, `requireUser`, `requireScope`, `denyApiToken`. |
-| `src/authz.ts` | Pure policy: `canView`, `canManage`, `isOwner`, `canUseDashboard`, `hasScope`. |
+| `src/authz.ts` | Pure policy: `canView`, `canManage`, `isOwner`, `canUseDashboard`, `hasScope`, and the platform-vs-account split (`isPlatformAdmin`, `canManageMembers`, `memberChangeDenial`). |
+| `src/accounts.ts` | Accounts/workspaces: account roles, memberships, personal-account provisioning, per-request account context. |
 | `src/tokens.ts` | API tokens: generation, hashing, scopes, lifecycle queries. |
 | `src/serve.ts` | R2 file serving + content types. |
 | `src/api.ts` | `/api` endpoints: publish, delete, access, versions, users, tokens. |

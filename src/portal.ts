@@ -1,5 +1,6 @@
 import { layout, esc } from "./pages";
 import type { UserRole } from "./users";
+import { accountRoleLabel, type AccountRole } from "./accounts";
 
 /**
  * The /admin portal shell: navigation, the page chrome every section shares,
@@ -28,12 +29,35 @@ export type SectionId =
  */
 export interface PortalViewer {
   email: string;
-  /** Email in ADMIN_EMAILS/SUPER_ADMIN_EMAILS, or an allow-listed service token. */
+  /**
+   * PLATFORM authority: email in ADMIN_EMAILS/SUPER_ADMIN_EMAILS, or an
+   * allow-listed service token. Config-derived; never an account role.
+   */
   isAdmin: boolean;
-  /** Effective role for this request (capped at `admin` for non-interactive callers). */
+  /**
+   * Effective PLATFORM role for this request (capped at `admin` for
+   * non-interactive callers). Not to be confused with `workspace.role`, which is
+   * the caller's role inside one account and carries no instance-wide authority.
+   */
   role: UserRole;
   /** True when the caller authenticated with an `Authorization: Bearer` API token. */
   isTokenCaller: boolean;
+  /**
+   * The account/workspace this request is acting in (issue #27), or null when the
+   * caller has none yet (un-migrated instance, or a platform token). Shown as
+   * context so it is always obvious *whose* artifacts a page is listing —
+   * deliberately not a switcher, which is a bigger piece of UX than the model
+   * needs today.
+   */
+  workspace?: {
+    id: string;
+    name: string;
+    kind: "personal" | "team";
+    /** The viewer's ACCOUNT role here: owner | admin | member | viewer. */
+    role: AccountRole;
+    /** How many workspaces this person belongs to, for the "+N more" hint. */
+    count: number;
+  } | null;
 }
 
 interface SectionDef {
@@ -106,9 +130,31 @@ export function canSeeSection(v: PortalViewer, id: SectionId): boolean {
   return !!def && def.visible(v);
 }
 
-/** The word for a role, as the product says it. */
+/** The word for a PLATFORM role, as the product says it. */
 export function roleLabel(role: UserRole): string {
   return role === "super_admin" ? "Owner" : role === "admin" ? "Admin" : "Member";
+}
+
+/**
+ * The workspace chip in the header: which account this page is about, and the
+ * viewer's role in it.
+ *
+ * Kept to one line of text on purpose. The account model is new and every
+ * identity currently has exactly one personal workspace, so a full switcher
+ * would be chrome for a choice nobody has yet — this just removes the ambiguity
+ * about *whose* artifacts are listed, which is the part that would otherwise
+ * become confusing the moment a second workspace exists.
+ */
+function workspaceChip(v: PortalViewer): string {
+  const ws = v.workspace;
+  if (!ws) return "";
+  const extra = ws.count > 1 ? ` +${ws.count - 1}` : "";
+  const title = `${ws.kind === "personal" ? "Personal workspace" : "Team workspace"} · you are ${accountRoleLabel(
+    ws.role
+  ).toLowerCase()} here${ws.count > 1 ? ` · ${ws.count} workspaces in total` : ""}`;
+  return `<span class="badge is-workspace" data-viewer-workspace data-workspace-id="${esc(ws.id)}"
+    data-workspace-kind="${esc(ws.kind)}" data-workspace-role="${esc(ws.role)}"
+    title="${esc(title)}">${esc(ws.name)}${esc(extra)}</span>`;
 }
 
 // --- formatting, shared by every section ------------------------------------
@@ -220,6 +266,7 @@ export function portalShell(o: ShellOptions): string {
     <header class="ptop" data-portal-top>
       <a class="brand" href="/admin">rtfx<span>.pro</span></a>
       <div class="who" data-portal-identity>
+        ${workspaceChip(viewer)}
         <span class="badge is-role" data-viewer-role>${esc(roleLabel(viewer.role))}</span>
         <span class="mono" data-viewer-email>${esc(viewer.email)}</span>
         <a href="/gallery">Gallery</a>
@@ -353,6 +400,9 @@ export const PORTAL_STYLE = `
 .ptop .brand:hover{color:var(--accent)}
 .ptop .who{display:flex;align-items:center;gap:.85rem;font-size:.85rem;color:var(--muted);flex-wrap:wrap}
 .ptop .who .mono{color:var(--fg);font-size:.8rem}
+/* The workspace chip sits left of the role badge: whose stuff, then who you are.
+   Quieter than the role badge — it is context, not status. */
+.badge.is-workspace{max-width:14rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 .pgrid{display:grid;grid-template-columns:14.5rem 1fr;gap:1.4rem;align-items:start}
 /* Grid items default to min-width:auto, which lets a wide child (a long slug, a

@@ -16,6 +16,8 @@ export async function initDb() {
     "waitlist",
     "api_tokens",
     "users",
+    "accounts",
+    "account_members",
   ]) {
     await env.DB.prepare(`DROP TABLE IF EXISTS ${table}`).run();
   }
@@ -26,7 +28,7 @@ export async function initDb() {
       size_bytes INTEGER NOT NULL DEFAULT 0, created_by TEXT,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
       visibility TEXT NOT NULL DEFAULT 'restricted', current_version INTEGER NOT NULL DEFAULT 1,
-      owner_email TEXT)`
+      owner_email TEXT, account_id TEXT)`
   ).run();
   await env.DB.prepare(
     `CREATE TABLE artifact_grants (
@@ -52,7 +54,7 @@ export async function initDb() {
   await env.DB.prepare(
     `CREATE TABLE api_tokens (
       id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
-      owner_email TEXT, is_admin INTEGER NOT NULL DEFAULT 0,
+      owner_email TEXT, account_id TEXT, is_admin INTEGER NOT NULL DEFAULT 0,
       scopes TEXT NOT NULL DEFAULT 'read,publish', created_by TEXT NOT NULL,
       created_at TEXT NOT NULL, last_used_at TEXT, expires_at TEXT, revoked_at TEXT)`
   ).run();
@@ -63,11 +65,40 @@ export async function initDb() {
       invited_by TEXT, invited_at TEXT, created_at TEXT NOT NULL,
       last_seen_at TEXT, disabled_at TEXT)`
   ).run();
+  await env.DB.prepare(
+    `CREATE TABLE accounts (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'personal',
+      status TEXT NOT NULL DEFAULT 'active', plan TEXT NOT NULL DEFAULT 'free',
+      personal_email TEXT UNIQUE, created_by TEXT,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`
+  ).run();
+  await env.DB.prepare(
+    `CREATE TABLE account_members (
+      account_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member',
+      status TEXT NOT NULL DEFAULT 'active', invited_by TEXT,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      PRIMARY KEY (account_id, email))`
+  ).run();
 }
 
 /** Drop the users table, to exercise the "directory not migrated yet" path. */
 export async function dropUsersTable() {
   await env.DB.prepare("DROP TABLE IF EXISTS users").run();
+}
+
+/**
+ * Drop the accounts tables, to exercise the "#27 not migrated yet" path: every
+ * account helper must fail soft and every caller fall back to `owner_email`.
+ */
+export async function dropAccountTables() {
+  await env.DB.prepare("DROP TABLE IF EXISTS account_members").run();
+  await env.DB.prepare("DROP TABLE IF EXISTS accounts").run();
+}
+
+/** Drop only the new nullable account_id columns, to exercise Worker-before-0009 compatibility. */
+export async function dropAccountIdColumns() {
+  await env.DB.prepare("ALTER TABLE artifacts DROP COLUMN account_id").run();
+  await env.DB.prepare("ALTER TABLE api_tokens DROP COLUMN account_id").run();
 }
 
 export async function clearR2() {

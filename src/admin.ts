@@ -16,6 +16,7 @@ import {
   roleLabel,
   type PortalViewer,
 } from "./portal";
+import { accountRoleLabel } from "./accounts";
 
 /**
  * The portal's own sections: Overview, Artifacts (list + detail), Settings and
@@ -640,19 +641,87 @@ export function artifactDetailPage(o: ArtifactDetailInput): string {
 
 // --- Settings ---------------------------------------------------------------
 
+/**
+ * The workspace the viewer is acting in (issue #27).
+ *
+ * Deliberately a plain readout rather than a management surface: the point is to
+ * make the *distinction* legible — this account owns the artifacts, your platform
+ * role is a separate thing — without inventing an org-admin UI the product does
+ * not need while every workspace is personal. Membership is managed through
+ * `/api/accounts/:id/members` until a second workspace kind is common.
+ */
+function workspacePanel(viewer: PortalViewer): string {
+  const ws = viewer.workspace;
+  if (!ws) {
+    return `<section class="panel" data-panel="workspace" data-workspace-state="none"
+      aria-labelledby="workspace-h">
+      <div class="panel-head"><div>
+        <h2 id="workspace-h">Workspace</h2>
+        <p class="hint">Artifacts and API tokens belong to a workspace. Yours is created the first
+          time you publish, so there is nothing to see here yet.</p>
+      </div></div>
+    </section>`;
+  }
+  const kindWord = ws.kind === "personal" ? "Personal" : "Team";
+  return `<section class="panel" data-panel="workspace" data-workspace-state="active"
+    data-workspace-id="${esc(ws.id)}" aria-labelledby="workspace-h">
+    <div class="panel-head"><div>
+      <h2 id="workspace-h">Workspace</h2>
+      <p class="hint">The container that owns your artifacts, your API tokens and — later — your
+        plan. Your role here is separate from your role on this instance.</p>
+    </div></div>
+    <div class="row" data-setting="workspace-name">
+      <div class="info"><b>Name</b><span class="hint">${
+        ws.kind === "personal"
+          ? "Your own workspace. Created automatically; nobody else is in it."
+          : "A shared workspace. Everything published into it belongs to the workspace, not to you personally."
+      }</span></div>
+      <div class="row-actions"><span class="mono">${esc(ws.name)}</span></div>
+    </div>
+    <div class="row" data-setting="workspace-kind">
+      <div class="info"><b>Type</b><span class="hint">${
+        ws.count > 1
+          ? `You belong to ${plural(ws.count, "workspace")}. Pages show the one above.`
+          : "You belong to this one workspace."
+      }</span></div>
+      <div class="row-actions"><span class="badge" data-badge="workspace-kind">${esc(kindWord)}</span></div>
+    </div>
+    <div class="row" data-setting="workspace-role">
+      <div class="info"><b>Your role here</b><span class="hint">${
+        ws.role === "owner"
+          ? "Full rights inside this workspace, including who else is in it. It grants nothing outside it."
+          : ws.role === "admin"
+            ? "Manages this workspace's artifacts and members. It grants nothing outside it."
+            : ws.role === "member"
+              ? "Publishes and manages this workspace's artifacts, but not its members."
+              : "Reads this workspace's artifacts. You cannot publish or change them."
+      }</span></div>
+      <div class="row-actions"><span class="badge is-role" data-badge="workspace-role">${esc(
+        accountRoleLabel(ws.role)
+      )}</span></div>
+    </div>
+    <div class="row" data-setting="workspace-plan">
+      <div class="info"><b>Plan</b><span class="hint">Billing attaches to the workspace, not to you.
+        Nothing is charged during the beta.</span></div>
+      <div class="row-actions"><span class="badge is-locked">Beta</span></div>
+    </div>
+  </section>`;
+}
+
 export function settingsPage(viewer: PortalViewer): string {
   const account = `<section class="panel" data-panel="account" aria-labelledby="account-h">
     <div class="panel-head"><div>
-      <h2 id="account-h">Account</h2>
-      <p class="hint">Who you are on this instance. Roles come from deployment configuration, so
-        nobody can change their own.</p>
+      <h2 id="account-h">You</h2>
+      <p class="hint">Who you are on this instance — your identity, and what it lets you do across
+        the whole deployment. Roles here come from deployment configuration, so nobody can change
+        their own, and nothing stored in the database can grant one.</p>
     </div></div>
     <div class="row" data-setting="email">
       <div class="info"><b>Email</b><span class="hint">Verified by Cloudflare Access on every request.</span></div>
       <div class="row-actions"><span class="mono">${esc(viewer.email)}</span></div>
     </div>
     <div class="row" data-setting="role">
-      <div class="info"><b>Role</b><span class="hint">${
+      <div class="info"><b>Instance role</b><span class="hint">${
         viewer.role === "super_admin"
           ? "The operator. Can manage other admins, and can never be paused or removed."
           : viewer.role === "admin"
@@ -720,8 +789,8 @@ export function settingsPage(viewer: PortalViewer): string {
     section: "settings",
     title: "Settings",
     heading: "Settings",
-    lede: `Your account, and how this instance decides who reaches what.`,
-    body: `${account}${security}${later}`,
+    lede: `You, your workspace, and how this instance decides who reaches what.`,
+    body: `${account}${workspacePanel(viewer)}${security}${later}`,
   });
 }
 

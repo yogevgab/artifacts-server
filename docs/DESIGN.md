@@ -136,7 +136,7 @@ JavaScript off; JavaScript only enhances what is already there.
 | — one artifact | `/admin/artifacts/<slug>` | Versions, views, access, delete | whoever manages it |
 | People | `/admin/people` | Members, invites, paused accounts | admins with an interactive sign-in |
 | Integrations | `/admin/integrations` | API tokens, CLI/Claude Code/Hermes setup | everyone (tokens hidden from a bearer caller) |
-| Settings | `/admin/settings` | Account, security, what's not built yet | everyone |
+| Settings | `/admin/settings` | You, your workspace, security, what's not built yet | everyone |
 | Platform | `/admin/platform` | Instance configuration, operators | super admin only |
 
 Three rules the portal must keep:
@@ -160,11 +160,20 @@ panel, the token list and the sign-in page cannot drift apart.
 | Invited | `.is-invited` | On the allow-list, never signed in |
 | Paused | `.is-disabled` | Access disabled; reversible; nothing deleted |
 | No sign-in | `.is-warn` | Drift: in our directory, but Access won't let them in |
-| Owner / Admin / Member | `.is-role` | Configured role (from env, never editable in-product) |
+| Owner / Admin / Member | `.is-role` | **Instance** role (from env, never editable in-product) |
+| Owner / Admin / Member / Viewer | `.is-role` in the Workspace panel | **Account** role (from D1, editable by an account admin) |
+| *Workspace name* | `.is-workspace` | Which account the page is about. Context, not status — quieter than the role badge |
 | Revoked / Expired | `.is-revoked` / `.is-locked` | Token states |
 
 "Paused" is the user-facing word for the `disabled` status. `disabled` is the
 API/database word. Don't mix them: the UI says paused, the JSON says disabled.
+
+**Two role words that look alike must never be shown alike.** "Instance role"
+answers *what may you do to this deployment*; "your role here" answers *what may
+you do inside this workspace*. They live in different panels, are labelled in
+full, and are never merged into one badge — a person who is `Owner` of their own
+workspace and a plain `Member` of the instance is the normal case, not an edge
+case. See docs/ARCHITECTURE.md § The product model.
 
 ---
 
@@ -240,7 +249,7 @@ Non-negotiable, and the first thing to check in review.
 | `src/landing.ts` | Public marketing page and its CTAs |
 | `src/login.ts` | The three auth states |
 | `src/portal.ts` | The `/admin` shell: section registry, nav, breadcrumbs, danger zone, shared formatting, `CORE_SCRIPT` |
-| `src/admin.ts` | Portal sections: Overview, Artifacts (list + detail), Settings, Platform |
+| `src/admin.ts` | Portal sections: Overview, Artifacts (list + detail), Settings (incl. the Workspace panel), Platform |
 | `src/people.ts` | Portal section: People |
 | `src/integrations.ts` | Portal section: Integrations (API tokens + agent setup) |
 | `docs/DESIGN.md` | This document |
@@ -266,7 +275,12 @@ smoke test drives. Keep these stable:
 **Portal shell** — `data-portal` · `data-portal-top` · `data-portal-nav` ·
 `data-portal-main` · `data-section="<id>"` · `data-nav="<id>"` (plus
 `aria-current="page"` on the current one) · `data-crumbs` · `data-danger-zone` ·
-`data-viewer-email` · `data-viewer-role` · `data-empty="section"`
+`data-viewer-email` · `data-viewer-role` · `data-viewer-workspace`
+(+ `data-workspace-id|kind|role`) · `data-empty="section"`
+
+**Settings** — `data-panel="account|workspace|security|upcoming"` ·
+`data-workspace-state="active|none"` · `data-setting="workspace-name|workspace-kind|workspace-role|workspace-plan"` ·
+`data-badge="role|workspace-role|workspace-kind"`
 
 **Overview** — `data-stat="artifacts|versions|views|storage"` · `data-stat-value` ·
 `data-panel="next-actions|recent|health"` · `data-action="publish|share|invite|token"` ·
