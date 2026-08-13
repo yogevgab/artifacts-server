@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { initDb, clearR2, req, as } from "./fixtures";
-import { brandLockup, brandMark } from "../src/pages";
+import { brandLockup, brandMark, MARK_PATH, MARK_BLUE } from "../src/pages";
 
 /**
  * The sign-in surface (issue #24, re-branded in issue #37).
@@ -40,9 +40,12 @@ describe("brand mark", () => {
   });
 
   it("draws the same mark as the favicon, so the tab and the page agree", () => {
-    // The chevron path and the brand blue are the shared, load-bearing bits.
-    expect(brandMark()).toContain("M9 22 16 9l7 13");
-    expect(brandMark().toLowerCase()).toContain("3b5bdb");
+    // Assert against the exported constants, the way test/brand.test.ts does.
+    // Hard-coding the path and the hex here meant that refining the mark broke
+    // this test without anything actually having drifted — the invariant is
+    // "one shape, one blue, everywhere", not "this particular shape forever".
+    expect(brandMark()).toContain(MARK_PATH);
+    expect(brandMark().toLowerCase()).toContain(MARK_BLUE.slice(1).toLowerCase());
   });
 
   it("renders a wordmark split the same way the dashboard header splits it", () => {

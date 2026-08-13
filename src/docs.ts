@@ -61,10 +61,19 @@ pre.code code{background:none;border:0;padding:0;font-size:inherit;color:inherit
 .stance{display:grid;gap:.7rem;margin:0 0 .9rem;padding:0;list-style:none}
 .stance li{border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--card);padding:.85rem 1rem;margin:0;color:var(--muted)}
 .stance li b{color:var(--fg);font-weight:650;letter-spacing:-.015em}
-.stance[data-positioning="not-yet"] li b:after{content:"Planned";margin-left:.55rem;border:1px solid var(--border);border-radius:999px;padding:.12rem .55rem;font-size:.7rem;font-weight:600;letter-spacing:.04em;color:var(--faint);text-transform:uppercase;white-space:nowrap}
+/* The "Not built" label is real markup (span.stance-flag), not a CSS
+   pseudo-element. It used to be li b:after with a content string — which meant
+   the single most important word on the page existed only in the stylesheet.
+   Every text extractor that matters here — Googlebot's rendered-text index,
+   GPTBot, ClaudeBot, Perplexity, any readability-style scraper — and every
+   screen reader read the list as four plain feature descriptions sitting under
+   a heading, with nothing marking them as absent. That is precisely the
+   feature-misattribution this whole section, and llms.txt, exist to prevent:
+   the defence was invisible to the readers it was written for. */
+.stance-flag{display:inline-block;margin-left:.55rem;border:1px solid var(--border);border-radius:999px;padding:.12rem .55rem;font-size:.7rem;font-weight:600;letter-spacing:.04em;color:var(--faint);text-transform:uppercase;white-space:nowrap;vertical-align:.05em}
 `;
 
-const TITLE = "Docs — publishing, access control and the API · rtfx.pro";
+const TITLE = "Publish from Claude Code or MCP · rtfx.pro docs";
 const DESCRIPTION =
   "How rtfx.pro works: publish HTML pages and multi-file artifacts from Claude Code, MCP, " +
   "Hermes, the CLI or the API; control who can open each one; keep every version; and " +
@@ -282,45 +291,49 @@ $ node cli/artifacts.mjs list</code></pre>
           <code>bundle</code>, a single HTML document in <code>file</code>. A bundle needs
           <code>index.html</code> at its root.</p>
         <pre class="code" data-docs="http-publish"><code>$ export RTFX_API_TOKEN=rtfx_…              # dashboard → Integrations
-$ export CF_ACCESS_CLIENT_ID=…              # Access service token (see below)
-$ export CF_ACCESS_CLIENT_SECRET=…
 
 # a zip — zip the folder first over HTTP → bundle
-$ curl -X POST https://rtfx.pro/api/artifacts \\
+$ curl -X POST https://rtfx.pro/api/machine/artifacts \\
     -H "Authorization: Bearer $RTFX_API_TOKEN" \\
-    -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \\
-    -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \\
     -F slug=q3-report -F title="Q3 Report" -F bundle=@./dist.zip
 
 # one HTML document → file
-$ curl -X POST https://rtfx.pro/api/artifacts \\
+$ curl -X POST https://rtfx.pro/api/machine/artifacts \\
     -H "Authorization: Bearer $RTFX_API_TOKEN" \\
-    -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \\
-    -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \\
     -F slug=q3-report -F title="Q3 Report" -F file=@./index.html</code></pre>
-        <p><b>Two credentials, two jobs.</b> Cloudflare Access gates the edge; the bearer token
-          authenticates you to the app. While <code>/api</code> sits inside the Access application
-          — the posture rtfx.pro runs — a call from a machine has to satisfy both, so it sends the
-          service-token headers <i>and</i> the API token. The headers get the request through
-          Access and grant nothing inside the app; the API token decides who you are and what you
-          may do. Mint the service token in Cloudflare Zero Trust, keep both halves in environment
-          variables, and drop the two <code>CF-Access-*</code> headers only on an instance whose
-          operator has excluded <code>/api</code> from Access. The CLI and the MCP server send the
-          same pair automatically when <code>CF_ACCESS_CLIENT_ID</code> and
-          <code>CF_ACCESS_CLIENT_SECRET</code> are set.</p>
+        <p><b>One credential.</b> <code>/api/machine</code> is the machine surface: it
+          authenticates the bearer token and nothing else, so the API token you minted in the
+          dashboard is all a script, an agent or a CI job needs. It carries the same rules as the
+          rest of the product — your scopes, your artifacts — and it deliberately does not answer
+          for user management or token issuance, which need a real sign-in. The browser dashboard
+          keeps using <code>/api</code>, where a session identifies you instead.</p>
+        <p class="muted"><b>Self-hosting?</b> An instance that gates every path at the edge with
+          Cloudflare Access can pass a service token through as well, by adding
+          <code>CF-Access-Client-Id</code> and <code>CF-Access-Client-Secret</code> headers; the CLI
+          and the MCP server send them automatically when <code>CF_ACCESS_CLIENT_ID</code> and
+          <code>CF_ACCESS_CLIENT_SECRET</code> are set. They get a request past Access and grant
+          nothing inside the app. On rtfx.pro they are not needed.</p>
       </section>
 
       <section id="agents">
         <h2>Claude Code, MCP &amp; Hermes</h2>
         <p>Agents publish through exactly the same CLI and API a human uses — there is no separate,
-          weaker agent path. Mint an API token in the dashboard, scope it to <code>publish</code>,
-          and hand it to the session:</p>
+          weaker agent path. Mint an API token in the dashboard with the <code>read</code> and
+          <code>publish</code> scopes, and hand it to the session:</p>
+        <!-- read *and* publish, not publish alone. /rtfx:publish looks the slug
+             up before it writes, so that it can tell a new artifact from a new
+             version of an existing one — and that lookup is GET /api/artifacts,
+             which requires the read scope. A publish-only token fails on the
+             first step of the command this page is recommending. -->
         <pre class="code"><code># in a Claude Code session, with the plugin installed
 /rtfx:publish ./out client-demo
 
 # or from any shell — Claude Code, Hermes, CI — in a checkout of the project
-$ node cli/artifacts.mjs publish ./out --slug client-demo --title "Checkout prototype"
-$ node cli/artifacts.mjs grant client-demo teammate@example.com</code></pre>
+$ node cli/artifacts.mjs publish ./out --slug client-demo --title "Checkout prototype"</code></pre>
+        <p>Sharing is deliberately not part of the agent surface: <code>grant</code> needs the
+          <code>manage</code> scope and lives with the rest of access control under
+          <a href="#access">Access &amp; privacy</a>. An agent publishes; a person decides who
+          may read.</p>
         <h3>The Claude Code plugin</h3>
         <p>Installing the plugin turns that into ordinary conversation: say <i>publish this</i> and
           the session picks the build output, versions it under a slug and hands back the link.
@@ -455,15 +468,19 @@ tools: publish · list_artifacts · get_versions · rollback · doctor</code></p
         <p>Listed so you know they are deliberate gaps rather than things you failed to find. If a
           project needs one of these today, this is the honest place to find that out.</p>
         <ul class="stance" data-positioning="not-yet">
-          <li><b>Per-link secrets.</b> A shared code on the link itself, for handing something to
-            someone who will never have an account. Today the answer is an invitation and an access
-            list.</li>
-          <li><b>Link expiry.</b> Access is revoked by hand, not on a timer. API tokens do carry an
-            optional expiry.</li>
-          <li><b>Custom domains.</b> Serving artifacts from your own hostname. Content already runs
-            on its own origin, which is the hard part.</li>
-          <li><b>Comments, approvals and polls.</b> rtfx.pro publishes and controls the artifact; it
-            is not the review tool around it.</li>
+          <li><b>Per-link secrets.</b> <span class="stance-flag">Not built</span> A shared code on
+            the link itself, for handing something to someone who will never have an account. Today
+            the answer is an invitation and an access list.</li>
+          <li><b>Link expiry.</b> <span class="stance-flag">Not built</span> Access is revoked by
+            hand, not on a timer. API tokens do carry an optional expiry.</li>
+          <li><b>Custom domains.</b> <span class="stance-flag">Not built</span> Serving artifacts
+            from your own hostname. Content already runs on its own origin, which is the hard
+            part.</li>
+          <li><b>Comments, approvals and polls.</b> <span class="stance-flag">Not built</span>
+            rtfx.pro publishes and controls the artifact; it is not the review tool around it.</li>
+          <li><b>Self-serve signup and billing.</b> <span class="stance-flag">Not built</span>
+            Access is granted by invitation, by a person. There is no signup form that ends in an
+            account, no plans and no payment — nothing is charged for rtfx.pro today.</li>
         </ul>
       </section>
 
@@ -485,24 +502,31 @@ tools: publish · list_artifacts · get_versions · rollback · doctor</code></p
 
       <section id="api">
         <h2>API</h2>
-        <p>Authenticate with <code>Authorization: Bearer &lt;token&gt;</code>. Every endpoint is
-          scoped to what the token's owner may see; an admin sees everything they administer. While
-          <code>/api</code> sits behind Cloudflare Access, a machine call also carries the
-          <code>CF-Access-Client-Id</code> and <code>CF-Access-Client-Secret</code> headers of an
-          Access service token — see <a href="#publishing">Publishing</a> for a runnable call.</p>
+        <p>Authenticate with <code>Authorization: Bearer &lt;token&gt;</code> and nothing else.
+          Every endpoint is scoped to what the token's owner may see; an admin sees everything they
+          administer. See <a href="#publishing">Publishing</a> for a runnable call.</p>
         <ul>
-          <li><code>GET /api/artifacts</code> — list artifacts you can manage.</li>
-          <li><code>POST /api/artifacts</code> — publish (multipart: <code>title</code>,
+          <li><code>GET /api/machine/artifacts</code> — list artifacts you can manage.</li>
+          <li><code>POST /api/machine/artifacts</code> — publish (multipart: <code>title</code>,
             <code>slug</code>, and either <code>file</code> for one <code>.html</code> document or
             <code>bundle</code> for a <code>.zip</code>).</li>
-          <li><code>GET /api/artifacts/:slug/versions</code> — version history.</li>
-          <li><code>POST /api/artifacts/:slug/rollback</code> — restore a previous version.</li>
-          <li><code>POST /api/artifacts/:slug/access</code> — set visibility and the share list.</li>
-          <li><code>DELETE /api/artifacts/:slug</code> — delete an artifact and its versions.</li>
+          <li><code>GET /api/machine/artifacts/:slug/versions</code> — version history.</li>
+          <li><code>POST /api/machine/artifacts/:slug/current</code> — make an earlier version live
+            again (JSON: <code>{"version": 1}</code>).</li>
+          <li><code>GET /api/machine/artifacts/:slug/views</code> — the view log.</li>
+          <li><code>PUT /api/machine/artifacts/:slug/access</code> — set visibility and the share
+            list (JSON: <code>visibility</code>, <code>emails</code>).</li>
+          <li><code>DELETE /api/machine/artifacts/:slug</code> — delete an artifact and its
+            versions.</li>
         </ul>
-        <p>The API lives behind sign-in; these paths are documented here but are not public. Full
-          request/response detail ships with the CLI (<code>node cli/artifacts.mjs --help</code> in
-          a checkout) and in the dashboard once you have access.</p>
+        <p><code>read</code> covers the listings, <code>publish</code> covers publishing and
+          rollback, <code>manage</code> covers sharing and deletion — a token holds only the scopes
+          you gave it. Managing people or minting tokens is not on this surface at all: those need
+          a signed-in session, so a leaked token can never widen its own reach.</p>
+        <p>The artifacts themselves live behind sign-in; these paths are documented here but the
+          data is not public. Full request/response detail ships with the CLI
+          (<code>node cli/artifacts.mjs --help</code> in a checkout) and in the dashboard once you
+          have access.</p>
       </section>
 
       <section id="faq">

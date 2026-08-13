@@ -30,9 +30,12 @@ import {
   apiUrl,
   authHeaders,
   describeApiError,
+  describeNonJsonResponse,
+  machineApiPath,
   publishSummary,
   redactToken,
   resolveConfig,
+  shouldRetryOnLegacyApi,
 } from "./rtfx.lib.mjs";
 import { BundleError, describeSkips } from "./rtfx.bundle.mjs";
 
@@ -340,11 +343,12 @@ function requireToken(ctx) {
   return ctx.config;
 }
 
-async function api(ctx, path, init = {}) {
-  const cfg = requireToken(ctx);
+/** One HTTP attempt, with the transport failure already turned into a ToolError. */
+async function attempt(ctx, cfg, path, init) {
+  const url = apiUrl(cfg.endpoint, path);
   let res;
   try {
-    res = await ctx.fetchImpl(apiUrl(cfg.endpoint, path), {
+    res = await ctx.fetchImpl(url, {
       ...init,
       headers: { ...authHeaders(cfg), ...(init.headers ?? {}) },
     });
@@ -355,12 +359,39 @@ async function api(ctx, path, init = {}) {
       retryable: true,
     });
   }
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const described = describeApiError(res.status, body);
-    throw new ToolError(`${res.status} ${described.error || "request failed"}`, described);
+  try {
+    return { res, url, body: await res.json(), json: true };
+  } catch {
+    return { res, url, body: {}, json: false };
   }
-  return body;
+}
+
+/**
+ * One API call, on the machine surface — the same rule the CLI follows, for the
+ * same reason: `/api/machine/...` authenticates the bearer token and nothing
+ * else, so an agent needs no Cloudflare credential to publish. An instance that
+ * predates the surface answers with a bare 404 and the call is retried once
+ * against `/api`; every 404 the machine surface itself produces carries an
+ * `error`, so a real "not yours" is never retried.
+ */
+async function api(ctx, path, init = {}) {
+  const cfg = requireToken(ctx);
+  const machine = machineApiPath(path);
+  let out = await attempt(ctx, cfg, machine, init);
+  if (machine !== path && shouldRetryOnLegacyApi(out.res.status, out.body)) {
+    out = await attempt(ctx, cfg, path, init);
+  }
+  // Something that is not the app answered — usually Cloudflare Access, whose
+  // sign-in page a `fetch` follows and reports as an ordinary 200.
+  if (!out.json) {
+    const { message, hint } = describeNonJsonResponse(out.url, out.res.url);
+    throw new ToolError(message, { hint, status: out.res.status });
+  }
+  if (!out.res.ok) {
+    const described = describeApiError(out.res.status, out.body);
+    throw new ToolError(`${out.res.status} ${described.error || "request failed"}`, described);
+  }
+  return out.body;
 }
 
 // --- Results -----------------------------------------------------------------

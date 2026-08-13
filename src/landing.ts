@@ -1,4 +1,4 @@
-import { layout, siteHeader, siteFooter, PUBLIC_CHROME_STYLE } from "./pages";
+import { layout, siteHeader, siteFooter, PUBLIC_CHROME_STYLE, SOURCE_URL } from "./pages";
 import { cookieNotice, CONSENT_STYLE, CONSENT_SCRIPT } from "./consent";
 import type { Env } from "./env";
 import { SITE, canonicalUrl } from "./seo";
@@ -33,7 +33,15 @@ import { SITE, canonicalUrl } from "./seo";
 const LANDING_STYLE = `${PUBLIC_CHROME_STYLE}${CONSENT_STYLE}
 .wrap{max-width:1180px}
 .hero{position:relative;padding:5.4rem 0 3rem;text-align:center;overflow:hidden}
-.hero:before{content:"";position:absolute;inset:1.2rem 8% auto;height:17rem;border-radius:999px;background:linear-gradient(90deg,rgba(10,132,255,.18),rgba(100,210,255,.13),transparent);filter:blur(18px);z-index:-1}
+/* A calm, symmetric wash behind the headline. The 90deg linear gradient this
+   replaces ran blue → cyan → transparent across the band, which put all of its
+   weight on the left and read as a smudge sitting behind the first word rather
+   than as light behind the whole sentence — most visible in light mode. A
+   radial ellipse centred on the headline is symmetric by construction, so it
+   stays balanced at every viewport width instead of only at the one it was
+   eyeballed against. */
+.hero:before{content:"";position:absolute;inset:0 0 auto;height:26rem;z-index:-1;
+  background:radial-gradient(60% 52% at 50% 34%,rgba(10,132,255,.20),rgba(100,210,255,.09) 45%,transparent 72%)}
 /* text-wrap:balance so the two sentences break between themselves rather than
    orphaning "share." on its own line; the ch cap is the fallback for browsers
    that don't have it. */
@@ -43,7 +51,27 @@ const LANDING_STYLE = `${PUBLIC_CHROME_STYLE}${CONSENT_STYLE}
 .cta-note{color:var(--faint);font-size:.88rem;margin:.95rem auto 0;max-width:32rem}.cta-note b{color:var(--muted);font-weight:600}
 #waitlist .note{margin-top:1.1rem}
 .badge-row{display:flex;gap:.55rem;justify-content:center;margin-bottom:1.15rem;flex-wrap:wrap}.pill{border:1px solid var(--border);border-radius:999px;padding:.36rem .86rem;font-size:.82rem;color:var(--muted);background:rgba(255,255,255,.05);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}
-.product-shot{margin:2.8rem auto 0;max-width:58rem;border:1px solid var(--border);border-radius:32px;background:linear-gradient(180deg,rgba(255,255,255,.12),rgba(255,255,255,.04));box-shadow:0 36px 110px -58px rgba(0,0,0,.85);padding:.78rem;text-align:left}.shot-bar{display:flex;gap:.42rem;padding:.45rem .55rem}.shot-dot{width:.72rem;height:.72rem;border-radius:50%;background:var(--border-strong)}.shot-body{border:1px solid var(--border);border-radius:24px;background:var(--card);padding:1rem;display:grid;grid-template-columns:1.15fr .85fr;gap:1rem}.shot-panel{border:1px solid var(--border);border-radius:20px;padding:1rem;background:rgba(255,255,255,.04)}.shot-line{height:.7rem;border-radius:999px;background:var(--border);margin:.65rem 0}.shot-line.wide{width:88%}.shot-line.mid{width:62%}.shot-line.short{width:38%}
+/* The round trip. Two steps side by side: the command that publishes, and the
+   state that exists the instant it returns. Left column is deliberately wider —
+   a terminal line has a natural length and wrapping it reads as breakage. */
+.roundtrip{margin:3.2rem auto 0;max-width:60rem;display:grid;grid-template-columns:1.06fr .94fr;gap:1.15rem;text-align:left}
+/* Both steps stretch to the taller of the two, so the transcript and the state
+   panel share a baseline instead of ending at two different heights. */
+.rt-step{min-width:0;display:flex;flex-direction:column}
+.rt-step>pre.code,.rt-step>.rt-state{flex:1}
+.rt-label{display:flex;align-items:center;gap:.55rem;margin:0 0 .7rem;font-size:.86rem;color:var(--muted);letter-spacing:-.01em}
+.rt-num{flex:none;width:1.45rem;height:1.45rem;border-radius:50%;border:1px solid var(--border-strong);display:inline-flex;align-items:center;justify-content:center;font-size:.76rem;font-weight:650;color:var(--fg)}
+/* Same code surface as /docs, so the homepage and the documentation do not
+   look like two products (issue #35). */
+.roundtrip pre.code{background:#05070c;border:1px solid var(--border);border-radius:var(--radius);padding:1.1rem 1.2rem;overflow-x:auto;font-family:var(--mono);font-size:.83rem;line-height:1.75;color:#dfe5f0;box-shadow:var(--shadow);margin:0}
+.roundtrip pre.code b{color:#fff;font-weight:650}
+.rt-ok{color:#5ac8fa}
+.rt-state{list-style:none;margin:0;padding:1.1rem 1.2rem;display:grid;gap:.72rem;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);font-size:.9rem;color:var(--muted)}
+.rt-state li{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;line-height:1.45}
+/* Spans both columns: it is the consequence of the whole round trip, not a
+   footnote to the right-hand panel, and keeping it inside that column made the
+   two panels stretch to different heights. */
+.rt-foot{grid-column:1/-1;margin:.2rem 0 0;font-size:.88rem;color:var(--faint);line-height:1.55;text-align:center}
 section.band{margin:4rem 0}
 .band-head{text-align:center;max-width:44rem;margin:0 auto 2rem}
 .band-head h2{font-size:clamp(1.9rem,4.2vw,3.1rem);letter-spacing:-.055em;margin:0 0 .6rem;line-height:1.05}
@@ -55,34 +83,75 @@ section.band{margin:4rem 0}
 .band-more{text-align:center;color:var(--muted);font-size:.93rem;margin:1.6rem 0 0}
 .band-more a{white-space:nowrap}
 #waitlist{background:var(--card);border:1px solid var(--border);border-radius:32px;padding:2.3rem;text-align:center;margin:2.6rem 0;box-shadow:var(--shadow);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}#waitlist h2{margin:0 0 .45rem;font-size:clamp(1.8rem,4vw,3rem);letter-spacing:-.055em}#waitlist p{color:var(--muted);margin:0 0 1.3rem}#waitlist form{display:flex;gap:.6rem;justify-content:center;flex-wrap:wrap;max-width:31rem;margin:0 auto}#waitlist input{flex:1;min-width:15rem}#msg{max-width:31rem;margin:.85rem auto 0}
-@media(max-width:760px){.hero{padding:3rem 0 1.8rem}.shot-body{grid-template-columns:1fr}.product-shot{border-radius:24px}section.band{margin:3rem 0}}
+@media(max-width:760px){.hero{padding:3rem 0 1.8rem}.roundtrip{grid-template-columns:1fr;gap:1.6rem;margin-top:2.4rem}section.band{margin:3rem 0}}
 `;
 
 const SCRIPT = `
 const $ = (s)=>document.querySelector(s);
 const msg = $('#msg');
+const btn = $('#wl button[type=submit]');
 /* #msg is a polite live region, so this is also what announces the result to a
    screen reader: set the text, unhide, and let the status class carry the
-   colour. Colour is never the only signal — the sentence says what happened. */
-function show(text, ok){ msg.textContent=text; msg.hidden=false;
-  msg.className = ok ? 'is-ok' : 'is-error'; }
+   colour. Colour is never the only signal — the sentence says what happened.
+
+   Three states, not two. 'Sending…' used to be shown with the success class,
+   which painted a green box around a request that had not happened yet —
+   state as decoration, which docs/DESIGN.md forbids. It gets the neutral
+   class now, and only a real answer turns the box green or red. */
+function show(text, kind){ msg.textContent=text; msg.hidden=false;
+  msg.className = kind === 'ok' ? 'is-ok' : kind === 'error' ? 'is-error' : ''; }
 $('#wl').addEventListener('submit', async (e)=>{
   e.preventDefault();
   const email = $('#email').value.trim();
-  show('Sending…', true);
+  /* Disabling the button is what stops an impatient double-submit from
+     spending the 3-per-hour, per-address budget in src/waitlist.ts and
+     turning a successful signup into a rate-limit error. */
+  btn.disabled = true;
+  show('Sending…', 'pending');
   try {
     const res = await fetch('/waitlist', {
       method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email })
     });
-    const data = await res.json();
-    if (!res.ok) return show('Enter a valid email address.', false);
-    show(data.status === 'already' ? "You're already on the list." : "Request received — we'll be in touch.", true);
+    const data = await res.json().catch(()=>({}));
+    /* Every failure used to report "Enter a valid email address", including
+       the 429. Somebody who submitted twice was told their own address was
+       malformed, retyped a correct address, and got the same lie back. Each
+       status now says what actually happened and whether retrying can help. */
+    /* Two independent buckets answer 429 (src/waitlist.ts): 3 per hour per
+       address, and 12 per hour per IP — and the request is rejected before the
+       row is written. The per-IP bucket is shared by everyone behind that
+       address, so on CGNAT, a mobile carrier or an office network this can fire
+       on somebody's very first attempt, for an address that was never recorded.
+       So the wording can neither say "you've tried several times" nor promise
+       they are on the list: it attributes the limit to the network and makes
+       list membership conditional. */
+    if (res.status === 429) return show("Too many requests from your network just now — please try again in an hour. If an earlier attempt went through, you're already on the list.", 'error');
+    if (res.status === 400 || data.error === 'invalid_email') return show('Enter a valid email address.', 'error');
+    if (!res.ok) return show("Something went wrong on our side — please try again in a moment.", 'error');
+    /* No confirmation email is sent — src/waitlist.ts records the address and
+       nothing else — so this must not imply one is on its way, or the first
+       thing a new person experiences is a message that never arrives. */
+    show(data.status === 'already' ? "You're already on the list." : "Request recorded. A person reviews these by hand and replies by email — there's no automatic confirmation, so nothing else will arrive just yet.", 'ok');
     e.target.reset();
-  } catch (err) { show('Network error — please try again.', false); }
+  } catch (err) {
+    show('Network error — please try again.', 'error');
+  } finally {
+    btn.disabled = false;
+  }
 });
 `;
 
-const TITLE = "rtfx.pro — private hosting for AI-built pages and artifacts";
+/**
+ * The title used to be "rtfx.pro — private hosting for AI-built pages and
+ * artifacts": brand-first, for a brand with no search volume, and built around
+ * "AI-built pages and artifacts" — a phrase nobody types. The whole addressable
+ * demand here searches for *Claude* ("share claude artifact privately", "host
+ * claude artifact", "publish from claude code"), and the word appeared in the
+ * h1, the social card, the README and llms.txt — but in neither title tag.
+ * Descriptive, nominative use of the name, which is what it has always been on
+ * this site.
+ */
+const TITLE = "Private hosting for Claude artifacts and AI-built pages · rtfx.pro";
 
 /** Structured data: what this site is, and what the product is. */
 function structuredData(env: Env): unknown[] {
@@ -93,6 +162,13 @@ function structuredData(env: Env): unknown[] {
     name: SITE.name,
     url,
     description: SITE.description,
+    // A public, MIT-licensed repository is the strongest honest entity signal a
+    // new domain has, and it was the one asset the graph never mentioned.
+    sameAs: [SOURCE_URL],
+    // The square mark, not the social card. `logo` is read as a logo — cropped
+    // towards square in a knowledge panel — so the 1200×630 card, nine parts
+    // headline copy to one part mark, was the wrong image to promise here.
+    logo: canonicalUrl(env, "/logo.png"),
   };
   return [
     {
@@ -117,6 +193,15 @@ function structuredData(env: Env): unknown[] {
           applicationSubCategory: "Web hosting",
           operatingSystem: "Web",
           description: SITE.description,
+          softwareVersion: "1.0.0",
+          codeRepository: SOURCE_URL,
+          license: "https://opensource.org/licenses/MIT",
+          /* Deliberately no `offers` and no `aggregateRating`. Google wants one
+             of them before it will render a SoftwareApplication rich result, and
+             we have neither to give: there is no billing, so `price: "0"` would
+             advertise a free self-serve tier that does not exist, and a rating
+             we invented is the one SEO tactic that earns a manual penalty. The
+             lost rich result is the correct trade. */
           featureList: [
             "Per-artifact access control by identity, not a secret link",
             "Agent-native publishing from Claude Code, a native MCP server, Hermes, the CLI or the API",
@@ -140,9 +225,11 @@ export function landingPage(env: Env): string {
     <section class="hero">
       <div class="badge-row"><span class="pill">Agent-native publishing</span><span class="pill">Secure, access-protected sharing</span><span class="pill">Versioned &amp; audited</span><span class="pill">Workspaces &amp; roles</span></div>
       <h1>Claude creates. We share.</h1>
-      <p class="lead">rtfx.pro is the secure, access-protected home for the pages and artifacts
-        Claude just built. Publish straight from the session that made it, hand out a link only
-        the people you name can open, and keep every version.</p>
+      <!-- "Artifact" carried the whole page and was never defined on it; the
+           definition lived a click away on /docs. It costs four words here. -->
+      <p class="lead">rtfx.pro is the secure, access-protected home for the artifacts Claude just
+        built — a single HTML page, or a whole folder of them. Publish straight from the session
+        that made it, hand out a link only the people you name can open, and keep every version.</p>
       <div class="cta">
         <a class="link-button" href="#waitlist" data-cta="request-access">Request access</a>
         <a class="ghost link-button" href="/docs" data-cta="docs">See how it works</a>
@@ -150,23 +237,48 @@ export function landingPage(env: Env): string {
       <p class="cta-note">Access to rtfx.pro is invite-only, so every page has a known audience.
         <b>Request access</b> if you're new; <b><a href="/login" data-cta="sign-in">sign in</a></b>
         if you already have an account.</p>
-      <!-- Decorative: coloured bars standing in for a screenshot. role="img"
-           collapses the whole thing to one description, so a screen reader gets
-           "a preview of the dashboard" instead of walking a fake UI. -->
-      <div class="product-shot" role="img"
-        aria-label="Preview of the rtfx.pro dashboard: an artifact published at version 4, shared with three people.">
-        <div class="shot-bar"><span class="shot-dot"></span><span class="shot-dot"></span><span class="shot-dot"></span></div>
-        <div class="shot-body">
-          <div class="shot-panel"><span class="pill">Published · v4</span><div class="shot-line wide"></div><div class="shot-line mid"></div><div class="shot-line short"></div></div>
-          <div class="shot-panel"><span class="pill">Shared with 3 people</span><div class="shot-line mid"></div><div class="shot-line wide"></div><div class="shot-line short"></div></div>
+      <!-- One round trip, as real content rather than a picture of content.
+           What stood here was a rounded window with macOS traffic-light dots
+           and grey bars for text — the universal signature of a landing page
+           that shipped before its product did, carrying an aria-label that
+           asserted specific facts ("version 4, shared with three people")
+           about nothing. For a product whose whole posture is "we publish
+           what we haven't overclaimed", a fake screenshot was the one element
+           on the site that wasn't truthful in kind.
+           Rendering it as HTML instead means it survives light mode, 200%
+           zoom, a narrow screen and a screen reader — and it does the job the
+           page was missing: showing the mechanism, not asserting it. The
+           commands are the real ones from docs/CLAUDE_CODE.md. -->
+      <div class="roundtrip">
+        <div class="rt-step">
+          <p class="rt-label"><span class="rt-num">1</span> Publish from the session that built it</p>
+          <pre class="code" data-landing="publish"><code>&gt; publish this to rtfx.pro
+
+<b>/rtfx:publish ./out client-demo</b>
+  uploaded 6 files · 214 KB
+  <span class="rt-ok">https://a.rtfx.pro/client-demo/  · v4</span></code></pre>
         </div>
+        <div class="rt-step">
+          <p class="rt-label"><span class="rt-num">2</span> What the link is, the moment it exists</p>
+          <ul class="rt-state">
+            <li><span class="badge is-locked">Restricted</span> private until you say otherwise</li>
+            <li><span class="badge is-role">Shared with 2</span> named people, by identity</li>
+            <li><span class="badge">v4</span> v1–v3 still addressable · roll back in one click</li>
+            <li><span class="badge">Viewed</span> alex@example.com · 2 min ago · v4</li>
+          </ul>
+        </div>
+        <p class="rt-foot">Everyone else gets the same 404 as a page that was never published —
+          the link never admits the artifact exists.</p>
       </div>
     </section>
 
     <section id="features" class="band">
       <div class="band-head">
         <p class="eyebrow-c">The product</p>
-        <h2>Hosting that assumes the page is private.</h2>
+        <!-- The h1 is the tagline and stays the tagline (pinned in
+             test/positioning.test.ts), so the h2 is the only heading free to
+             carry the language people actually search for. -->
+        <h2>Private hosting for Claude artifacts and AI-built pages.</h2>
         <p>Everyone can host what Claude built. rtfx.pro starts locked, publishes from inside the
           agent session, and makes sharing a deliberate act you can see, version and undo.</p>
       </div>
@@ -192,8 +304,11 @@ export function landingPage(env: Env): string {
 
     <section id="waitlist">
       <h2>Request access</h2>
-      <p>Access is managed on purpose — we onboard a few teams at a time, so every account has a
-        real person behind it. Tell us where to send your invitation.</p>
+      <!-- "We onboard a few teams at a time" asserted an operating cadence that
+           nothing in the product enforces or measures. What is actually true is
+           narrower and reads better: invitations are granted by a person. -->
+      <p>Access is granted by hand, so every account has a real person behind it. Tell us where to
+        send your invitation and what you'd publish.</p>
       <form id="wl">
         <!-- A placeholder is not a label: it disappears the moment you type, and
              a screen reader may never announce it at all. -->
@@ -203,9 +318,15 @@ export function landingPage(env: Env): string {
         <button type="submit">Request access</button>
       </form>
       <div id="msg" role="status" aria-live="polite" hidden></div>
+      <!-- What it costs is a question every reader forms in the first ten seconds,
+           and the page used to answer it only with a hedge about the future
+           ("if paid plans arrive…"), which reads as "we might bill you later".
+           There is no billing in the product, so the present tense is both the
+           more useful answer and the more honest one. The notice promise stays. -->
       <p class="note">Already have an account? <a href="/login" data-cta="sign-in">Sign in instead →</a>
-        We'll email you a one-time code — there's no password to set. If paid plans arrive,
-        existing accounts will get notice before any pricing change applies.</p>
+        We'll email you a one-time code — there's no password to set. There is no billing in
+        rtfx.pro today and nothing to pay while access is invited; if paid plans arrive, existing
+        accounts will get notice before any pricing change applies.</p>
       <p class="note">Submitting this stores your email address so we can send an invitation —
         nothing else. See the <a href="/privacy">privacy policy</a>.</p>
     </section>

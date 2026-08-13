@@ -187,8 +187,14 @@ describe("social card", () => {
 describe("public page metadata", () => {
   it("the landing page carries title, description, canonical, OG and Twitter tags", async () => {
     const html = await (await canonicalReq("/")).text();
-    expect(html).toContain("<title>rtfx.pro — private hosting for AI-built pages and artifacts</title>");
-    expect(html).toMatch(/<meta name="description" content="[^"]{80,}">/);
+    expect(html).toContain("<title>Private hosting for Claude artifacts and AI-built pages · rtfx.pro</title>");
+    /**
+     * Upper bound as well as lower. Without one, `SITE.description` drifted to
+     * 319 characters — about twice what a search result renders — and nothing
+     * failed. 160 is the practical SERP limit; 80 is still the floor, because a
+     * description shorter than that says nothing.
+     */
+    expect(html).toMatch(/<meta name="description" content="[^"]{80,160}">/);
     expect(html).toContain(`<link rel="canonical" href="${LOCAL}/">`);
     expect(html).toContain('<meta name="robots" content="index,follow,max-image-preview:large">');
     expect(html).toContain('<meta property="og:type" content="website">');
@@ -213,6 +219,27 @@ describe("public page metadata", () => {
     );
     expect(productNode.url).toBe(`${LOCAL}/`);
     expect(productNode.featureList.length).toBeGreaterThan(2);
+  });
+
+  /**
+   * `Organization.logo` pointed at `/og.png`. A consumer of the graph reads that
+   * property as a logo — cropped towards square in a knowledge panel — and got a
+   * 1200×630 card that is nine parts headline copy to one part mark. The square
+   * mark now lives at its own route; `og:image` still points at the card, which
+   * is what a card is for.
+   */
+  it("gives the Organization a square logo, not the landscape social card", async () => {
+    const html = await (await canonicalReq("/")).text();
+    const graph = JSON.parse(
+      [...html.matchAll(/<script type="application\/ld\+json">(.*?)<\/script>/gs)][0][1]
+    );
+    const organization = graph["@graph"].find(
+      (n: { "@type": string }) => n["@type"] === "Organization"
+    );
+    expect(organization.logo).toBe(`${LOCAL}/logo.png`);
+    expect(organization.logo).not.toContain("/og.png");
+    // …and the card is still the card.
+    expect(html).toContain(`<meta property="og:image" content="${LOCAL}/og.png">`);
   });
 
   it("the docs page keeps the API-token snippet inside a balanced code element", async () => {
@@ -307,7 +334,7 @@ describe("private surfaces stay out of every index", () => {
 
 describe("crawler surface on the content origin", () => {
   it("serves no product page, sitemap or llms.txt there", async () => {
-    for (const path of ["/", "/docs", "/sitemap.xml", "/llms.txt", "/og.svg", "/og.png", "/login"]) {
+    for (const path of ["/", "/docs", "/sitemap.xml", "/llms.txt", "/og.svg", "/og.png", "/logo.png", "/login"]) {
       const res = await contentReq(path);
       expect(res.status, `${path} should not exist on the content host`).toBe(404);
     }

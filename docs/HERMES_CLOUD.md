@@ -4,7 +4,9 @@ How an automated agent — Hermes Cloud, CI, a script — publishes, updates and
 artifacts on this server with an **API token**, without a browser login.
 
 The whole contract is: mint a token once, send it as `Authorization: Bearer <token>`, and
-POST a multipart form to `/api/artifacts`.
+POST a multipart form to `/api/machine/artifacts`. That token is the only credential involved —
+no Cloudflare account, no service token. See [§2](#2-authenticate) for why the path is
+`/api/machine` and not `/api`.
 
 > Publishing from a **Claude Code** session is the same contract, packaged: see
 > [`CLAUDE_CODE.md`](CLAUDE_CODE.md) for the plugin in [`plugins/rtfx`](../plugins/rtfx).
@@ -95,9 +97,9 @@ requires an interactive login, for the same reason minting a token does.
 
 | Scope | Grants |
 |---|---|
-| `read` | `GET /api/artifacts`, `…/versions`, `…/views`, `…/access` |
-| `publish` | `POST /api/artifacts` (create + new version), `POST /api/artifacts/:slug/current` (rollback) |
-| `manage` | `PUT /api/artifacts/:slug/access` (visibility + grants), `DELETE /api/artifacts/:slug` |
+| `read` | `GET /api/machine/artifacts`, `…/versions`, `…/views`, `…/access` |
+| `publish` | `POST /api/machine/artifacts` (create + new version), `POST /api/machine/artifacts/:slug/current` (rollback) |
+| `manage` | `PUT /api/machine/artifacts/:slug/access` (visibility + grants), `DELETE /api/machine/artifacts/:slug` |
 
 Scopes only ever **narrow** a token below its owner's rights. A `manage`-scoped token issued
 for Alice still reaches only Alice's artifacts.
@@ -116,23 +118,35 @@ export RTFX_API_TOKEN=rtfx_9f2c1ab30d4e_Xj7…
 node cli/artifacts.mjs publish ./page.html --slug my-page --title "My Page"
 ```
 
-> **Cloudflare Access still gates the edge.** A bearer token authenticates you *to the app*;
-> it does not get you *past Access*. As long as `/api` sits behind the Access admin
-> application (the current production posture — see
-> [`DEPLOY_RTFX.md`](DEPLOY_RTFX.md) §5b), a direct machine call must also satisfy Access.
-> Two ways to do that:
->
-> - **Both credentials** — send the Access service-token headers *and* the bearer token. The
->   CLI does this automatically when `CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET` and
->   `RTFX_API_TOKEN` are all set. The API token decides identity and scope.
-> - **Exclude `/api` from Access** (operator decision, not done here) so bearer auth is the
->   only gate on it. Do this only once you're satisfied the app-layer checks are what you
->   want fronting the internet.
+### Why `/api/machine` and not `/api`
+
+Cloudflare Access gates `/api` at the edge, and Access has no idea what an `rtfx_…` token is —
+it decides on a browser session or on Cloudflare service-token headers. A call carrying only a
+bearer token is therefore answered by Access's login redirect and never reaches the Worker.
+A service token can't stand in for one either: it is a *deployment* credential, so handing one
+to every user who wants to publish is not something an operator can do.
+
+`/api/machine/*` exists for exactly that reason. Same artifact routes, **stricter** gate:
+
+- A bearer token is required, and a browser session is refused — which is what keeps the surface
+  safe once Access is no longer in front of it, since a browser attaches cookies to a cross-site
+  request by itself but never an `Authorization` header.
+- Scopes, ownership and the paused-account check are unchanged.
+- `/api/users`, `/api/tokens` and `/api/accounts` are **not** mounted there. Credential handout
+  stays edge-gated on `/api` and keeps refusing API tokens whatever the path.
+
+An operator puts `/api/machine` on an Access **Bypass** policy once — see
+[`DEPLOY_RTFX.md`](DEPLOY_RTFX.md) §5e. After that, `RTFX_API_TOKEN` is the whole credential set.
+
+> **Self-hosting with everything edge-gated?** Send Access service-token headers alongside the
+> bearer token; the CLI, plugin and MCP server do it automatically when
+> `CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET` are set. The headers get the request past
+> Access and grant nothing inside the app; the API token still decides identity and scope.
 
 ## 3. Publish
 
 ```http
-POST /api/artifacts
+POST /api/machine/artifacts
 Authorization: Bearer <token>
 Content-Type: multipart/form-data
 ```
@@ -160,7 +174,7 @@ republish — an artifact cannot be moved into another workspace by publishing t
 `url` points at the content host (`CONTENT_HOSTNAMES`), which is where artifacts are served.
 
 ```bash
-curl -sS -X POST "$ARTIFACTS_URL/api/artifacts" \
+curl -sS -X POST "$ARTIFACTS_URL/api/machine/artifacts" \
   -H "Authorization: Bearer $RTFX_API_TOKEN" \
   -F "slug=my-page" -F "title=My Page" -F "note=headline copy" \
   -F "file=@./page.html;type=text/html"
@@ -175,17 +189,17 @@ Updating is just publishing to the same slug — every publish is a new immutabl
 
 ```bash
 # what versions exist, and which is live
-curl -sS "$ARTIFACTS_URL/api/artifacts/my-page/versions" -H "Authorization: Bearer $RTFX_API_TOKEN"
+curl -sS "$ARTIFACTS_URL/api/machine/artifacts/my-page/versions" -H "Authorization: Bearer $RTFX_API_TOKEN"
 # {"current":3,"url":"https://a.rtfx.pro/my-page/","versions":[{"version":3,…},{"version":1,…}]}
 
 # roll back to v2 (requires `publish` scope)
-curl -sS -X POST "$ARTIFACTS_URL/api/artifacts/my-page/current" \
+curl -sS -X POST "$ARTIFACTS_URL/api/machine/artifacts/my-page/current" \
   -H "Authorization: Bearer $RTFX_API_TOKEN" -H "Content-Type: application/json" \
   -d '{"version": 2}'
 # {"slug":"my-page","current":2,"url":"https://a.rtfx.pro/my-page/"}
 ```
 
-Every route that reports on an artifact returns its `url`, and `GET /api/artifacts` returns
+Every route that reports on an artifact returns its `url`, and `GET /api/machine/artifacts` returns
 `content_base` alongside the list. Use them rather than assembling a link: the content host comes
 from `CONTENT_HOSTNAMES`, so a hard-coded `https://a.rtfx.pro/<slug>/` is right on rtfx.pro and
 wrong on every other deployment.
@@ -197,14 +211,14 @@ another `current` call. Preview any version at `/v/<slug>/<n>/` (owner/admin onl
 
 ```bash
 # share with named people
-curl -sS -X PUT "$ARTIFACTS_URL/api/artifacts/my-page/access" \
+curl -sS -X PUT "$ARTIFACTS_URL/api/machine/artifacts/my-page/access" \
   -H "Authorization: Bearer $RTFX_API_TOKEN" -H "Content-Type: application/json" \
   -d '{"visibility":"restricted","emails":["bob@example.com"]}'
 
 # open to every signed-in user
 … -d '{"visibility":"everyone","emails":[]}'
 
-curl -sS -X DELETE "$ARTIFACTS_URL/api/artifacts/my-page" -H "Authorization: Bearer $RTFX_API_TOKEN"
+curl -sS -X DELETE "$ARTIFACTS_URL/api/machine/artifacts/my-page" -H "Authorization: Bearer $RTFX_API_TOKEN"
 ```
 
 A non-admin token's grants are saved but do **not** invite anyone to sign in — the
@@ -214,6 +228,7 @@ response carries `allowlistWarning` when a granted address still needs an admin 
 
 | Status | `error` | Meaning / what to do |
 |---|---|---|
+| 401 | `unauthorized` | No `Authorization: Bearer` header reached `/api/machine/*`. Set `RTFX_API_TOKEN`. |
 | 401 | `invalid_token` | Unknown, revoked, or expired token. Response carries `WWW-Authenticate: Bearer error="invalid_token"`. Mint a new one — do not retry. |
 | 403 | `insufficient_scope` | The token lacks the scope for this route. Mint one with the scope; retrying won't help. |
 | 403 | `forbidden` | Token used against `/api/users` or `/api/tokens`, which require an Access login. |
@@ -224,9 +239,15 @@ response carries `allowlistWarning` when a granted address still needs an admin 
 | 413 | `payload_too_large` | Upload over the size cap. |
 | 503 | `not_configured` | User management isn't configured on this instance. |
 
-A missing/blank `Authorization` header is not an error by itself — the request simply falls
-through to Cloudflare Access authentication, and ends in `403 forbidden` if that yields no
-identity. A **bad** bearer token is always `401`, never a silent downgrade to another identity.
+On `/api/machine/*` a missing `Authorization` header is `401 unauthorized`: there is no other
+identity to fall back to, by design. On `/api` it is not an error by itself — the request falls
+through to Cloudflare Access authentication and ends in `403 forbidden` if that yields no
+identity. On either surface a **bad** bearer token is always `401`, never a silent downgrade to
+another identity.
+
+A `404` whose body has no `error` field means the instance is older than `/api/machine`; the
+shipped clients notice that and retry the call once against `/api`, so a client may be newer
+than the server it publishes to.
 
 ## 7. Lifecycle and hygiene
 

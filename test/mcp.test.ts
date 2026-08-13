@@ -440,6 +440,107 @@ describe("the JSON-RPC surface", () => {
   });
 });
 
+// --- Which surface the tools actually call -----------------------------------
+//
+// The reason this matters is the whole point of `/api/machine`: on an
+// Access-gated deployment, `/api` is answered by Cloudflare Access before the
+// Worker sees the request, so an agent holding only an `rtfx_…` token cannot
+// publish there. These tests pin that the tools go to the machine surface, that
+// they still work against an instance too old to have one, and that an Access
+// interception is reported as itself instead of as an empty result.
+
+describe("the tools publish through the machine API", () => {
+  let token: string;
+
+  beforeEach(async () => {
+    await initDb();
+    await clearR2();
+    token = await mintToken();
+  });
+
+  /** A fetch that records every URL before handing off to the real Worker. */
+  function recordingFetch(seen: string[]) {
+    return ((input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push(String(input));
+      return workerFetch(input as string, init);
+    }) as unknown as typeof fetch;
+  }
+
+  it("calls /api/machine, and only that, for every artifact operation", async () => {
+    const seen: string[] = [];
+    const ctx = {
+      ...context({ RTFX_API_TOKEN: token }, makeIo({ "/tmp/page.html": "<h1>hi</h1>" })),
+      fetchImpl: recordingFetch(seen),
+    };
+    await callTool("publish", { path: "/tmp/page.html", slug: "machine-made", title: "Made" }, ctx);
+    await callTool("list_artifacts", {}, ctx);
+    await callTool("get_versions", { slug: "machine-made" }, ctx);
+    await callTool("rollback", { slug: "machine-made", version: 1 }, ctx);
+
+    expect(seen).toHaveLength(4);
+    for (const url of seen) expect(url).toContain("/api/machine/artifacts");
+    // No call fell back to the Access-gated dashboard path.
+    expect(seen.some((u) => new URL(u).pathname.startsWith("/api/artifacts"))).toBe(false);
+  });
+
+  /**
+   * An instance older than the machine surface has no such route, so it answers
+   * with the framework's bare 404 — no `error` field. That, and only that, is
+   * retried against `/api`, so a plugin can be newer than the server it talks to.
+   */
+  it("falls back to /api against an instance that predates the machine surface", async () => {
+    const seen: string[] = [];
+    const oldServer = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      seen.push(url);
+      if (new URL(url).pathname.startsWith("/api/machine/")) {
+        return Promise.resolve(new Response("404 Not Found", { status: 404 }));
+      }
+      return workerFetch(url, init);
+    }) as unknown as typeof fetch;
+
+    const ctx = {
+      ...context({ RTFX_API_TOKEN: token }, makeIo({ "/tmp/page.html": "<h1>hi</h1>" })),
+      fetchImpl: oldServer,
+    };
+    const result = payload(await callTool("publish", { path: "/tmp/page.html", title: "Legacy" }, ctx));
+    expect(result.ok).toBe(true);
+    expect(result.version).toBe(1);
+    expect(seen.map((u) => new URL(u).pathname)).toEqual(["/api/machine/artifacts", "/api/artifacts"]);
+  });
+
+  it("does not retry a real 404 — an artifact that isn't yours stays a 404", async () => {
+    const seen: string[] = [];
+    const ctx = { ...context({ RTFX_API_TOKEN: token }), fetchImpl: recordingFetch(seen) };
+    const result = payload(await callTool("get_versions", { slug: "not-mine" }, ctx));
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(404);
+    expect(seen).toHaveLength(1);
+  });
+
+  /**
+   * What an operator sees if they publish the machine surface without putting it
+   * on an Access Bypass policy: Access answers with a sign-in page, `fetch`
+   * follows the redirect, and the tool would otherwise report "published
+   * undefined" or an empty artifact list.
+   */
+  it("names Cloudflare Access when Access answers instead of the app", async () => {
+    const challenged = (() =>
+      Promise.resolve(
+        Object.defineProperty(new Response("<html>sign in</html>", { status: 200 }), "url", {
+          value: "https://team.cloudflareaccess.com/cdn-cgi/access/login/rtfx.pro",
+        })
+      )) as unknown as typeof fetch;
+    const ctx = { ...context({ RTFX_API_TOKEN: token }), fetchImpl: challenged };
+
+    const result = payload(await callTool("list_artifacts", {}, ctx));
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/Cloudflare Access/);
+    expect(result.hint).toMatch(/Bypass/);
+    expect(result.artifacts).toBeUndefined();
+  });
+});
+
 // --- The real thing ----------------------------------------------------------
 
 describe("publish, list, versions and rollback against the real API", () => {

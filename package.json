@@ -28,6 +28,7 @@
     "setup": "node scripts/setup.mjs",
     "validate:deploy": "node scripts/validate-deploy-config.mjs",
     "validate:plugin": "node scripts/validate-plugin.mjs",
+    "generate:rasters": "node scripts/generate-brand-rasters.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",

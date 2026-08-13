@@ -58,7 +58,7 @@ describe("isManagementPath", () => {
   // Issue #29: the public product pages and their crawler files belong to the
   // app host only — a content origin serves artifact files and nothing else.
   it("blocks the public product pages and crawler files", () => {
-    for (const p of ["/login", "/docs", "/sitemap.xml", "/llms.txt", "/og.svg", "/og.png"]) {
+    for (const p of ["/login", "/docs", "/sitemap.xml", "/llms.txt", "/og.svg", "/og.png", "/logo.png"]) {
       expect(isManagementPath(p)).toBe(true);
     }
   });

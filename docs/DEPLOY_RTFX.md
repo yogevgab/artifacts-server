@@ -97,6 +97,12 @@ management routes there (the Worker does, per `src/host.ts`).
    #24** — `rtfx.pro/login`, — **added for issue #29** — `rtfx.pro/docs`,
    `rtfx.pro/robots.txt`, `rtfx.pro/sitemap.xml`, `rtfx.pro/llms.txt`, `rtfx.pro/og.svg` and `rtfx.pro/og.png`,
    and — **added for issue #36** — `rtfx.pro/privacy` and `rtfx.pro/terms`,
+   plus — **new: `rtfx.pro/logo.png`**, the square mark the landing page's `Organization.logo`
+   JSON-LD now points at (it used to point at the 1200×630 social card). It is a static image
+   that reads nothing about the caller, so it exposes exactly what `rtfx.pro/og.png` already
+   does — but without the bypass, every consumer of the structured data follows that URL into
+   Cloudflare's login screen,
+   plus — see **§5e**, and read it before adding this one — `rtfx.pro/api/machine`,
    one policy with decision **Bypass**. Without this, the viewer app above (destination
    `rtfx.pro`) still gates those paths, so `/` would show Access's login screen instead of
    the public landing page. `/login` matters for the same reason and more sharply: it is the
@@ -255,7 +261,7 @@ one layer of edge defence-in-depth — an admin-only *edge* filter in front of a
 
 Drop `<adminAud>` from `vars.ACCESS_AUD` only after the app is retired, never before.
 
-### Branding the one-time-code screen — MANUAL, mutates Cloudflare
+### Branding the one-time-code screen — MANUAL, mutates Cloudflare (§5d)
 
 `/login` is ours and now carries the rtfx mark, wordmark and copy (`src/login.ts`). The screen
 immediately after it — the email prompt and the one-time code — is **hosted by Cloudflare Access**
@@ -289,6 +295,104 @@ Then, in a browser signed in as an admin: open `/admin/people`, invite a throwaw
 confirm the row appears with no console error — then Remove it and confirm it is gone from both
 the directory and the Access allow-list.
 
+## 5e. The machine API — REQUIRED before external users can publish
+
+### The problem
+
+`/api` is guarded by Cloudflare Access. Access runs at the edge, *before* the
+Worker, and it decides on a browser session cookie or on Cloudflare service-token
+headers — it has no idea what an `rtfx_…` API token is. So a request that carries
+only a bearer token is answered by Access's login redirect and the Worker never
+sees it.
+
+That made the documented publishing story impossible for the people it is written
+for. An invited user mints a token at `/admin/integrations`, sets
+`RTFX_API_TOKEN`, runs `rtfx publish` (or the Claude Code plugin, or the MCP
+server, or plain `curl`) — and it fails, because the only way past Access is a
+service token, which is a *deployment* credential an operator cannot hand out per
+person.
+
+### The fix (deployed with the code)
+
+`/api/machine/*` serves the same artifact routes — publish, list, versions,
+rollback, views, sharing, delete — behind `requireApiToken` (`src/auth.ts`)
+instead of the dashboard's gate. It is deliberately **stricter** than `/api`:
+
+- A bearer token is required. A browser session is refused, which is what keeps
+  the surface immune to CSRF once Access is no longer in front of it — a browser
+  attaches cookies to a cross-site request by itself, never an `Authorization`
+  header.
+- Scopes, per-artifact ownership and the paused-account check are unchanged.
+- User management, token issuance and workspace membership are **not** mounted
+  there at all. They stay on `/api`, edge-gated, and keep refusing API tokens.
+
+### Required Access change — MANUAL, mutates Cloudflare
+
+1. Zero Trust → Access → Applications → **`Artifacts (public)`** → Edit.
+2. Add the destination **`rtfx.pro/api/machine`** (this covers everything under
+   it).
+3. Confirm its single policy is decision **Bypass**.
+
+Access resolves the most specific path first, so `/api/machine` becomes
+un-gated while `/api`, `/api/users` and `/admin` stay exactly as they were.
+
+If you would rather keep a separate application, create one named
+`Artifacts (machine)` with that one destination and a **Bypass** policy — the
+effect is the same.
+
+Nothing about `wrangler.jsonc` changes, and no deploy is needed for the Access
+edit itself — but the Worker code carrying the machine surface must already be
+deployed before you un-gate the path, or the bypass points at a 404.
+
+### Verify after the change
+
+```bash
+# A scoped API token, and no Cloudflare credential of any kind.
+export RTFX_API_TOKEN=<a token minted at /admin/integrations>
+
+# 200 and a JSON body. Before the Access change this is a 302 to
+# …cloudflareaccess.com, which is exactly the failure being fixed.
+curl -si https://rtfx.pro/api/machine/artifacts \
+  -H "Authorization: Bearer $RTFX_API_TOKEN" | head -1
+
+# No token: 401 from the Worker, with a Bearer challenge — never a 200.
+curl -s -o /dev/null -w '%{http_code}\n' https://rtfx.pro/api/machine/artifacts   # 401
+
+# Credential management is not on this surface at all.
+curl -s -o /dev/null -w '%{http_code}\n' https://rtfx.pro/api/machine/users \
+  -H "Authorization: Bearer $RTFX_API_TOKEN"                                      # 404
+
+# The dashboard API is untouched — still an Access redirect from a shell.
+curl -s -o /dev/null -w '%{http_code}\n' https://rtfx.pro/api/users               # 302
+
+# End to end, as an invited user would: no CF_ACCESS_* variables set.
+env -u CF_ACCESS_CLIENT_ID -u CF_ACCESS_CLIENT_SECRET \
+  node cli/artifacts.mjs publish /tmp/smoke.html --slug smoke-test --title "Smoke Test"
+```
+
+### Optional hardening: an edge rate limit — POST-DEPLOY, MANUAL, mutates Cloudflare
+
+Not required to ship, and deliberately **not** implemented in the Worker. Once
+`/api/machine` is bypassed, it is the one authenticated surface with no Access
+challenge in front of it, so an unauthenticated flood reaches the Worker (each
+request costs an invocation; `identityFromApiToken` rejects a malformed token on
+shape before it costs a D1 read, which is the cheap half of the defence).
+
+If that traffic ever shows up, add it at the edge rather than in code — Security
+→ WAF → Rate limiting rules, on `http.request.uri.path starts_with
+"/api/machine"`, counting responses with status 401. Edge rules are the right
+layer: they are free of Worker invocations, adjustable without a deploy, and
+reversible in one click. Nothing in this repo depends on the rule existing.
+
+### Rollback
+
+Delete the `rtfx.pro/api/machine` destination. Access gates it again, and
+publishing goes back to needing service-token headers (`/api` is unchanged and
+still accepts them alongside the bearer token). Clients do **not** silently fall
+back in that state — Access answers with a sign-in page rather than a 404, and
+they report that by name, which is the honest outcome: the credential the user
+has is genuinely not sufficient any more.
+
 ## 6. Redeploy + secret — MANUAL, mutates Cloudflare
 
 ```bash
@@ -305,11 +409,11 @@ confirm each public path answers **unauthenticated** — run this from a shell w
 session, so an Access redirect (302 to `…cloudflareaccess.com`) shows up as a failure:
 
 ```bash
-for p in / /docs /login /privacy /terms /robots.txt /sitemap.xml /llms.txt /og.svg /og.png; do
+for p in / /docs /login /privacy /terms /robots.txt /sitemap.xml /llms.txt /og.svg /og.png /logo.png; do
   printf '%-14s ' "$p"; curl -s -o /dev/null -w '%{http_code} %{content_type}\n' "https://rtfx.pro$p"
 done
 # all 200; / /docs /login /privacy /terms are text/html, robots+llms text/plain,
-# sitemap application/xml
+# sitemap application/xml, og.png + logo.png image/png
 
 # No public page may set a cookie of its own (issue #36) — the only cookie in the
 # product is the Cloudflare Access session, and it is set by signing in, not by reading.
@@ -348,8 +452,15 @@ curl -i https://rtfx.pro/health
 curl -i https://a.rtfx.pro/admin        # expect 404 — content hosts never serve /admin
 
 export ARTIFACTS_URL=https://rtfx.pro
-export CF_ACCESS_CLIENT_ID=<artifacts-cli service token client id>
-export CF_ACCESS_CLIENT_SECRET=<artifacts-cli service token secret>
+# The normal path, and the one an invited user has: a scoped API token, no
+# Cloudflare credential. Needs §5e to have been done.
+export RTFX_API_TOKEN=<a token minted at /admin/integrations>
+
+# Advanced / self-host only: the service token is what gets a request past
+# Access on an instance where every path is still edge-gated. It is a
+# deployment credential — never hand it to a user.
+# export CF_ACCESS_CLIENT_ID=<artifacts-cli service token client id>
+# export CF_ACCESS_CLIENT_SECRET=<artifacts-cli service token secret>
 
 echo '<h1>rtfx smoke test</h1>' > /tmp/smoke.html
 node cli/artifacts.mjs publish /tmp/smoke.html --slug smoke-test --title "Smoke Test"

@@ -188,14 +188,12 @@ function setupPanel(origin: string): string {
     ${snippet(
       "setup-http",
       "5 · Or straight over HTTP, from CI",
-      // A zip is `bundle`; `file` is one HTML document. The two CF-Access-*
-      // headers come from an Access service token and are what gets a machine
-      // call past the edge while /api sits inside the Access application — the
-      // bearer token authenticates to the app and never past Access.
-      `curl -X POST ${origin}/api/artifacts \\\n` +
+      // A zip is `bundle`; `file` is one HTML document. /api/machine is the
+      // bearer-token surface: it authenticates the token above and nothing else,
+      // so this runs with no Cloudflare credential. (The dashboard's own fetches
+      // still use /api, where the Access session identifies you.)
+      `curl -X POST ${origin}/api/machine/artifacts \\\n` +
         `  -H "Authorization: Bearer $RTFX_API_TOKEN" \\\n` +
-        `  -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \\\n` +
-        `  -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \\\n` +
         `  -F slug=q3-report -F title="Q3 Report" -F bundle=@./dist.zip\n\n` +
         `# one HTML document instead of a zip: -F file=@./index.html`
     )}
@@ -203,7 +201,9 @@ function setupPanel(origin: string): string {
     <p class="note" data-setup-note><b>Why a token and not your login.</b> A token is bound to its
       owner, carries only the scopes you gave it, and can be revoked on its own. An agent holding one
       publishes as you — it can never become you, manage people, or reach anyone else's artifacts.
-      Full reference lives in the <a href="/docs">product docs</a>.</p>
+      Machine calls go to <code>/api/machine</code>, which takes the token and nothing else, so
+      nothing here needs a Cloudflare credential. Full reference lives in the
+      <a href="/docs">product docs</a>.</p>
   </section>`;
 }
 

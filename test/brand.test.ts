@@ -177,6 +177,51 @@ describe("the landing page leads with one idea", () => {
     expect(body).toContain('id="waitlist"');
     expect(body).toContain('id="wl"');
   });
+
+  /**
+   * What stood above the fold was a fake screenshot: a rounded window with
+   * macOS traffic-light dots and grey bars standing in for text, carrying an
+   * `aria-label` that asserted specific facts ("version 4, shared with three
+   * people") about content that did not exist. For a product whose entire
+   * posture is that it does not overclaim, that was the one element on the site
+   * that was not truthful in kind — and it was the most prominent one.
+   *
+   * It is now the real round trip, rendered as HTML: the actual publish command
+   * and the state that exists the moment it returns.
+   */
+  it("shows a real round trip above the fold, not a picture of one", async () => {
+    const body = await html("/", ANON);
+    expect(body).toContain('data-landing="publish"');
+    // The command has to be the one that actually works — see docs/CLAUDE_CODE.md.
+    expect(body).toContain("/rtfx:publish");
+    // …and the page must state the claim the whole access model rests on.
+    expect(body).toMatch(/404/);
+  });
+
+  it("no longer ships the fake-screenshot chrome", async () => {
+    const body = await html("/", ANON);
+    for (const remnant of ["shot-dot", "shot-line", "product-shot"]) {
+      expect(body, `fake screenshot remnant: ${remnant}`).not.toContain(remnant);
+    }
+    // The lying accessible name in particular must never come back.
+    expect(body).not.toContain("Preview of the rtfx.pro dashboard");
+  });
+
+  /**
+   * An invite-only product asks a stranger to trust it before it will let them
+   * in. A public, MIT-licensed repository and a written security model are the
+   * strongest answer available to "what am I being asked to trust?", and they
+   * cost nothing — but only if the pages a signed-out visitor can reach
+   * actually link to them.
+   */
+  it("points every public page at the source and the security model", async () => {
+    for (const path of PUBLIC_PAGES) {
+      const body = await html(path, ANON);
+      expect(body, path).toContain('data-nav="source"');
+      expect(body, path).toContain('data-nav="security"');
+      expect(body, path).toContain("github.com/yogevgab/artifacts-server");
+    }
+  });
 });
 
 describe("the docs page absorbed the material without losing its own", () => {

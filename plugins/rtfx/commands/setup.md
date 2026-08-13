@@ -28,9 +28,15 @@ If `RTFX_API_TOKEN` is unset or the API returned `401`, walk the user through it
 Suggest putting the export in their shell profile or a secret manager — never in a file inside the
 repository, and never in a commit.
 
-If `doctor` reports a `403` while the token looks right, the instance is gating `/api` behind
-Cloudflare Access. That needs the service-token headers `CF_ACCESS_CLIENT_ID` and
-`CF_ACCESS_CLIENT_SECRET` from the same dashboard as well.
+The token is normally the whole credential set: publishing goes to `/api/machine`, which
+authenticates the bearer token and nothing else.
+
+If `doctor` reports that **Cloudflare Access** answered instead of the API, the instance has not
+exposed that surface (see its operator's `DEPLOY_RTFX.md` §5e). Until they do, the only way
+through the edge is a Cloudflare Access service token — `CF_ACCESS_CLIENT_ID` and
+`CF_ACCESS_CLIENT_SECRET`, which the operator issues in Cloudflare Zero Trust, not the rtfx
+dashboard. A `403` with the token looking right is a different problem: a scope the token lacks,
+or a route (people, tokens) that needs a real sign-in.
 
 The plugin also registers an **MCP server** with the same tools, for clients with no shell (Claude
 Desktop). It reads the same `RTFX_API_TOKEN`. If the user asks about it, run:

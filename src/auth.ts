@@ -8,6 +8,7 @@ import {
   isTokenUsable,
   needsTouch,
   rowScopes,
+  tokenId,
   touchApiToken,
   type Scope,
 } from "./tokens";
@@ -178,6 +179,12 @@ export function bearerToken(c: AuthContext): string | null {
  */
 async function identityFromApiToken(c: AuthContext, presented: string): Promise<Identity | null> {
   if (!c.env.DB) return null;
+  // Shape check before the lookup. Every token this app has ever minted reads
+  // `rtfx_<id>_<secret>` (see generateToken), so anything else cannot match a
+  // stored hash — and refusing it here costs no database read. That matters on
+  // the machine surface, which is reachable without Cloudflare Access in front
+  // of it: a flood of junk credentials must not turn into a flood of D1 queries.
+  if (tokenId(presented) === null) return null;
   let row;
   try {
     row = await findApiToken(c.env, presented);
@@ -469,6 +476,50 @@ export const requireUser: MiddlewareHandler<AuthApp> = async (c, next) => {
     return next();
   }
   return c.json({ error: "forbidden", detail: "sign-in required" }, 403);
+};
+
+/**
+ * Middleware: authenticate with an API token and nothing else — the gate on the
+ * machine surface (`/api/machine/*`, see src/api.ts).
+ *
+ * That surface exists so somebody invited to the product can publish from a CLI,
+ * an agent or CI with the scoped `rtfx_…` token they minted themselves, without
+ * *also* being handed Cloudflare Access service-token credentials. It is
+ * therefore meant to sit OUTSIDE the Access application (docs/DEPLOY_RTFX.md
+ * §5e), which makes this middleware the only gate in front of it.
+ *
+ * So it is deliberately NARROWER than `requireUser`, not a relaxation of it:
+ *
+ *   • A bearer token is required. An Access session cookie is not accepted, and
+ *     that is what keeps the surface immune to CSRF — a browser attaches cookies
+ *     to a cross-site request by itself, but never an `Authorization` header.
+ *   • Dev impersonation can't reach it either: `resolveAuth` only consults
+ *     `X-Dev-Email` when no bearer is presented, and an identity carrying no
+ *     `token` is refused below.
+ *   • Nothing downstream changes. Ownership (`canManage`), scopes
+ *     (`requireScope`) and the local directory still decide what the token may
+ *     actually do, exactly as they do on `/api`.
+ */
+export const requireApiToken: MiddlewareHandler<AuthApp> = async (c, next) => {
+  if (bearerToken(c) === null) {
+    return c.json(
+      {
+        error: "unauthorized",
+        detail: "this API needs an `Authorization: Bearer <rtfx token>` header",
+      },
+      401,
+      { "WWW-Authenticate": 'Bearer realm="rtfx"' }
+    );
+  }
+  const { identity, invalidToken, disabled, disabledEmail } = await resolveAuth(c);
+  if (invalidToken) return invalidTokenResponse(c);
+  if (disabled) return disabledResponse(c, disabledEmail);
+  // `identity.token` is the proof that it was the bearer path — and not Access,
+  // and not dev mode — that authenticated this request.
+  if (!identity?.token || !canUseDashboard(identity)) return invalidTokenResponse(c);
+  c.set("identity", identity);
+  c.set("email", displayName(identity));
+  return next();
 };
 
 /**

@@ -139,8 +139,36 @@ describe("every control says what it is", () => {
     const body = await publicHtml("/");
     expect(body).toContain('<div id="msg" role="status" aria-live="polite" hidden></div>');
     // The status class carries the colour; the sentence carries the meaning.
-    expect(body).toContain("msg.className = ok ? 'is-ok' : 'is-error'");
+    // Colour must never be applied inline, which would bypass the status tokens
+    // that are tuned for contrast in both schemes.
+    expect(body).toContain("msg.className =");
+    expect(body).toContain("'is-ok'");
+    expect(body).toContain("'is-error'");
     expect(body).not.toContain("msg.style.color");
+  });
+
+  /**
+   * 'Sending…' used to be passed through the success path, so a request that had
+   * not been answered yet was painted in the green success box — state as
+   * decoration, which docs/DESIGN.md forbids. Pending is now its own neutral
+   * state, and only a real answer colours the box.
+   */
+  it("does not dress a pending waitlist request as a success", async () => {
+    const body = await publicHtml("/");
+    expect(body).toContain("show('Sending…', 'pending')");
+    expect(body).not.toContain("show('Sending…', true)");
+  });
+
+  /**
+   * Every non-2xx used to render "Enter a valid email address", so somebody who
+   * submitted twice was told their own address was malformed. A rate limit and a
+   * validation failure are different problems with different remedies, and the
+   * live region is the only place either is ever explained.
+   */
+  it("tells a rate-limited request apart from an invalid address", async () => {
+    const body = await publicHtml("/");
+    expect(body).toContain("res.status === 429");
+    expect(body).toContain("res.status === 400");
   });
 
   it("never nests a control inside a control", async () => {

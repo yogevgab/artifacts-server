@@ -123,6 +123,18 @@ a.link-button:hover{opacity:.96;transform:translateY(-1px);text-decoration:none;
 }
 `;
 
+/**
+ * The public repository. Defined here rather than in `src/seo.ts` because
+ * `seo.ts` already imports the mark from this file, and pointing it back the
+ * other way would make the two modules circular.
+ *
+ * It is a constant rather than a literal in the footer because three surfaces
+ * cite it — the footer, the docs page and the `sameAs` entity signal in the
+ * landing page's structured data — and a repository URL that disagrees with
+ * itself across them is worse than not publishing one.
+ */
+export const SOURCE_URL = "https://github.com/yogevgab/artifacts-server";
+
 // --- the mark ---------------------------------------------------------------
 //
 // One shape, drawn twice: once URL-encoded for the favicon, once as inline SVG
@@ -133,16 +145,30 @@ a.link-button:hover{opacity:.96;transform:translateY(-1px);text-decoration:none;
  * The mark's geometry and colour, exported so anything that has to redraw it in
  * a different medium — the social card in `src/seo.ts`, for instance — redraws
  * *this* shape rather than inventing a second one.
+ *
+ * The mark is a **solid** caret, not a stroked one. It used to be the open
+ * three-point path `M9 22 16 9l7 13` at 2.5px — which is the single most reused
+ * glyph in interface design (`expand_less`, "sort ascending", "back to top"),
+ * and which, on a 32-unit grid rendered into a 16px favicon, thins to about
+ * 1.25px and blurs into a tick. Filling the same gesture keeps the brand
+ * continuous — it is still the caret people already associate with rtfx — while
+ * giving it the weight to survive a browser tab, and reading as a deliberate
+ * mark rather than an icon-font default.
+ *
+ * `MARK_BLUE` is the same `#0a84ff` as `--accent`. It was `#3b5bdb`, an indigo
+ * roughly 20° of hue away from every other blue in the product, so the favicon,
+ * the social card's glow and the buttons were three different blues; the card
+ * in `src/seo.ts` drew all three on one canvas. One accent, everywhere.
  */
-export const MARK_PATH = "M9 22 16 9l7 13";
-export const MARK_BLUE = "#3b5bdb";
+export const MARK_PATH = "M16 9 L24 23 L19.5 23 L16 16.5 L12.5 23 L8 23 Z";
+export const MARK_BLUE = "#0a84ff";
 
 // Inline mark, so no page ever requests /favicon.ico — that path would fall
 // through to the artifact catch-all (or the content-host redirect) and log noise.
 const FAVICON =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E" +
   `%3Crect width='32' height='32' rx='8' fill='%23${MARK_BLUE.slice(1)}'/%3E` +
-  `%3Cpath d='${MARK_PATH}' fill='none' stroke='white' stroke-width='2.5' stroke-linejoin='round'/%3E%3C/svg%3E`;
+  `%3Cpath d='${MARK_PATH}' fill='white'/%3E%3C/svg%3E`;
 
 /**
  * The rtfx mark as inline SVG. Inline rather than an `<img>` because the one
@@ -156,7 +182,7 @@ const FAVICON =
 export function brandMark(size = 28): string {
   return `<svg class="mark" width="${size}" height="${size}" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
     <rect width="32" height="32" rx="8" fill="${MARK_BLUE}"></rect>
-    <path d="${MARK_PATH}" fill="none" stroke="white" stroke-width="2.5" stroke-linejoin="round"></path>
+    <path d="${MARK_PATH}" fill="white"></path>
   </svg>`;
 }
 
@@ -235,6 +261,13 @@ export function siteFooter(): string {
         <a href="/docs" data-cta="docs">Docs</a>
         <a href="/docs#use-cases">Use cases</a>
         <a href="/login" data-cta="sign-in">Sign in</a>
+        <!-- The strongest thing a security product can offer somebody it has not
+             invited yet: read the code and the threat model before asking for an
+             account. The repository is public and the product is MIT-licensed, so
+             this costs nothing and answers the question an invite-only page
+             otherwise leaves open — "what am I being asked to trust?" -->
+        <a href="${SOURCE_URL}" data-nav="source" rel="noopener">Source</a>
+        <a href="${SOURCE_URL}/blob/main/SECURITY.md" data-nav="security" rel="noopener">Security</a>
         <a href="/llms.txt">llms.txt</a>
       </nav>
       <nav class="legal" aria-label="Legal">

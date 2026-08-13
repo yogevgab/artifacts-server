@@ -86,7 +86,7 @@ Exactly two variables, and neither is a Cloudflare account credential:
 |---|---|---|
 | `RTFX_API_TOKEN` | yes | Scoped API token. Bound to its owner, revocable on its own. |
 | `ARTIFACTS_URL` | no | Instance URL, default `https://rtfx.pro`. `RTFX_URL` is an accepted alias. |
-| `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` | no | Cloudflare Access **service token**, for an instance that still gates `/api` at the edge (the production posture in [`HERMES_CLOUD.md`](HERMES_CLOUD.md) §2). Pass-through only — it gets a request past Access and grants nothing inside the app. |
+| `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` | no | **Advanced / self-host only.** Cloudflare Access service token, for an instance that gates every path at the edge. Not needed on rtfx.pro: publishing goes to `/api/machine`, which authenticates the bearer token alone ([`HERMES_CLOUD.md`](HERMES_CLOUD.md) §2). Pass-through only — it gets a request past Access and grants nothing inside the app. |
 | `RTFX_MCP_ALLOW_ACCESS` / `RTFX_MCP_DEBUG` | no | MCP server only. See [`MCP.md`](MCP.md) §3. |
 
 `CF_API_TOKEN` — the Cloudflare management token used for user administration — is deliberately
@@ -150,6 +150,16 @@ All three come from one helper in `src/api.ts`, which resolves the content host 
 `CONTENT_HOSTNAMES` and falls back to the request host. The point is that a client never has to
 guess: hard-coding `https://a.rtfx.pro/<slug>/` is correct on rtfx.pro and wrong on every
 self-hosted instance, and a confidently wrong link is worse than no link.
+
+Since the machine surface landed, the plugin calls those routes under **`/api/machine/…`** rather
+than `/api/…`. Same handlers, same responses; the difference is the gate in front of them.
+Cloudflare Access sits on `/api` and does not understand bearer tokens, so a plugin holding only
+`RTFX_API_TOKEN` used to meet a sign-in page there — the credential the dashboard hands out was
+not, on its own, enough to publish. `/api/machine` requires that token and refuses a browser
+session, which is what lets an operator put it on an Access Bypass policy
+([`DEPLOY_RTFX.md`](DEPLOY_RTFX.md) §5e). `machineApiPath` in `rtfx.lib.mjs` does the rewriting,
+and a `404` with no `error` field — the signature of an instance older than the surface — is
+retried once against `/api`, so the plugin and the server can be upgraded in either order.
 
 `cli/artifacts.mjs` now prints the URL on `versions` and `rollback` as a result. The plugin treats
 all three fields as optional, so it still works against an instance running older code.

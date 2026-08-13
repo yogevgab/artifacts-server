@@ -127,11 +127,14 @@ export function redactToken(token) {
 }
 
 /**
- * Full credential/endpoint resolution. Cloudflare Access service-token headers
- * are optional pass-through, for instances that still gate `/api` at the edge
- * (the production posture described in docs/HERMES_CLOUD.md §2). They are *not*
- * a Cloudflare management token and grant nothing inside the app — the bearer
- * token alone decides identity and scope.
+ * Full credential/endpoint resolution.
+ *
+ * `RTFX_API_TOKEN` is the only credential this needs: publishing goes to the
+ * machine API (`MACHINE_API_PREFIX`), which authenticates the bearer token and
+ * nothing else. Cloudflare Access service-token headers remain an optional
+ * pass-through for self-hosted instances that gate every path at the edge — they
+ * are *not* a Cloudflare management token and grant nothing inside the app; the
+ * bearer token alone decides identity and scope.
  */
 export function resolveConfig(env = {}) {
   const endpoint = resolveEndpoint(env);
@@ -156,6 +159,78 @@ export function authHeaders(config) {
 /** Join an endpoint and an API path without doubling or dropping slashes. */
 export function apiUrl(endpoint, path) {
   return `${endpoint.replace(/\/+$/, "")}/${String(path).replace(/^\/+/, "")}`;
+}
+
+// --- Machine vs dashboard API ------------------------------------------------
+//
+// `/api` is the dashboard's API. On a deployment that gates it with Cloudflare
+// Access — the production posture — a request carrying only a bearer token is
+// answered by Access's login redirect before the Worker ever runs, so the token
+// alone is not enough to publish. `/api/machine` is the same artifact routes
+// behind a bearer-token-ONLY gate, meant to be put on an Access Bypass policy
+// precisely so a scoped `rtfx_…` token *is* enough. See src/api.ts.
+
+/** Prefix for the bearer-token machine API. */
+export const MACHINE_API_PREFIX = "/api/machine";
+
+/** The machine-surface equivalent of a `/api/...` path. Other paths pass through. */
+export function machineApiPath(path) {
+  const clean = `/${String(path).replace(/^\/+/, "")}`;
+  return clean.startsWith("/api/") ? `${MACHINE_API_PREFIX}${clean.slice("/api".length)}` : clean;
+}
+
+/**
+ * Should a machine-API call be retried against the plain `/api` path?
+ *
+ * Only when the server has no machine surface at all — i.e. it predates it, and
+ * answers with the framework's bare 404. Every 404 the machine surface itself
+ * produces carries an `error` field (an unknown route, or an artifact that isn't
+ * yours), so a real "not found" is never retried and never silently reported as
+ * something else. This keeps a plugin newer than the instance it publishes to
+ * working, so the two can be upgraded in either order.
+ */
+export function shouldRetryOnLegacyApi(status, body) {
+  if (status !== 404) return false;
+  return !(body && typeof body === "object" && body.error);
+}
+
+/** The hostname of a URL, lowercased, or "" if it isn't one. */
+function hostnameOf(url) {
+  try {
+    return new URL(String(url)).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Explain a response that should have been JSON and wasn't.
+ *
+ * The usual cause is an Access-gated path: Cloudflare Access answers the call
+ * with a redirect to its own sign-in page, and `fetch` follows it, so the client
+ * sees an ordinary `200` carrying HTML. Without this, `list` would report "no
+ * artifacts" and `publish` would report "published undefined" — both of which
+ * hide the one fact worth reporting.
+ */
+export function describeNonJsonResponse(requestedUrl, finalUrl) {
+  const to = hostnameOf(finalUrl);
+  const from = hostnameOf(requestedUrl);
+  if (/(^|\.)cloudflareaccess\.com$/.test(to)) {
+    return {
+      message: `Cloudflare Access answered with a sign-in page (${to}) instead of the API`,
+      hint: `${MACHINE_API_PREFIX} has to be on an Access "Bypass" policy for a bearer token to reach it — an operator does that once, see docs/DEPLOY_RTFX.md §5e. Until then, CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET (a Cloudflare service token) are the only way through.`,
+    };
+  }
+  if (to && from && to !== from) {
+    return {
+      message: `the request was redirected to ${to}, which did not return JSON`,
+      hint: "Something in front of the instance is intercepting the API. Check that ARTIFACTS_URL points straight at it.",
+    };
+  }
+  return {
+    message: "the server did not return JSON",
+    hint: `Check that ${ENDPOINT_VARS[0]} points at an rtfx instance and not at a proxy or a placeholder page.`,
+  };
 }
 
 /**
@@ -327,6 +402,8 @@ export function describeApiError(status, body = {}) {
   const detail = body.detail ?? "";
   const base = { status, error, detail, retryable: false };
   switch (true) {
+    case status === 401 && error === "unauthorized":
+      return { ...base, hint: `No bearer token reached the server. Set ${TOKEN_VAR} to a token minted at /admin/integrations.` };
     case status === 401:
       return { ...base, hint: `${TOKEN_VAR} is unknown, revoked or expired — mint a new token; retrying will not help.` };
     case status === 403 && error === "insufficient_scope":
@@ -334,7 +411,7 @@ export function describeApiError(status, body = {}) {
     case status === 403 && error === "account_disabled":
       return { ...base, hint: "The account this token acts as has been paused. Ask an admin to re-enable it." };
     case status === 403:
-      return { ...base, hint: "Refused. Managing people or tokens needs a browser login, not an API token. If the instance gates /api behind Cloudflare Access, also set CF_ACCESS_CLIENT_ID/CF_ACCESS_CLIENT_SECRET." };
+      return { ...base, hint: "Refused. Managing people or tokens needs a browser login, not an API token." };
     case status === 404:
       return { ...base, hint: "That slug does not exist, or is not yours. Run `list` to see what this token can reach." };
     case status === 409:

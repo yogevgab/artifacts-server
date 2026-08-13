@@ -96,7 +96,7 @@ for `--json` and the exit code.
 |---|---|---|
 | `RTFX_API_TOKEN` | yes | Scoped API token. Bound to its owner, revocable on its own. |
 | `ARTIFACTS_URL` | no | Instance URL, default `https://rtfx.pro`. `RTFX_URL` is accepted too. |
-| `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` | no | Cloudflare Access **service token**, only for an instance that still gates `/api` at the edge. Not a Cloudflare account credential; grants nothing inside the app. |
+| `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` | no | **Advanced / self-host only.** Cloudflare Access service token, for an instance that gates every path at the edge. Not needed on rtfx.pro — publishing goes to `/api/machine`, which takes the bearer token alone. Not a Cloudflare account credential; grants nothing inside the app. |
 | `RTFX_MCP_ALLOW_ACCESS` | no | MCP only. `1` also exposes `update_access`. |
 | `RTFX_MCP_DEBUG` | no | MCP only. Logs method names to stderr; never arguments. |
 
