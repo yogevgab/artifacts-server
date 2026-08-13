@@ -35,6 +35,7 @@ import { adminEmails, describeUsers, listUsers, privilegedEmails, superAdminEmai
 import { notFoundPage } from "./pages";
 import { landingPage } from "./landing";
 import { docsPage } from "./docs";
+import { privacyPage, termsPage } from "./legal";
 import { loginPage } from "./login";
 import {
   overviewPage,
@@ -371,6 +372,13 @@ app.get("/", (c) =>
 // Hermes), the access-control and privacy model, and the FAQ that backs the
 // FAQPage structured data on the page.
 app.get("/docs", (c) => c.html(docsPage(c.env), 200, { "Cache-Control": PUBLIC_HTML_CACHE }));
+
+// Privacy policy and terms of use (issue #36). Public for the same reason /docs
+// is: they are what somebody reads *before* deciding to sign up, so gating them
+// behind the sign-in they are trying to evaluate would defeat them entirely.
+app.get("/privacy", (c) => c.html(privacyPage(c.env), 200, { "Cache-Control": PUBLIC_HTML_CACHE }));
+
+app.get("/terms", (c) => c.html(termsPage(c.env), 200, { "Cache-Control": PUBLIC_HTML_CACHE }));
 
 // robots.txt is answered by whichever origin was asked, with three different
 // answers: crawl the product pages (canonical app host), crawl nothing (the

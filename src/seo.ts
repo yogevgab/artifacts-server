@@ -84,6 +84,23 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
     summary: "Sign-in surface. Access is by invitation; sign-in is passwordless.",
     priority: "0.5",
   },
+  {
+    path: "/privacy",
+    title: "Privacy policy — what rtfx.pro stores and who can see it",
+    summary:
+      "The data rtfx.pro holds (email address, published artifacts, per-artifact view logs), " +
+      "why, and for how long; cookies and local storage; processors; your rights. No " +
+      "analytics, advertising or third-party tracking.",
+    priority: "0.3",
+  },
+  {
+    path: "/terms",
+    title: "Terms of use",
+    summary:
+      "Invite-only access, ownership of what you publish, acceptable use, how API tokens and " +
+      "agents are treated, availability and liability.",
+    priority: "0.3",
+  },
 ];
 
 /** Paths that are gated and must never be crawled or indexed. */
@@ -184,6 +201,9 @@ export function llmsTxt(env: Pick<Env, "PUBLIC_BASE_URL">): string {
 - Artifact content is served from a separate origin (a.rtfx.pro) so uploaded HTML can never
   run in the same origin as the dashboard or API.
 - API tokens are scoped, owner-bound and revocable; a token can never exceed its owner.
+- No analytics, advertising or third-party tracking anywhere on the site. The only cookies are
+  the Cloudflare Access session cookie and Cloudflare's own security cookies — both strictly
+  necessary. Full detail: ${origin}/privacy.
 
 ## Links
 

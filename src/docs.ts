@@ -1,4 +1,5 @@
 import { layout, esc, siteHeader, siteFooter, PUBLIC_CHROME_STYLE } from "./pages";
+import { cookieNotice, CONSENT_STYLE, CONSENT_SCRIPT } from "./consent";
 import type { Env } from "./env";
 import { SITE, canonicalUrl } from "./seo";
 
@@ -15,7 +16,7 @@ import { SITE, canonicalUrl } from "./seo";
  * rich result can never quote an answer the page doesn't actually show.
  */
 
-const DOCS_STYLE = `${PUBLIC_CHROME_STYLE}
+const DOCS_STYLE = `${PUBLIC_CHROME_STYLE}${CONSENT_STYLE}
 .wrap{max-width:980px}
 .doc-hero{padding:2.4rem 0 1.4rem;max-width:46rem}
 .doc-hero p.eyebrow{font-size:.72rem;text-transform:uppercase;letter-spacing:.09em;color:var(--faint);margin:0 0 .7rem}
@@ -161,6 +162,7 @@ export function docsPage(env: Env): string {
   const body = `
     ${siteHeader("docs")}
 
+    <main id="main">
     <div class="doc-hero">
       <p class="eyebrow">Documentation</p>
       <h1>Publish it, control who opens it, keep every version.</h1>
@@ -284,7 +286,11 @@ $ artifacts grant prototype teammate@example.com</code></pre>
         <p>None of it is crawlable: artifacts, the dashboard and the API are excluded in
           <a href="/robots.txt">robots.txt</a>, marked <code>noindex</code>, and served with an
           <code>X-Robots-Tag: noindex</code> header. The only indexable pages are this one, the
-          landing page and the sign-in page.</p>
+          landing page, the sign-in page and the two legal pages.</p>
+        <p>What rtfx.pro itself stores about you — and the fact that it runs no analytics,
+          advertising or third-party tracking — is set out in the
+          <a href="/privacy">privacy policy</a>. What you agree to by publishing here is in the
+          <a href="/terms">terms of use</a>.</p>
       </section>
 
       <section id="versions">
@@ -346,8 +352,11 @@ $ artifacts grant prototype teammate@example.com</code></pre>
         </div>
       </section>
     </article>
+    </main>
 
-    ${siteFooter()}`;
+    ${siteFooter()}
+    ${cookieNotice()}
+    <script>${CONSENT_SCRIPT}</script>`;
   return layout(TITLE, body, DOCS_STYLE, {
     description: DESCRIPTION,
     canonical: canonicalUrl(env, "/docs"),

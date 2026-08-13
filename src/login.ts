@@ -7,6 +7,7 @@ import {
   PUBLIC_CHROME_STYLE,
   type HeadMeta,
 } from "./pages";
+import { cookieNotice, CONSENT_STYLE, CONSENT_SCRIPT } from "./consent";
 import type { Env } from "./env";
 import { canonicalUrl } from "./seo";
 
@@ -32,7 +33,7 @@ import { canonicalUrl } from "./seo";
  * See docs/DESIGN.md for the visual language these states share.
  */
 
-const LOGIN_STYLE = `${PUBLIC_CHROME_STYLE}
+const LOGIN_STYLE = `${PUBLIC_CHROME_STYLE}${CONSENT_STYLE}
 main.auth{display:flex;align-items:center;justify-content:center;min-height:62vh;padding:2rem 0}
 .sheet .steps{margin:1.4rem 0 0;padding:0;list-style:none;display:grid;gap:.75rem;counter-reset:step}
 .sheet .steps li{display:flex;gap:.7rem;align-items:flex-start;color:var(--muted);font-size:.94rem}
@@ -58,10 +59,12 @@ main.auth{display:flex;align-items:center;justify-content:center;min-height:62vh
  */
 function sheet(state: string, inner: string): string {
   return `${siteHeader("login")}
-    <main class="auth"><section class="sheet" data-page="login" data-state="${esc(state)}">
+    <main class="auth" id="main"><section class="sheet" data-page="login" data-state="${esc(state)}">
       <div class="auth-brand">${brandLockup("/")}</div>
       ${inner}</section></main>
-    ${siteFooter()}`;
+    ${siteFooter()}
+    ${cookieNotice()}
+    <script>${CONSENT_SCRIPT}</script>`;
 }
 
 /**
@@ -97,7 +100,10 @@ function signedOut(): string {
      <hr class="divider">
      <p class="hint">No account yet? <a href="/#waitlist">Request access</a> and we'll be in
        touch — rtfx.pro is invite-only, so signing in only works once your address has been
-       added. New here? <a href="/docs">Read the docs</a>.</p>`
+       added. New here? <a href="/docs">Read the docs</a>.</p>
+     <p class="hint">Signing in sets one cookie — the Cloudflare Access session that keeps you
+       signed in. Nothing here tracks you: see the <a href="/privacy">privacy policy</a> and the
+       <a href="/terms">terms of use</a>.</p>`
   );
 }
 
