@@ -31,6 +31,19 @@ export async function serveArtifact<E extends { Bindings: Env }>(
   // is belt-and-braces next to robots.txt on the content origin: a crawler that
   // somehow holds a session must still not index or archive what it sees.
   headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("Referrer-Policy", "no-referrer");
+  // Keep artifact pages working: AI-built pages often load CDNs, fonts, images or iframes.
+  // This CSP hardens the browser boundary that matters for the shared content origin
+  // (no framing, no hostile <base>) without blocking those artifact subresources.
+  headers.set(
+    "Content-Security-Policy",
+    "default-src * data: blob: 'unsafe-inline' 'unsafe-eval'; " +
+      "script-src * data: blob: 'unsafe-inline' 'unsafe-eval'; " +
+      "style-src * 'unsafe-inline'; img-src * data: blob:; font-src * data:; " +
+      "connect-src *; media-src * data: blob:; frame-src *; worker-src * blob:; " +
+      "frame-ancestors 'none'; base-uri 'none'"
+  );
   headers.set("ETag", obj.httpEtag);
   return new Response(obj.body, { headers });
 }

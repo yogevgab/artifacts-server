@@ -471,7 +471,7 @@ tools: publish · list_artifacts · get_versions · rollback · doctor</code></p
   return layout(TITLE, body, DOCS_STYLE, {
     description: DESCRIPTION,
     canonical: canonicalUrl(env, "/docs"),
-    image: canonicalUrl(env, "/og.svg"),
+    image: canonicalUrl(env, "/og.png"),
     socialTitle: "rtfx.pro docs — publishing, access control and the API",
     jsonLd: structuredData(env),
   });

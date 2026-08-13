@@ -164,7 +164,7 @@ describe("llms.txt", () => {
 });
 
 describe("social card", () => {
-  it("serves an SVG card at /og.svg", async () => {
+  it("serves an SVG source card at /og.svg", async () => {
     const res = await req("/og.svg");
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toContain("image/svg+xml");
@@ -172,6 +172,15 @@ describe("social card", () => {
     expect(svg).toContain("<svg");
     expect(svg).toContain('width="1200"');
     expect(svg).toContain("rtfx.pro");
+  });
+
+  it("serves a PNG preview card at /og.png", async () => {
+    const res = await req("/og.png");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("image/png");
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    expect(Array.from(bytes.slice(0, 8))).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
   });
 });
 
@@ -184,7 +193,8 @@ describe("public page metadata", () => {
     expect(html).toContain('<meta name="robots" content="index,follow,max-image-preview:large">');
     expect(html).toContain('<meta property="og:type" content="website">');
     expect(html).toContain(`<meta property="og:url" content="${LOCAL}/">`);
-    expect(html).toContain(`<meta property="og:image" content="${LOCAL}/og.svg">`);
+    expect(html).toContain(`<meta property="og:image" content="${LOCAL}/og.png">`);
+    expect(html).toContain('<meta property="og:image:type" content="image/png">');
     expect(html).toContain('<meta name="twitter:card" content="summary_large_image">');
     expect(html).toMatch(/<meta name="twitter:description" content="[^"]+">/);
   });
@@ -271,7 +281,7 @@ describe("private surfaces stay out of every index", () => {
     }
   });
 
-  it("artifact responses carry X-Robots-Tag: noindex", async () => {
+  it("artifact responses carry noindex and compatibility-first hardening headers", async () => {
     await req("/api/artifacts", {
       method: "POST",
       body: htmlForm({ title: "Report", slug: "report" }, "x.html", strToU8("<h1>report</h1>")),
@@ -279,12 +289,25 @@ describe("private surfaces stay out of every index", () => {
     const res = await req("/report/", as("admin@test.com"));
     expect(res.status).toBe(200);
     expect(res.headers.get("X-Robots-Tag")).toContain("noindex");
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(res.headers.get("Referrer-Policy")).toBe("no-referrer");
+    const csp = res.headers.get("Content-Security-Policy") ?? "";
+    expect(csp).toContain("frame-ancestors 'none'");
+    expect(csp).toContain("base-uri 'none'");
+    expect(csp).toContain("script-src *");
+  });
+
+  it("public app pages carry baseline browser hardening headers", async () => {
+    const res = await canonicalReq("/");
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(res.headers.get("Referrer-Policy")).toBe("strict-origin-when-cross-origin");
+    expect(res.headers.get("X-Frame-Options")).toBe("DENY");
   });
 });
 
 describe("crawler surface on the content origin", () => {
   it("serves no product page, sitemap or llms.txt there", async () => {
-    for (const path of ["/", "/docs", "/sitemap.xml", "/llms.txt", "/og.svg", "/login"]) {
+    for (const path of ["/", "/docs", "/sitemap.xml", "/llms.txt", "/og.svg", "/og.png", "/login"]) {
       const res = await contentReq(path);
       expect(res.status, `${path} should not exist on the content host`).toBe(404);
     }

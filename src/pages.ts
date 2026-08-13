@@ -323,7 +323,7 @@ function headTags(title: string, meta?: HeadMeta): string {
   if (meta.image) {
     tags.push(
       `<meta property="og:image" content="${esc(meta.image)}">`,
-      `<meta property="og:image:type" content="image/svg+xml">`,
+      `<meta property="og:image:type" content="image/png">`,
       `<meta property="og:image:width" content="1200">`,
       `<meta property="og:image:height" content="630">`,
       `<meta property="og:image:alt" content="${esc(social)}">`,

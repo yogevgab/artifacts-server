@@ -95,7 +95,7 @@ management routes there (the Worker does, per `src/host.ts`).
 3. **New for the public landing page (issue #5):** self-hosted app **`Artifacts (public)`**
    with destinations `rtfx.pro/` (exact root), `rtfx.pro/waitlist`, — **added for issue
    #24** — `rtfx.pro/login`, — **added for issue #29** — `rtfx.pro/docs`,
-   `rtfx.pro/robots.txt`, `rtfx.pro/sitemap.xml`, `rtfx.pro/llms.txt` and `rtfx.pro/og.svg`,
+   `rtfx.pro/robots.txt`, `rtfx.pro/sitemap.xml`, `rtfx.pro/llms.txt`, `rtfx.pro/og.svg` and `rtfx.pro/og.png`,
    and — **added for issue #36** — `rtfx.pro/privacy` and `rtfx.pro/terms`,
    one policy with decision **Bypass**. Without this, the viewer app above (destination
    `rtfx.pro`) still gates those paths, so `/` would show Access's login screen instead of
@@ -305,7 +305,7 @@ confirm each public path answers **unauthenticated** — run this from a shell w
 session, so an Access redirect (302 to `…cloudflareaccess.com`) shows up as a failure:
 
 ```bash
-for p in / /docs /login /privacy /terms /robots.txt /sitemap.xml /llms.txt /og.svg; do
+for p in / /docs /login /privacy /terms /robots.txt /sitemap.xml /llms.txt /og.svg /og.png; do
   printf '%-14s ' "$p"; curl -s -o /dev/null -w '%{http_code} %{content_type}\n' "https://rtfx.pro$p"
 done
 # all 200; / /docs /login /privacy /terms are text/html, robots+llms text/plain,

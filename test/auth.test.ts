@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { accessEmail, isAdmin, resolveIsAdmin } from "../src/auth";
+import app from "../src/index";
 import type { Env } from "../src/env";
 
 const baseEnv = {
@@ -29,6 +30,18 @@ describe("accessEmail dev/prod gating", () => {
     expect(
       await accessEmail(ctx({ ...baseEnv, DEV_LOGIN: "true" }, { "X-Dev-Anonymous": "true" }))
     ).toBeNull();
+  });
+
+  it("ignores DEV_LOGIN on the canonical production host", async () => {
+    const prodEnv = {
+      ...baseEnv,
+      DEV_LOGIN: "true",
+      PUBLIC_BASE_URL: "https://rtfx.pro",
+      CONTENT_HOSTNAMES: "a.rtfx.pro",
+    } as Env;
+    const res = await app.request("https://rtfx.pro/whoami", {}, prodEnv as any);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ email: null });
   });
 });
 

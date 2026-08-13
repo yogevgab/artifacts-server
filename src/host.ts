@@ -13,6 +13,7 @@ const MANAGEMENT_PATHS = new Set([
   "/sitemap.xml",
   "/llms.txt",
   "/og.svg",
+  "/og.png",
 ]);
 const MANAGEMENT_PREFIXES = ["/admin", "/api", "/v"];
 

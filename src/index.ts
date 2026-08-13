@@ -51,7 +51,7 @@ import { peoplePage, type UsersInfo } from "./people";
 import { integrationsPage } from "./integrations";
 import { canSeeSection, portalNotFound, type PortalViewer } from "./portal";
 import { isContentHost, isManagementPath, isPerOriginPath, firstContentHostname, parseHostnames } from "./host";
-import { robotsTxt, sitemapXml, llmsTxt, ogImageSvg, isCanonicalHost, siteOrigin } from "./seo";
+import { robotsTxt, sitemapXml, llmsTxt, ogImageSvg, OG_IMAGE_PNG_BASE64, isCanonicalHost, siteOrigin } from "./seo";
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVars }>();
 
@@ -82,6 +82,15 @@ app.use("*", async (c, next) => {
     return c.html(notFoundPage(), 404);
   }
   await next();
+});
+
+// Baseline response headers for the app and public pages. Artifact content adds its own
+// content-specific policy in serveArtifact().
+app.use("*", async (c, next) => {
+  await next();
+  if (!c.res.headers.has("X-Content-Type-Options")) c.header("X-Content-Type-Options", "nosniff");
+  if (!c.res.headers.has("Referrer-Policy")) c.header("Referrer-Policy", "strict-origin-when-cross-origin");
+  if (!c.res.headers.has("X-Frame-Options")) c.header("X-Frame-Options", "DENY");
 });
 
 app.get("/health", (c) => c.text("ok"));
@@ -419,6 +428,18 @@ app.get(
       },
     })
 );
+app.get(
+  "/og.png",
+  (c) =>
+    new Response(Uint8Array.from(atob(OG_IMAGE_PNG_BASE64), (ch) => ch.charCodeAt(0)), {
+      headers: {
+        "Content-Type": "image/png",
+        "Cache-Control": "public, max-age=86400",
+        "X-Content-Type-Options": "nosniff",
+      },
+    })
+);
+
 
 // Sign-in surface. Public on purpose: it explains how to get in, so it must sit
 // OUTSIDE the Cloudflare Access application (see docs/DEPLOY_RTFX.md). It never

@@ -164,7 +164,7 @@ function signedOutMeta(env: Env): HeadMeta {
       "Sign in to rtfx.pro. Access is by invitation and sign-in is passwordless — we email " +
       "you a one-time code. No account yet? Request access in a click.",
     canonical: canonicalUrl(env, "/login"),
-    image: canonicalUrl(env, "/og.svg"),
+    image: canonicalUrl(env, "/og.png"),
     socialTitle: "Sign in to rtfx.pro",
   };
 }

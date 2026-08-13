@@ -1,7 +1,7 @@
 import { layout, esc, siteHeader, siteFooter, PUBLIC_CHROME_STYLE, type HeadMeta } from "./pages";
 import { cookieNotice, CONSENT_STYLE, CONSENT_SCRIPT } from "./consent";
 import type { Env } from "./env";
-import { SITE, canonicalUrl } from "./seo";
+import { SITE, canonicalUrl, siteOrigin } from "./seo";
 
 /**
  * `/privacy` and `/terms` (issue #36).
@@ -13,10 +13,9 @@ import { SITE, canonicalUrl } from "./seo";
  *     table; the cookie table is the cookies that actually reach a browser. A
  *     privacy policy that describes a generic SaaS instead of this one is worse
  *     than no page at all, because it is a promise nobody checked.
- *  2. **They are operator templates, and they say so at the top.** Nothing here
- *     has been through counsel. The banner is not modesty — it is the difference
- *     between a starting point an operator adapts and a document a reader is
- *     entitled to rely on.
+ *  2. **The repository copy remains reusable for self-hosted operators.** The canonical
+ *     rtfx.pro deployment renders production-facing wording, while non-rtfx deployments
+ *     still get the operator-template notice until they adapt the text.
  *
  * Both pages are public and crawlable: they are the pages a person reads *before*
  * deciding to sign up, so putting them behind sign-in would defeat them entirely.
@@ -26,11 +25,8 @@ import { SITE, canonicalUrl } from "./seo";
 /** Last substantive edit to either document, shown on both. */
 const UPDATED = "13 August 2026";
 
-/**
- * Placeholder contact. An operator forking this must point it at a mailbox that
- * exists — the template banner lists it as a fill-in for exactly that reason.
- */
 const CONTACT = "privacy@rtfx.pro";
+const OPERATOR = "the rtfx.pro operator";
 
 const LEGAL_STYLE = `${PUBLIC_CHROME_STYLE}${CONSENT_STYLE}
 .wrap{max-width:900px}
@@ -92,6 +88,10 @@ function sections(parts: readonly Part[]): string {
  * before either page can be relied on, rather than gesturing vaguely at "consult
  * a lawyer" — the fill-ins are the contact address and the governing law.
  */
+function isRtfxProduction(env: Env): boolean {
+  return siteOrigin(env) === SITE.origin;
+}
+
 function templateNotice(kind: "privacy" | "terms"): string {
   return `<div class="template" data-legal-template role="note">
       <h2>Operator template — not legal advice</h2>
@@ -130,7 +130,7 @@ function legalPage(
         <p class="updated">Last updated ${esc(UPDATED)}</p>
       </div>
 
-      ${templateNotice(o.current)}
+      ${isRtfxProduction(env) ? "" : templateNotice(o.current)}
       ${toc(o.parts)}
 
       <article class="legal">${sections(o.parts)}</article>
@@ -143,7 +143,7 @@ function legalPage(
   const meta: HeadMeta = {
     description: o.description,
     canonical: canonicalUrl(env, path),
-    image: canonicalUrl(env, "/og.svg"),
+    image: canonicalUrl(env, "/og.png"),
     socialTitle: `${o.heading} · ${SITE.name}`,
     jsonLd: [
       {
@@ -197,9 +197,8 @@ const PRIVACY_PARTS: readonly Part[] = [
   {
     id: "who",
     heading: "Who is responsible",
-    html: `<p>rtfx.pro is operated by the person or organisation running this deployment, who is
-      the data controller for everything described below. Questions, requests and complaints go
-      to <code>${esc(CONTACT)}</code>.</p>
+    html: `<p>${esc(OPERATOR)} is responsible for this deployment and is the data controller for everything
+      described below. Questions, requests and complaints go to <code>${esc(CONTACT)}</code>.</p>
     <p>If you reached an artifact through a link somebody sent you, they are the one who decided
       to share it with you and who sees that you opened it. We host it on their behalf.</p>`,
   },
@@ -394,7 +393,7 @@ const TERMS_PARTS: readonly Part[] = [
   {
     id: "acceptance",
     heading: "Accepting these terms",
-    html: `<p>These terms apply between you and whoever operates this rtfx.pro deployment. Using
+    html: `<p>These terms apply between you and ${esc(OPERATOR)}. Using
       the service — signing in, publishing an artifact, opening one somebody shared with you, or
       calling the API — means you accept them. If you are using rtfx.pro for an employer or a
       client, you confirm you may accept them on that organisation's behalf.</p>`,
@@ -456,8 +455,7 @@ const TERMS_PARTS: readonly Part[] = [
   {
     id: "availability",
     heading: "Availability and changes to the service",
-    html: `<p>The service is provided as it is, without a service-level commitment in this
-      template. We may change, suspend or discontinue features, and we may impose reasonable
+    html: `<p>The service is provided as it is, without a service-level commitment unless one is agreed separately. We may change, suspend or discontinue features, and we may impose reasonable
       limits on storage, file size or request volume. Where a change would remove something you
       rely on, we will give notice we reasonably can.</p>
     <p>Keep your own copy of anything you cannot afford to lose. rtfx.pro versions what you
@@ -496,9 +494,7 @@ const TERMS_PARTS: readonly Part[] = [
   {
     id: "law",
     heading: "Governing law",
-    html: `<p>The governing law and the courts with jurisdiction are for the operator of this
-      deployment to specify; this template deliberately leaves both blank rather than guessing at
-      a jurisdiction. See the note at the top of this page.</p>`,
+    html: `<p>These terms are intended to be governed by the laws that apply to ${esc(OPERATOR)}. If a dispute cannot be resolved informally, the courts with jurisdiction over the operator will apply unless mandatory consumer or data-protection law says otherwise. For the current operator details, contact <code>${esc(CONTACT)}</code>.</p>`,
   },
   {
     id: "contact",
@@ -518,7 +514,7 @@ export function termsPage(env: Env): string {
     eyebrow: "Terms",
     heading: "Terms of use",
     lede:
-      "The agreement between you and whoever operates this deployment: how access works, what " +
+      "The agreement between you and the rtfx.pro operator: how access works, what " +
       "you may publish, what you keep, and what the service does not promise.",
     description: TERMS_DESCRIPTION,
     parts: TERMS_PARTS,
