@@ -36,7 +36,7 @@
     // the Cloudflare API. `npm run setup` fills these in.
     "CF_ACCOUNT_ID": "fac060161220992adb92c048d8d8f8b5",
     "ACCESS_VIEWER_APP_ID": "65e4d014-0042-4a6c-94ea-2b6f23b9c67e",
-    "ACCESS_VIEWER_POLICY_ID": "b1d9eebc-7f01-41fe-a4cd-2730c8a536a1",
+    "ACCESS_VIEWER_POLICY_ID": "8394344e-557a-40f5-a787-9ee5e5d4296b",
     // Comma-separated hostnames that serve artifact content ONLY (no admin/API/
     // dashboard). Each hostname listed here must also have a `routes` entry above.
     // Leave empty to keep a single origin.
