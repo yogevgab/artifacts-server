@@ -284,6 +284,8 @@ describe("admin dashboard UX", () => {
     // redirect that would blow away the share link
     expect(body).toContain("data-refresh");
     expect(body).toContain("showPublished");
+    expect(body).toContain('class="ghost link-button" data-open-link');
+    expect(body).not.toContain('<a data-open-link target="_blank" rel="noopener"><button');
   });
 
   it("gives an actionable empty state when nothing is published", async () => {
