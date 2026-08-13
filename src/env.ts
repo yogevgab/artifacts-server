@@ -48,6 +48,12 @@ export interface ArtifactRow {
   updated_at: string;
   visibility: Visibility;
   current_version: number;
+  /**
+   * Email of the beta user who owns this artifact — the only non-admin who may
+   * manage it. NULL means nobody but an admin can manage it (legacy rows, and
+   * anything published by a service token, which has no email).
+   */
+  owner_email: string | null;
 }
 
 export interface ViewRow {

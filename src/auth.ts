@@ -1,6 +1,7 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { MiddlewareHandler } from "hono";
 import type { Env } from "./env";
+import { canUseDashboard } from "./authz";
 
 // Cache one JWKS resolver per team domain across requests in the isolate.
 const jwksCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
@@ -131,20 +132,51 @@ export function isAdmin(env: Env, email: string | null): boolean {
   return !!email && adminList(env).includes(email.toLowerCase());
 }
 
+/** Hono per-request variables set by requireAdmin / requireUser. */
+export type AuthVars = { email: string; identity: Identity };
+
+/** Display/audit name for an identity: their email, or the service token's name. */
+function displayName(id: Identity): string {
+  return id.email ?? (id.commonName ? `service:${id.commonName}` : "service-token");
+}
+
 /**
  * Middleware: 403 unless the caller is an admin. Accepts either a human whose
  * email is in ADMIN_EMAILS, or a service token (common_name) — both of which
  * have already been vetted by Cloudflare Access's admin-application policy
- * before the request reaches the Worker. Stashes the identity in c.get('email').
+ * before the request reaches the Worker. Stashes the identity in c.get('email')
+ * and c.get('identity').
  */
-export const requireAdmin: MiddlewareHandler<{ Bindings: Env; Variables: { email: string } }> =
+export const requireAdmin: MiddlewareHandler<{ Bindings: Env; Variables: AuthVars }> =
   async (c, next) => {
     const id = await getIdentity(c);
     if (id?.isAdmin) {
-      c.set("email", id.email ?? (id.commonName ? `service:${id.commonName}` : "service-token"));
+      c.set("identity", id);
+      c.set("email", displayName(id));
       return next();
     }
     return c.json({ error: "forbidden", detail: "admin access required" }, 403);
+  };
+
+/**
+ * Middleware: 403 unless the caller is an admin, or a signed-in beta user (a
+ * human with an email). Per-artifact ownership is enforced downstream — this
+ * only establishes *who* is asking.
+ *
+ * A non-admin service token is rejected on purpose: ownership is keyed on an
+ * email, so a token has nothing it could own and would otherwise be able to
+ * publish unowned (admin-only) artifacts just by satisfying the viewer Access
+ * policy. Admin service tokens (ADMIN_SERVICE_TOKENS, e.g. the CLI) still pass.
+ */
+export const requireUser: MiddlewareHandler<{ Bindings: Env; Variables: AuthVars }> =
+  async (c, next) => {
+    const id = await getIdentity(c);
+    if (canUseDashboard(id)) {
+      c.set("identity", id);
+      c.set("email", displayName(id));
+      return next();
+    }
+    return c.json({ error: "forbidden", detail: "sign-in required" }, 403);
   };
 
 function getCookie(header: string | undefined, name: string): string | undefined {
