@@ -6,6 +6,13 @@ export interface Env {
   DB: D1Database;
   /** Comma-separated list of admin emails allowed to publish/delete. */
   ADMIN_EMAILS: string;
+  /**
+   * Comma-separated super-admin (operator/owner) emails. A super admin is an
+   * admin who additionally may manage other admins, and who can never be
+   * disabled or removed from the beta — the anti-lockout invariant. Defaults to
+   * the first `ADMIN_EMAILS` entry when unset, so every deployment has one.
+   */
+  SUPER_ADMIN_EMAILS?: string;
   /** Comma-separated service-token common_names (client ids) with admin rights. */
   ADMIN_SERVICE_TOKENS?: string;
   /** Cloudflare Access team domain, e.g. "myteam.cloudflareaccess.com". Empty in dev. */

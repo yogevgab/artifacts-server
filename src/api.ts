@@ -2,7 +2,27 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import type { Env, ArtifactRow } from "./env";
 import { requireAdmin, requireUser, requireScope, denyApiToken, type AuthVars } from "./auth";
-import { canManage } from "./authz";
+import { canManage, userActionDenial, type UserAction } from "./authz";
+import {
+  cleanText,
+  deleteUser,
+  describeUsers,
+  disableUser,
+  effectiveRole,
+  enableUser,
+  getUser,
+  listUsers,
+  normalize,
+  updateProfile,
+  upsertInvite,
+  privilegedEmails,
+  superAdminEmails,
+  MAX_DISPLAY_NAME_LENGTH,
+  MAX_NOTES_LENGTH,
+  type UserRole,
+  type UserRow,
+} from "./users";
+import { normalizeEmail } from "./waitlist";
 import {
   createApiToken,
   getApiToken,
@@ -33,10 +53,10 @@ import {
   getViews,
 } from "./db";
 import {
-  getAllowlist,
   addUsers,
   removeUser,
   isConfigured,
+  allowlistView,
   AccessNotConfiguredError,
   AccessApiError,
 } from "./access-api";
@@ -246,51 +266,220 @@ api.post("/artifacts", requireScope("publish"), async (c) => {
   });
 });
 
-// --- User management (login allow-list, backed by Cloudflare Access) ---
+// --- User management -------------------------------------------------------
+//
+// Two layers, deliberately separate (see src/users.ts):
+//   • Cloudflare Access holds the login allow-list — who can authenticate at all.
+//   • The local `users` table holds product state: status, name, notes, timestamps.
+//
+// Every route here is admin-only and refuses API tokens (see the middleware at
+// the top of this file), because inviting somebody hands out a credential.
 
-function adminEmailSet(c: { env: Env }): string[] {
-  return c.env.ADMIN_EMAILS.split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+/**
+ * The full directory response. Read straight back from D1 and Cloudflare after
+ * every mutation, so the client never has to merge state itself and can't drift.
+ * `focus` is the email the request acted on, echoed back as `user`.
+ */
+async function directory(
+  env: Env,
+  extra: { warning?: string; removed?: string; focus?: string } = {}
+): Promise<Record<string, unknown>> {
+  const { focus, ...rest } = extra;
+  const [rows, allowlist] = await Promise.all([listUsers(env), allowlistView(env)]);
+  const users = describeUsers(env, rows, allowlist.emails);
+  return {
+    users,
+    admins: privilegedEmails(env),
+    super_admins: superAdminEmails(env),
+    allowlist,
+    ...(focus ? { user: users.find((u) => u.email === normalize(focus)) ?? null } : {}),
+    ...rest,
+  };
 }
 
-api.get("/users", async (c) => {
-  if (!isConfigured(c.env)) {
-    return c.json({ error: "not_configured", detail: "user management is not configured" }, 503);
+/**
+ * Resolve the target of a user-management action and check the policy for it.
+ * Returns either a Response to send (403 with the reason) or the target's
+ * current row and configured role.
+ */
+async function targetUser(
+  c: Context<Vars>,
+  rawEmail: string,
+  action: UserAction
+): Promise<{ email: string; row: UserRow | null; role: UserRole } | Response> {
+  const email = normalizeEmail(rawEmail);
+  if (!email) {
+    return c.json({ error: "bad_request", detail: "valid email required" }, 400);
   }
-  try {
-    const users = await getAllowlist(c.env);
-    return c.json({ users, admins: adminEmailSet(c) });
-  } catch (e) {
-    return c.json({ error: "access_api", detail: (e as Error).message }, 502);
-  }
-});
+  const role = effectiveRole(c.env, email);
+  const denial = userActionDenial(c.get("identity"), { email, role }, action);
+  if (denial) return c.json({ error: "forbidden", detail: denial }, 403);
+  return { email, row: await getUser(c.env, email), role };
+}
 
+api.get("/users", async (c) => c.json(await directory(c.env)));
+
+/**
+ * Invite somebody (or re-invite an existing person). The Access allow-list is
+ * written *first*: if that fails we have handed out nothing, so there is no
+ * directory row promising a login that does not exist.
+ */
 api.post("/users", async (c) => {
   const body = await c.req.json().catch(() => null);
-  const email = String(body?.email ?? "").trim().toLowerCase();
-  if (!email.includes("@")) return c.json({ error: "bad_request", detail: "valid email required" }, 400);
-  try {
-    const users = await addUsers(c.env, [email]);
-    return c.json({ users, admins: adminEmailSet(c) });
-  } catch (e) {
-    if (e instanceof AccessNotConfiguredError) return c.json({ error: "not_configured" }, 503);
-    return c.json({ error: "access_api", detail: (e as Error).message }, 502);
+  const target = await targetUser(c, String(body?.email ?? ""), "invite");
+  if (target instanceof Response) return target;
+
+  const displayName = cleanText(body?.display_name, MAX_DISPLAY_NAME_LENGTH);
+  if (displayName === undefined && body?.display_name !== undefined) {
+    return c.json(
+      { error: "bad_request", detail: `display_name must be a string of at most ${MAX_DISPLAY_NAME_LENGTH} chars` },
+      400
+    );
   }
+  const notes = cleanText(body?.notes, MAX_NOTES_LENGTH);
+  if (notes === undefined && body?.notes !== undefined) {
+    return c.json(
+      { error: "bad_request", detail: `notes must be a string of at most ${MAX_NOTES_LENGTH} chars` },
+      400
+    );
+  }
+
+  let warning: string | undefined;
+  if (isConfigured(c.env)) {
+    try {
+      await addUsers(c.env, [target.email]);
+    } catch (e) {
+      if (e instanceof AccessNotConfiguredError) return c.json({ error: "not_configured" }, 503);
+      return c.json({ error: "access_api", detail: (e as Error).message }, 502);
+    }
+  } else {
+    warning =
+      "Cloudflare Access isn't configured, so this only records them locally — they can't sign in yet";
+  }
+
+  await upsertInvite(c.env, {
+    email: target.email,
+    displayName,
+    notes,
+    invitedBy: c.get("email"),
+    role: target.role,
+    now: new Date().toISOString(),
+  });
+  return c.json(await directory(c.env, { warning, focus: target.email }));
 });
 
-api.delete("/users/:email", async (c) => {
-  const email = c.req.param("email").trim().toLowerCase();
-  try {
-    const users = await removeUser(c.env, email);
-    // Also drop this user from every artifact's grant list, and kill any API
-    // token issued for them — otherwise revoking a login would leave a working
-    // credential behind.
-    await removeEmailFromAllGrants(c.env, email);
-    await revokeTokensForEmail(c.env, email, new Date().toISOString());
-    return c.json({ users, admins: adminEmailSet(c) });
-  } catch (e) {
-    if (e instanceof AccessNotConfiguredError) return c.json({ error: "not_configured" }, 503);
-    return c.json({ error: "access_api", detail: (e as Error).message }, 400);
+/** Edit the human-facing metadata (display name, notes). Never role or status. */
+api.patch("/users/:email", async (c) => {
+  const target = await targetUser(c, c.req.param("email"), "edit");
+  if (target instanceof Response) return target;
+  const body = await c.req.json().catch(() => null);
+
+  const displayName = cleanText(body?.display_name, MAX_DISPLAY_NAME_LENGTH);
+  const notes = cleanText(body?.notes, MAX_NOTES_LENGTH);
+  if (
+    (body?.display_name !== undefined && displayName === undefined) ||
+    (body?.notes !== undefined && notes === undefined)
+  ) {
+    return c.json({ error: "bad_request", detail: "display_name / notes must be short strings" }, 400);
   }
+  if (displayName === undefined && notes === undefined) {
+    return c.json({ error: "bad_request", detail: "nothing to update" }, 400);
+  }
+  const row = await updateProfile(c.env, target.email, { displayName, notes });
+  if (!row) return c.json({ error: "not_found" }, 404);
+  return c.json(await directory(c.env, { focus: target.email }));
+});
+
+/**
+ * Pause somebody's access. The local status is written *first* — that is what
+ * actually stops them (`resolveAuth` refuses a disabled account on every
+ * surface), so it must not be contingent on the Cloudflare API succeeding. Their
+ * API tokens are revoked in the same breath, otherwise a paused person would keep
+ * a working bearer credential.
+ *
+ * Artifacts, versions, files, views and grants are all left alone: disabling is
+ * reversible, and re-enabling restores exactly what they had.
+ */
+api.post("/users/:email/disable", async (c) => {
+  const target = await targetUser(c, c.req.param("email"), "disable");
+  if (target instanceof Response) return target;
+  const now = new Date().toISOString();
+
+  await disableUser(c.env, target.email, target.role, now);
+  await revokeTokensForEmail(c.env, target.email, now);
+
+  let warning: string | undefined;
+  if (isConfigured(c.env)) {
+    try {
+      await removeUser(c.env, target.email);
+    } catch (e) {
+      if (!(e instanceof AccessNotConfiguredError)) {
+        warning = `disabled here, but the Cloudflare Access allow-list still lists them (${(e as Error).message}) — this app refuses them either way`;
+      }
+    }
+  }
+  return c.json(await directory(c.env, { warning, focus: target.email }));
+});
+
+/**
+ * Lift a pause. Allow-list first, mirroring invite: granting access must not be
+ * recorded locally unless the login it implies actually exists. Previously
+ * revoked API tokens stay revoked — re-enabling a person is not re-issuing
+ * their credentials.
+ */
+api.post("/users/:email/enable", async (c) => {
+  const target = await targetUser(c, c.req.param("email"), "enable");
+  if (target instanceof Response) return target;
+
+  let warning: string | undefined;
+  if (isConfigured(c.env)) {
+    try {
+      await addUsers(c.env, [target.email]);
+    } catch (e) {
+      if (e instanceof AccessNotConfiguredError) return c.json({ error: "not_configured" }, 503);
+      return c.json({ error: "access_api", detail: (e as Error).message }, 502);
+    }
+  } else {
+    warning = "Cloudflare Access isn't configured, so they still can't sign in";
+  }
+  await enableUser(c.env, target.email, target.role, new Date().toISOString());
+  return c.json(
+    await directory(c.env, {
+      warning: warning ?? "re-enabled — any API tokens they had stay revoked",
+      focus: target.email,
+    })
+  );
+});
+
+/**
+ * Remove somebody from the beta entirely. The Access allow-list is written first
+ * and a failure aborts: deleting the local row while Access still lets them in
+ * would leave a signed-in stranger with no directory entry at all.
+ *
+ * Their artifacts, versions, files and view history are NOT deleted — published
+ * work outlives the account. What goes is the login, the view grants, and every
+ * API token issued for them.
+ */
+api.delete("/users/:email", async (c) => {
+  const target = await targetUser(c, c.req.param("email"), "remove");
+  if (target instanceof Response) return target;
+
+  let warning: string | undefined;
+  if (isConfigured(c.env)) {
+    try {
+      await removeUser(c.env, target.email);
+    } catch (e) {
+      if (e instanceof AccessNotConfiguredError) return c.json({ error: "not_configured" }, 503);
+      return c.json({ error: "access_api", detail: (e as Error).message }, 502);
+    }
+  } else {
+    warning = "Cloudflare Access isn't configured — removed locally only";
+  }
+  const now = new Date().toISOString();
+  await removeEmailFromAllGrants(c.env, target.email);
+  await revokeTokensForEmail(c.env, target.email, now);
+  await deleteUser(c.env, target.email);
+  return c.json(await directory(c.env, { warning, removed: target.email }));
 });
 
 // --- API tokens (bearer credentials for Hermes Cloud / CI / scripts) ---

@@ -138,6 +138,7 @@ All config lives in `wrangler.jsonc` (`vars`) plus one secret. See the comments 
 |---|---|
 | `routes[0].pattern` | Hostname to serve from (a zone on your account). |
 | `ADMIN_EMAILS` | Comma-separated emails with admin rights. |
+| `SUPER_ADMIN_EMAILS` *(optional)* | The operator/owner account(s). A super admin may manage other admins, and can never be paused or removed — the anti-lockout invariant. Defaults to the first `ADMIN_EMAILS` entry, so every deployment has one. |
 | `ADMIN_SERVICE_TOKENS` | Access service-token client ids (`…access`) with admin rights (for the CLI). |
 | `ACCESS_TEAM_DOMAIN` | Your Zero Trust team domain, `…cloudflareaccess.com`. |
 | `ACCESS_AUD` | Comma-separated `viewerAud,adminAud`; the Worker verifies JWTs against either. |
@@ -148,13 +149,42 @@ All config lives in `wrangler.jsonc` (`vars`) plus one secret. See the comments 
 
 ### Landing page
 `https://<your-domain>/` — public, no login required. Pitches the product, explains beta/pricing
-status, and collects `/waitlist` signups. Signed-in people click through to `/gallery`.
+status, and collects `/waitlist` signups. Its two CTAs are deliberately distinct: **Request
+access** (waitlist, for people not yet invited) and **Sign in** (`/login`, for people who are).
+
+### Sign-in
+`https://<your-domain>/login` — **public, and must stay outside the Cloudflare Access
+application.** It authenticates nobody: it explains that the beta is invite-only and that
+invited users get a one-time code by email, then hands off to `/admin`, which Access gates —
+and that hand-off is what triggers the login. It renders three states: signed out, already
+signed in, and *paused* (a valid login whose account an admin disabled). There is no password
+auth anywhere in this product by design.
 
 ### Dashboard
 `https://<your-domain>/admin` — publish artifacts, manage per-artifact access, upload new
-versions / roll back, and (admins only) add/remove users. Admins see every artifact, labelled
+versions / roll back, and (admins only) manage people. Admins see every artifact, labelled
 with its owner; a beta user sees only the ones they published. The gallery at `/gallery` is
-filtered to what each viewer may see; visiting it signed out redirects back to the landing page.
+filtered to what each viewer may see; visiting it signed out redirects to `/login`.
+
+### People (user management)
+Admin-only, in the dashboard and at `/api/users`. Cloudflare Access remains the authentication
+provider; the local `users` table (`migrations/0007_users.sql`) is **product metadata and state**
+layered above the Access allow-list:
+
+| Layer | Holds | Source of truth for |
+|---|---|---|
+| Cloudflare Access | The login allow-list | Who can authenticate at all |
+| `users` table | `status`, display name, notes, `invited_at` / `last_seen_at` / `disabled_at` | Whether this app serves them |
+| `ADMIN_EMAILS` / `SUPER_ADMIN_EMAILS` | Privilege | Who is an admin or the operator |
+
+The `role` column only *records* configuration — writing it can never escalate anyone, and the
+Worker always re-derives privilege from env. Lifecycle actions: **invite** (adds to the Access
+allow-list and creates the row), **pause** (disable — refused on every surface immediately, and
+their API tokens are revoked), **re-enable**, and **remove** (drops the login, every artifact
+grant and every API token — but never their published artifacts). Safeguards: the super admin
+can't be paused or removed by anyone including themselves, only a super admin may act on another
+admin, nobody may disable their own account, and API tokens are refused from these routes
+entirely.
 
 > If Cloudflare Access gates `/admin` and `/api` to admins only (the default in
 > [docs/DEPLOY_RTFX.md](docs/DEPLOY_RTFX.md) step 5), beta users are stopped at the edge before
@@ -179,8 +209,10 @@ node cli/artifacts.mjs versions my-page
 node cli/artifacts.mjs rollback my-page 1
 node cli/artifacts.mjs grant my-page alice@example.com
 node cli/artifacts.mjs views my-page   # total/unique + recent views log
-node cli/artifacts.mjs users
-node cli/artifacts.mjs user-add bob@example.com
+node cli/artifacts.mjs users                     # directory with role + status
+node cli/artifacts.mjs user-add bob@example.com  # invite
+node cli/artifacts.mjs user-disable bob@example.com  # pause + revoke their tokens
+node cli/artifacts.mjs user-enable bob@example.com
 
 node cli/artifacts.mjs token-create "hermes-cloud" --owner alice@example.com --scopes read,publish
 node cli/artifacts.mjs tokens
@@ -215,7 +247,7 @@ Full request/response contract, error codes and rollback flow:
 [`docs/HERMES_CLOUD.md`](docs/HERMES_CLOUD.md).
 
 ### Permissions
-Cloudflare Access decides **who can log in** (managed in the app's *Users* panel, which writes
+Cloudflare Access decides **who can log in** (managed in the app's *People* panel, which writes
 the Access allow-list). The Worker decides **who sees each artifact**: `restricted` (only granted
 emails + admins) or `everyone` (any signed-in user). New artifacts are private by default. A
 direct URL a viewer lacks access to returns 404.
@@ -234,7 +266,9 @@ allow-list — only an admin invites people into the beta.
 Artifacts with no owner (published before this model, or by a service token, which has no
 email) are manageable by admins only. Run `migrations/0005_owner_email.sql` on an existing
 database; it backfills owners from `created_by` where that was a real email. API tokens live
-in `migrations/0006_api_tokens.sql`.
+in `migrations/0006_api_tokens.sql`, and the local user directory in
+`migrations/0007_users.sql` (additive and backfilled from artifact owners — an Access-allowed
+person with no row is still a valid user, so applying it can't lock anyone out).
 
 ### Versioning
 Each publish to an existing slug creates a new immutable version and makes it live; previous

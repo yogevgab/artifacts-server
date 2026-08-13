@@ -1,18 +1,20 @@
 import type { Env } from "./env";
+import { privilegedEmails } from "./users";
 
 /** Thrown when Cloudflare user-management config/secret is absent (e.g. dev). */
 export class AccessNotConfiguredError extends Error {}
 /** Thrown when the Cloudflare API call fails. */
 export class AccessApiError extends Error {}
 
+/** Admins and super admins — the emails that must always be able to sign in. */
 function adminEmails(env: Env): string[] {
-  return env.ADMIN_EMAILS.split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+  return privilegedEmails(env);
 }
 
 /**
  * The list that should always be present in the policy = the requested emails
- * plus every admin email (so an admin can never be removed / locked out).
- * Deduped, lowercased, sorted.
+ * plus every admin and super-admin email (so an operator can never be removed /
+ * locked out). Deduped, lowercased, sorted.
  */
 export function mergeAdmins(env: Env, emails: string[]): string[] {
   const set = new Set<string>(adminEmails(env));
@@ -106,7 +108,11 @@ export async function addUsers(env: Env, emails: string[]): Promise<string[]> {
   return setAllowlist(env, [...current, ...emails]);
 }
 
-/** Remove one email. Refuses to remove an admin. Returns the new list. */
+/**
+ * Remove one email. Refuses to remove an admin or super admin — the same
+ * invariant `mergeAdmins` enforces, checked up front so the caller gets a clear
+ * error instead of a silent no-op round-trip.
+ */
 export async function removeUser(env: Env, email: string): Promise<string[]> {
   const target = email.trim().toLowerCase();
   if (adminEmails(env).includes(target)) {
@@ -118,4 +124,30 @@ export async function removeUser(env: Env, email: string): Promise<string[]> {
 
 export function isConfigured(env: Env): boolean {
   return !!(env.CF_API_TOKEN && env.CF_ACCOUNT_ID && env.ACCESS_VIEWER_APP_ID && env.ACCESS_VIEWER_POLICY_ID);
+}
+
+/**
+ * What we can see of the Cloudflare Access allow-list right now, as three
+ * distinct states rather than a throw. The distinction matters to the person
+ * reading the Users panel: "not wired up yet" is a setup task, "we couldn't
+ * reach Cloudflare" is an incident, and neither should look like "nobody has
+ * access".
+ */
+export interface AllowlistView {
+  /** False when the CF_* / ACCESS_* configuration is absent (e.g. local dev). */
+  configured: boolean;
+  /** The allow-listed emails, or null when unreadable. */
+  emails: string[] | null;
+  /** Why the read failed, when it did. */
+  error: string | null;
+}
+
+/** Read the allow-list without throwing. Shared by the JSON API and the dashboard. */
+export async function allowlistView(env: Env): Promise<AllowlistView> {
+  if (!isConfigured(env)) return { configured: false, emails: null, error: null };
+  try {
+    return { configured: true, emails: await getAllowlist(env), error: null };
+  } catch (e) {
+    return { configured: true, emails: null, error: (e as Error).message };
+  }
 }

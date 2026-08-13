@@ -1,12 +1,29 @@
 import { describe, it, expect } from "vitest";
-import { canView, canManage, isOwner, canUseDashboard } from "../src/authz";
+import {
+  canView,
+  canManage,
+  isOwner,
+  canUseDashboard,
+  userActionDenial,
+  type UserAction,
+} from "../src/authz";
 import type { Identity } from "../src/auth";
 
-const admin: Identity = { email: "admin@x.com", commonName: null, isAdmin: true };
-const bob: Identity = { email: "bob@x.com", commonName: null, isAdmin: false };
-const carol: Identity = { email: "carol@x.com", commonName: null, isAdmin: false };
-const adminToken: Identity = { email: null, commonName: "cli-admin.access", isAdmin: true };
-const plainToken: Identity = { email: null, commonName: "monitoring.access", isAdmin: false };
+const admin: Identity = { email: "admin@x.com", commonName: null, isAdmin: true, role: "admin" };
+const bob: Identity = { email: "bob@x.com", commonName: null, isAdmin: false, role: "member" };
+const carol: Identity = { email: "carol@x.com", commonName: null, isAdmin: false, role: "member" };
+const adminToken: Identity = {
+  email: null,
+  commonName: "cli-admin.access",
+  isAdmin: true,
+  role: "admin",
+};
+const plainToken: Identity = {
+  email: null,
+  commonName: "monitoring.access",
+  isAdmin: false,
+  role: "member",
+};
 
 const ownedBy = (owner: string | null) => ({ owner_email: owner });
 
@@ -77,5 +94,74 @@ describe("canUseDashboard", () => {
   it("a non-admin service token and anonymous callers may not", () => {
     expect(canUseDashboard(plainToken)).toBe(false);
     expect(canUseDashboard(null)).toBe(false);
+  });
+});
+
+/**
+ * The user-directory policy as pure rules (issue #24). The API tests cover the
+ * same ground end-to-end; these pin the rule *ordering*, which end-to-end tests
+ * can't distinguish — e.g. that "super admin is protected" wins over "you may
+ * not act on yourself", so the reason an operator sees is the right one.
+ */
+describe("userActionDenial", () => {
+  const owner: Identity = {
+    email: "owner@x.com",
+    commonName: null,
+    isAdmin: true,
+    role: "super_admin",
+  };
+  const member = { email: "bob@x.com", role: "member" } as const;
+  const otherAdmin = { email: "admin2@x.com", role: "admin" } as const;
+  const operator = { email: "owner@x.com", role: "super_admin" } as const;
+  const ALL: UserAction[] = ["invite", "edit", "disable", "enable", "remove"];
+
+  const allowed = (actor: Identity | null, target: { email: string; role: any }) =>
+    ALL.filter((a) => userActionDenial(actor, target, a) === null);
+
+  it("requires admin rights at all", () => {
+    expect(allowed(null, member)).toEqual([]);
+    expect(allowed(bob, member)).toEqual([]);
+  });
+
+  it("lets an admin run the whole lifecycle on a member", () => {
+    expect(allowed(admin, member)).toEqual(ALL);
+    expect(allowed(owner, member)).toEqual(ALL);
+  });
+
+  it("protects the super admin from everything but their own edit", () => {
+    // The operator may still fix their own display name; nothing else lands,
+    // and the reason given is the protection rule rather than self-lockout.
+    expect(allowed(owner, operator)).toEqual(["edit"]);
+    expect(userActionDenial(owner, operator, "remove")).toMatch(/protected/);
+    // A plain admin can't even edit them: rule 1 blocks the lifecycle actions,
+    // rule 2 ("only a super admin can manage another admin") blocks the edit.
+    expect(allowed(admin, operator)).toEqual([]);
+    expect(userActionDenial(admin, operator, "edit")).toMatch(/super admin/);
+  });
+
+  it("stops one admin acting on a peer, but lets the operator do it", () => {
+    expect(allowed(admin, otherAdmin)).toEqual([]);
+    expect(userActionDenial(admin, otherAdmin, "disable")).toMatch(/super admin/);
+    expect(allowed(owner, otherAdmin)).toEqual(ALL);
+  });
+
+  it("blocks self-lockout without blocking a self-edit", () => {
+    const self = { email: "admin@x.com", role: "admin" } as const;
+    expect(allowed(admin, self)).toEqual([]); // peer-admin rule catches it first
+    expect(allowed(owner, { email: "owner@x.com", role: "admin" })).toEqual([
+      "invite",
+      "edit",
+      "enable",
+    ]);
+  });
+
+  it("matches emails case- and whitespace-insensitively", () => {
+    const shouty = { email: "  OWNER@X.com ", role: "admin" } as const;
+    expect(userActionDenial(owner, shouty, "disable")).toMatch(/your own account/);
+  });
+
+  it("an admin API token is capped at admin, so it can never touch an admin", () => {
+    expect(allowed(adminToken, otherAdmin)).toEqual([]);
+    expect(allowed(adminToken, member)).toEqual(ALL);
   });
 });

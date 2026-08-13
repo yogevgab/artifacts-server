@@ -1,6 +1,6 @@
 import type { Env } from "./env";
 
-const MANAGEMENT_PATHS = new Set(["/", "/health", "/whoami", "/waitlist", "/gallery"]);
+const MANAGEMENT_PATHS = new Set(["/", "/health", "/whoami", "/waitlist", "/gallery", "/login"]);
 const MANAGEMENT_PREFIXES = ["/admin", "/api", "/v"];
 
 /** Parse a comma-separated hostname list (env var) into a lowercase set. */

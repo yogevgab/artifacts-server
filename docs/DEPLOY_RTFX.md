@@ -93,11 +93,14 @@ management routes there (the Worker does, per `src/host.ts`).
    `rtfx.pro/api` (not `a.rtfx.pro` — content hosts never serve those paths), same two
    policies.
 3. **New for the public landing page (issue #5):** self-hosted app **`Artifacts (public)`**
-   with destinations `rtfx.pro/` (exact root) and `rtfx.pro/waitlist`, one policy with
-   decision **Bypass**. Without this, the viewer app above (destination `rtfx.pro`) still
-   gates the root, so `/` would show Access's login screen instead of the public landing
-   page. `a.rtfx.pro` doesn't need this — it never serves `/` or `/waitlist` (`src/host.ts`
-   blocks management routes there regardless of Access).
+   with destinations `rtfx.pro/` (exact root), `rtfx.pro/waitlist` and — **added for issue
+   #24** — `rtfx.pro/login`, one policy with decision **Bypass**. Without this, the viewer
+   app above (destination `rtfx.pro`) still gates those paths, so `/` would show Access's
+   login screen instead of the public landing page. `/login` matters for the same reason and
+   more sharply: it is the page that *explains* how to sign in, so meeting Cloudflare's own
+   login screen there instead defeats its entire purpose. `a.rtfx.pro` doesn't need this — it
+   never serves `/`, `/waitlist` or `/login` (`src/host.ts` blocks management routes there
+   regardless of Access).
 4. Fill in `wrangler.jsonc`:
    - `vars.ACCESS_TEAM_DOMAIN` — your `…cloudflareaccess.com` team domain.
    - `vars.ACCESS_AUD` — `"<viewer app AUD>,<admin app AUD>"`.
@@ -158,9 +161,25 @@ Verify after the change (in a browser, signed in as a non-admin invited user):
 
 ```bash
 # as an invited non-admin: their own dashboard, scoped to their artifacts
-open https://rtfx.pro/admin           # 200, "Beta" header, no Team panel
+open https://rtfx.pro/admin           # 200, "Beta" header, no People panel
 open https://rtfx.pro/api/users       # blocked by Access; 403 from the Worker if it gets through
 ```
+
+## 5c. Local user directory (issue #24) — MANUAL, mutates D1
+
+```bash
+npx wrangler d1 migrations apply DB --remote     # applies 0007_users.sql
+```
+
+Additive and safe to apply before or after the deploy: an Access-allowed person with no row
+is still a valid user (the row is created on their first sign-in), and the migration backfills
+existing artifact owners as active members. Optionally set `vars.SUPER_ADMIN_EMAILS` in
+`wrangler.jsonc` to name the operator explicitly; left unset it defaults to the first
+`ADMIN_EMAILS` entry, so the anti-lockout invariant holds either way.
+
+Browser-smoke after deploy: `/login` signed out (both CTAs), `/login` signed in, the People
+panel on `/admin`, and one invite → pause → re-enable → remove round trip on a throwaway
+address.
 
 To roll back, restore the `Artifacts (admin)` destinations to `rtfx.pro/admin` and
 `rtfx.pro/api`.

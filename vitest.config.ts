@@ -11,7 +11,11 @@ export default defineWorkersConfig({
           r2Buckets: ["FILES"],
           d1Databases: ["DB"],
           bindings: {
-            ADMIN_EMAILS: "admin@test.com",
+            // admin@test.com stays first so it remains the default dev identity.
+            // admin2@test.com is a plain admin, so tests can check that only a
+            // super admin may act on another admin.
+            ADMIN_EMAILS: "admin@test.com,admin2@test.com",
+            SUPER_ADMIN_EMAILS: "admin@test.com",
             ADMIN_SERVICE_TOKENS: "admin-token.access",
             ACCESS_TEAM_DOMAIN: "",
             ACCESS_AUD: "",
