@@ -57,13 +57,19 @@ pre.code code{background:none;border:0;padding:0;font-size:inherit;color:inherit
 .compare thead th{font-size:.78rem;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);font-weight:600}
 .compare tbody th{font-weight:650;color:var(--fg)}.compare td{color:var(--muted)}
 .compare tr:last-child th,.compare tr:last-child td{border-bottom:0}
+/* --- positioning: table stakes vs differentiators (issue #38) --- */
+.stance{display:grid;gap:.7rem;margin:0 0 .9rem;padding:0;list-style:none}
+.stance li{border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--card);padding:.85rem 1rem;margin:0;color:var(--muted)}
+.stance li b{color:var(--fg);font-weight:650;letter-spacing:-.015em}
+.stance[data-positioning="not-yet"] li b:after{content:"Planned";margin-left:.55rem;border:1px solid var(--border);border-radius:999px;padding:.12rem .55rem;font-size:.7rem;font-weight:600;letter-spacing:.04em;color:var(--faint);text-transform:uppercase;white-space:nowrap}
 `;
 
 const TITLE = "Docs — publishing, access control and the API · rtfx.pro";
 const DESCRIPTION =
   "How rtfx.pro works: publish HTML pages and multi-file artifacts from Claude Code, " +
   "Hermes, the CLI or the API; control who can open each one; keep every version; and " +
-  "see exactly who viewed what.";
+  "see exactly who viewed what — plus what is table stakes in this category and what " +
+  "actually makes rtfx.pro different.";
 
 /** One question, one answer — rendered as prose *and* as FAQPage structured data. */
 interface Faq {
@@ -107,6 +113,26 @@ const FAQS: readonly Faq[] = [
     a:
       "No. A grant applies to exactly one artifact. It never confers management rights, never " +
       "reveals your other work, and never widens who can sign in.",
+  },
+  {
+    q: "Can I put a password on a share link?",
+    a:
+      "Not today, and nothing here pretends otherwise. Access is by identity instead: you name " +
+      "the people who may open an artifact, and everyone else — signed in or not — gets a 404. " +
+      "Sign-in itself is passwordless, a one-time code by email through Cloudflare Access, so " +
+      "there is no shared secret to leak, rotate or forget. Per-link secrets, link expiry and " +
+      "custom domains are planned, and they are listed as planned on this page.",
+  },
+  {
+    q: "How is this different from the other tools for sharing what Claude built?",
+    a:
+      "Most of them start from a public link and add controls on top of it. rtfx.pro starts " +
+      "locked, and sharing is a deliberate act you can see and undo. The differences that " +
+      "survive a real project: publishing is agent-native — Claude Code, Hermes, a CLI and the " +
+      "HTTP API all take the same path — access is an identity-backed list rather than a secret " +
+      "URL, every publish is an immutable version you can roll back, the view log names the " +
+      "person and the version they saw, and a workspace has roles so a team is not one shared " +
+      "login.",
   },
   {
     q: "Where does the uploaded HTML actually run?",
@@ -178,6 +204,7 @@ export function docsPage(env: Env): string {
       <a href="#agents">Claude Code &amp; Hermes</a>
       <a href="#access">Access &amp; privacy</a>
       <a href="#versions">Versions &amp; views</a>
+      <a href="#why-rtfx">Why rtfx.pro</a>
       <a href="#why">Why not a static host</a>
       <a href="#api">API</a>
       <a href="#faq">FAQ</a>
@@ -302,6 +329,79 @@ $ artifacts grant prototype teammate@example.com</code></pre>
         <p>The view log answers the question client work always ends with: who opened it, when, from
           where, and which version they saw. Views are recorded for signed-in people opening a page —
           not for asset requests or machine tokens.</p>
+      </section>
+
+      <!-- Issue #38. A category has formed around "share what Claude just built",
+           and most of it converges on the same feature list. The honest thing to
+           publish is the split: what is table stakes, what is genuinely ours, and
+           what we simply do not have yet. The last list is not an apology — it is
+           what stops this page from claiming a per-link password we never shipped. -->
+      <section id="why-rtfx" data-docs="why-rtfx">
+        <h2>Why rtfx.pro</h2>
+        <p>Several tools now host the page an AI session just produced, and they mostly agree on
+          the basics. So the useful question is not "does it host HTML" — it is what happens on the
+          second day, when the link is out, the client asks who has seen it, and a revision lands
+          badly. Here is the split, written so you can decide in one screen.</p>
+
+        <h3>Table stakes</h3>
+        <p>Present here, and expected of anything in this category. Nobody should pick a tool for
+          these.</p>
+        <ul class="stance" data-positioning="table-stakes">
+          <li><b>Publishing with no build step.</b> A single HTML file, a folder or a zip goes up as
+            it is; relative paths keep working.</li>
+          <li><b>A stable link.</b> One slug, one URL, for as long as the artifact exists.</li>
+          <li><b>Re-publishing to the same address.</b> The link you already sent keeps working
+            after an update.</li>
+          <li><b>A dashboard.</b> Drag-and-drop publishing, an inventory, and the state of each
+            artifact in one place.</li>
+          <li><b>Some idea of who looked.</b> Counts at minimum.</li>
+        </ul>
+
+        <h3>What actually makes it different</h3>
+        <p>These are the reasons to choose rtfx.pro over a general "share your AI output" tool.</p>
+        <ul class="stance" data-positioning="differentiators">
+          <li><b>Agent-native publishing, not an upload form with an API bolted on.</b> Claude Code,
+            a Hermes run, the CLI and the HTTP API all take the same path a human takes — there is
+            no separate, weaker agent route. An agent holds a scoped, owner-bound, revocable token,
+            so it can publish as you and can never become you.</li>
+          <li><b>Access is an identity, not a secret URL.</b> Every artifact is restricted until you
+            name someone. An unauthorized request and a request for something that doesn't exist
+            return the identical 404, so a leaked link can't even confirm the page is real. Sharing
+            is revocable, per artifact, and never widens who can sign in.</li>
+          <li><b>Immutable versions with one-click rollback.</b> Every publish is a new version with
+            its own preview URL. Nothing you have already shared is overwritten, so a bad revision
+            is an undo rather than a re-run of whatever produced it.</li>
+          <li><b>A view log that names a person and a version.</b> Not a hit counter: who opened it,
+            when, from which country, and which version they saw — the question every client
+            project ends with.</li>
+          <li><b>Workspace governance.</b> Artifacts belong to a workspace, not to one shared login.
+            Members carry a role — owner, admin, member or viewer — and instance privilege is
+            re-derived from configuration on every request, so no database write can escalate
+            anyone.</li>
+          <li><b>Uploaded HTML runs somewhere it can't reach us.</b> Artifact files are served from a
+            dedicated content origin that hosts files and nothing else — no dashboard, no API, no
+            admin — so a page you publish can never touch the app that published it.</li>
+          <li><b>Nothing watches the visitor.</b> No analytics, advertising or third-party tracking
+            anywhere on this site, and none injected into what you publish. The view log is ours to
+            show you, not a product we resell.</li>
+        </ul>
+
+        <h3>Not here yet</h3>
+        <p>Listed so you know they are deliberate gaps rather than things you failed to find. If a
+          project needs one of these today, this is the honest place to find that out.</p>
+        <ul class="stance" data-positioning="not-yet">
+          <li><b>Per-link secrets.</b> A shared code on the link itself, for handing something to
+            someone who will never have an account. Today the answer is an invitation and an access
+            list.</li>
+          <li><b>Link expiry.</b> Access is revoked by hand, not on a timer. API tokens do carry an
+            optional expiry.</li>
+          <li><b>Custom domains.</b> Serving artifacts from your own hostname. Content already runs
+            on its own origin, which is the hard part.</li>
+          <li><b>An MCP server.</b> Agents publish through the CLI and HTTP API today; a native MCP
+            surface is on the list.</li>
+          <li><b>Comments, approvals and polls.</b> rtfx.pro publishes and controls the artifact; it
+            is not the review tool around it.</li>
+        </ul>
       </section>
 
       <section id="why">

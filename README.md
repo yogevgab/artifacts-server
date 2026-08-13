@@ -8,18 +8,24 @@ gallery of everything shared with them. Artifacts — single HTML files
 or multi-file static bundles — are published from a web dashboard, a CLI, or an agent session
 (Claude Code, Hermes). With **per-artifact permissions** and **versioning**.
 
-- 🌐 **Public product site** — `/`, `/docs`, `/login` and `/waitlist` are reachable by anyone, with SEO metadata, `sitemap.xml`, `robots.txt` and `llms.txt`; everything else needs an identity.
-- 🔒 **Access-gated dashboard** — Cloudflare Access handles login for `/admin` and the API; no passwords stored by the app.
-- 👥 **Per-artifact permissions** — each artifact is private, shared with specific people, or open to all signed-in users.
+- 🤖 **Agent-native publishing** — Claude Code, Hermes, the CLI and the HTTP API all take the same path a human takes; no separate, weaker agent route. See [`plugins/rtfx`](plugins/rtfx).
+- 👥 **Access by identity, not a secret link** — each artifact is private, shared with named people, or open to all signed-in users. Unauthorized and non-existent both return **404**.
 - 🕓 **Versioning** — every re-publish is a new immutable version; roll back anytime.
-- 📈 **Views log** — see who viewed each artifact, when, which version, and from where.
+- 📈 **Views log** — see who viewed each artifact, when, which version, and from where — per person, not an aggregate counter.
+- 🏢 **Workspaces & roles** — artifacts belong to an account with `owner`/`admin`/`member`/`viewer` roles; instance privilege is re-derived from config, never read from a table.
+- 🌐 **Public product site** — `/`, `/docs`, `/login` and `/waitlist` are reachable by anyone, with SEO metadata, `sitemap.xml`, `robots.txt` and `llms.txt`; everything else needs an identity.
+- 🔒 **Access-gated dashboard** — Cloudflare Access handles login for `/admin` and the API; sign-in is passwordless (one-time email code) and the app stores no passwords.
 - 🖼️ **One dashboard** — publish and manage under **Artifacts**; everything shared with you under **Gallery**. Same shell, same nav, same brand.
-- 🧑‍💻 **CLI** — publish and manage from your terminal.
-- 🤖 **Claude Code plugin** — [`plugins/rtfx`](plugins/rtfx): a skill plus `/rtfx:*` commands, so "publish this" in a session ends with a versioned, access-controlled URL.
-- 🔑 **API tokens** — hashed bearer tokens for server-to-server publishing (Hermes Cloud, CI), scoped and revocable.
+- 🔑 **API tokens** — hashed bearer tokens for server-to-server publishing (Hermes Cloud, CI), scoped, owner-bound and revocable.
 - ☁️ **All Cloudflare** — Worker + R2 (files) + D1 (metadata). No servers, no database to run.
 
 > **Stack:** TypeScript · [Hono](https://hono.dev) · Cloudflare Workers / R2 / D1 · Cloudflare Access
+
+**Not built yet**, and deliberately not implied anywhere in the copy: per-link passwords or
+shared link secrets, link expiry, custom domains for artifacts, a native MCP server, and
+comments/approvals. Access is by identity only. The competitive reasoning, and the full
+table-stakes-vs-differentiators split, is in [`docs/POSITIONING.md`](docs/POSITIONING.md) and
+published at [`/docs#why-rtfx`](https://rtfx.pro/docs#why-rtfx).
 
 ---
 
@@ -155,8 +161,9 @@ All config lives in `wrangler.jsonc` (`vars`) plus one secret. See the comments 
 `https://<your-domain>/` — public, no login required. Positions the product, covers use cases and
 differentiators, and collects `/waitlist` access requests. Its two CTAs are deliberately distinct:
 **Request access** (for people without an account) and **Sign in** (`/login`, for people with one).
-`/docs` is the public documentation page (publishing, Claude Code/Hermes, the access model, FAQ).
-See [docs/PUBLIC_SITE.md](docs/PUBLIC_SITE.md) for the SEO/crawler surface and the copy rules.
+`/docs` is the public documentation page (publishing, Claude Code/Hermes, the access model,
+`#why-rtfx`, FAQ). See [docs/PUBLIC_SITE.md](docs/PUBLIC_SITE.md) for the SEO/crawler surface and
+the copy rules, and [docs/POSITIONING.md](docs/POSITIONING.md) for what the copy may claim.
 
 ### Sign-in
 `https://<your-domain>/login` — **public, and must stay outside the Cloudflare Access
