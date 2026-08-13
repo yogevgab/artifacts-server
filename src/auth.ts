@@ -10,6 +10,16 @@ import {
   touchApiToken,
   type Scope,
 } from "./tokens";
+import { accountPausedPage } from "./login";
+import {
+  configuredRole,
+  effectiveRole,
+  getUser,
+  isDisabled,
+  needsSeenTouch,
+  touchLastSeen,
+  type UserRole,
+} from "./users";
 
 // Cache one JWKS resolver per team domain across requests in the isolate.
 const jwksCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
@@ -35,10 +45,11 @@ function adminServiceTokens(env: Env): string[] {
 }
 
 /**
- * Whether an identity has admin rights: an email in ADMIN_EMAILS, OR a service
- * token whose common_name is explicitly allow-listed in ADMIN_SERVICE_TOKENS.
- * A service token that merely satisfies some Access policy is NOT admin unless
- * listed here — so a lower-privilege (e.g. monitoring) token is not admin.
+ * Whether an identity has admin rights: an email in ADMIN_EMAILS or
+ * SUPER_ADMIN_EMAILS, OR a service token whose common_name is explicitly
+ * allow-listed in ADMIN_SERVICE_TOKENS. A service token that merely satisfies
+ * some Access policy is NOT admin unless listed here — so a lower-privilege
+ * (e.g. monitoring) token is not admin.
  */
 export function resolveIsAdmin(
   env: Env,
@@ -48,6 +59,18 @@ export function resolveIsAdmin(
   const byEmail = email ? isAdmin(env, email) : false;
   const byToken = commonName ? adminServiceTokens(env).includes(commonName.toLowerCase()) : false;
   return byEmail || byToken;
+}
+
+/**
+ * The role for an Access-authenticated caller. A human gets their configured
+ * role; an admin service token is an `admin` and never an operator, because it
+ * cannot be an interactive login.
+ */
+function accessRole(env: Env, email: string | null, commonName: string | null): UserRole {
+  if (email) return effectiveRole(env, email);
+  return commonName && adminServiceTokens(env).includes(commonName.toLowerCase())
+    ? "admin"
+    : "member";
 }
 
 export interface AccessIdentity {
@@ -94,8 +117,16 @@ export interface Identity {
   email: string | null;
   /** Service-token common_name (client id), or null for a human. */
   commonName: string | null;
-  /** True for admins: email in ADMIN_EMAILS or an allow-listed service token. */
+  /** True for admins: email in ADMIN_EMAILS/SUPER_ADMIN_EMAILS or an allow-listed service token. */
   isAdmin: boolean;
+  /**
+   * Effective role for this *request*. Derived from configuration, never from
+   * the users table. Capped at `admin` for any non-interactive caller (API
+   * token, Access service token): super-admin actions — managing another admin —
+   * always require an interactive login, so a leaked credential can never reach
+   * them. See `userActionDenial` in authz.ts.
+   */
+  role: UserRole;
   /**
    * Set only when the caller authenticated with an API token (`Authorization:
    * Bearer`). Absent/null means an Access-authenticated caller, who holds every
@@ -150,6 +181,8 @@ async function identityFromApiToken(c: AuthContext, presented: string): Promise<
     email,
     commonName: null,
     isAdmin: isAdminToken,
+    // Capped at admin on purpose: a bearer credential is never the operator.
+    role: isAdminToken ? "admin" : "member",
     token: { id: row.id, scopes: rowScopes(row) },
   };
 }
@@ -167,6 +200,62 @@ export interface AuthResult {
   identity: Identity | null;
   /** True when a bearer token was presented but is unknown/revoked/expired. */
   invalidToken: boolean;
+  /**
+   * True when the caller authenticated fine but their account is disabled in the
+   * local directory. `identity` is null in that case — a disabled person is
+   * nobody as far as authorization is concerned — but callers that render HTML
+   * use this to explain *why* instead of showing a generic sign-in page.
+   */
+  disabled: boolean;
+  /** Who was refused, so the HTML paused page can name them. Null otherwise. */
+  disabledEmail: string | null;
+}
+
+const ANONYMOUS: AuthResult = {
+  identity: null,
+  invalidToken: false,
+  disabled: false,
+  disabledEmail: null,
+};
+
+function allowed(identity: Identity): AuthResult {
+  return { identity, invalidToken: false, disabled: false, disabledEmail: null };
+}
+
+/**
+ * Apply local directory state to an authenticated identity: refuse a disabled
+ * account, and record presence for a human.
+ *
+ * This is the single choke point for `status`, which is why disabling somebody
+ * works even when the Cloudflare Access allow-list write fails, and why it
+ * applies to every surface at once — dashboard, API, *and* artifact viewing.
+ *
+ * `getUser` never throws (see users.ts): with no readable row nobody is
+ * disabled. That is a deliberate fail-open on the *local* layer only — Access
+ * is still the gate that decides who reaches the Worker — chosen so a D1 blip or
+ * a not-yet-run migration can't lock every user, including the operator, out.
+ */
+async function applyDirectory(c: AuthContext, identity: Identity): Promise<AuthResult> {
+  if (!identity.email) return allowed(identity);
+  const row = await getUser(c.env, identity.email);
+  if (isDisabled(c.env, identity.email, row)) {
+    return {
+      identity: null,
+      invalidToken: false,
+      disabled: true,
+      disabledEmail: identity.email,
+    };
+  }
+  // Presence is a human signal. A token caller's usage is already recorded on
+  // the token itself (`last_used_at`), so it must not look like a sign-in.
+  const now = new Date();
+  if (!identity.token && needsSeenTouch(row, now)) {
+    const p = touchLastSeen(c.env, identity.email, identity.role, now.toISOString());
+    const ctx = executionCtx(c);
+    if (ctx) ctx.waitUntil(p);
+    else await p;
+  }
+  return allowed(identity);
 }
 
 /**
@@ -176,6 +265,9 @@ export interface AuthResult {
  * bearer header the behavior is exactly as before: dev impersonation locally,
  * Cloudflare Access in production.
  *
+ * Whichever path authenticated, the local user directory has the last word: a
+ * disabled account resolves to no identity at all (see `applyDirectory`).
+ *
  * Bearer auth does not bypass Cloudflare Access: Access still gates the
  * hostname/path at the edge. This is the second, app-layer check.
  */
@@ -183,28 +275,32 @@ export async function resolveAuth(c: AuthContext): Promise<AuthResult> {
   const presented = bearerToken(c);
   if (presented !== null) {
     const identity = await identityFromApiToken(c, presented);
-    return { identity, invalidToken: identity === null };
+    if (!identity) {
+      return { identity: null, invalidToken: true, disabled: false, disabledEmail: null };
+    }
+    return applyDirectory(c, identity);
   }
   const env = c.env;
   if (env.DEV_LOGIN === "true") {
-    if (c.req.header("X-Dev-Anonymous") === "true") return { identity: null, invalidToken: false };
+    if (c.req.header("X-Dev-Anonymous") === "true") return ANONYMOUS;
     const email = (c.req.header("X-Dev-Email") || adminList(env)[0] || "dev@local").toLowerCase();
-    return {
-      identity: { email, commonName: null, isAdmin: isAdmin(env, email), token: null },
-      invalidToken: false,
-    };
+    return applyDirectory(c, {
+      email,
+      commonName: null,
+      isAdmin: isAdmin(env, email),
+      role: effectiveRole(env, email),
+      token: null,
+    });
   }
   const id = await verifyAccess(c);
-  if (!id) return { identity: null, invalidToken: false };
-  return {
-    identity: {
-      email: id.email,
-      commonName: id.commonName,
-      isAdmin: resolveIsAdmin(env, id.email, id.commonName),
-      token: null,
-    },
-    invalidToken: false,
-  };
+  if (!id) return ANONYMOUS;
+  return applyDirectory(c, {
+    email: id.email,
+    commonName: id.commonName,
+    isAdmin: resolveIsAdmin(env, id.email, id.commonName),
+    role: accessRole(env, id.email, id.commonName),
+    token: null,
+  });
 }
 
 /**
@@ -231,8 +327,9 @@ export async function accessEmail(c: {
   return (await getIdentity(c))?.email ?? null;
 }
 
+/** Admin by configuration: in ADMIN_EMAILS, or a super admin (who is always an admin). */
 export function isAdmin(env: Env, email: string | null): boolean {
-  return !!email && adminList(env).includes(email.toLowerCase());
+  return configuredRole(env, email) !== null;
 }
 
 /** Hono per-request variables set by requireAdmin / requireUser. */
@@ -257,6 +354,26 @@ function invalidTokenResponse(c: Parameters<MiddlewareHandler<AuthApp>>[0]) {
 }
 
 /**
+ * 403 for a valid login whose account is paused.
+ *
+ * A distinct error code (rather than a generic `forbidden`) so a CLI or agent can
+ * tell "you were signed out" from "your access was paused" and say something
+ * useful about it. A browser gets the explanatory page instead of raw JSON —
+ * `/admin` is a page, and the person hitting it is the one who most needs the
+ * explanation. Machines are unaffected: no agent sends `Accept: text/html`, and
+ * the status code is 403 either way.
+ */
+function disabledResponse(c: Parameters<MiddlewareHandler<AuthApp>>[0], email: string | null) {
+  if ((c.req.header("Accept") ?? "").includes("text/html")) {
+    return c.html(accountPausedPage(email), 403);
+  }
+  return c.json(
+    { error: "account_disabled", detail: "this account is disabled — ask an admin to re-enable it" },
+    403
+  );
+}
+
+/**
  * Middleware: 403 unless the caller is an admin. Accepts a human whose email is
  * in ADMIN_EMAILS, a service token (common_name) — both of which have already
  * been vetted by Cloudflare Access's admin-application policy before the request
@@ -264,8 +381,9 @@ function invalidTokenResponse(c: Parameters<MiddlewareHandler<AuthApp>>[0]) {
  * c.get('email') and c.get('identity').
  */
 export const requireAdmin: MiddlewareHandler<AuthApp> = async (c, next) => {
-  const { identity, invalidToken } = await resolveAuth(c);
+  const { identity, invalidToken, disabled, disabledEmail } = await resolveAuth(c);
   if (invalidToken) return invalidTokenResponse(c);
+  if (disabled) return disabledResponse(c, disabledEmail);
   if (identity?.isAdmin) {
     c.set("identity", identity);
     c.set("email", displayName(identity));
@@ -287,8 +405,9 @@ export const requireAdmin: MiddlewareHandler<AuthApp> = async (c, next) => {
  * well-defined identity to be scoped against.
  */
 export const requireUser: MiddlewareHandler<AuthApp> = async (c, next) => {
-  const { identity, invalidToken } = await resolveAuth(c);
+  const { identity, invalidToken, disabled, disabledEmail } = await resolveAuth(c);
   if (invalidToken) return invalidTokenResponse(c);
+  if (disabled) return disabledResponse(c, disabledEmail);
   if (canUseDashboard(identity)) {
     c.set("identity", identity);
     c.set("email", displayName(identity));

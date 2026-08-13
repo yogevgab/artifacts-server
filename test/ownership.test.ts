@@ -245,8 +245,12 @@ describe("ownership: user management stays admin-only", () => {
     expect((await req("/api/users/eve@x.com", as(BOB, { method: "DELETE" }))).status).toBe(403);
   });
 
-  it("an admin reaches the endpoint (503 here — Access isn't configured in tests)", async () => {
-    expect((await req("/api/users", as(ADMIN))).status).toBe(503);
+  it("an admin reaches the endpoint and gets the local directory", async () => {
+    const res = await req("/api/users", as(ADMIN));
+    expect(res.status).toBe(200);
+    // Access isn't configured in tests, so the directory is D1-only — which is
+    // exactly the state the panel has to stay usable in.
+    expect((await res.json<any>()).allowlist.configured).toBe(false);
   });
 });
 

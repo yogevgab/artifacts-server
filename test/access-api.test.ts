@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mergeAdmins, isConfigured, policyWithEmails } from "../src/access-api";
+import { AccessApiError, mergeAdmins, isConfigured, policyWithEmails, removeUser } from "../src/access-api";
 import type { Env } from "../src/env";
 
 const env = { ADMIN_EMAILS: "admin@x.com, boss@x.com" } as Env;
@@ -14,6 +14,18 @@ describe("mergeAdmins", () => {
   });
   it("admins present even with empty input", () => {
     expect(mergeAdmins(env, [])).toEqual(["admin@x.com", "boss@x.com"].sort());
+  });
+  it("falls back to the first admin as super admin when SUPER_ADMIN_EMAILS is unset", () => {
+    expect(mergeAdmins({ ADMIN_EMAILS: "Owner@X.com, admin@x.com" } as Env, ["viewer@x.com"])).toEqual([
+      "admin@x.com",
+      "owner@x.com",
+      "viewer@x.com",
+    ].sort());
+  });
+  it("merges explicit super admins even when they are not also listed as admins", () => {
+    expect(
+      mergeAdmins({ ADMIN_EMAILS: "admin@x.com", SUPER_ADMIN_EMAILS: "Owner@X.com" } as Env, ["viewer@x.com"])
+    ).toEqual(["admin@x.com", "owner@x.com", "viewer@x.com"].sort());
   });
 });
 
@@ -66,5 +78,19 @@ describe("isConfigured", () => {
         ACCESS_VIEWER_POLICY_ID: "pol",
       } as Env)
     ).toBe(true);
+  });
+});
+
+describe("removeUser anti-lockout", () => {
+  it("refuses to remove an explicit super admin before any Cloudflare call", async () => {
+    await expect(
+      removeUser({ ADMIN_EMAILS: "admin@x.com", SUPER_ADMIN_EMAILS: "owner@x.com" } as Env, "OWNER@x.com")
+    ).rejects.toThrow(AccessApiError);
+  });
+
+  it("refuses to remove the fallback super admin before any Cloudflare call", async () => {
+    await expect(removeUser({ ADMIN_EMAILS: "owner@x.com, admin@x.com" } as Env, "owner@x.com")).rejects.toThrow(
+      "cannot remove an admin"
+    );
   });
 });

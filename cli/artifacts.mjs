@@ -200,25 +200,56 @@ async function views(slug) {
   }
 }
 
+/**
+ * Since issue #24, /api/users returns the local directory: `users` is a list of
+ * objects (email, role, status, timestamps), not a list of email strings, and
+ * `allowlist` describes what we can see of Cloudflare Access. Warnings are
+ * surfaced verbatim — a write that landed locally but not in Access is a state
+ * an operator must not miss.
+ */
+const ROLE_TAG = { super_admin: "owner", admin: "admin", member: "" };
+
+function printUser(u) {
+  const tags = [ROLE_TAG[u.role], u.status === "disabled" ? "paused" : u.status]
+    .filter(Boolean)
+    .join(", ");
+  const name = u.display_name ? `  ${u.display_name}` : "";
+  console.log(`  ${u.email}  (${tags})${name}`);
+}
+
+function printWarning(data) {
+  if (data.warning) console.log(`  ! ${data.warning}`);
+}
+
 async function users() {
   const res = await fetch(`${BASE}/api/users`, { headers: authHeaders() });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) die(`${res.status} ${data.detail || data.error || res.statusText}`);
-  const admins = new Set(data.admins || []);
-  if (!data.users.length) return console.log("(no users)");
-  for (const u of data.users) console.log(`  ${u}${admins.has(u) ? "  (admin)" : ""}`);
+  const list = data.users || [];
+  if (!list.length) return console.log("(no users)");
+  for (const u of list) printUser(u);
+  if (data.allowlist && !data.allowlist.configured) {
+    console.log("  ! Cloudflare Access isn't configured — nobody new can sign in");
+  } else if (data.allowlist?.error) {
+    console.log(`  ! couldn't read the Access allow-list: ${data.allowlist.error}`);
+  }
 }
 
-async function userAdd(email) {
+async function userAdd(email, flags = {}) {
   if (!email) die("user-add requires <email>");
+  const body = { email };
+  if (flags.name) body.display_name = flags.name;
+  if (flags.note) body.notes = flags.note;
   const res = await fetch(`${BASE}/api/users`, {
     method: "POST",
     headers: { ...authHeaders(), "Content-Type": "application/json" },
-    body: JSON.stringify({ email }),
+    body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) die(`${res.status} ${data.detail || data.error || res.statusText}`);
-  console.log(`added ${email} (${data.users.length} user(s) can now log in)`);
+  console.log(`invited ${email} (${(data.users || []).length} user(s) known)`);
+  if (data.user) printUser(data.user);
+  printWarning(data);
 }
 
 async function userRemove(email) {
@@ -229,7 +260,23 @@ async function userRemove(email) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) die(`${res.status} ${data.detail || data.error || res.statusText}`);
-  console.log(`removed ${email} (${data.users.length} user(s) remain)`);
+  console.log(`removed ${email} (${(data.users || []).length} user(s) remain)`);
+  printWarning(data);
+}
+
+/** Pause or re-enable somebody without removing them from the beta. */
+async function userSetEnabled(email, enabled) {
+  const verb = enabled ? "enable" : "disable";
+  if (!email) die(`user-${verb} requires <email>`);
+  const res = await fetch(`${BASE}/api/users/${encodeURIComponent(email)}/${verb}`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) die(`${res.status} ${data.detail || data.error || res.statusText}`);
+  console.log(`${enabled ? "re-enabled" : "paused"} ${email}`);
+  if (data.user) printUser(data.user);
+  printWarning(data);
 }
 
 async function tokens() {
@@ -325,10 +372,16 @@ switch (cmd) {
     await users();
     break;
   case "user-add":
-    await userAdd(positional[0]);
+    await userAdd(positional[0], flags);
     break;
   case "user-remove":
     await userRemove(positional[0]);
+    break;
+  case "user-disable":
+    await userSetEnabled(positional[0], false);
+    break;
+  case "user-enable":
+    await userSetEnabled(positional[0], true);
     break;
   case "tokens":
     await tokens();
@@ -352,9 +405,11 @@ switch (cmd) {
     console.log("  grant <slug> <email>             allow a user (sets restricted)");
     console.log("  revoke <slug> <email>            remove a user from an artifact");
     console.log("  visibility <slug> <everyone|restricted>");
-    console.log("  users                            list who can log in (Cloudflare Access)");
-    console.log("  user-add <email>                 allow a person to log in");
-    console.log("  user-remove <email>              revoke login + all artifact access");
+    console.log("  users                            list the beta directory (role + status)");
+    console.log("  user-add <email> [--name n] [--note n] invite a person (adds them to Cloudflare Access)");
+    console.log("  user-disable <email>             pause access + revoke their API tokens");
+    console.log("  user-enable <email>              lift a pause");
+    console.log("  user-remove <email>              revoke login, grants and tokens (keeps artifacts)");
     console.log("  tokens                           list API tokens");
     console.log("  token-create <name> [--scopes read,publish,manage] [--owner e] [--admin] [--expires-days n]");
     console.log("        (prints the token once — store it as RTFX_API_TOKEN)");

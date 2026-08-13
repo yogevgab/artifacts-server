@@ -357,7 +357,7 @@ describe("backward compatibility", () => {
     expect((await req("/api/artifacts", as(BOB))).status).toBe(200);
     expect((await req("/api/artifacts/classic/versions", as(BOB))).status).toBe(200);
     expect((await req("/api/users", as(BOB))).status).toBe(403); // still admin-only
-    expect((await req("/api/users", as(ADMIN))).status).toBe(503); // Access not configured in tests
+    expect((await req("/api/users", as(ADMIN))).status).toBe(200); // local directory, no Access needed
   });
 
   it("an Access-authenticated caller holds every scope (scopes only narrow tokens)", async () => {

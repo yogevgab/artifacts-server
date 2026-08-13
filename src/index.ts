@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Env } from "./env";
 import { api } from "./api";
 import { waitlist } from "./waitlist";
-import { requireUser, accessEmail, getIdentity, type AuthVars } from "./auth";
+import { requireUser, accessEmail, getIdentity, resolveAuth, type AuthVars } from "./auth";
 import { serveArtifact } from "./serve";
 import {
   listArtifacts,
@@ -19,10 +19,12 @@ import {
 } from "./db";
 import { canView, canManage, isOwner } from "./authz";
 import { listApiTokens, toPublicToken, type PublicApiToken } from "./tokens";
-import { getAllowlist, isConfigured } from "./access-api";
+import { allowlistView } from "./access-api";
+import { describeUsers, listUsers, privilegedEmails } from "./users";
 import { galleryPage, notFoundPage } from "./pages";
 import { landingPage } from "./landing";
-import { adminPage } from "./admin";
+import { loginPage } from "./login";
+import { adminPage, type DashboardViewer } from "./admin";
 import { isContentHost, isManagementPath, firstContentHostname } from "./host";
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVars }>();
@@ -85,20 +87,19 @@ app.get("/admin", requireUser, async (c) => {
     recentViews(c.env),
   ]);
 
-  // The login allow-list is admin-only data — never fetch or render it otherwise.
-  let usersInfo = null as null | { users: string[] | null; admins: string[]; usersError: string | null };
+  // The user directory is admin-only data — never fetch or render it otherwise.
+  // Same shape the JSON API returns from GET /api/users, so the server-rendered
+  // panel and anything scripted against the API can never disagree.
+  let usersInfo: DashboardViewer["users"] = null;
   if (identity.isAdmin) {
-    const admins = c.env.ADMIN_EMAILS.split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
-    let users: string[] | null = null;
-    let usersError: string | null = null;
-    if (isConfigured(c.env)) {
-      try {
-        users = await getAllowlist(c.env);
-      } catch (e) {
-        usersError = (e as Error).message;
-      }
-    }
-    usersInfo = { users, admins, usersError };
+    const [rows, allowlist] = await Promise.all([listUsers(c.env), allowlistView(c.env)]);
+    usersInfo = {
+      users: describeUsers(c.env, rows, allowlist.emails),
+      admins: privilegedEmails(c.env),
+      allowlist,
+      viewer: identity.email,
+      canManageAdmins: identity.role === "super_admin",
+    };
   }
 
   // Token management mirrors /api/tokens: Access-authenticated callers only
@@ -134,11 +135,24 @@ app.route("/waitlist", waitlist);
 // Reachable by anyone — never gates on identity.
 app.get("/", (c) => c.html(landingPage()));
 
+// Sign-in surface. Public on purpose: it explains how to get in, so it must sit
+// OUTSIDE the Cloudflare Access application (see docs/DEPLOY_RTFX.md). It never
+// authenticates anyone itself — "Continue with email" simply hands off to
+// /admin, which Access gates, which is what sends the one-time code.
+app.get("/login", async (c) => {
+  const { identity, disabled, disabledEmail } = await resolveAuth(c);
+  if (disabled) return c.html(loginPage({ kind: "paused", email: disabledEmail }), 403);
+  if (identity?.email) return c.html(loginPage({ kind: "signed-in", email: identity.email }));
+  return c.html(loginPage({ kind: "signed-out" }));
+});
+
 // Gallery — filtered to what the viewer may see. Requires sign-in; anonymous
-// visitors are sent back to the public landing page instead of an empty gallery.
+// visitors are sent to /login, which explains how to get in, rather than an
+// empty gallery. A paused account is told so instead of looking signed out.
 app.get("/gallery", async (c) => {
-  const identity = await getIdentity(c);
-  if (!identity) return c.redirect("/", 302);
+  const { identity, disabled, disabledEmail } = await resolveAuth(c);
+  if (disabled) return c.html(loginPage({ kind: "paused", email: disabledEmail }), 403);
+  if (!identity) return c.redirect("/login", 302);
   const rows = await listArtifacts(c.env);
   let visible = rows;
   if (!identity.isAdmin) {

@@ -64,10 +64,13 @@ describe("gallery", () => {
     expect(body).toContain('href="/gallery"');
   });
 
-  it("redirects anonymous visitors to the public landing page instead of an empty gallery", async () => {
+  // Issue #24: /login, not /, is the right landing spot for someone who tried to
+  // reach a signed-in surface — it explains how to get in rather than re-pitching
+  // the product.
+  it("redirects anonymous visitors to /login instead of an empty gallery", async () => {
     const res = await req("/gallery", { headers: { "X-Dev-Anonymous": "true" }, redirect: "manual" });
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/");
+    expect(res.headers.get("Location")).toBe("/login");
   });
 });
 
@@ -546,16 +549,27 @@ describe("views log", () => {
 });
 
 describe("user management (Cloudflare Access not configured in tests)", () => {
-  it("GET /api/users returns 503", async () => {
-    expect((await req("/api/users")).status).toBe(503);
+  // Issue #24 changed this deliberately: the local directory is the product's
+  // own state, so it is readable and writable with or without Cloudflare Access.
+  // Access being absent is reported as `allowlist.configured: false` plus a
+  // warning on writes, not as a 503 that makes the whole panel unusable.
+  it("GET /api/users returns the local directory and reports Access as unconfigured", async () => {
+    const res = await req("/api/users");
+    expect(res.status).toBe(200);
+    const body = await res.json<any>();
+    expect(body.allowlist).toEqual({ configured: false, emails: null, error: null });
+    expect(Array.isArray(body.users)).toBe(true);
   });
-  it("POST /api/users returns 503", async () => {
+  it("POST /api/users records the invite locally and warns that they can't sign in", async () => {
     const res = await req("/api/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: "x@y.com" }),
     });
-    expect(res.status).toBe(503);
+    expect(res.status).toBe(200);
+    const body = await res.json<any>();
+    expect(body.user).toMatchObject({ email: "x@y.com", status: "invited", role: "member" });
+    expect(body.warning).toContain("Cloudflare Access");
   });
   it("POST /api/users rejects bad email with 400 before hitting Access", async () => {
     const res = await req("/api/users", {

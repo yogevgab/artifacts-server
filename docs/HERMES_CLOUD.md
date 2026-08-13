@@ -189,6 +189,7 @@ response carries `allowlistWarning` when a granted address still needs an admin 
 | 401 | `invalid_token` | Unknown, revoked, or expired token. Response carries `WWW-Authenticate: Bearer error="invalid_token"`. Mint a new one — do not retry. |
 | 403 | `insufficient_scope` | The token lacks the scope for this route. Mint one with the scope; retrying won't help. |
 | 403 | `forbidden` | Token used against `/api/users` or `/api/tokens`, which require an Access login. |
+| 403 | `account_disabled` | The account this credential acts as has been paused by an admin. Not retryable and not a token problem — ask an admin to re-enable it. |
 | 404 | `not_found` | The slug doesn't exist **or** isn't yours. Existence of other users' artifacts is deliberately not observable. |
 | 409 | `slug_taken` | Someone else owns that slug. Pick another. |
 | 400 | `bad_request` | Missing title/file, bad slug, malformed JSON body. |
@@ -209,7 +210,9 @@ node cli/artifacts.mjs token-revoke 9f2c1ab30d4e
 - Revocation is immediate and permanent; the row is kept as an audit tombstone.
 - `last_used_at` is refreshed at most every 5 minutes per token — enough to spot a token
   nobody uses, cheap enough not to write on every request.
-- Removing a user from the beta (`DELETE /api/users/:email`) revokes their tokens too.
+- Removing a user from the beta (`DELETE /api/users/:email`) revokes their tokens too, and so
+  does pausing one (`POST /api/users/:email/disable`). Re-enabling does **not** restore them —
+  mint a replacement.
 - Prefer one token per integration, with the narrowest scopes and an expiry. Rotate by
   minting the replacement, switching the consumer, then revoking the old id.
 - Tokens are secrets: keep them in your platform's secret store, never in a repo, never in a

@@ -2,21 +2,30 @@ import type { ArtifactRow, VersionRow, ViewRow } from "./env";
 import { layout, esc } from "./pages";
 import { MAX_UPLOAD_BYTES } from "./upload";
 import { isTokenUsable, MAX_TOKEN_NAME_LENGTH, type PublicApiToken } from "./tokens";
+import { MAX_DISPLAY_NAME_LENGTH, MAX_NOTES_LENGTH, type PublicUser } from "./users";
+import type { AllowlistView } from "./access-api";
 
 export interface ViewsInfo {
   counts: Map<string, { total: number; unique: number }>;
   recent: Map<string, ViewRow[]>;
 }
 
-interface UsersInfo {
-  users: string[] | null;
+/** Everything the People panel needs. Mirrors the GET /api/users payload. */
+export interface UsersInfo {
+  users: PublicUser[];
+  /** Emails that can never lose access — rendered as protected. */
   admins: string[];
-  usersError: string | null;
+  /** What we can see of the Cloudflare Access allow-list right now. */
+  allowlist: AllowlistView;
+  /** The signed-in admin, so the panel can refuse to let them disable themselves. */
+  viewer: string | null;
+  /** True only for a super admin, who alone may act on another admin. */
+  canManageAdmins: boolean;
 }
 
 /**
- * Who is looking at the dashboard. `users` is the login allow-list panel, which
- * is admin-only data — it is null for a beta user, who sees only their own
+ * Who is looking at the dashboard. `users` is the people directory, which is
+ * admin-only data — it is null for a beta user, who sees only their own
  * artifacts and no team management at all. `tokens` is null when the caller
  * may not manage tokens at all (an API-token caller), mirroring the API.
  */
@@ -260,47 +269,142 @@ function artifactCard(
   </article>`;
 }
 
-function usersPanel(info: UsersInfo): string {
-  if (info.users === null) {
-    const body = info.usersError
-      ? `<p class="status is-error" data-users-error>Couldn't reach Cloudflare Access: ${esc(info.usersError)}</p>
-         <p class="note">Check that <span class="mono">CF_API_TOKEN</span> is valid and has the
-           <b>Access: Apps and Policies — Edit</b> permission, then reload. Artifact access still
-           works — only the login allow-list is unavailable.</p>`
-      : `<p class="note" data-users-unconfigured>User management isn't configured yet. Set
-           <span class="mono">CF_API_TOKEN</span>, <span class="mono">CF_ACCOUNT_ID</span>,
-           <span class="mono">ACCESS_VIEWER_APP_ID</span> and <span class="mono">ACCESS_VIEWER_POLICY_ID</span>
-           to manage who can sign in from here. Until then, manage the allow-list in the
-           Cloudflare Access dashboard.</p>`;
-    return `<section class="panel" data-panel="users" aria-labelledby="users-h">
-      <div class="panel-head"><div><h2 id="users-h">Team</h2>
-        <p class="hint">Who can sign in, backed by Cloudflare Access.</p></div></div>
-      ${body}
-    </section>`;
+// --- people -----------------------------------------------------------------
+
+const ROLE_LABEL: Record<PublicUser["role"], string> = {
+  super_admin: "Owner",
+  admin: "Admin",
+  member: "Member",
+};
+
+const STATUS_LABEL: Record<PublicUser["status"], string> = {
+  active: "Active",
+  invited: "Invited",
+  disabled: "Paused",
+};
+
+/**
+ * How the Cloudflare Access side of things is doing, as a calm sentence rather
+ * than a red box. Only a genuine API failure is an error — "not configured yet"
+ * is a setup step, and dressing it up as a fault trains people to ignore red.
+ */
+function allowlistNote(view: AllowlistView): string {
+  if (!view.configured) {
+    return `<p class="note" data-users-unconfigured>Cloudflare Access isn't connected yet, so
+      invites are recorded here but nobody new can sign in. Set <span class="mono">CF_API_TOKEN</span>,
+      <span class="mono">CF_ACCOUNT_ID</span>, <span class="mono">ACCESS_VIEWER_APP_ID</span> and
+      <span class="mono">ACCESS_VIEWER_POLICY_ID</span> to manage sign-in from here. Pausing
+      somebody still works — this app refuses a paused account either way.</p>`;
   }
-  const adminSet = new Set(info.admins);
-  const rows = info.users
-    .map((u) => {
-      const isAdm = adminSet.has(u);
-      return `<div class="row" data-user="${esc(u)}"><div class="info">${esc(u)}${
-        isAdm ? ' <span class="badge is-open">admin</span>' : ""
-      }</div>
-        <div class="row-actions">${
-          isAdm
-            ? '<span class="hint">always allowed</span>'
-            : `<button class="ghost small" data-rmuser="${esc(u)}">Remove</button>`
-        }</div></div>`;
-    })
-    .join("");
+  if (view.error) {
+    return `<p class="status is-error" data-users-error>Couldn't reach Cloudflare Access: ${esc(view.error)}</p>
+      <p class="note">Check that <span class="mono">CF_API_TOKEN</span> is valid and has the
+        <b>Access: Apps and Policies — Edit</b> permission, then reload. Everything below is the
+        local directory, which still applies.</p>`;
+  }
+  return "";
+}
+
+/** The timeline of one person, in the order it actually reads: newest fact last. */
+function userMeta(u: PublicUser): string {
+  const bits: string[] = [];
+  if (u.invited_at) bits.push(`invited ${stamp(u.invited_at)}${u.invited_by ? ` by ${u.invited_by}` : ""}`);
+  else if (u.created_at) bits.push(`added ${stamp(u.created_at)}`);
+  if (u.status === "disabled" && u.disabled_at) bits.push(`paused ${stamp(u.disabled_at)}`);
+  else if (u.last_seen_at) bits.push(`last seen ${stamp(u.last_seen_at)}`);
+  else bits.push("never signed in");
+  if (!u.in_directory) bits.push("allow-list only");
+  return bits.join(" · ");
+}
+
+function userRow(u: PublicUser, info: UsersInfo): string {
+  const isSelf = !!info.viewer && info.viewer === u.email;
+  // Who may act on this row — the same rules userActionDenial enforces server
+  // side. Rendering them here is courtesy, not security: hiding a button never
+  // protects anything, so the API re-checks every one of these.
+  const locked = u.is_protected || (u.role !== "member" && !info.canManageAdmins);
+  const badges = [
+    `<span class="badge is-role" data-badge="role">${esc(ROLE_LABEL[u.role])}</span>`,
+    `<span class="badge is-${u.status === "disabled" ? "disabled" : u.status}" data-badge="status">${esc(STATUS_LABEL[u.status])}</span>`,
+  ];
+  // Drift: the directory says they're a member, but Access won't let them in.
+  if (u.allowlisted === false && u.status !== "disabled" && !u.is_protected) {
+    badges.push(`<span class="badge is-warn" data-badge="allowlist">No sign-in</span>`);
+  }
+
+  let actions: string;
+  if (locked) {
+    actions = `<span class="hint" data-locked>${
+      u.is_protected ? "Protected owner" : "Owner-only"
+    }</span>`;
+  } else if (isSelf) {
+    actions = `<span class="hint" data-locked>That's you</span>`;
+  } else if (u.status === "disabled") {
+    actions = `<button class="ghost small" data-user-action="enable" data-user-email="${esc(u.email)}">Re-enable</button>
+      <button class="danger small" data-user-action="remove" data-user-email="${esc(u.email)}">Remove</button>`;
+  } else {
+    actions = `<button class="ghost small" data-user-action="disable" data-user-email="${esc(u.email)}">Pause</button>
+      <button class="danger small" data-user-action="remove" data-user-email="${esc(u.email)}">Remove</button>`;
+  }
+
+  return `<div class="row user-row" data-user="${esc(u.email)}" data-user-status="${esc(u.status)}" data-user-role="${esc(u.role)}">
+    <div class="info">
+      <b>${u.display_name ? esc(u.display_name) : esc(u.email)}</b>
+      ${u.display_name ? `<span class="hint mono">${esc(u.email)}</span>` : ""}
+      <div class="art-badges">${badges.join("")}</div>
+      <div class="hint" data-user-meta>${esc(userMeta(u))}</div>
+      ${u.notes ? `<div class="hint user-note" data-user-notes>${esc(u.notes)}</div>` : ""}
+    </div>
+    <div class="row-actions">${actions}<span class="status" data-status hidden></span></div>
+  </div>`;
+}
+
+/**
+ * The People panel: the local directory first, Cloudflare Access as a fact about
+ * each person rather than the list itself. That inversion is the point of issue
+ * #24 — an operator thinks in people ("has Dana signed in yet?"), not in policy
+ * rows.
+ */
+function usersPanel(info: UsersInfo): string {
+  const counts = {
+    active: info.users.filter((u) => u.status === "active").length,
+    invited: info.users.filter((u) => u.status === "invited").length,
+    paused: info.users.filter((u) => u.status === "disabled").length,
+  };
+  const summary = [
+    `${counts.active} active`,
+    counts.invited ? `${counts.invited} invited` : "",
+    counts.paused ? `${counts.paused} paused` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  const rows = info.users.map((u) => userRow(u, info)).join("");
+
   return `<section class="panel" data-panel="users" aria-labelledby="users-h">
-    <div class="panel-head"><div><h2 id="users-h">Team <span class="hint">${plural(info.users.length, "member")}</span></h2>
-      <p class="hint">Adding someone here lets them sign in — grant them individual artifacts below.</p></div></div>
-    <form id="userform" class="userform">
-      <input id="newuser" type="email" placeholder="person@example.com" autocomplete="off" aria-label="New member email">
-      <button type="submit" class="small">Add member</button>
+    <div class="panel-head"><div>
+      <h2 id="users-h">People <span class="hint" data-user-summary>${esc(summary)}</span></h2>
+      <p class="hint">Cloudflare Access verifies every sign-in; this is who the product knows
+        about. Inviting somebody adds them to the Access allow-list — grant them individual
+        artifacts below.</p>
+    </div></div>
+    ${allowlistNote(info.allowlist)}
+    <form id="userform" class="userform" data-invite-form>
+      <input id="newuser" type="email" placeholder="person@example.com" autocomplete="off"
+        aria-label="Email to invite" required>
+      <input id="newuser-name" type="text" placeholder="Name (optional)" autocomplete="off"
+        aria-label="Display name" maxlength="${MAX_DISPLAY_NAME_LENGTH}">
+      <input id="newuser-notes" type="text" placeholder="Note (optional)" autocomplete="off"
+        aria-label="Internal note" maxlength="${MAX_NOTES_LENGTH}">
+      <button type="submit" class="small">Send invite</button>
       <span id="users-status" class="status" data-status hidden></span>
     </form>
-    ${rows || `<p class="note">No members yet — add someone above so they can sign in.</p>`}
+    <div class="user-list">${
+      rows ||
+      `<div class="empty" data-empty="users"><h3>No one here yet</h3>
+        <p>Invite the first beta user above. They'll get a one-time code by email the first
+          time they open the dashboard — there's no password to share.</p></div>`
+    }</div>
   </section>`;
 }
 
@@ -734,30 +838,79 @@ $$('button[data-save]').forEach(function(b){
   });
 });
 
-/* ---- team ---- */
+/* ---- people ----
+   Every mutation reloads on success. The server re-derives the whole directory
+   (D1 + the Access allow-list) after each write, so re-rendering from source is
+   both simpler and more honest than patching rows client-side. */
 var userForm = $('#userform');
 if(userForm){
   userForm.addEventListener('submit', async function(e){
     e.preventDefault();
-    var input = $('#newuser'), status = $('#users-status');
-    var email = input.value.trim();
+    var status = $('#users-status');
+    var email = $('#newuser').value.trim();
     if(!email){ setStatus(status, 'Enter an email address.', 'error'); return; }
-    setStatus(status, 'Adding…');
-    var res = await fetch('/api/users', {
-      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email: email })
-    });
-    if(res.ok) location.reload();
-    else setStatus(status, (await detail(res)) || 'Could not add that member.', 'error');
+    var payload = { email: email };
+    var name = $('#newuser-name').value.trim(); if(name) payload.display_name = name;
+    var note = $('#newuser-notes').value.trim(); if(note) payload.notes = note;
+    var btn = $('button[type=submit]', userForm);
+    btn.disabled = true;
+    setStatus(status, 'Inviting…');
+    try {
+      var res = await fetch('/api/users', {
+        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
+      });
+      if(!res.ok){ setStatus(status, (await detail(res)) || 'Could not invite that person.', 'error'); return; }
+      var data = await res.json();
+      /* A warning means the write landed but Access didn't — say so rather than
+         letting the reload imply everything is fine. */
+      if(data.warning){ alert(data.warning); }
+      location.reload();
+    } catch(err){ setStatus(status, 'Network error — try again.', 'error'); }
+    finally { btn.disabled = false; }
   });
 }
-$$('button[data-rmuser]').forEach(function(b){
+
+var USER_ACTIONS = {
+  disable: {
+    confirm: function(e){ return 'Pause ' + e + '?\\n\\nThey are signed out everywhere and their API tokens are revoked. Their artifacts are kept, and you can re-enable them at any time.'; },
+    url: function(e){ return '/api/users/' + encodeURIComponent(e) + '/disable'; },
+    method: 'POST', busy: 'Pausing…', fail: 'Could not pause that account.'
+  },
+  enable: {
+    confirm: function(e){ return 'Re-enable ' + e + '?\\n\\nThey can sign in again. Previously revoked API tokens stay revoked.'; },
+    url: function(e){ return '/api/users/' + encodeURIComponent(e) + '/enable'; },
+    method: 'POST', busy: 'Re-enabling…', fail: 'Could not re-enable that account.'
+  },
+  remove: {
+    confirm: function(e){ return 'Remove ' + e + ' from the beta?\\n\\nThey lose sign-in, every artifact grant, and every API token. Artifacts they published are NOT deleted. This cannot be undone.'; },
+    url: function(e){ return '/api/users/' + encodeURIComponent(e); },
+    method: 'DELETE', busy: 'Removing…', fail: 'Could not remove that person.'
+  }
+};
+
+$$('button[data-user-action]').forEach(function(b){
   b.addEventListener('click', async function(){
-    var email = b.getAttribute('data-rmuser');
-    if(!confirm('Remove ' + email + '? They lose sign-in access and are revoked from every artifact.')) return;
+    var action = USER_ACTIONS[b.getAttribute('data-user-action')];
+    var email = b.getAttribute('data-user-email');
+    if(!action || !confirm(action.confirm(email))) return;
+    var row = $('[data-user="' + email + '"]');
+    var status = row ? $('[data-status]', row) : null;
     b.disabled = true;
-    var res = await fetch('/api/users/' + encodeURIComponent(email), { method:'DELETE' });
-    if(res.ok) location.reload();
-    else { b.disabled = false; alert((await detail(res)) || 'Could not remove that member.'); }
+    setStatus(status, action.busy);
+    try {
+      var res = await fetch(action.url(email), { method: action.method });
+      if(!res.ok){
+        b.disabled = false;
+        setStatus(status, (await detail(res)) || action.fail, 'error');
+        return;
+      }
+      var data = await res.json();
+      if(data.warning){ alert(data.warning); }
+      location.reload();
+    } catch(err){
+      b.disabled = false;
+      setStatus(status, 'Network error — try again.', 'error');
+    }
   });
 });
 
@@ -883,96 +1036,98 @@ $$('[data-dropzone]').forEach(initDropzone);
 `;
 
 const ADMIN_STYLE = `
-.wrap{max-width:1080px}
-header.top{align-items:center;padding-bottom:1.25rem;border-bottom:1px solid var(--border);margin-bottom:1.5rem}
-header.top .brand{font-weight:700;letter-spacing:-.01em}
-header.top .eyebrow{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--faint)}
+.wrap{max-width:1180px}
+header.top{align-items:center;padding:1rem 1.15rem;border:1px solid var(--border);border-radius:28px;background:var(--elev);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);box-shadow:var(--shadow);margin-bottom:1.35rem}
+header.top .brand{font-weight:750;letter-spacing:-.03em}
+header.top .eyebrow{font-size:.72rem;text-transform:uppercase;letter-spacing:.1em;color:var(--faint)}
 .faint{color:var(--faint);font-weight:400}
 .sr-file{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;opacity:0}
 
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:.75rem;margin-bottom:1.5rem}
-.stat{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:.9rem 1rem}
-.stat-label{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--faint)}
-.stat-value{font-size:1.6rem;font-weight:700;line-height:1.2;letter-spacing:-.02em;margin:.15rem 0}
-.stat-hint{font-size:.78rem;color:var(--muted)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:.8rem;margin-bottom:1.35rem}
+.stat{position:relative;overflow:hidden;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:1.05rem 1.1rem;box-shadow:var(--shadow);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}
+.stat:after{content:"";position:absolute;inset:auto -20% -55% 38%;height:5rem;background:radial-gradient(circle,rgba(10,132,255,.18),transparent 65%)}
+.stat-label{font-size:.72rem;text-transform:uppercase;letter-spacing:.07em;color:var(--faint)}
+.stat-value{font-size:1.85rem;font-weight:780;line-height:1.1;letter-spacing:-.045em;margin:.2rem 0}
+.stat-hint{font-size:.8rem;color:var(--muted)}
 
-.panel{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:1.5rem;box-shadow:var(--shadow)}
-.panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:1rem}
-.panel h2{font-size:1.05rem;margin:0 0 .2rem;letter-spacing:-.01em}
+.panel{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:1.35rem;margin-bottom:1.35rem;box-shadow:var(--shadow);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}
+.panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:1.05rem}
+.panel h2{font-size:1.2rem;margin:0 0 .22rem;letter-spacing:-.035em}
 .panel-head p{margin:0}
-.publish form{display:grid;gap:.9rem}
-.field-grid{display:grid;grid-template-columns:1fr 1fr;gap:.9rem}
+.publish{background:linear-gradient(145deg,var(--card),rgba(10,132,255,.08))}
+.publish form{display:grid;gap:.95rem}
+.field-grid{display:grid;grid-template-columns:1fr 1fr;gap:.95rem}
 .publish-foot{display:flex;align-items:center;gap:.9rem;flex-wrap:wrap}
 .publish-foot .hint{flex:1;min-width:14rem}
 
-.dropzone{border:1.5px dashed var(--border-strong);border-radius:var(--radius);background:var(--bg);
-  padding:1.75rem 1rem;text-align:center;cursor:pointer;transition:border-color .15s,background .15s}
-.dropzone:hover{border-color:var(--accent)}
+.dropzone{border:1.5px dashed var(--border-strong);border-radius:22px;background:rgba(255,255,255,.045);padding:1.9rem 1rem;text-align:center;cursor:pointer;transition:border-color .15s,background .15s,transform .15s}
+.dropzone:hover{border-color:rgba(10,132,255,.62);transform:translateY(-1px)}
 .dropzone.is-drag{border-color:var(--accent);background:var(--accent-weak)}
-.dropzone.compact{padding:1rem .75rem}
-.dz-icon{font-size:1.1rem;line-height:1;color:var(--accent);border:1.5px solid var(--accent);border-radius:999px;
-  width:2rem;height:2rem;display:inline-flex;align-items:center;justify-content:center;margin-bottom:.5rem}
+.dropzone.compact{padding:1rem .75rem;border-radius:18px}
+.dz-icon{font-size:1.1rem;line-height:1;color:var(--accent);border:1.5px solid rgba(10,132,255,.5);background:var(--accent-weak);border-radius:999px;width:2.1rem;height:2.1rem;display:inline-flex;align-items:center;justify-content:center;margin-bottom:.55rem}
 .dropzone.compact .dz-icon{display:none}
-.dz-title{margin:0;font-weight:600;font-size:.95rem}
+.dz-title{margin:0;font-weight:650;font-size:.96rem;letter-spacing:-.02em}
 .dz-title[data-picked]{color:var(--accent);font-family:var(--mono);font-size:.85rem}
-.dz-sub{margin:.2rem 0 .7rem;font-size:.8rem;color:var(--muted)}
+.dz-sub{margin:.22rem 0 .75rem;font-size:.82rem;color:var(--muted)}
 .dz-actions{display:flex;gap:.5rem;justify-content:center;flex-wrap:wrap}
 
-.published{border:1px solid var(--ok);background:var(--ok-weak);border-radius:var(--radius);padding:1.1rem}
+.published{border:1px solid rgba(48,209,88,.55);background:var(--ok-weak);border-radius:22px;padding:1.15rem}
 .published-head{display:flex;align-items:center;gap:.65rem;margin-bottom:.9rem}
-.published .tick{width:1.6rem;height:1.6rem;flex:none;border-radius:999px;background:var(--ok);color:#fff;
-  display:inline-flex;align-items:center;justify-content:center;font-size:.85rem;font-weight:700}
+.published .tick{width:1.7rem;height:1.7rem;flex:none;border-radius:999px;background:var(--ok);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:.85rem;font-weight:750}
 .linkrow{display:flex;gap:.5rem;align-items:center}
-.linkrow input{font-family:var(--mono);font-size:.85rem;background:var(--card)}
+.linkrow input{font-family:var(--mono);font-size:.85rem;background:rgba(255,255,255,.05)}
 .linkrow button{flex:none}
 .linkrow button.is-copied{background:var(--ok)}
 .published-actions{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.9rem}
 
-.section-head{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin:0 0 .9rem}
-.section-head h2{font-size:1.05rem;margin:0}
-.section-head input{width:auto;min-width:15rem}
+.section-head{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin:0 0 .95rem}
+.section-head h2{font-size:1.22rem;margin:0;letter-spacing:-.035em}
+.section-head input{width:auto;min-width:16rem}
 
-.artifact{border:1px solid var(--border);border-radius:var(--radius);background:var(--card);margin-bottom:.75rem;
-  box-shadow:var(--shadow);transition:border-color .15s}
-.artifact:hover{border-color:var(--border-strong)}
-.artifact.is-open{border-color:var(--accent)}
-.art-head{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;padding:.9rem 1.1rem}
-.art-toggle{flex:1;min-width:14rem;display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;text-align:left;
-  background:transparent;border:0;padding:0;color:inherit;font:inherit;font-weight:400;cursor:pointer;border-radius:8px}
-.art-toggle:hover{opacity:1}
+.artifact{border:1px solid var(--border);border-radius:var(--radius);background:var(--card);margin-bottom:.78rem;box-shadow:var(--shadow);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);transition:border-color .15s,transform .15s}
+.artifact:hover{border-color:var(--border-strong);transform:translateY(-1px)}
+.artifact.is-open{border-color:rgba(10,132,255,.55)}
+.art-head{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;padding:1rem 1.15rem}
+.art-toggle{flex:1;min-width:14rem;display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;text-align:left;background:transparent;border:0;padding:0;color:inherit;font:inherit;font-weight:400;cursor:pointer;border-radius:12px;box-shadow:none}
+.art-toggle:hover{opacity:1;transform:none;box-shadow:none;background:transparent}
 .art-toggle:hover .art-title{color:var(--accent)}
 .art-id{display:flex;flex-direction:column;min-width:11rem;flex:1}
-.art-title{font-weight:650;letter-spacing:-.01em;transition:color .15s}
+.art-title{font-weight:680;letter-spacing:-.025em;transition:color .15s}
 .art-slug{color:var(--muted)}
 .art-desc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:36rem}
 .art-badges{display:flex;gap:.35rem;flex-wrap:wrap}
-.art-actions{display:flex;gap:.4rem;align-items:center}
+.art-actions{display:flex;gap:.42rem;align-items:center}
 .chevron{color:var(--faint);font-size:.8rem;flex:none;transition:transform .15s}
 .art-toggle[aria-expanded=true] .chevron{transform:rotate(90deg)}
-.art-body{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;align-items:start;padding:0 1.1rem 1.1rem}
-.sub-panel{border:1px solid var(--border);border-radius:12px;padding:.85rem 1rem;background:var(--bg)}
+.art-body{display:grid;grid-template-columns:1fr 1fr;gap:.78rem;align-items:start;padding:0 1.15rem 1.15rem}
+.sub-panel{border:1px solid var(--border);border-radius:18px;padding:.92rem 1rem;background:rgba(255,255,255,.04)}
 .sub-panel[data-panel=access]{grid-column:1/-1}
-.sub-panel h4{margin:0 0 .5rem;font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);
-  display:flex;align-items:baseline;gap:.5rem}
+.sub-panel h4{margin:0 0 .55rem;font-size:.78rem;text-transform:uppercase;letter-spacing:.075em;color:var(--faint);display:flex;align-items:baseline;gap:.5rem}
 .sub-panel h4 .hint{text-transform:none;letter-spacing:0}
-.sub-panel .row{padding:.5rem 0}
+.sub-panel .row{padding:.55rem 0}
 .row-actions{display:flex;gap:.5rem;align-items:center;flex:none}
-form.newver{display:grid;gap:.5rem;margin-top:.75rem;padding-top:.75rem;border-top:1px solid var(--border)}
+form.newver{display:grid;gap:.55rem;margin-top:.75rem;padding-top:.75rem;border-top:1px solid var(--border)}
 .emails-wrap{margin-bottom:.5rem}
-.userform{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin-bottom:.5rem}
-.userform input{flex:1;min-width:14rem}
+.userform{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin-bottom:.75rem}
+.userform input{flex:1;min-width:11rem}
+.userform input#newuser{min-width:15rem;flex:1.4}
+.user-row{align-items:flex-start}
+.user-row .info{display:grid;gap:.3rem}
+.user-row .info b{font-weight:650;letter-spacing:-.015em}
+.user-row .art-badges{margin-top:.1rem}
+.user-note{border-left:2px solid var(--border-strong);padding-left:.6rem;color:var(--faint)}
+.user-row .row-actions{align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.user-list .empty{padding:2.4rem 1.5rem}
 
-#tokenform{display:grid;gap:.9rem;margin-bottom:.5rem}
+#tokenform{display:grid;gap:.95rem;margin-bottom:.5rem}
 .badge.is-revoked{color:var(--danger);border-color:var(--danger);background:var(--danger-weak)}
-fieldset.scopes{border:1px solid var(--border);border-radius:12px;padding:.75rem .9rem;margin:0;
-  display:grid;gap:.4rem}
+fieldset.scopes{border:1px solid var(--border);border-radius:18px;padding:.82rem .95rem;margin:0;display:grid;gap:.45rem;background:rgba(255,255,255,.03)}
 fieldset.scopes legend{font-size:.85rem;color:var(--muted);padding:0 .35rem}
 label.check{display:flex;align-items:flex-start;gap:.5rem;margin:0;font-size:.88rem;color:var(--fg)}
 label.check input{width:auto;flex:none;margin-top:.2rem}
 .field-label{display:block;font-size:.85rem;color:var(--muted);margin-bottom:.25rem}
-.token-secret{border:1px solid var(--ok);background:var(--ok-weak);border-radius:var(--radius);
-  padding:1.1rem;margin-bottom:1rem}
-.token-secret .linkrow input{font-family:var(--mono);font-size:.85rem;background:var(--card)}
+.token-secret{border:1px solid rgba(48,209,88,.55);background:var(--ok-weak);border-radius:22px;padding:1.15rem;margin-bottom:1rem}
+.token-secret .linkrow input{font-family:var(--mono);font-size:.85rem;background:rgba(255,255,255,.05)}
 .token-list .row [data-token-state]{min-width:0}
 .token-list .row .info b{display:flex;align-items:center;gap:.35rem;flex-wrap:wrap}
 .token-list .hint{overflow-wrap:anywhere}
@@ -980,6 +1135,7 @@ label.check input{width:auto;flex:none;margin-top:.2rem}
 @media(max-width:720px){
   .field-grid,.art-body{grid-template-columns:1fr}
   .art-actions{width:100%;justify-content:flex-start}
+  .linkrow{align-items:stretch;flex-direction:column}
 }
 `;
 

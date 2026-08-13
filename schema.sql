@@ -60,6 +60,26 @@ CREATE TABLE IF NOT EXISTS waitlist (
   created_at TEXT NOT NULL
 );
 
+-- Local user directory: product state above the Cloudflare Access allow-list.
+-- Access remains the authentication source of truth; `role` here is a record of
+-- the configured role and never grants privilege (ADMIN_EMAILS /
+-- SUPER_ADMIN_EMAILS do). `status` is authoritative — 'disabled' is enforced by
+-- the Worker on every request.
+CREATE TABLE IF NOT EXISTS users (
+  email        TEXT PRIMARY KEY,
+  role         TEXT NOT NULL DEFAULT 'member',
+  status       TEXT NOT NULL DEFAULT 'invited',
+  display_name TEXT,
+  notes        TEXT,
+  invited_by   TEXT,
+  invited_at   TEXT,
+  created_at   TEXT NOT NULL,
+  last_seen_at TEXT,
+  disabled_at  TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_status ON users (status);
+
 -- Bearer credentials for server-to-server publishing. Only the SHA-256 hash of
 -- the token is stored; `id` is the non-secret handle embedded in the token
 -- string (rtfx_<id>_<secret>).

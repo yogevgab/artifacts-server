@@ -15,6 +15,7 @@ export async function initDb() {
     "artifact_views",
     "waitlist",
     "api_tokens",
+    "users",
   ]) {
     await env.DB.prepare(`DROP TABLE IF EXISTS ${table}`).run();
   }
@@ -55,6 +56,18 @@ export async function initDb() {
       scopes TEXT NOT NULL DEFAULT 'read,publish', created_by TEXT NOT NULL,
       created_at TEXT NOT NULL, last_used_at TEXT, expires_at TEXT, revoked_at TEXT)`
   ).run();
+  await env.DB.prepare(
+    `CREATE TABLE users (
+      email TEXT PRIMARY KEY, role TEXT NOT NULL DEFAULT 'member',
+      status TEXT NOT NULL DEFAULT 'invited', display_name TEXT, notes TEXT,
+      invited_by TEXT, invited_at TEXT, created_at TEXT NOT NULL,
+      last_seen_at TEXT, disabled_at TEXT)`
+  ).run();
+}
+
+/** Drop the users table, to exercise the "directory not migrated yet" path. */
+export async function dropUsersTable() {
+  await env.DB.prepare("DROP TABLE IF EXISTS users").run();
 }
 
 export async function clearR2() {
