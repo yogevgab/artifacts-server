@@ -1,6 +1,7 @@
 import { layout, esc, siteHeader, siteFooter, PUBLIC_CHROME_STYLE, type HeadMeta } from "./pages";
 import { cookieNotice, CONSENT_STYLE, CONSENT_SCRIPT } from "./consent";
 import type { Env } from "./env";
+import { posthogConfig } from "./posthog";
 import { SITE, canonicalUrl, siteOrigin } from "./seo";
 
 /**
@@ -173,13 +174,24 @@ function legalPage(
 
 // --- /privacy ---------------------------------------------------------------
 
-const PRIVACY_DESCRIPTION =
+const PRIVACY_DESCRIPTION_BASE =
   "What rtfx.pro stores, why, and who can see it: your email address, the artifacts you " +
-  "publish, and the view log their owners see. The public pages carry no analytics or " +
-  "third-party tracking; the dashboard offers optional, consent-gated session recording and " +
-  "error tracking, heavily masked, that you can decline.";
+  "publish, and the view log their owners see.";
 
-const PRIVACY_PARTS: readonly Part[] = [
+const privacyDescription = (analytics: boolean): string =>
+  analytics
+    ? `${PRIVACY_DESCRIPTION_BASE} The public pages carry no analytics or third-party tracking; ` +
+      "the dashboard offers optional, consent-gated session recording and error tracking, " +
+      "heavily masked, that you can decline."
+    : `${PRIVACY_DESCRIPTION_BASE} No analytics, no advertising and no third-party tracking.`;
+
+/**
+ * `analytics` is whether this deployment can record anything at all — i.e.
+ * whether POSTHOG_KEY is set. When it isn't, every mention of recording is
+ * dropped: describing a sub-processor an instance does not use is the same
+ * class of inaccuracy as hiding one it does.
+ */
+const privacyParts = (analytics: boolean): readonly Part[] => [
   {
     id: "summary",
     heading: "The short version",
@@ -192,9 +204,13 @@ const PRIVACY_PARTS: readonly Part[] = [
         This is a feature of the product, and it applies to you when you open somebody else's
         artifact too.</li>
       <li>The public pages — this one included — run <b>no analytics, no advertising and no
-        third-party tracking</b>. The dashboard is different: with your OK, it uses PostHog for
+        third-party tracking</b>.${
+          analytics
+            ? ` The dashboard is different: with your OK, it uses PostHog for
         session recording and error tracking, heavily masked, and declining means it never loads.
-        See <a href="#dashboard-analytics">Session recording and error tracking</a> below.</li>
+        See <a href="#dashboard-analytics">Session recording and error tracking</a> below.`
+            : " Neither does the dashboard."
+        }</li>
       <li>Nothing you publish or view is sold, shared with advertisers, or used to profile you.</li>
     </ul>`,
   },
@@ -293,7 +309,7 @@ const PRIVACY_PARTS: readonly Part[] = [
     heading: "Cookies and local storage",
     html: `<p>The public pages set nothing beyond what keeps the site working — no consent banner
       asks you to accept anything there, because there is nothing optional to accept. The dashboard
-      adds exactly one optional cookie, set only after you accept session recording (previous
+      ${analytics ? "adds exactly one optional cookie, set only after you accept session recording" : "adds no optional cookies at all"} (previous
       section). Everything else below is strictly necessary and cannot be declined while you use
       the product.</p>
     <div class="table-wrap"><table class="data">
@@ -319,11 +335,15 @@ const PRIVACY_PARTS: readonly Part[] = [
           <td>Remembers your accept/decline choice for dashboard session recording, so the banner
             does not ask again. Stored locally, never sent to our server. Clearing it asks again the
             next time you open the dashboard.</td></tr>
-        <tr><th scope="row"><code>ph_&lt;project-key&gt;_posthog</code></th>
+        ${
+          analytics
+            ? `<tr><th scope="row"><code>ph_&lt;project-key&gt;_posthog</code></th>
           <td>Cookie + local storage · optional, dashboard only</td>
           <td>Set by PostHog after you accept dashboard session recording — never before, never on
             any other page. Holds an anonymous session/device id and nothing else. Decline, or never
-            accept, and it is never set.</td></tr>
+            accept, and it is never set.</td></tr>`
+            : ""
+        }
       </tbody>
     </table></div>
     <p>That is the one optional cookie on this site, and it exists only because you said yes to it.
@@ -363,9 +383,13 @@ const PRIVACY_PARTS: readonly Part[] = [
     <p>Cloudflare provides the whole platform: the network, the Workers runtime, Cloudflare Access
       (identity and the one-time-code emails), the D1 database and the R2 object storage holding
       your files. Data is processed on Cloudflare's global network, which means it may be handled
-      outside your own country under Cloudflare's data-processing terms. PostHog processes
+      outside your own country under Cloudflare's data-processing terms.${
+        analytics
+          ? ` PostHog processes
       dashboard session recordings and error reports, but only for people who accepted them — see
-      <a href="#dashboard-analytics">Session recording and error tracking</a> above. We disclose
+      <a href="#dashboard-analytics">Session recording and error tracking</a> above.`
+          : ""
+      } We disclose
       data to anyone else only where the law requires it.</p>`,
   },
   {
@@ -424,6 +448,14 @@ const PRIVACY_PARTS: readonly Part[] = [
 ];
 
 export function privacyPage(env: Env): string {
+  // A deployment with no POSTHOG_KEY cannot record anything, so telling its
+  // users about a sub-processor it does not use would be its own kind of
+  // inaccuracy — the opposite of the one this section was written to fix.
+  const analytics = !!posthogConfig(env);
+  const parts = analytics
+    ? privacyParts(true)
+    : privacyParts(false).filter((part) => part.id !== "dashboard-analytics");
+
   return legalPage(env, {
     current: "privacy",
     title: "Privacy policy · rtfx.pro",
@@ -432,8 +464,8 @@ export function privacyPage(env: Env): string {
     lede:
       "What rtfx.pro stores, why it stores it, and who can see it — written against what the " +
       "software actually does rather than what a privacy policy usually says.",
-    description: PRIVACY_DESCRIPTION,
-    parts: PRIVACY_PARTS,
+    description: privacyDescription(analytics),
+    parts,
   });
 }
 
