@@ -1,5 +1,15 @@
-import { describe, it, expect } from "vitest";
-import { classifyMailError, isRetryable } from "../src/mail";
+import { describe, it, expect, beforeEach } from "vitest";
+import { env } from "cloudflare:test";
+import { classifyMailError, isRetryable, recordMail } from "../src/mail";
+
+async function initMailLog() {
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS mail_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL, kind TEXT NOT NULL,
+      status TEXT NOT NULL, error_code TEXT, created_at TEXT NOT NULL)`
+  ).run();
+  await env.DB.prepare("DELETE FROM mail_log").run();
+}
 
 describe("classifyMailError", () => {
   it("treats sender/domain problems as config failures", () => {
@@ -32,5 +42,46 @@ describe("isRetryable", () => {
     expect(isRetryable("E_RATE_LIMIT_EXCEEDED")).toBe(true);
     expect(isRetryable("E_RECIPIENT_SUPPRESSED")).toBe(false);
     expect(isRetryable("E_SENDER_NOT_VERIFIED")).toBe(false);
+  });
+});
+
+describe("recordMail", () => {
+  beforeEach(initMailLog);
+
+  it("writes a successful send", async () => {
+    await recordMail(env as any, {
+      email: "Dana@Acme.com",
+      kind: "signin",
+      status: "sent",
+      now: "2026-08-14T12:00:00.000Z",
+    });
+    const row = await env.DB.prepare("SELECT * FROM mail_log").first<any>();
+    expect(row.email).toBe("dana@acme.com"); // normalized, so lookups match
+    expect(row.status).toBe("sent");
+    expect(row.error_code).toBeNull();
+  });
+
+  it("writes a failure with its code", async () => {
+    await recordMail(env as any, {
+      email: "dana@acme.com",
+      kind: "signin",
+      status: "failed",
+      errorCode: "E_RECIPIENT_SUPPRESSED",
+      now: "2026-08-14T12:00:00.000Z",
+    });
+    const row = await env.DB.prepare("SELECT * FROM mail_log").first<any>();
+    expect(row.error_code).toBe("E_RECIPIENT_SUPPRESSED");
+  });
+
+  it("never throws — logging must not break a send path", async () => {
+    await env.DB.prepare("DROP TABLE mail_log").run();
+    await expect(
+      recordMail(env as any, {
+        email: "dana@acme.com",
+        kind: "signin",
+        status: "sent",
+        now: "2026-08-14T12:00:00.000Z",
+      })
+    ).resolves.toBeUndefined();
   });
 });

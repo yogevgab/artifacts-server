@@ -7,6 +7,8 @@
  * neither does an operator reading logs after the fact.
  */
 
+import type { Env } from "./env";
+
 /**
  * How a failed send should be handled. The distinction is the whole point of
  * this module: a suppressed recipient and a rate limit look identical at the
@@ -43,4 +45,39 @@ export function classifyMailError(code: string | undefined): MailFailureClass {
 
 export function isRetryable(code: string | undefined): boolean {
   return classifyMailError(code) === "transient";
+}
+
+/** What a message was for. Used to read the log by purpose. */
+export type MailKind = "signin" | "magic_link" | "share_notice";
+
+/**
+ * Record a delivery outcome. Best-effort, exactly like `api_tokens.last_used_at`
+ * — a logging failure must never turn a successful send into an error.
+ */
+export async function recordMail(
+  env: Env,
+  entry: {
+    email: string;
+    kind: MailKind;
+    status: "sent" | "failed";
+    errorCode?: string;
+    now: string;
+  }
+): Promise<void> {
+  try {
+    await env.DB.prepare(
+      `INSERT INTO mail_log (email, kind, status, error_code, created_at)
+       VALUES (?, ?, ?, ?, ?)`
+    )
+      .bind(
+        entry.email.trim().toLowerCase(),
+        entry.kind,
+        entry.status,
+        entry.errorCode ?? null,
+        entry.now
+      )
+      .run();
+  } catch {
+    // Best-effort by design.
+  }
 }
