@@ -18,12 +18,15 @@ import { getAccount } from "./accounts";
  *  it is the default every account starts at and the floor a cancellation returns to. */
 export type PaidPlan = "pro" | "team";
 
-const HANDLED_EVENTS = new Set([
-  "subscription_created",
-  "subscription_updated",
-  "subscription_cancelled",
-  "subscription_expired",
-]);
+/**
+ * Every subscription event carries the subscription's current status, so
+ * entitlement is derived from status × variant rather than from a switch over
+ * event names. That covers all twelve events this store sends — and any Lemon
+ * Squeezy adds later — without a list that silently goes stale. A
+ * `subscription_plan_changed` ignored because it was missing from a list is an
+ * upgrade the customer paid for and did not receive.
+ */
+const SUBSCRIPTION_EVENT = /^subscription_/;
 
 // --- signature verification ---------------------------------------------------
 
@@ -98,6 +101,54 @@ export function planForVariant(env: Env, variantId: unknown): PaidPlan | "free" 
   // variant nobody configured — an unknown id must never grant anything.
   if (env.LEMONSQUEEZY_VARIANT_FREE && id === env.LEMONSQUEEZY_VARIANT_FREE) return "free";
   return null;
+}
+
+/**
+ * What an account is entitled to, given a subscription's status and the plan
+ * its variant maps to. `null` means "change nothing".
+ *
+ * Two of these are the difference between a correct billing system and an
+ * annoying one:
+ *
+ *  - **cancelled** does NOT revoke. In Lemon Squeezy, cancelling means "do not
+ *    renew"; the subscription stays live until `ends_at`, and
+ *    `subscription_expired` arrives then. Dropping somebody to free the moment
+ *    they cancel takes away time they have already paid for.
+ *  - **past_due** does not revoke either, so dunning can run. Lemon Squeezy
+ *    moves the subscription to `unpaid` or `expired` if it never recovers, and
+ *    those do revoke.
+ *
+ * An unrecognized variant yields `null` regardless of status: an active
+ * subscription to something nobody configured must never grant a plan.
+ */
+/** The status an event name implies, for a payload that carries none. */
+function impliedStatus(eventName: string): string {
+  if (eventName === "subscription_expired") return "expired";
+  if (eventName === "subscription_cancelled") return "cancelled";
+  if (eventName === "subscription_paused") return "paused";
+  if (eventName === "subscription_payment_failed") return "past_due";
+  return "active";
+}
+
+export function entitlementFor(
+  status: string,
+  variantPlan: PaidPlan | "free" | null
+): PaidPlan | "free" | null {
+  switch (status) {
+    case "paused":
+    case "unpaid":
+    case "expired":
+      return "free";
+    case "cancelled":
+    case "past_due":
+      return null;
+    case "active":
+    case "on_trial":
+      return variantPlan;
+    default:
+      // An unfamiliar status is not a reason to change what somebody has.
+      return variantPlan === "free" ? "free" : null;
+  }
 }
 
 // --- checkout ---------------------------------------------------------------
@@ -211,20 +262,23 @@ export async function processWebhookEvent(
       ? customData.account_id
       : null;
 
-  if (!eventName || !HANDLED_EVENTS.has(eventName)) {
+  if (!eventName || !SUBSCRIPTION_EVENT.test(eventName)) {
     // Nothing here changes accounts.plan, so there is nothing that needs to
     // survive a replay — no billing_events row is spent on it.
     return { ok: true, ignored: true };
   }
 
-  let plan: PaidPlan | "free" | null = null;
-  if (eventName === "subscription_cancelled" || eventName === "subscription_expired") {
-    plan = "free";
-  } else {
-    const data = isRecord(payload) && isRecord(payload.data) ? payload.data : null;
-    const attributes = data && isRecord(data.attributes) ? data.attributes : null;
-    plan = planForVariant(env, attributes?.variant_id);
-  }
+  const data = isRecord(payload) && isRecord(payload.data) ? payload.data : null;
+  const attributes = data && isRecord(data.attributes) ? data.attributes : null;
+  // Real deliveries always carry a status; this fallback is for a malformed or
+  // truncated one, where the event name still says plainly what happened. It
+  // must not be the primary path — status is authoritative because an
+  // `updated` event can describe a subscription that has already expired.
+  const status =
+    typeof attributes?.status === "string" && attributes.status
+      ? attributes.status
+      : impliedStatus(eventName);
+  const plan = entitlementFor(status, planForVariant(env, attributes?.variant_id));
 
   if (accountId && plan && (await getAccount(env, accountId))) {
     await env.DB.prepare("UPDATE accounts SET plan = ?, updated_at = ? WHERE id = ?")
