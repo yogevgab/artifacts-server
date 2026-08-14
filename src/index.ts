@@ -40,6 +40,8 @@ import { allowlistView } from "./access-api";
 import { adminEmails, describeUsers, listUsers, privilegedEmails, superAdminEmails } from "./users";
 import { notFoundPage } from "./pages";
 import { shellPage } from "./shell";
+import { viewLimitStatus, blocksOnViewLimit } from "./quota";
+import { overViewLimitPage } from "./view-limit-page";
 export { ChatRoom } from "./chat";
 import { redeemShareLink } from "./share";
 
@@ -839,6 +841,22 @@ app.get("*", async (c) => {
   // the shell's own framed request (?raw=1), curl, the CLI — gets the bytes.
   // Sec-Fetch-Dest is absent on non-browser clients, which is why its absence
   // means "raw" rather than "shell": the machine path must not change.
+  // The account's monthly view allowance. Checked only for a real browser
+  // navigation: the shell's own iframe fetch, curl, the CLI and the MCP server
+  // all take the raw path and are untouched. A blocked browser never receives
+  // the shell, so it never issues the iframe request either — the block
+  // cascades without serveArtifact needing to know about plans.
+  //
+  // `owned` here is deliberately the route's existing notion, which includes a
+  // workspace member: somebody inside the account can always still reach their
+  // own content, which is what lets them see the message and act on it.
+  if (wantsShell(c) && art.account_id) {
+    const status = await viewLimitStatus(c.env, art.account_id);
+    if (blocksOnViewLimit(status, owned || !!identity?.isAdmin)) {
+      return c.html(overViewLimitPage(slug), 503);
+    }
+  }
+
   if (wantsShell(c)) {
     const grants = art.visibility === "restricted" ? await listGrants(c.env, slug) : [];
     return c.html(
