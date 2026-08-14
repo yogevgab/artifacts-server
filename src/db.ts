@@ -209,6 +209,9 @@ export async function deleteArtifactRow(env: Env, slug: string): Promise<void> {
     env.DB.prepare("DELETE FROM artifact_grants WHERE slug = ?").bind(slug),
     env.DB.prepare("DELETE FROM artifact_versions WHERE slug = ?").bind(slug),
     env.DB.prepare("DELETE FROM artifact_views WHERE slug = ?").bind(slug),
+    // Otherwise a slug republished later under the same name would inherit
+    // whatever links the previous artifact had handed out.
+    env.DB.prepare("DELETE FROM share_links WHERE slug = ?").bind(slug),
     env.DB.prepare("DELETE FROM artifacts WHERE slug = ?").bind(slug),
   ]);
 }
@@ -426,6 +429,49 @@ export async function hasGrant(env: Env, slug: string, email: string): Promise<b
     .bind(slug, email.toLowerCase())
     .first<{ ok: number }>();
   return !!row;
+}
+
+// --- Mail delivery status (per-grantee) ---
+//
+// `mail_log` already records every send attempt (see migration 0011); this is
+// the read side an artifact owner needs — "did the last message to this
+// address actually land" — which used to require reading the database
+// directly. See `mailStatusFor` below.
+
+export interface MailStatusSummary {
+  status: "sent" | "failed";
+  kind: string;
+  errorCode: string | null;
+  createdAt: string;
+}
+
+/**
+ * The most recent mail_log entry per email, for a given set of addresses.
+ * An address with no entries is simply absent from the map — "we have never
+ * tried to mail them" is a different fact from "we tried and it failed", and
+ * conflating the two would turn every fresh grant into a false alarm.
+ *
+ * Ordered by `created_at DESC, id DESC` and de-duplicated in JS (keep the
+ * first hit per email) rather than a correlated subquery, for the same
+ * reason `viewersFor` doesn't use a window function: portability across D1's
+ * SQLite builds.
+ */
+export async function mailStatusFor(env: Env, emails: string[]): Promise<Map<string, MailStatusSummary>> {
+  const clean = [...new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean))];
+  const map = new Map<string, MailStatusSummary>();
+  if (!clean.length) return map;
+  const { results } = await env.DB.prepare(
+    `SELECT email, status, kind, error_code, created_at FROM mail_log
+      WHERE email IN (${clean.map(() => "?").join(", ")})
+      ORDER BY created_at DESC, id DESC`
+  )
+    .bind(...clean)
+    .all<{ email: string; status: "sent" | "failed"; kind: string; error_code: string | null; created_at: string }>();
+  for (const r of results ?? []) {
+    if (map.has(r.email)) continue; // already saw a more recent row for this address
+    map.set(r.email, { status: r.status, kind: r.kind, errorCode: r.error_code, createdAt: r.created_at });
+  }
+  return map;
 }
 
 // --- Waitlist ---

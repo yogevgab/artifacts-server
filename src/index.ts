@@ -21,6 +21,7 @@ import {
   viewCounts,
   recentViews,
   viewersFor,
+  mailStatusFor,
   viewsByVersion,
   viewSources,
 } from "./db";
@@ -315,11 +316,17 @@ app.get("/admin/artifacts/:slug", requireUser, async (c) => {
     viewsByVersion(c.env, slug),
     viewSources(c.env, slug),
   ]);
+  // Delivery state per grantee, so "they never got the invitation" is answerable
+  // in the panel instead of by reading mail_log. Needs the grant list first, so
+  // it cannot join the Promise.all above.
+  const mailStatus = await mailStatusFor(c.env, emails);
   const views: ViewsInfo = {
     counts: new Map([[slug, { total: stats.total, unique: stats.unique }]]),
     recent: new Map([[slug, stats.recent]]),
   };
-  return c.html(artifactDetailPage({ viewer, row, emails, versions, views, viewers, versionViews, sources }));
+  return c.html(
+    artifactDetailPage({ viewer, row, emails, versions, views, viewers, versionViews, sources, mailStatus })
+  );
 });
 
 // The Gallery section (issue #35): what this person can open, rather than what

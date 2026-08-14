@@ -1,5 +1,5 @@
 import type { ArtifactRow, VersionRow, ViewRow } from "./env";
-import type { ViewerSummary, VersionViewSummary, ViewSources } from "./db";
+import type { ViewerSummary, VersionViewSummary, ViewSources, MailStatusSummary } from "./db";
 import { esc } from "./pages";
 import { MAX_UPLOAD_BYTES } from "./upload";
 import { tokenState } from "./integrations";
@@ -697,8 +697,89 @@ function sourcesPanel(slug: string, sources: ViewSources): string {
   </section>`;
 }
 
-function accessPanel(r: ArtifactRow, emails: string[]): string {
+/** One granted address's display state, computed once for `accessPanel`'s rows. */
+export interface GrantRow {
+  email: string;
+  /** Human-readable last-opened / never-opened / delivery-failure sentence. */
+  status: string;
+  /** True when the most recent `mail_log` entry for this address failed. */
+  mailFailed: boolean;
+}
+
+/**
+ * "Has this person actually opened it, and did the mail we sent them even
+ * arrive?" — the two questions the old comma-separated textarea had no way to
+ * answer. Both come from data that already exists: `viewersFor` (artifact
+ * views) and `mailStatusFor` (mail_log), matched to each grant case-
+ * insensitively since email casing is never normalized on the way in.
+ */
+export function grantRowsFor(
+  emails: string[],
+  viewers: ViewerSummary[],
+  mailStatus: Map<string, MailStatusSummary>
+): GrantRow[] {
+  return emails.map((email) => {
+    const lower = email.toLowerCase();
+    const viewer = viewers.find((v) => v.email?.toLowerCase() === lower);
+    const opened = viewer
+      ? `Last opened ${stamp(viewer.lastViewedAt)} · v${viewer.lastVersion} · ${plural(viewer.views, "view")}`
+      : "Hasn't opened it yet";
+    const mail = mailStatus.get(lower);
+    const mailFailed = mail?.status === "failed";
+    const status = mailFailed
+      ? `${opened} · we couldn't deliver mail to this address (last tried ${stamp(mail!.createdAt)})`
+      : opened;
+    return { email, status, mailFailed };
+  });
+}
+
+/**
+ * The list PUT to `/api/artifacts/:slug/access` after removing one address —
+ * pure, and exported so "removing Dana can never remove Sam" is a provable,
+ * unit-tested invariant rather than something a manual click-through happens
+ * to catch. This is the typed twin of the one-line filter the Remove button's
+ * handler runs in the browser (see DETAIL_SCRIPT below); this file has no
+ * bundler, so the browser copy can't simply `import` this one.
+ */
+export function withoutGrant(emails: string[], removed: string): string[] {
+  const target = removed.trim().toLowerCase();
+  return emails.filter((e) => e.trim().toLowerCase() !== target);
+}
+
+/** Same idea for the Add button: appends, de-duplicating case-insensitively. */
+export function withAddedGrant(emails: string[], added: string): string[] {
+  const clean = added.trim();
+  if (!clean) return emails;
+  const lower = clean.toLowerCase();
+  if (emails.some((e) => e.trim().toLowerCase() === lower)) return emails;
+  return [...emails, clean];
+}
+
+function grantRowHtml(slug: string, row: GrantRow): string {
+  return `<div class="row" data-grant="${esc(row.email)}">
+    <div class="info"><b>${esc(row.email)}</b><span class="hint">${esc(row.status)}</span></div>
+    <div class="row-actions">
+      ${row.mailFailed ? `<span class="badge is-warn" data-badge="mail">Delivery failed</span>` : ""}
+      <button type="button" class="ghost small" data-remove-grant="${esc(row.email)}" data-slug="${esc(slug)}"
+        aria-label="Remove ${esc(row.email)}">Remove</button>
+    </div>
+  </div>`;
+}
+
+/**
+ * Exported (unlike this file's other panel functions) so the delivery-failure
+ * and never-opened states can be unit-tested directly, without threading a
+ * full `ArtifactDetailInput` — and without going through the `/admin/…` HTTP
+ * route, whose handler in src/index.ts is not this task's to wire up.
+ */
+export function accessPanel(
+  r: ArtifactRow,
+  emails: string[],
+  viewers: ViewerSummary[],
+  mailStatus: Map<string, MailStatusSummary>
+): string {
   const restricted = r.visibility === "restricted";
+  const rows = grantRowsFor(emails, viewers, mailStatus);
   return `<section class="panel sub-panel" data-panel="access" id="acc-${esc(r.slug)}" aria-labelledby="access-h">
     <div class="panel-head"><div>
       <h2 id="access-h">Access</h2>
@@ -711,16 +792,26 @@ function accessPanel(r: ArtifactRow, emails: string[]): string {
       <option value="everyone"${!restricted ? " selected" : ""}>Everyone — any signed-in user</option>
     </select>
     <div class="emails-wrap"${restricted ? "" : " hidden"}>
-      <label for="em-${esc(r.slug)}">Allowed emails <span class="faint">(comma or newline separated)</span></label>
-      <textarea id="em-${esc(r.slug)}" name="emails" rows="2" placeholder="alice@example.com, bob@example.com">${esc(emails.join(", "))}</textarea>
-      <p class="hint">${
-        emails.length
-          ? `${people(emails.length)} can open it today.`
-          : "Nobody else can open this yet — add an email to share it."
+      <div class="grant-list" data-grant-list aria-label="People with access to this artifact">
+        ${rows.map((row) => grantRowHtml(r.slug, row)).join("")}
+      </div>
+      <p class="hint"${rows.length ? "" : " data-no-grants"}>${
+        rows.length
+          ? `${people(rows.length)} can open it today.`
+          : "Nobody else can open this yet — add an email below to share it."
       }</p>
+      <div class="grant-add">
+        <label for="add-em-${esc(r.slug)}">Add someone</label>
+        <div class="grant-add-row">
+          <input id="add-em-${esc(r.slug)}" type="email" inputmode="email" placeholder="alice@example.com"
+            autocomplete="off" data-add-email>
+          <button type="button" class="ghost small" data-add-grant="${esc(r.slug)}">Add</button>
+        </div>
+        <p class="status" data-add-error role="alert" hidden></p>
+      </div>
     </div>
     <div class="row-actions"><button class="small" data-save="${esc(r.slug)}">Save access</button>
-      <span class="status acc-status" data-status hidden></span></div>
+      <span class="status acc-status" data-status aria-live="polite" hidden></span></div>
   </section>`;
 }
 
@@ -733,10 +824,17 @@ export interface ArtifactDetailInput {
   viewers: ViewerSummary[];
   versionViews: VersionViewSummary[];
   sources: ViewSources;
+  /**
+   * Most recent mail_log entry per granted address (src/db.ts `mailStatusFor`).
+   * Optional and defaulted to empty: a caller that hasn't wired the lookup yet
+   * still renders — the access panel just shows no delivery-failure state,
+   * rather than the whole page failing to compile or render.
+   */
+  mailStatus?: Map<string, MailStatusSummary>;
 }
 
 export function artifactDetailPage(o: ArtifactDetailInput): string {
-  const { viewer, row, emails, versions, views, viewers, versionViews, sources } = o;
+  const { viewer, row, emails, versions, views, viewers, versionViews, sources, mailStatus = new Map() } = o;
   const viewCount = views.counts.get(row.slug)?.total ?? 0;
   const badges = artifactBadges(row, emails, versions.length, viewCount, viewer.isAdmin);
 
@@ -793,7 +891,7 @@ export function artifactDetailPage(o: ArtifactDetailInput): string {
         ${sourcesPanel(row.slug, sources)}
       </div>
       ${viewsPanel(row.slug, views)}
-      ${accessPanel(row, emails)}
+      ${accessPanel(row, emails, viewers, mailStatus)}
       ${danger}`,
     style: ARTIFACTS_STYLE,
     script: PICK_SCRIPT + DETAIL_SCRIPT,
@@ -1321,22 +1419,53 @@ function onVis(slug){
 $$('select[data-vis]').forEach(function(s){
   s.addEventListener('change', function(){ onVis(s.getAttribute('data-vis')); });
 });
+
+/* The DOM row list is the source of truth for who gets submitted — read off
+   fresh on every save, never a shared editable field. That is what makes
+   "remove Dana" structurally incapable of also dropping Sam: her row is
+   simply one of the elements this reads back. */
+function grantEmails(card){
+  return $$('[data-grant-list] [data-grant]', card).map(function(row){
+    return row.getAttribute('data-grant');
+  });
+}
+/* Mirrors the typed, unit-tested withoutGrant() in src/admin.ts — see its
+   comment for why this can't just import that one. */
+function grantsAfterRemoving(list, removed){
+  var target = removed.trim().toLowerCase();
+  return list.filter(function(e){ return e.trim().toLowerCase() !== target; });
+}
+/* Mirrors withAddedGrant(). */
+function grantsAfterAdding(list, added){
+  var clean = added.trim();
+  if(!clean) return list;
+  var lower = clean.toLowerCase();
+  if(list.some(function(e){ return e.trim().toLowerCase() === lower; })) return list;
+  return list.concat([clean]);
+}
+var EMAIL_RE = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;
+
+async function putAccess(slug, visibility, emails, status){
+  var res = await fetch('/api/artifacts/' + encodeURIComponent(slug) + '/access', {
+    method:'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ visibility: visibility, emails: emails })
+  });
+  var data = await res.json().catch(function(){ return {}; });
+  if(!res.ok){ setStatus(status, data.detail || 'Could not save access.', 'error'); return null; }
+  return data;
+}
+
 $$('button[data-save]').forEach(function(b){
   b.addEventListener('click', async function(){
     var slug = b.getAttribute('data-save');
     var card = document.getElementById('acc-' + slug);
     var status = $('[data-status]', card);
     var visibility = $('[name=visibility]', card).value;
-    var emails = $('[name=emails]', card).value.split(/[\\s,]+/).map(function(s){ return s.trim(); }).filter(Boolean);
     b.disabled = true;
     setStatus(status, 'Saving…');
     try {
-      var res = await fetch('/api/artifacts/' + encodeURIComponent(slug) + '/access', {
-        method:'PUT', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ visibility: visibility, emails: emails })
-      });
-      var data = await res.json();
-      if(!res.ok){ setStatus(status, data.detail || 'Could not save access.', 'error'); return; }
+      var data = await putAccess(slug, visibility, grantEmails(card), status);
+      if(!data) return;
       var who = data.visibility === 'everyone'
         ? 'Saved — visible to everyone signed in.'
         : 'Saved — ' + (data.emails.length === 1 ? '1 person' : data.emails.length + ' people') + ' can open it.';
@@ -1350,6 +1479,57 @@ $$('button[data-save]').forEach(function(b){
       }
     } catch(err){ setStatus(status, 'Network error — try again.', 'error'); }
     finally { b.disabled = false; }
+  });
+});
+
+/* Each row's Remove button only ever knows its own email and its own slug —
+   there is no way for it to compute a list that touches another row. */
+$$('button[data-remove-grant]').forEach(function(b){
+  b.addEventListener('click', async function(){
+    var slug = b.getAttribute('data-slug');
+    var email = b.getAttribute('data-remove-grant');
+    var card = document.getElementById('acc-' + slug);
+    var status = $('[data-status]', card);
+    var visibility = $('[name=visibility]', card).value;
+    var next = grantsAfterRemoving(grantEmails(card), email);
+    b.disabled = true;
+    setStatus(status, 'Removing ' + email + '…');
+    try {
+      var data = await putAccess(slug, visibility, next, status);
+      if(!data){ b.disabled = false; return; }
+      setStatus(status, 'Removed ' + email + '.', 'ok');
+      location.reload();
+    } catch(err){ setStatus(status, 'Network error — try again.', 'error'); b.disabled = false; }
+  });
+});
+
+$$('button[data-add-grant]').forEach(function(b){
+  b.addEventListener('click', async function(){
+    var slug = b.getAttribute('data-add-grant');
+    var card = document.getElementById('acc-' + slug);
+    var input = $('[data-add-email]', card);
+    var err = $('[data-add-error]', card);
+    var status = $('[data-status]', card);
+    var value = input.value.trim();
+    if(!EMAIL_RE.test(value)){
+      err.textContent = value
+        ? '"' + value + '" is not a valid email address.'
+        : 'Enter an email address to add.';
+      err.hidden = false;
+      input.focus();
+      return;
+    }
+    err.hidden = true; err.textContent = '';
+    var visibility = $('[name=visibility]', card).value;
+    var next = grantsAfterAdding(grantEmails(card), value);
+    b.disabled = true;
+    setStatus(status, 'Adding ' + value + '…');
+    try {
+      var data = await putAccess(slug, visibility, next, status);
+      if(!data){ b.disabled = false; return; }
+      setStatus(status, 'Added ' + value + '.', 'ok');
+      location.reload();
+    } catch(err2){ setStatus(status, 'Network error — try again.', 'error'); b.disabled = false; }
   });
 });
 
@@ -1424,6 +1604,12 @@ a.ghost.link-button.small-link{padding:.42rem .85rem;font-size:.82rem}
 .sub-panel h2{font-size:1.02rem}
 form.newver{display:grid;gap:.55rem;margin-top:.9rem;padding-top:.9rem;border-top:1px solid var(--border)}
 .emails-wrap{margin-bottom:.5rem}
+.grant-list{display:flex;flex-direction:column}
+.grant-add{margin-top:.85rem;padding-top:.85rem;border-top:1px solid var(--border);display:grid;gap:.4rem}
+.grant-add label{font-size:.82rem;font-weight:620}
+.grant-add-row{display:flex;gap:.5rem;flex-wrap:wrap}
+.grant-add-row input{flex:1;min-width:14rem}
+.grant-add-row button{flex:none}
 .panel[data-panel=views] .row{padding:.55rem 0}
 .sources-h3{font-size:.72rem;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);margin:0 0 .35rem}
 

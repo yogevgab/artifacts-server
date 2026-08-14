@@ -273,3 +273,20 @@ describe("a share link authorizes the whole artifact, not just its entry", () =>
     expect(res.status).not.toBe(200);
   });
 });
+
+describe("deleting an artifact takes its share links with it", () => {
+  /**
+   * Otherwise a revoked-by-deletion artifact leaves live link rows in D1. They
+   * cannot open anything (the artifact is gone), but a slug republished later
+   * under the same name would inherit somebody else's old links.
+   */
+  it("leaves no orphaned links behind", async () => {
+    await createShareLink(env as any, { slug: "report", createdBy: OWNER, now: AT });
+    expect(await listShareLinks(env as any, "report")).toHaveLength(1);
+
+    const res = await req("/api/artifacts/report", { method: "DELETE", ...as(OWNER) });
+    expect(res.status).toBeLessThan(300);
+
+    expect(await listShareLinks(env as any, "report")).toHaveLength(0);
+  });
+})
