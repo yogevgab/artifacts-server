@@ -53,6 +53,7 @@ import { redeemShareLink } from "./share";
  */
 const linkCookieName = (slug: string) => `rtfx_link_${slug}`;
 import { shareRoutes } from "./share-routes";
+import { billingRoutes } from "./billing-routes";
 import { verifyHandoff, mintSession, SESSION_TTL_SECONDS } from "./session";
 import { landingPage } from "./landing";
 import { docsPage } from "./docs";
@@ -406,6 +407,9 @@ app.route("/waitlist", waitlist);
 // its own full paths. App host only — see MANAGEMENT_PREFIXES in host.ts.
 app.route("/", authRoutes);
 app.route("/", shareRoutes);
+// Lemon Squeezy calls this with no session and no token, so the HMAC signature
+// on the raw body is the only gate. See src/billing.ts.
+app.route("/", billingRoutes);
 
 // --- Public product surface (issue #29) -------------------------------------
 // Everything below is served to anyone, identically, without reading an identity:

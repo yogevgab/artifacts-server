@@ -21,6 +21,7 @@ export async function initDb() {
     "auth_challenges",
     "mail_log",
     "share_links",
+    "billing_events",
   ]) {
     await env.DB.prepare(`DROP TABLE IF EXISTS ${table}`).run();
   }
@@ -99,6 +100,11 @@ export async function initDb() {
     `CREATE TABLE mail_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL, kind TEXT NOT NULL,
       status TEXT NOT NULL, error_code TEXT, created_at TEXT NOT NULL)`
+  ).run();
+  await env.DB.prepare(
+    `CREATE TABLE billing_events (
+      id TEXT PRIMARY KEY, event_name TEXT NOT NULL, account_id TEXT,
+      processed_at TEXT NOT NULL)`
   ).run();
 }
 
