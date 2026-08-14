@@ -112,7 +112,8 @@ const FAQS: readonly Faq[] = [
   {
     q: "What happens when I publish the same slug twice?",
     a:
-      "You get a new immutable version at the same URL. Previous versions stay addressable for " +
+      "You get a new immutable version at the same URL. On the free plan the five most recent "
+      + "versions are kept and older ones expire; paid plans keep every version. Retained versions stay addressable for " +
       "preview, and rollback is one click — nothing you have already shared is overwritten or lost.",
   },
   {

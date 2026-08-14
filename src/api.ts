@@ -82,6 +82,7 @@ import {
   setAccess,
   removeEmailFromAllGrants,
   insertNextVersion,
+  applyRetention,
   deleteVersion,
   listVersions,
   setCurrentVersion,
@@ -323,9 +324,13 @@ artifactRoutes.post("/artifacts", requireScope("publish"), async (c) => {
   // checked, matching the "accounts only ever widen reach, never narrow it"
   // rule the rest of this module follows (see accounts.ts).
   const quotaAccountId = existing?.account_id ?? accounts.active?.id ?? null;
+  // Hoisted: the retention window below needs the same plan the quota check
+  // used, and an artifact with no account is treated as free for both.
+  let accountPlan = "free";
   if (quotaAccountId) {
     const quotaAccount = await getAccount(c.env, quotaAccountId);
-    const limits = limitsFor(quotaAccount?.plan ?? "free");
+    accountPlan = quotaAccount?.plan ?? "free";
+    const limits = limitsFor(accountPlan);
     const usage = await usageFor(c.env, quotaAccountId);
     // A republish adds bytes to storage but not a new artifact; a brand-new
     // slug adds one of each. Checked against what usage would become *after*
@@ -402,6 +407,23 @@ artifactRoutes.post("/artifacts", requireScope("publish"), async (c) => {
     account_id: existing?.account_id ?? accounts.active?.id ?? null,
   };
   await upsertArtifact(c.env, row);
+
+  // Free plans keep a finite window of versions. Applied only after the publish
+  // has fully succeeded, so a failure in housekeeping can never cost somebody
+  // the work they just published — the worst case is bytes that should have
+  // gone sticking around a while.
+  try {
+    await applyRetention(
+      c.env,
+      slug,
+      limitsFor(accountPlan).keepVersions,
+      version,
+      new Date().toISOString()
+    );
+  } catch {
+    // Never a reason to fail a successful publish.
+  }
+
 
   return c.json({
     slug,

@@ -65,7 +65,8 @@ export const ACCESS_TOOL_VAR = "RTFX_MCP_ALLOW_ACCESS";
 export const INSTRUCTIONS = `Publish HTML pages and multi-file artifacts to rtfx.pro (or a self-hosted artifacts-server).
 
 Publishing to a NEW slug creates the artifact at v1, private to its owner. Publishing to a slug
-you already own appends an immutable version and makes it live at the same URL — so re-publishing
+you already own appends an immutable version and makes it live at the same URL (free plans retain
+the last 5 versions; paid plans keep all) — so re-publishing
 an update means calling publish again with the same slug, never inventing a new one. Publishing to
 someone else's slug is refused with 409.
 

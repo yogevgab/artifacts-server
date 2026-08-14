@@ -1,3 +1,4 @@
+import { versionsToExpire } from "./quota";
 import type { Env, ArtifactRow, VersionRow, ViewRow } from "./env";
 
 function isMissingAccountColumn(e: unknown): boolean {
@@ -514,4 +515,53 @@ export async function setAccess(
     ),
   ];
   await env.DB.batch(stmts);
+}
+
+
+/**
+ * Apply a plan's retention window to one artifact.
+ *
+ * Rows are marked rather than deleted: the version list should still be able
+ * to say "v2 existed and is gone", which is more useful to somebody looking
+ * for it than a gap in the numbering. Only the bytes leave.
+ *
+ * Best-effort on the R2 side — a failed delete leaves an orphaned object,
+ * which costs storage but breaks nothing, and is better than failing a publish
+ * that has already succeeded.
+ */
+export async function applyRetention(
+  env: Env,
+  slug: string,
+  keep: number | null,
+  currentVersion: number,
+  now: string
+): Promise<number[]> {
+  if (keep === null) return [];
+
+  const { results } = await env.DB.prepare(
+    "SELECT version FROM artifact_versions WHERE slug = ? AND expired_at IS NULL"
+  )
+    .bind(slug)
+    .all<{ version: number }>();
+
+  const doomed = versionsToExpire((results ?? []).map((r) => r.version), keep, currentVersion);
+  if (!doomed.length) return [];
+
+  await env.DB.batch(
+    doomed.map((v) =>
+      env.DB.prepare(
+        "UPDATE artifact_versions SET expired_at = ? WHERE slug = ? AND version = ?"
+      ).bind(now, slug, v)
+    )
+  );
+
+  for (const v of doomed) {
+    try {
+      const listed = await env.FILES.list({ prefix: `${slug}/v${v}/` });
+      await Promise.all(listed.objects.map((o) => env.FILES.delete(o.key)));
+    } catch {
+      // Orphaned bytes cost storage; a thrown publish costs the user their work.
+    }
+  }
+  return doomed;
 }
