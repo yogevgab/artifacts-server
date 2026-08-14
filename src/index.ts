@@ -398,6 +398,12 @@ app.get("/admin/*", requireUser, async (c) =>
 );
 
 // JSON API for dashboard + CLI.
+// Mounted BEFORE /api: that mount installs requireUser across /api/*, which
+// would answer 403 to Lemon Squeezy before this handler ran. The webhook is
+// unauthenticated by necessity — the HMAC signature on the raw body is its
+// only gate. See src/billing.ts.
+app.route("/", billingRoutes);
+
 app.route("/api", api);
 
 // Public landing-page waitlist signup (unauthenticated).
@@ -407,9 +413,6 @@ app.route("/waitlist", waitlist);
 // its own full paths. App host only — see MANAGEMENT_PREFIXES in host.ts.
 app.route("/", authRoutes);
 app.route("/", shareRoutes);
-// Lemon Squeezy calls this with no session and no token, so the HMAC signature
-// on the raw body is the only gate. See src/billing.ts.
-app.route("/", billingRoutes);
 
 // --- Public product surface (issue #29) -------------------------------------
 // Everything below is served to anyone, identically, without reading an identity:

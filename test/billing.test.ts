@@ -318,9 +318,13 @@ describe("the webhook is actually reachable in the app", () => {
     const res = await app.request(
       "https://rtfx.pro/api/billing/webhook",
       { method: "POST", body: "{}" },
-      { ...(env as any), LEMONSQUEEZY_WEBHOOK_SECRET: "s".repeat(32) }
+      // DEV_LOGIN must be off, or requireUser resolves an identity and the
+      // request sails through the /api middleware that would reject it in
+      // production. This test passed for that reason once already.
+      { ...(env as any), DEV_LOGIN: undefined, LEMONSQUEEZY_WEBHOOK_SECRET: "s".repeat(32) }
     );
     expect(res.status).not.toBe(404);
+    expect(res.status).not.toBe(403);
     expect(res.status).toBe(401);
   });
 
