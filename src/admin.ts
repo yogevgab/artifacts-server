@@ -261,18 +261,18 @@ export function overviewPage(o: OverviewInput): string {
 
   const health: HealthRow[] = [];
   if (users) {
-    const a = users.allowlist;
+    // Sign-in used to depend on a Cloudflare Access allow-list that could be
+    // unconfigured or unreachable, so this row reported on that. The app owns
+    // identity now: anybody in the directory who is not paused can sign in, and
+    // there is no external system left to be out of sync with.
+    const active = users.users.filter((u) => u.status !== "disabled").length;
     health.push({
       key: "sign-in",
-      label: "Sign-in (Cloudflare Access)",
-      state: !a.configured ? "todo" : a.error ? "warn" : "ok",
-      detail: !a.configured
-        ? `Invites are recorded locally, but nobody new can sign in yet.
-           <a href="/admin/people">Finish setup →</a>`
-        : a.error
-          ? `Couldn't reach Cloudflare Access — the local directory still applies.
-             <a href="/admin/people">See the error →</a>`
-          : `${people(users.users.filter((u) => u.status !== "disabled").length)} can sign in.`,
+      label: "Sign-in",
+      state: active ? "ok" : "todo",
+      detail: active
+        ? `${people(active)} can sign in.`
+        : `Nobody has signed in yet. <a href="/admin/people">Invite somebody →</a>`,
     });
   }
   if (tokens) {
@@ -1153,7 +1153,6 @@ export interface PlatformInfo {
   origin: string;
   accessConfigured: boolean;
   accessTeamDomain: string;
-  accessManagementConfigured: boolean;
   contentHosts: string[];
   devLogin: boolean;
   adminCount: number;
@@ -1195,16 +1194,6 @@ export function platformPage(viewer: PortalViewer, info: PlatformInfo): string {
         ? `Team domain <span class="mono">${esc(info.accessTeamDomain)}</span>. Every request carries a verified identity.`
         : `<span class="mono">ACCESS_AUD</span> / <span class="mono">ACCESS_TEAM_DOMAIN</span> are unset.
            Sign-in is not enforced by Access on this deployment.`
-    )}
-    ${configRow(
-      "access-management",
-      "Access management API",
-      info.accessManagementConfigured,
-      info.accessManagementConfigured
-        ? `Invites and pauses are written straight to the Access allow-list.`
-        : `<span class="mono">CF_API_TOKEN</span>, <span class="mono">CF_ACCOUNT_ID</span>,
-           <span class="mono">ACCESS_VIEWER_APP_ID</span> and
-           <span class="mono">ACCESS_VIEWER_POLICY_ID</span> are needed to manage sign-in from here.`
     )}
     ${configRow(
       "content-hosts",

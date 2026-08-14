@@ -359,19 +359,13 @@ export interface PublicUser {
    * A `false` here is the drift an operator needs to see — the directory says
    * they're a member but they can't actually get in.
    */
-  allowlisted: boolean | null;
   /** False for an email that exists only in the Access allow-list, with no row here. */
   in_directory: boolean;
   /** True when this entry cannot be disabled or removed (the super admin). */
   is_protected: boolean;
 }
 
-export function toPublicUser(
-  env: Env,
-  row: UserRow | null,
-  email: string,
-  allowlist: Set<string> | null
-): PublicUser {
+export function toPublicUser(env: Env, row: UserRow | null, email: string): PublicUser {
   const clean = normalize(email);
   const role = effectiveRole(env, clean);
   return {
@@ -385,7 +379,6 @@ export function toPublicUser(
     created_at: row?.created_at ?? null,
     last_seen_at: row?.last_seen_at ?? null,
     disabled_at: row?.disabled_at ?? null,
-    allowlisted: allowlist ? allowlist.has(clean) : null,
     in_directory: row !== null,
     is_protected: role === "super_admin",
   };
@@ -398,21 +391,16 @@ export function toPublicUser(
  * before their first sign-in. Sorted operators first, then admins, then by email,
  * so the people who can change things are never buried in a long list.
  */
-export function describeUsers(
-  env: Env,
-  rows: UserRow[],
-  allowlist: string[] | null
-): PublicUser[] {
-  const set = allowlist ? new Set(allowlist.map(normalize)) : null;
+export function describeUsers(env: Env, rows: UserRow[]): PublicUser[] {
   const byEmail = new Map<string, UserRow | null>();
   for (const row of rows) byEmail.set(normalize(row.email), row);
-  for (const email of [...(allowlist ?? []), ...privilegedEmails(env)]) {
+  for (const email of privilegedEmails(env)) {
     const clean = normalize(email);
     if (!byEmail.has(clean)) byEmail.set(clean, null);
   }
   const rank: Record<UserRole, number> = { super_admin: 0, admin: 1, member: 2 };
   return [...byEmail.entries()]
-    .map(([email, row]) => toPublicUser(env, row, email, set))
+    .map(([email, row]) => toPublicUser(env, row, email))
     .sort((a, b) => rank[a.role] - rank[b.role] || a.email.localeCompare(b.email));
 }
 

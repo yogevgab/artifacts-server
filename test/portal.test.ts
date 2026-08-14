@@ -225,11 +225,6 @@ describe("overview", () => {
     expect(html).toMatch(/data-health="sharing" data-health-state="ok"/);
   });
 
-  it("reports unconfigured sign-in as a setup step, never as an error", async () => {
-    const html = await page("/admin");
-    expect(html).toMatch(/data-health="sign-in" data-health-state="todo"/);
-    expect(html).not.toContain('data-health-state="warn"');
-  });
 
   it("shows a member no health rows about other people", async () => {
     const html = await page("/admin", BOB);
@@ -303,7 +298,6 @@ describe("platform", () => {
     const html = await page("/admin/platform", SUPER);
     expect(html).toContain('data-panel="platform-config"');
     expect(html).toContain('data-config="access"');
-    expect(html).toContain('data-config="access-management"');
     expect(html).toContain('data-config="content-hosts"');
     expect(html).toContain('data-config="dev-login"');
     expect(html).toContain('data-panel="platform-operators"');
@@ -319,10 +313,10 @@ describe("platform", () => {
 
   it("never prints a secret, only whether one is set", async () => {
     const html = await page("/admin/platform");
-    for (const secret of ["CF_API_TOKEN=", "rtfx_", "Bearer "]) {
+    // Values, never. CF_API_TOKEN used to be the example here; it went with
+    // Cloudflare Access, so this now guards the secrets that actually exist.
+    for (const secret of ["SESSION_SECRET=", "LEMONSQUEEZY_WEBHOOK_SECRET=", "rtfx_", "Bearer "]) {
       expect(html, secret).not.toContain(secret);
     }
-    // The variable *names* are fine — they are what an operator has to go and set.
-    expect(html).toContain("CF_API_TOKEN");
   });
 });

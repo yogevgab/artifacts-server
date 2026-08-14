@@ -62,15 +62,6 @@ export interface Env {
    */
   APP_ORIGINS?: string;
 
-  // --- User management: the app reads/writes the Cloudflare Access viewer
-  //     policy directly, so Cloudflare Access is the source of truth for the
-  //     login allow-list. All optional so dev/tests run without CF access. ---
-  /** Cloudflare API token (secret) with Access: Apps and Policies — Edit. */
-  CF_API_TOKEN?: string;
-  CF_ACCOUNT_ID?: string;
-  /** The viewer Access application id and its human (email) policy id. */
-  ACCESS_VIEWER_APP_ID?: string;
-  ACCESS_VIEWER_POLICY_ID?: string;
 
   // --- Lemon Squeezy billing (src/billing.ts, src/billing-routes.ts). All
   //     optional so dev and tests run without a Lemon Squeezy store configured

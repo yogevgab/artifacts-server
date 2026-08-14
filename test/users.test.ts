@@ -76,13 +76,6 @@ describe("directory shape", () => {
     expect(find(body, SUPER).status).toBe("active");
   });
 
-  it("reports Access as unconfigured rather than failing the whole panel", async () => {
-    const { body } = await listUsers();
-    expect(body.allowlist).toEqual({ configured: false, emails: null, error: null });
-    // allowlisted is null, not false: we genuinely don't know, and claiming
-    // "false" would render a bogus drift warning on every row.
-    expect(find(body, SUPER).allowlisted).toBeNull();
-  });
 
   it("sorts the operator first, then admins, then members", async () => {
     await invite(SUPER, CAROL);
@@ -411,11 +404,6 @@ describe("dashboard People panel", () => {
     expect(html).not.toContain(`data-user-email="${ADMIN2}"`);
   });
 
-  it("explains the unconfigured Access state instead of showing an error", async () => {
-    const html = await dash(SUPER);
-    expect(html).toContain("data-users-unconfigured");
-    expect(html).not.toContain("data-users-error");
-  });
 
   it("shows an empty state only when nobody but the operators exist", async () => {
     // Admins always appear, so the list is never truly empty in this config —
