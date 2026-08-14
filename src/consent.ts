@@ -46,8 +46,8 @@ export function cookieNotice(): string {
       role="region" aria-labelledby="cookie-notice-title">
       <div class="cnotice-body">
         <h2 class="cnotice-title" id="cookie-notice-title">Cookies on rtfx.pro</h2>
-        <p>We use only necessary storage: Cloudflare Access sign-in cookies, Cloudflare
-          security cookies, and this notice's first-party localStorage dismissal. There is no
+        <p>We use only necessary storage: our own sign-in session cookie, Cloudflare's
+          edge security cookies, and this notice's first-party localStorage dismissal. There is no
           analytics, no advertising and no third-party tracking on this site — so there is
           nothing here to opt out of.
           <a href="/privacy#cookies" data-legal="cookies">What we store and why</a>.</p>

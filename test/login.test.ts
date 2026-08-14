@@ -73,20 +73,34 @@ describe("signed-out sign-in page", () => {
     expect(html).toMatch(/no password/i);
   });
 
-  it("warns that the next screen is Cloudflare's, so it doesn't read as a phish", async () => {
+  it("never hands off to Cloudflare — sign-in happens here now", async () => {
+    // The old flow bounced to /admin so Access would send the code, which meant
+    // the next screen was Cloudflare's and looked like a phish. Both are gone.
     const { html } = await login(ANON);
-    expect(html).toMatch(/Cloudflare/);
-    expect(html).toMatch(/next screen|takes you to|hands you (over )?to/i);
+    // Scoped to the handoff claim, not the word: the cookie notice still names
+    // Cloudflare's edge security cookies, which remain true.
+    expect(html).not.toMatch(/next screen is Cloudflare/i);
+    expect(html).not.toMatch(/identity provider that secures/i);
+    expect(html).not.toContain('href="/admin" data-cta="sign-in"');
   });
 
-  it("still hands off to /admin, which is what triggers the code", async () => {
+  it("collects the address itself and posts it to /auth/start", async () => {
     const { html } = await login(ANON);
-    expect(html).toContain('href="/admin" data-cta="sign-in"');
+    expect(html).toContain('data-step="email"');
+    expect(html).toContain('name="email"');
+    expect(html).toContain("/auth/start");
   });
 
-  it("still offers the way in for somebody without an invitation", async () => {
+  it("has a second step for the code, hidden until there is one to type", async () => {
     const { html } = await login(ANON);
-    expect(html).toContain('data-cta="request-access"');
+    expect(html).toContain('data-step="code"');
+    expect(html).toContain('autocomplete="one-time-code"');
+    expect(html).toContain("/auth/verify");
+  });
+
+  it("still offers the way in for somebody without an account", async () => {
+    const { html } = await login(ANON);
+    expect(html).toContain('href="/signup"');
   });
 
   it("sets expectations about the code itself rather than leaving people waiting", async () => {
@@ -135,5 +149,18 @@ describe("the other two sign-in states are the same page", () => {
   it("keeps the public sign-out page indexable, because it explains how to get in", async () => {
     const { html } = await login(ANON);
     expect(html).toContain("index,follow");
+  });
+});
+
+describe("/signup", () => {
+  it("offers the same form under create-an-account framing", async () => {
+    const res = await req("/signup", ANON);
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain("Create an account");
+    // Same endpoints as /login — signup and sign-in are one flow.
+    expect(body).toContain("/auth/start");
+    expect(body).toContain("/auth/verify");
+    expect(body).toContain('href="/login"');
   });
 });
