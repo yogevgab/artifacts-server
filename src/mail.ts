@@ -8,6 +8,7 @@
  */
 
 import type { Env } from "./env";
+import type { RenderedMail } from "./mail-templates";
 
 /**
  * How a failed send should be handled. The distinction is the whole point of
@@ -79,5 +80,63 @@ export async function recordMail(
       .run();
   } catch {
     // Best-effort by design.
+  }
+}
+
+export interface MailResult {
+  ok: boolean;
+  code?: string;
+  class?: MailFailureClass;
+}
+
+const DEFAULT_FROM = "no-reply@rtfx.pro";
+
+/**
+ * Send one transactional message and record the outcome.
+ *
+ * Never throws. Callers decide what to do from `MailResult`, because the right
+ * response differs by class: a transient failure is worth retrying, a config
+ * failure is an outage worth alerting on, and neither should ever surface to
+ * the person signing in — that would turn this into an account-enumeration
+ * oracle. The specific reason belongs in `mail_log`, where an operator can
+ * read it, not in an HTTP response.
+ */
+export async function sendMail(
+  env: Env,
+  o: { to: string; kind: MailKind; message: RenderedMail; now: string }
+): Promise<MailResult> {
+  if (!env.EMAIL) {
+    // Ours, not Cloudflare's, and "config" is exactly right: a deployment that
+    // forgot the binding.
+    await recordMail(env, {
+      email: o.to,
+      kind: o.kind,
+      status: "failed",
+      errorCode: "E_NO_BINDING",
+      now: o.now,
+    });
+    return { ok: false, code: "E_NO_BINDING", class: "config" };
+  }
+
+  try {
+    await env.EMAIL.send({
+      to: o.to,
+      from: { email: env.MAIL_FROM || DEFAULT_FROM, name: "rtfx.pro" },
+      subject: o.message.subject,
+      html: o.message.html,
+      text: o.message.text,
+    });
+    await recordMail(env, { email: o.to, kind: o.kind, status: "sent", now: o.now });
+    return { ok: true };
+  } catch (e) {
+    const code = (e as { code?: string }).code;
+    await recordMail(env, {
+      email: o.to,
+      kind: o.kind,
+      status: "failed",
+      errorCode: code ?? "E_UNKNOWN",
+      now: o.now,
+    });
+    return { ok: false, code, class: classifyMailError(code) };
   }
 }
