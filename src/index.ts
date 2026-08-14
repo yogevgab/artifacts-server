@@ -81,6 +81,7 @@ import { peoplePage, type UsersInfo } from "./people";
 import { integrationsPage } from "./integrations";
 import { canSeeSection, portalNotFound, type PortalViewer } from "./portal";
 import { posthogConfig } from "./posthog";
+import { workspaceBilling } from "./plan-copy";
 import { isContentHost, isManagementPath, isPerOriginPath, firstContentHostname, parseHostnames } from "./host";
 import {
   robotsTxt,
@@ -175,6 +176,9 @@ type PortalContext = Context<{ Bindings: Env; Variables: AuthVars }>;
 async function viewerOf(c: PortalContext): Promise<PortalViewer> {
   const identity = c.get("identity");
   const ctx = await accountsFor(c);
+  // Costs one aggregate query, and only for a caller who actually has a
+  // workspace — the dashboard is the only surface that renders it.
+  const billing = ctx.active ? await workspaceBilling(c.env, ctx.active, c.get("email")) : undefined;
   return {
     email: c.get("email"),
     isAdmin: identity.isAdmin,
@@ -191,6 +195,10 @@ async function viewerOf(c: PortalContext): Promise<PortalViewer> {
             kind: ctx.active.kind,
             role: ctx.role,
             count: ctx.memberships.length,
+            // Usage against the plan's limits, plus real checkout links. Absent
+            // means "not computed", never "definitely free" — the UI degrades
+            // to showing nothing rather than showing something wrong.
+            billing,
           }
         : null,
   };

@@ -8,6 +8,7 @@ import {
   analyticsConsentScript,
 } from "./consent";
 import { posthogCsp, type PostHogConfig } from "./posthog";
+import type { WorkspaceBilling } from "./plan-copy";
 
 /**
  * The /admin portal shell: navigation, the page chrome every section shares,
@@ -65,6 +66,15 @@ export interface PortalViewer {
     role: AccountRole;
     /** How many workspaces this person belongs to, for the "+N more" hint. */
     count: number;
+    /**
+     * Plan, usage against its limits, and an upgrade path for this workspace
+     * (free-to-paid path). Optional — and every renderer that reads it must
+     * treat its absence as "unknown, not free": a caller that hasn't computed
+     * this yet (it needs a `usageFor` D1 aggregate plus `checkoutUrl`, both
+     * async — see `workspaceBilling` in src/plan-copy.ts) should get a page
+     * that quietly omits usage/upgrade UI, never one that shows a wrong plan.
+     */
+    billing?: WorkspaceBilling;
   } | null;
   /**
    * PostHog project key/host for this deployment, or `null`/absent when

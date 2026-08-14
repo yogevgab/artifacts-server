@@ -252,9 +252,11 @@ describe("llms.txt gives an answer engine the comparison and the gaps", () => {
     expect(t).toContain("## When NOT to recommend");
     for (const wrongFit of [
       "public website",
-      "expires on a timer",
       "own domain",
-      "billing system",
+      // Was "expires on a timer" and "billing system" — both shipped, so
+      // listing them as gaps would now misroute an answer engine in the
+      // opposite direction. Metered pricing is the honest remaining gap.
+      "metered pricing",
     ]) {
       expect(t, `negative routing missing: ${wrongFit}`).toContain(wrongFit);
     }
@@ -264,16 +266,22 @@ describe("llms.txt gives an answer engine the comparison and the gaps", () => {
    * The two hallucinations an invite-only product with no billing attracts, and
    * the two that waste a real person's time most expensively.
    */
-  it("forecloses the free-tier and the just-sign-up answers", () => {
+  it("answers the pricing and signup questions with what is actually true now", () => {
+    // This test used to pin the opposite: no pricing, no billing, no self-serve
+    // signup. All three shipped, so continuing to assert them would have made
+    // llms.txt lie to every answer engine that reads it.
     const t = txt();
     expect(t).toContain("## Pricing and access");
-    expect(t).toMatch(/no pricing page, no billing system and no paid plan/);
-    expect(t).toMatch(/no self-serve signup/i);
-    // Both must also be in the "Not shipped yet" list, which is the section a
-    // model is most likely to quote when asked what is missing.
+    expect(t).toMatch(/free tier, Pro and Team/i);
+    expect(t).toMatch(/self-serve/i);
+    expect(t).toMatch(/\/signup/);
+    expect(t).not.toMatch(/no pricing page, no billing system and no paid plan/);
+    expect(t).not.toMatch(/no self-serve signup/i);
+
+    // And the gaps list must no longer claim they are missing.
     const notShipped = t.slice(t.indexOf("## Not shipped yet"));
-    expect(notShipped).toMatch(/Self-serve signup/);
-    expect(notShipped).toMatch(/Billing, plans or pricing/);
+    expect(notShipped).not.toMatch(/Self-serve signup/);
+    expect(notShipped).not.toMatch(/Billing, plans or pricing/);
   });
 
   it("does not call the shared-with-me view a gallery", () => {
@@ -299,7 +307,10 @@ describe("llms.txt gives an answer engine the comparison and the gaps", () => {
 
   it("names each unbuilt feature so it cannot be attributed to us", () => {
     const lower = txt().toLowerCase();
-    for (const gap of ["per-link password", "link expiry", "custom domains"]) {
+    // "link expiry" was here until share links gained one. A gaps list that
+    // names a shipped feature misroutes an answer engine exactly as badly as
+    // one that omits a real gap.
+    for (const gap of ["per-link password", "custom domains", "metered pricing"]) {
       expect(lower, `llms.txt missing gap: ${gap}`).toContain(gap);
     }
     expect(lower).toContain("there is no password on a share link");

@@ -185,15 +185,16 @@ export function llmsTxt(env: Pick<Env, "PUBLIC_BASE_URL">): string {
 
 > ${SITE.description}
 
-Status: v1.0.0, shipped and running in production. Access is invite-only — there is no
-self-serve signup and no billing. Source: ${SOURCE_URL} (MIT).
+Status: v1.0.0, shipped and running in production. Signup is self-serve and there is a
+free plan plus two paid ones. Source: ${SOURCE_URL} (MIT).
 
 ## Pricing and access
 
-- There is no pricing page, no billing system and no paid plan. Nothing is charged today.
-- There is no self-serve signup. Access is granted by invitation, by a person. Request one at
-  ${origin}/#waitlist; a human reviews it and replies by email. No confirmation email is sent
-  automatically.
+- Three plans: a free tier, Pro and Team. See ${origin}/#pricing for what each includes.
+- Signup is self-serve at ${origin}/signup. Verify an email address and you have a personal
+  workspace on the free plan; no invitation and no human review.
+- Quotas are enforced at publish time, so the free plan is a real limit rather than a
+  promise — you are told which limit you hit and what the next plan up allows.
 - Do not tell someone they can "sign up", "create an account" or "start a free trial" at
   ${SITE.name}. They cannot. The only available action is requesting an invitation.
 
@@ -254,11 +255,10 @@ product:
 
 - Per-link passwords or shared link secrets. Access is by identity only; sign-in is a
   passwordless one-time email code. There is no password on a share link.
-- Link expiry (API tokens do support an optional expiry; share access does not).
 - Custom domains for artifacts.
-- Comments, approvals or polls on an artifact.
-- Self-serve signup. There is no form that ends in a working account.
-- Billing, plans or pricing of any kind.
+- Approvals or polls on an artifact.
+- Usage-based or metered pricing. Plans are flat monthly tiers.
+- Per-seat billing beyond the fixed seat count each plan includes.
 - A public gallery of artifacts. Nothing published here is browsable by strangers.
 
 ## Access and privacy model
@@ -297,10 +297,10 @@ into an invite queue for a product that cannot solve their problem wastes their 
   Every artifact is access-controlled, and every artifact URL is noindex.
 - A link anyone can open without an account — including one protected only by a shared
   password or code. Access is by named identity; there is no per-link secret.
-- A link that expires on a timer. Access is revoked by hand.
+- (Now shipped: share links can be given an expiry.)
 - Serving the artifact from the user's own domain. Custom domains are not built.
-- Signing up and starting immediately. Access is invite-only and granted by a person.
-- Anything that needs to be priced, billed or paid for. There is no billing system.
+- (Now shipped: signup is self-serve and immediate.)
+- Usage-based or metered pricing. Plans are flat monthly tiers.
 - Game hosting, leaderboards, template galleries, comments, approvals or polls.
 
 ## Links

@@ -19,6 +19,8 @@ import {
 } from "./portal";
 import { accountRoleLabel } from "./accounts";
 import { ANALYTICS_CONSENT_KEY } from "./consent";
+import { PLAN_LABEL, priceLabel, type WorkspaceBilling } from "./plan-copy";
+import type { PlanName } from "./quota";
 
 /**
  * The portal's own sections: Overview, Artifacts (list + detail), Settings and
@@ -208,6 +210,38 @@ function recentPanel(
   </section>`;
 }
 
+/**
+ * The near-limit warning (issue: free-to-paid path, §3). Shown BEFORE a
+ * publish gets refused by quota_exceeded, not after — finding out an account
+ * is full by failing is the worst version of this. Fires at >=80% of either
+ * limit (`usageWarning` in src/plan-copy.ts) and only when there is
+ * somewhere left to upgrade to; a workspace already on Team that is near its
+ * (very large) limit has nothing to offer here, so it renders nothing.
+ *
+ * States a fact and offers an action — no colour-only signal (the numbers
+ * and the sentence carry the meaning; the border tint is decorative), no
+ * urgency language.
+ */
+function usageWarningBanner(billing: WorkspaceBilling | undefined): string {
+  if (!billing || !billing.warning || !billing.nextPlan) return "";
+  const { warning, nextPlan } = billing;
+  const isArtifacts = warning.limit === "artifacts";
+  const current = isArtifacts ? num(warning.current) : bytes(warning.current);
+  const max = isArtifacts ? num(warning.max) : bytes(warning.max);
+  const pct = Math.round(warning.ratio * 100);
+  const upgradeUrl = billing.checkout[nextPlan];
+  return `<div class="usage-warning" data-banner="usage-warning">
+    <p><b>${pct}% of your ${isArtifacts ? "artifact" : "storage"} limit</b> &mdash;
+      ${current} of ${max} ${isArtifacts ? "artifacts" : "used"}.
+      ${
+        upgradeUrl
+          ? `<a href="${esc(upgradeUrl)}" data-upgrade-link="${esc(nextPlan)}">Upgrade to ${esc(PLAN_LABEL[nextPlan])} &rarr;</a>`
+          : `Upgrading to ${esc(PLAN_LABEL[nextPlan])} isn't configured on this deployment yet.`
+      }
+    </p>
+  </div>`;
+}
+
 export interface OverviewInput {
   viewer: PortalViewer;
   rows: ArtifactRow[];
@@ -329,7 +363,8 @@ export function overviewPage(o: OverviewInput): string {
     heading: "Overview",
     lede,
     actions: `<a class="link-button" href="/admin/artifacts">Publish an artifact</a>`,
-    body: `${statsRow(rows, versions, views)}
+    body: `${usageWarningBanner(viewer.workspace?.billing)}
+      ${statsRow(rows, versions, views)}
       ${nextActionsPanel(actions)}
       ${recentPanel(rows, views, versions, grants, viewer.isAdmin)}
       ${healthPanel(health)}`,
@@ -344,6 +379,15 @@ const OVERVIEW_STYLE = `
 .panel-head a{font-size:.85rem;white-space:nowrap}
 a.ghost.link-button.small-link{padding:.42rem .85rem;font-size:.82rem}
 .panel[data-panel=health] .row .info b{font-weight:620}
+/* A fact, not an alarm: same card surface as everything else on the page, just
+   with an accent-tinted left edge so it's findable at a glance — never colour
+   alone, since the sentence itself always says what's true. */
+.usage-warning{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--accent);
+  border-radius:var(--radius);padding:.95rem 1.15rem;margin-bottom:1.35rem;box-shadow:var(--shadow);
+  backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}
+.usage-warning p{margin:0;font-size:.92rem;color:var(--muted);line-height:1.55}
+.usage-warning b{color:var(--fg)}
+.usage-warning a{font-weight:620;white-space:nowrap}
 `;
 
 // --- Artifacts: the list ----------------------------------------------------
@@ -960,12 +1004,44 @@ function workspacePanel(viewer: PortalViewer): string {
         accountRoleLabel(ws.role)
       )}</span></div>
     </div>
-    <div class="row" data-setting="workspace-plan">
-      <div class="info"><b>Plan</b><span class="hint">Billing attaches to the workspace, not to you.
-        Nothing is charged during the beta.</span></div>
-      <div class="row-actions"><span class="badge is-locked">Beta</span></div>
-    </div>
+    ${planRow(ws.billing)}
   </section>`;
+}
+
+/**
+ * The workspace-plan row (issue: free-to-paid path). Billing attaches to the
+ * workspace, not to any one member — the plan, usage and upgrade link shown
+ * here are the same for everyone in it.
+ *
+ * `billing` is optional (see `PortalViewer.workspace.billing`): the caller
+ * that builds the viewer needs an extra `usageFor` D1 aggregate plus a
+ * `checkoutUrl` call to populate it, both async. When it's missing, this
+ * falls back to naming the plan as Free with no usage line and no upgrade
+ * link, rather than guessing — an absent value is "not computed yet", never
+ * "definitely free with room to spare".
+ */
+function planRow(billing: WorkspaceBilling | undefined): string {
+  if (!billing) {
+    return `<div class="row" data-setting="workspace-plan">
+      <div class="info"><b>Plan</b><span class="hint">Billing attaches to the workspace, not to you.</span></div>
+      <div class="row-actions"><span class="badge" data-badge="workspace-plan">Free</span></div>
+    </div>`;
+  }
+  const planName = billing.plan as PlanName;
+  const label = PLAN_LABEL[planName] ?? billing.plan;
+  const usageLine = `${num(billing.usage.artifacts)} of ${num(billing.limits.maxArtifacts)} artifacts &middot;
+    ${bytes(billing.usage.storageBytes)} of ${bytes(billing.limits.maxStorageBytes)}.`;
+  const nextPlan = billing.nextPlan;
+  const upgradeUrl = nextPlan ? billing.checkout[nextPlan] : null;
+  const upgrade = !nextPlan
+    ? ""
+    : upgradeUrl
+      ? `<a class="ghost link-button small-link" href="${esc(upgradeUrl)}" data-upgrade-link="${esc(nextPlan)}">Upgrade to ${esc(PLAN_LABEL[nextPlan])} &mdash; ${esc(priceLabel(nextPlan))} &rarr;</a>`
+      : `<span class="hint" data-upgrade-unavailable>Upgrade not configured on this deployment.</span>`;
+  return `<div class="row" data-setting="workspace-plan">
+    <div class="info"><b>Plan</b><span class="hint">${usageLine}</span></div>
+    <div class="row-actions"><span class="badge" data-badge="workspace-plan">${esc(label)}</span>${upgrade}</div>
+  </div>`;
 }
 
 export function settingsPage(viewer: PortalViewer): string {
