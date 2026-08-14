@@ -72,6 +72,9 @@ import {
 import { isValidSlug, slugify, contentType } from "./util";
 import { processZip, singleHtml, singlePdf, sniffKind, UploadError, MAX_UPLOAD_BYTES, type ProcessedUpload } from "./upload";
 import { exceeds, limitsFor, usageFor } from "./quota";
+import { nextPaidPlan, PLAN_LABEL, priceLabel } from "./plan-copy";
+import { checkoutUrl } from "./billing";
+import { num, bytes } from "./portal";
 import {
   listArtifacts,
   listArtifactsForCaller,
@@ -340,23 +343,45 @@ artifactRoutes.post("/artifacts", requireScope("publish"), async (c) => {
       { artifacts: usage.artifacts + (existing ? 0 : 1), storageBytes: usage.storageBytes + size },
       limits
     );
-    if (hit === "artifacts") {
-      return c.json(
-        {
-          error: "quota_exceeded",
-          detail: `this workspace is at its ${limits.maxArtifacts}-artifact limit; delete one or upgrade`,
-          limit: "artifacts",
-        },
-        413
-      );
-    }
-    if (hit === "storage") {
+    if (hit) {
+      // This is the conversion moment: a refusal is the worst way to learn an
+      // account is full (the dashboard warns before this, at 80% — see
+      // usageWarningBanner in src/admin.ts), so when it happens anyway the
+      // response says exactly which limit, what it is, and what upgrading
+      // would actually buy — never just "or upgrade" with nothing to act on.
+      const next = nextPaidPlan(accountPlan);
+      const nextLimits = next ? limitsFor(next) : null;
+      const upgrade =
+        next && quotaAccountId
+          ? {
+              plan: next,
+              label: PLAN_LABEL[next],
+              price: priceLabel(next),
+              url: checkoutUrl(c.env, next, { id: quotaAccountId }, c.get("email")),
+            }
+          : null;
+      const upgradeClause = nextLimits
+        ? `, or upgrade to ${PLAN_LABEL[next!]} (${priceLabel(next!)}) for ${num(nextLimits.maxArtifacts)} artifacts and ${bytes(nextLimits.maxStorageBytes)} of storage`
+        : "";
+
+      if (hit === "artifacts") {
+        return c.json(
+          {
+            error: "quota_exceeded",
+            limit: "artifacts",
+            detail: `this workspace is at its ${limits.maxArtifacts}-artifact limit; delete one${upgradeClause}`,
+            upgrade,
+          },
+          413
+        );
+      }
       const maxMb = Math.round(limits.maxStorageBytes / (1024 * 1024));
       return c.json(
         {
           error: "quota_exceeded",
-          detail: `this workspace is at its ${maxMb}MB storage limit; delete a version or upgrade`,
           limit: "storage",
+          detail: `this workspace is at its ${maxMb}MB storage limit; delete a version${upgradeClause}`,
+          upgrade,
         },
         413
       );

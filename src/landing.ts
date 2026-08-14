@@ -2,6 +2,8 @@ import { layout, siteHeader, siteFooter, PUBLIC_CHROME_STYLE, SOURCE_URL } from 
 import { cookieNotice, CONSENT_STYLE, CONSENT_SCRIPT } from "./consent";
 import type { Env } from "./env";
 import { SITE, canonicalUrl } from "./seo";
+import { num, bytes } from "./portal";
+import { ALL_PLANS, planFeatures } from "./plan-copy";
 
 /**
  * The public product page (issue #29, simplified in issue #35).
@@ -82,6 +84,25 @@ section.band{margin:4rem 0}
    footnote: it is the crawlable path to the long-form pages on /docs. */
 .band-more{text-align:center;color:var(--muted);font-size:.93rem;margin:1.6rem 0 0}
 .band-more a{white-space:nowrap}
+/* Pricing tiers (issue: free-to-paid path). Same card surface as .feature —
+   this is a variant of the product band, not a second design system — with
+   room for a price line and a short, literal list of what the plan actually
+   allows. Three equal cards: no tier is marked "recommended", since we have
+   no usage data to back a claim like that and the copy rule here is "state a
+   fact", not "nudge". */
+.pricing{margin:2.6rem 0 0}
+.pricing-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:1rem}
+.tier{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:1.4rem 1.3rem;
+  box-shadow:var(--shadow);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
+  display:flex;flex-direction:column;gap:.9rem}
+.tier h3{margin:0;font-size:1.1rem;letter-spacing:-.02em}
+.tier-price{margin:0;font-size:1.7rem;font-weight:700;letter-spacing:-.03em}
+.tier-limits{list-style:none;margin:0;padding:0;display:grid;gap:.5rem;font-size:.9rem;color:var(--muted);flex:1}
+.tier-limits li{padding-left:1.15rem;position:relative}
+.tier-limits li:before{content:"";position:absolute;left:0;top:.5em;width:.5rem;height:.5rem;
+  border-radius:50%;background:var(--accent-weak);border:1px solid rgba(10,132,255,.42)}
+.tier .link-button{align-self:flex-start}
+.pricing-note{text-align:center;color:var(--faint);font-size:.88rem;margin:1.2rem 0 0}
 #waitlist{background:var(--card);border:1px solid var(--border);border-radius:32px;padding:2.3rem;text-align:center;margin:2.6rem 0;box-shadow:var(--shadow);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}#waitlist h2{margin:0 0 .45rem;font-size:clamp(1.8rem,4vw,3rem);letter-spacing:-.055em}#waitlist p{color:var(--muted);margin:0 0 1.3rem}#waitlist form{display:flex;gap:.6rem;justify-content:center;flex-wrap:wrap;max-width:31rem;margin:0 auto}#waitlist input{flex:1;min-width:15rem}#msg{max-width:31rem;margin:.85rem auto 0}
 @media(max-width:760px){.hero{padding:3rem 0 1.8rem}.roundtrip{grid-template-columns:1fr;gap:1.6rem;margin-top:2.4rem}section.band{margin:3rem 0}}
 `;
@@ -217,6 +238,45 @@ function structuredData(env: Env): unknown[] {
   ];
 }
 
+/**
+ * One pricing tier, built from the real numbers in `PLANS` (src/quota.ts) via
+ * `planFeatures` — never hand-typed, so this can't quietly drift from what
+ * quota enforcement (src/api.ts) and Settings (src/admin.ts) actually apply.
+ */
+function tierCard(name: (typeof ALL_PLANS)[number]): string {
+  const f = planFeatures(name);
+  const versions =
+    f.limits.keepVersions === null
+      ? "Full version history"
+      : `Keeps the last ${f.limits.keepVersions} versions of each artifact`;
+  return `<div class="tier" data-tier="${name}">
+    <h3>${f.label}</h3>
+    <p class="tier-price">${f.price}</p>
+    <ul class="tier-limits">
+      <li>${num(f.limits.maxArtifacts)} artifacts</li>
+      <li>${bytes(f.limits.maxStorageBytes)} storage</li>
+      <li>${versions}</li>
+    </ul>
+    <a class="ghost link-button" href="#waitlist" data-cta="pricing-${name}">Request access</a>
+  </div>`;
+}
+
+function pricingSection(): string {
+  return `<div id="pricing" class="pricing">
+    <div class="band-head">
+      <p class="eyebrow-c">Pricing</p>
+      <h2>Free to start. Upgrade only if you outgrow it.</h2>
+      <p>Every workspace starts on Free. Upgrading is a workspace setting, not a signup step —
+        switch plans from Settings once you're in, and it never changes what you can already see or share.</p>
+    </div>
+    <div class="pricing-grid">
+      ${ALL_PLANS.map(tierCard).join("")}
+    </div>
+    <p class="pricing-note">Limits are per workspace, not per person. Storage counts every version
+      you've kept, which is why Free keeps your last 5 and the paid plans keep every one.</p>
+  </div>`;
+}
+
 export function landingPage(env: Env): string {
   const body = `
     ${siteHeader("home")}
@@ -300,6 +360,7 @@ export function landingPage(env: Env): string {
         <a href="/docs#why">why not a generic static host</a> ·
         <a href="/docs#agents">publishing from Claude Code or MCP</a> ·
         <a href="/docs#faq">FAQ</a></p>
+      ${pricingSection()}
     </section>
 
     <section id="waitlist">
@@ -318,15 +379,16 @@ export function landingPage(env: Env): string {
         <button type="submit">Request access</button>
       </form>
       <div id="msg" role="status" aria-live="polite" hidden></div>
-      <!-- What it costs is a question every reader forms in the first ten seconds,
-           and the page used to answer it only with a hedge about the future
-           ("if paid plans arrive…"), which reads as "we might bill you later".
-           There is no billing in the product, so the present tense is both the
-           more useful answer and the more honest one. The notice promise stays. -->
+      <!-- What it costs is a question every reader forms in the first ten seconds.
+           It used to be answered with a hedge about the future ("if paid plans
+           arrive…"), which was true when there was no billing at all. There is
+           now — see Pricing above — so the honest present-tense answer changed
+           with it: every workspace starts free, and access itself stays invited
+           either way. -->
       <p class="note">Already have an account? <a href="/login" data-cta="sign-in">Sign in instead →</a>
-        We'll email you a one-time code — there's no password to set. There is no billing in
-        rtfx.pro today and nothing to pay while access is invited; if paid plans arrive, existing
-        accounts will get notice before any pricing change applies.</p>
+        We'll email you a one-time code — there's no password to set. Every workspace starts on the
+        Free plan at no cost; see <a href="#pricing">Pricing</a> for what upgrading gets you. Access
+        itself is still invited, not self-serve — requesting it here costs nothing either way.</p>
       <p class="note">Submitting this stores your email address so we can send an invitation —
         nothing else. See the <a href="/privacy">privacy policy</a>.</p>
     </section>
