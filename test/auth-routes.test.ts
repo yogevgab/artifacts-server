@@ -233,3 +233,35 @@ describe("content host isolation", () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe("GET /logout", () => {
+  /**
+   * Regression: /logout predates app-owned sessions and only expired
+   * Cloudflare's cookies, so after the Plan 2 sign-in it left you signed in.
+   * Reported from production.
+   */
+  it("expires the app session cookie, not just Cloudflare's", async () => {
+    const res = await app.request("/logout", {}, testEnv());
+    expect(res.status).toBe(302);
+
+    const cookies = res.headers.getSetCookie?.() ?? [res.headers.get("set-cookie") ?? ""];
+    const joined = cookies.join(" | ");
+
+    expect(joined).toContain(`${SESSION_COOKIE}=`);
+    const ours = cookies.find((c) => c.startsWith(`${SESSION_COOKIE}=`)) ?? "";
+    expect(ours).toContain("Max-Age=0");
+    expect(ours).toContain("HttpOnly");
+
+    // Still clears the Access cookies — dual-accept means both must go.
+    expect(joined).toContain("CF_Authorization=");
+  });
+
+  it("actually de-authenticates: the cleared cookie no longer resolves", async () => {
+    const res = await app.request("/logout", {}, testEnv());
+    const ours =
+      (res.headers.getSetCookie?.() ?? []).find((c) => c.startsWith(`${SESSION_COOKIE}=`)) ?? "";
+    const value = /rtfx_session=([^;]*)/.exec(ours)?.[1] ?? "x";
+    expect(value).toBe("");
+    expect(await verifySession(SECRET, value, NOW())).toBeNull();
+  });
+});

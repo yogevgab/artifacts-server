@@ -3,7 +3,7 @@ import type { ArtifactRow, Env, VersionRow } from "./env";
 import { api } from "./api";
 import { waitlist } from "./waitlist";
 import { authRoutes } from "./auth-routes";
-import { requireUser, accessEmail, accountsFor, getIdentity, resolveAuth, type AuthVars } from "./auth";
+import { requireUser, accessEmail, accountsFor, getIdentity, resolveAuth, SESSION_COOKIE, type AuthVars } from "./auth";
 import { serveArtifact } from "./serve";
 import {
   listArtifacts,
@@ -483,13 +483,21 @@ app.get("/login", async (c) => {
 
 // Cloudflare's built-in /cdn-cgi/access/logout is edge-owned and can be awkward
 // to expose consistently on a custom-domain Worker route. This first-party route
-// gives the portal a stable Sign out target: expire the Access app cookies for
-// this domain and land back on the public sign-in explainer.
+// gives the portal a stable Sign out target.
+//
+// It must expire BOTH credentials. During the Access migration a person can hold
+// an app session, a Cloudflare Access session, or both, and "sign out" that
+// leaves either one standing is not a sign-out. Clearing a cookie that was never
+// set is harmless, so this is unconditional rather than clever.
 app.get("/logout", () =>
   new Response(null, {
     status: 302,
     headers: [
       ["Location", "/login"],
+      [
+        "Set-Cookie",
+        `${SESSION_COOKIE}=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; HttpOnly; SameSite=Lax`,
+      ],
       [
         "Set-Cookie",
         "CF_Authorization=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; HttpOnly; SameSite=None",
