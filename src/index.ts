@@ -2,6 +2,7 @@ import { Hono, type Context } from "hono";
 import type { ArtifactRow, Env, VersionRow } from "./env";
 import { api } from "./api";
 import { waitlist } from "./waitlist";
+import { authRoutes } from "./auth-routes";
 import { requireUser, accessEmail, accountsFor, getIdentity, resolveAuth, type AuthVars } from "./auth";
 import { serveArtifact } from "./serve";
 import {
@@ -371,6 +372,10 @@ app.route("/api", api);
 
 // Public landing-page waitlist signup (unauthenticated).
 app.route("/waitlist", waitlist);
+
+// App-owned sign-in (/auth/*). Mounted at the root because the module declares
+// its own full paths. App host only — see MANAGEMENT_PREFIXES in host.ts.
+app.route("/", authRoutes);
 
 // --- Public product surface (issue #29) -------------------------------------
 // Everything below is served to anyone, identically, without reading an identity:
