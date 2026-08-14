@@ -1,6 +1,7 @@
 import type { Env } from "./env";
 import { PLANS, limitsFor, usageFor, type PlanName, type PlanLimits, type QuotaLimit, type Usage } from "./quota";
 import { checkoutUrl, type PaidPlan } from "./billing";
+import { effectivePlan, type PlanBearing } from "./accounts";
 
 /**
  * The one place plan *copy* is assembled — price, display label, "what the
@@ -200,26 +201,46 @@ export interface WorkspaceBilling {
  * aggregate — see `usageFor`), whether it's near either limit, and a real
  * checkout link for the next plan up (never hand-built — see `checkoutUrl`).
  *
- * Callers are expected to be per-request page renders (Settings, Overview),
- * so this does one `usageFor` query and two pure `checkoutUrl` calls — no
- * caching, matching how `usageFor` is already used at publish time.
+ * Callers are expected to be per-request page renders (Settings, Overview,
+ * Billing), so this does one `usageFor` query and two pure `checkoutUrl` calls
+ * — no caching, matching how `usageFor` is already used at publish time.
+ *
+ * **Reads {@link effectivePlan}, never `account.plan`.** Every other
+ * entitlement decision in the product does (quota at publish time, the seat
+ * cap, the monthly view limit), and a dashboard that disagreed with them would
+ * be the one surface telling a comped workspace it had limits it does not have
+ * — it would say "10 artifacts" while the publish route happily allowed 100.
+ * `override` carries the subscription's own plan alongside it, so the page can
+ * say *why* the two differ rather than quietly showing one and hiding the other.
  */
 export async function workspaceBilling(
   env: Env,
-  account: { id: string; plan: string },
-  email: string
+  account: { id: string } & PlanBearing,
+  email: string,
+  now?: string
 ): Promise<WorkspaceBilling> {
-  const limits = limitsFor(account.plan);
+  const plan = effectivePlan(account, now);
+  const limits = limitsFor(plan);
   const usage = await usageFor(env, account.id);
   return {
-    plan: account.plan,
+    plan,
     limits,
     usage,
     warning: usageWarning(usage, limits),
-    nextPlan: nextPaidPlan(account.plan),
+    nextPlan: nextPaidPlan(plan),
     checkout: {
       pro: checkoutUrl(env, "pro", account, email),
       team: checkoutUrl(env, "team", account, email),
     },
+    // Only when it says something `plan` doesn't — an account with no override
+    // (which is nearly all of them) gets exactly the shape it had before.
+    ...(plan === account.plan
+      ? {}
+      : {
+          override: {
+            billedPlan: account.plan,
+            expiresAt: account.plan_override_expires_at ?? null,
+          },
+        }),
   };
 }

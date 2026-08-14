@@ -1084,9 +1084,14 @@ function planRow(billing: WorkspaceBilling | undefined): string {
     : upgradeUrl
       ? `<a class="ghost link-button small-link" href="${esc(upgradeUrl)}" data-upgrade-link="${esc(nextPlan)}">Upgrade to ${esc(PLAN_LABEL[nextPlan])} &mdash; ${esc(priceLabel(nextPlan))} &rarr;</a>`
       : `<span class="hint" data-upgrade-unavailable>Upgrade not configured on this deployment.</span>`;
+  // The full picture — limits, seats, what a downgrade does — lives on its own
+  // page now; this row stays the one-line summary it always was.
+  const detail = `<a href="/admin/billing" data-cta="billing">Billing &rarr;</a>`;
   return `<div class="row" data-setting="workspace-plan">
     <div class="info"><b>Plan</b><span class="hint">${usageLine}</span></div>
-    <div class="row-actions"><span class="badge" data-badge="workspace-plan">${esc(label)}</span>${upgrade}</div>
+    <div class="row-actions"><span class="badge" data-badge="workspace-plan">${esc(
+      label
+    )}</span>${upgrade}${detail}</div>
   </div>`;
 }
 

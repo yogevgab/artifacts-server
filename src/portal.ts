@@ -27,6 +27,7 @@ export type SectionId =
   | "artifacts"
   | "gallery"
   | "members"
+  | "billing"
   | "people"
   | "integrations"
   | "settings"
@@ -147,6 +148,21 @@ const SECTIONS: SectionDef[] = [
     // which `POST /api/workspace/:id/members` rejects outright.
     visible: (v) =>
       !v.isTokenCaller && (v.workspace?.role === "owner" || v.workspace?.role === "admin"),
+  },
+  {
+    id: "billing",
+    path: "/admin/billing",
+    label: "Billing",
+    blurb: "Plan, usage and limits",
+    // The customer half of billing, next to the workspace it bills. Everyone in
+    // the workspace sees it — a member who cannot buy anything still needs to
+    // know which plan's limits are about to refuse their publish, and the page
+    // states plainly that changing the plan is an owner's job.
+    //
+    // Never for a bearer token: a token is pinned to one workspace and has no
+    // business holding a checkout link prefilled with its owner's email. And
+    // never without a workspace — there is no plan to talk about yet.
+    visible: (v) => !v.isTokenCaller && !!v.workspace,
   },
   {
     id: "people",

@@ -61,6 +61,8 @@ import { receiptsRoutes } from "./receipts-routes";
 import { accessRequestRoutes } from "./access-request-routes";
 import { recordViewAndMaybeNotify } from "./read-receipts";
 import { membersPage } from "./members";
+import { billingPage } from "./billing-page";
+import { workspaceBilling } from "./plan-copy";
 import { verifyHandoff, mintSession, SESSION_TTL_SECONDS } from "./session";
 import { landingPage } from "./landing";
 import { proPage, teamPage, enterprisePage } from "./plan-pages";
@@ -328,6 +330,46 @@ app.get("/admin/members", requireUser, async (c) => {
       members: await listMembers(c.env, account.id),
       canManage: canManageMembers(identity, ctx.roles, account.id),
       viewerEmail: identity.email,
+    })
+  );
+});
+
+/**
+ * The customer's billing page. Distinct from `/admin/platform/accounts/:id`,
+ * which is the OPERATOR's view of the same workspace: this one shows what the
+ * people paying for it are entitled to and what they can act on, and never the
+ * override note, the internal notes or the audit trail.
+ *
+ * `canSeeSection` is re-checked rather than trusted from the nav — hiding a nav
+ * item has never protected anything — which is what keeps a bearer token out:
+ * a token is pinned to one workspace and must never be handed a checkout link
+ * prefilled with its owner's email.
+ */
+app.get("/admin/billing", requireUser, async (c) => {
+  const viewer = await viewerOf(c);
+  const ctx = await accountsFor(c);
+  if (!canSeeSection(viewer, "billing") || !ctx.active || !ctx.role) {
+    return c.html(portalNotFound(viewer, "Billing"), 404);
+  }
+  // `viewerOf` has already computed this for the shell; recomputing would cost
+  // a second `usageFor` aggregate for the same answer. The fallback is for a
+  // caller shape that hasn't (none today), never a guess at the plan.
+  const billing =
+    viewer.workspace?.billing ?? (await workspaceBilling(c.env, ctx.active, c.get("email")));
+  const [members, views] = await Promise.all([
+    listMembers(c.env, ctx.active.id),
+    // Isolate-cached for ~60s (see src/quota.ts), so this is a Map lookup on a
+    // warm isolate rather than a monthly aggregate per page view.
+    viewLimitStatus(c.env, ctx.active.id),
+  ]);
+  return c.html(
+    billingPage({
+      viewer,
+      account: ctx.active,
+      role: ctx.role,
+      billing,
+      members: members.length,
+      views,
     })
   );
 });

@@ -24,6 +24,7 @@ const APP_PAGES = [
   "/admin",
   "/admin/artifacts",
   "/admin/gallery",
+  "/admin/billing",
   "/admin/people",
   "/admin/integrations",
   "/admin/settings",
