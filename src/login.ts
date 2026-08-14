@@ -317,3 +317,30 @@ export function loginPage(env: Env, state: LoginState): string {
 export function accountPausedPage(env: Env, email: string | null): string {
   return loginPage(env, { kind: "paused", email });
 }
+
+/**
+ * The magic-link confirm step.
+ *
+ * A mail scanner will fetch this page; it will not press the button. That one
+ * fact is the whole reason the page exists — see the route comment in
+ * src/auth-routes.ts.
+ */
+export function magicLinkConfirmPage(env: Env, token: string): string {
+  return layout(
+    "Confirm sign-in \u00b7 rtfx.pro",
+    sheet(
+      "confirm",
+      `<p class="eyebrow">Almost there</p>
+       <h1>Confirm sign-in</h1>
+       <p class="lede">Press the button to finish signing in to rtfx.pro. We ask because mail
+         providers open links automatically, and a sign-in should happen when you say so.</p>
+       <form class="auth-form" method="post" action="/auth/m/${esc(token)}">
+         <button type="submit" class="link-button" data-cta="confirm-signin">Sign me in</button>
+       </form>
+       <hr class="divider">
+       <p class="hint">Didn't ask for this? Close the tab and nothing happens — the link stops
+         working on its own.</p>`
+    ),
+    LOGIN_STYLE
+  );
+}

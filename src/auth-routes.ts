@@ -21,6 +21,7 @@ import { incrementRateLimitBucket, clientAddress } from "./rate-limit";
 import { touchLastSeen, effectiveRole } from "./users";
 import { ensurePersonalAccount } from "./accounts";
 import { siteOrigin } from "./seo";
+import { magicLinkConfirmPage } from "./login";
 
 export const authRoutes = new Hono<AppBindings>();
 
@@ -117,7 +118,22 @@ authRoutes.post("/auth/verify", async (c) => {
   return c.json({ ok: true, redirect: "/admin" }, 200, { "Set-Cookie": cookie });
 });
 
-authRoutes.get("/auth/m/:token", async (c) => {
+/**
+ * The magic link is a two-step on purpose.
+ *
+ * Gmail, Outlook Safe Links and most corporate mail filters fetch every URL in
+ * a message before a human ever sees it. When GET consumed the token, the
+ * scanner signed in and the recipient was told their link had expired — we
+ * watched it happen in production, 14 seconds after the first real send.
+ *
+ * So GET is inert: it renders a page with a button. Only the POST behind that
+ * button consumes anything, and scanners do not POST.
+ */
+authRoutes.get("/auth/m/:token", (c) =>
+  c.html(magicLinkConfirmPage(c.env, c.req.param("token")))
+);
+
+authRoutes.post("/auth/m/:token", async (c) => {
   const challenge = await redeemToken(c.env, c.req.param("token"), new Date().toISOString());
   if (!challenge) return c.json({ error: "invalid_link" }, 401);
 

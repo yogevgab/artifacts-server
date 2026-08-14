@@ -167,25 +167,48 @@ describe("POST /auth/verify", () => {
 });
 
 describe("GET /auth/m/:token", () => {
-  it("signs in and redirects", async () => {
-    await post("/auth/start", { email: "dana@acme.com" });
-    const res = await app.request(`/auth/m/${mailedToken()}`, {}, testEnv());
-    expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe("/admin");
-    expect(res.headers.get("set-cookie") ?? "").toContain(`${SESSION_COOKIE}=`);
-  });
-
-  it("refuses a used link", async () => {
+  /**
+   * Gmail, Outlook Safe Links and corporate mail filters all fetch every URL in
+   * a message before a human sees it. A GET that consumed the token meant the
+   * scanner signed in and the recipient got "this link has expired" — observed
+   * in production, 14 seconds after the first real send. GET must be inert.
+   */
+  it("does NOT consume the token — mail scanners prefetch links", async () => {
     await post("/auth/start", { email: "dana@acme.com" });
     const token = mailedToken();
-    await app.request(`/auth/m/${token}`, {}, testEnv());
-    const again = await app.request(`/auth/m/${token}`, {}, testEnv());
+
+    const scan = await app.request(`/auth/m/${token}`, {}, testEnv());
+    expect(scan.status).toBe(200);
+    expect(scan.headers.get("set-cookie")).toBeNull();
+
+    const row = await env.DB.prepare("SELECT consumed_at FROM auth_challenges").first<any>();
+    expect(row.consumed_at).toBeNull();
+
+    // The human, arriving after the scanner, still gets in.
+    const confirm = await app.request(`/auth/m/${token}`, { method: "POST" }, testEnv());
+    expect(confirm.status).toBe(302);
+    expect(confirm.headers.get("set-cookie") ?? "").toContain(`${SESSION_COOKIE}=`);
+  });
+
+  it("serves a confirm page a person can act on", async () => {
+    await post("/auth/start", { email: "dana@acme.com" });
+    const res = await app.request(`/auth/m/${mailedToken()}`, {}, testEnv());
+    const body = await res.text();
+    expect(body).toContain("<form");
+    expect(body).toContain('method="post"');
+  });
+
+  it("refuses a link already confirmed", async () => {
+    await post("/auth/start", { email: "dana@acme.com" });
+    const token = mailedToken();
+    await app.request(`/auth/m/${token}`, { method: "POST" }, testEnv());
+    const again = await app.request(`/auth/m/${token}`, { method: "POST" }, testEnv());
     expect(again.status).toBe(401);
     expect(again.headers.get("set-cookie")).toBeNull();
   });
 
   it("refuses an unknown link", async () => {
-    const res = await app.request("/auth/m/made-up-token", {}, testEnv());
+    const res = await app.request("/auth/m/made-up-token", { method: "POST" }, testEnv());
     expect(res.status).toBe(401);
   });
 });
