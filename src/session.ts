@@ -101,3 +101,56 @@ export function shouldRefresh(claims: { iat?: number }, now: string): boolean {
   const age = Math.floor(Date.parse(now) / 1000) - claims.iat;
   return age > SESSION_TTL_SECONDS / 2;
 }
+
+/**
+ * A one-shot credential for crossing from the app host to the content host.
+ *
+ * The session cookie is host-only by design — it must never be sent to the
+ * origin that serves uploaded HTML. So a viewer arriving at the content host
+ * has no identity there, and needs one minted by the host that does know them.
+ *
+ * Deliberately short-lived: it rides in a URL, which lands in history, logs and
+ * referrers. Sixty seconds is long enough for a redirect and useless to anyone
+ * who finds it later.
+ */
+export const HANDOFF_TTL_SECONDS = 60;
+
+export async function mintHandoff(
+  secret: string,
+  claims: SessionClaims,
+  now: string
+): Promise<string> {
+  const key = keyFrom(secret);
+  const issued = Math.floor(Date.parse(now) / 1000);
+  return new SignJWT({
+    kind: claims.kind,
+    ...(claims.slug ? { slug: claims.slug } : {}),
+    use: "handoff",
+  })
+    .setProtectedHeader({ alg: "HS256" })
+    .setSubject(normalize(claims.email))
+    .setIssuedAt(issued)
+    .setExpirationTime(issued + HANDOFF_TTL_SECONDS)
+    .sign(key);
+}
+
+/**
+ * Verify a handoff. Rejects a full session token presented here: the two have
+ * different lifetimes and different exposure, and one must never be usable as
+ * the other.
+ */
+export async function verifyHandoff(
+  secret: string,
+  token: string,
+  now: string
+): Promise<SessionClaims | null> {
+  const claims = await verifySession(secret, token, now);
+  if (!claims) return null;
+  try {
+    const { payload } = await jwtVerify(token, keyFrom(secret), { currentDate: new Date(now) });
+    if (payload.use !== "handoff") return null;
+  } catch {
+    return null;
+  }
+  return claims;
+}

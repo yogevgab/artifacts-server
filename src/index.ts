@@ -35,6 +35,7 @@ import { allowlistView } from "./access-api";
 import { adminEmails, describeUsers, listUsers, privilegedEmails, superAdminEmails } from "./users";
 import { notFoundPage } from "./pages";
 import { shellPage } from "./shell";
+import { verifyHandoff, mintSession, SESSION_TTL_SECONDS } from "./session";
 import { landingPage } from "./landing";
 import { docsPage } from "./docs";
 import { privacyPage, termsPage } from "./legal";
@@ -591,6 +592,28 @@ app.get("*", async (c) => {
   const slug = decodeURIComponent(idx === -1 ? rest : rest.slice(0, idx));
   const filePath = idx === -1 ? "" : decodeURIComponent(rest.slice(idx + 1));
 
+  // Crossing from the app host: exchange the one-shot handoff for a cookie of
+  // this origin's own, then redirect to the clean URL so the token stops riding
+  // in the address bar, history and any referrer.
+  const handoff = new URL(c.req.url).searchParams.get("ct");
+  if (handoff && c.env.SESSION_SECRET) {
+    const claims = await verifyHandoff(c.env.SESSION_SECRET, handoff, new Date().toISOString());
+    if (claims) {
+      const token = await mintSession(c.env.SESSION_SECRET, claims, new Date().toISOString());
+      const clean = new URL(c.req.url);
+      clean.searchParams.delete("ct");
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: clean.pathname + clean.search,
+          // Host-only: no Domain attribute, so this never travels back to the
+          // app host. Each origin holds its own credential.
+          "Set-Cookie": `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_TTL_SECONDS}`,
+        },
+      });
+    }
+  }
+
   const identity = await getIdentity(c);
   const art = await getArtifact(c.env, slug);
   // 404 for both missing and unauthorized, so probing a slug can't reveal it exists.
@@ -611,6 +634,15 @@ app.get("*", async (c) => {
   ) {
     owned = true;
   }
+  // No identity on the content host is the normal first visit, not a refusal:
+  // the session cookie is host-only and lives on the app host. Send a browser
+  // there to be identified and come back. A machine client (no Sec-Fetch-Dest)
+  // is never bounced — it gets the same 404 it always did.
+  if (!identity && wantsShell(c) && c.env.SESSION_SECRET && isContentHost(c.env, c.req.url)) {
+    const back = `${c.env.PUBLIC_BASE_URL || siteOrigin(c.env)}/auth/content?next=${encodeURIComponent(c.req.url)}`;
+    return c.redirect(back, 302);
+  }
+
   if (!canView(identity, art.visibility, granted, owned)) return c.html(notFoundPage(slug), 404);
 
   // A top-level navigation gets the viewer shell; everything else — subresources,

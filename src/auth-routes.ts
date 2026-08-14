@@ -12,7 +12,7 @@
 import { Hono, type Context } from "hono";
 import type { AppBindings, Env } from "./env";
 import { SESSION_COOKIE } from "./auth";
-import { mintSession, SESSION_TTL_SECONDS } from "./session";
+import { mintSession, mintHandoff, SESSION_TTL_SECONDS } from "./session";
 import { createChallenge, redeemCode, redeemToken, CHALLENGE_TTL_MINUTES } from "./otp";
 import { sendMail } from "./mail";
 import { signinMail } from "./mail-templates";
@@ -21,6 +21,8 @@ import { incrementRateLimitBucket, clientAddress } from "./rate-limit";
 import { touchLastSeen, effectiveRole } from "./users";
 import { ensurePersonalAccount } from "./accounts";
 import { siteOrigin } from "./seo";
+import { parseHostnames } from "./host";
+import { getIdentity } from "./auth";
 import { magicLinkConfirmPage } from "./login";
 
 export const authRoutes = new Hono<AppBindings>();
@@ -152,3 +154,43 @@ authRoutes.post("/auth/m/:token", async (c) => {
 authRoutes.post("/auth/signout", (c) =>
   c.json({ ok: true }, 200, { "Set-Cookie": sessionCookie("", 0) })
 );
+
+/**
+ * Hand a signed-in caller across to the content host.
+ *
+ * The session cookie is host-only so it never reaches the origin serving
+ * uploaded HTML. That means the content host cannot identify anyone on its own,
+ * and has to ask the app host — this route — for a short-lived token it can
+ * exchange for a cookie of its own.
+ *
+ * `next` is validated against CONTENT_HOSTNAMES rather than merely checked for
+ * a prefix: an open redirect here would hand a valid credential to whatever
+ * host an attacker named.
+ */
+authRoutes.get("/auth/content", async (c) => {
+  const next = c.req.query("next") ?? "";
+  let target: URL;
+  try {
+    target = new URL(next);
+  } catch {
+    return c.json({ error: "bad_request", detail: "next must be an absolute URL" }, 400);
+  }
+  const hosts = parseHostnames(c.env.CONTENT_HOSTNAMES);
+  if (target.protocol !== "https:" || !hosts.has(target.hostname)) {
+    return c.json({ error: "bad_request", detail: "next must be a content host" }, 400);
+  }
+
+  const identity = await getIdentity(c);
+  if (!identity?.email) {
+    return c.redirect(`/login?next=${encodeURIComponent(next)}`, 302);
+  }
+  if (!c.env.SESSION_SECRET) return c.json({ error: "not_configured" }, 503);
+
+  const ct = await mintHandoff(
+    c.env.SESSION_SECRET,
+    { email: identity.email, kind: identity.kind === "guest" ? "guest" : "member" },
+    new Date().toISOString()
+  );
+  target.searchParams.set("ct", ct);
+  return c.redirect(target.toString(), 302);
+});
