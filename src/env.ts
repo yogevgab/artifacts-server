@@ -146,6 +146,15 @@ export interface ArtifactRow {
    * the publisher had an account — those stay on the `owner_email` path.
    */
   account_id?: string | null;
+  /**
+   * Read receipts (migration 0016): 1 (default) sends the owner a one-time
+   * email the first time each person opens this artifact; 0 turns it off.
+   * Optional/nullable so a row read before the migration ran (or in a test
+   * fixture that predates it) is treated as the default — see
+   * `readReceiptsEnabled` in src/db.ts, which is the only place that should
+   * ever interpret this column.
+   */
+  read_receipts?: number | null;
 }
 
 export interface ViewRow {
