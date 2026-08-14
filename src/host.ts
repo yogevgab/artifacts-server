@@ -18,7 +18,7 @@ const MANAGEMENT_PATHS = new Set([
   "/og.png",
   "/logo.png",
 ]);
-const MANAGEMENT_PREFIXES = ["/admin", "/api", "/v", "/auth"];
+const MANAGEMENT_PREFIXES = ["/admin", "/api", "/v", "/auth", "/shared"];
 
 /**
  * Paths every host answers for itself, whatever else it serves. `robots.txt` is

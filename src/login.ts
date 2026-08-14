@@ -344,3 +344,59 @@ export function magicLinkConfirmPage(env: Env, token: string): string {
     LOGIN_STYLE
   );
 }
+
+/**
+ * Guest sign-in, reached when somebody opens a shared artifact and we do not
+ * know them. It asks for nothing but the address the share was sent to, and it
+ * never says whether that address holds a grant — the answer is identical
+ * either way, because otherwise this page enumerates who can see what.
+ */
+export function guestSigninPage(env: Env, slug: string): string {
+  return layout(
+    "Open a shared page \u00b7 rtfx.pro",
+    sheet(
+      "guest",
+      `<p class="eyebrow">Shared with you</p>
+       <h1>Confirm it's you</h1>
+       <p class="lede">Enter the email address this was shared with and we'll send you a link
+         to open it. No account, no password.</p>
+       <form class="auth-form" data-guest-form data-slug="${esc(slug)}" novalidate>
+         <label class="field">
+           <span class="field-label">Email address</span>
+           <input type="email" name="email" autocomplete="email" inputmode="email"
+                  placeholder="you@example.com" required autofocus>
+         </label>
+         <button type="submit" class="link-button">Send me the link</button>
+       </form>
+       <p class="status" data-auth-status role="status" aria-live="polite" hidden></p>
+       <hr class="divider">
+       <p class="hint">Have an rtfx.pro account? <a href="/login">Sign in</a> instead and it will
+         open directly.</p>
+       <script>${GUEST_SCRIPT}</script>`
+    ),
+    LOGIN_STYLE
+  );
+}
+
+const GUEST_SCRIPT = `(function(){
+  var form=document.querySelector('[data-guest-form]');
+  var status=document.querySelector('[data-auth-status]');
+  if(!form) return;
+  form.addEventListener('submit',function(e){
+    e.preventDefault();
+    var email=form.elements.email.value.trim();
+    if(!email){return;}
+    var btn=form.querySelector('button'); btn.disabled=true; btn.textContent='Sending\u2026';
+    fetch('/auth/guest?slug='+encodeURIComponent(form.getAttribute('data-slug')),{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email:email})
+    }).then(function(){
+      form.hidden=true; status.hidden=false;
+      status.textContent='If that address has access, a link is on its way. It expires in 15 minutes.';
+    }).catch(function(){
+      btn.disabled=false; btn.textContent='Send me the link';
+      status.hidden=false; status.setAttribute('data-tone','error');
+      status.textContent='Network problem. Try again.';
+    });
+  });
+})();`;

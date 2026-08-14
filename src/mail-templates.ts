@@ -74,3 +74,38 @@ export function signinMail(o: {
 
   return { subject: "Your rtfx.pro sign-in code", html, text };
 }
+
+/**
+ * Somebody shared an artifact with an address that has no account. The message
+ * leads with what they were sent, not with the mechanics of signing in — they
+ * did not ask for an account and are not getting one.
+ */
+export function guestMail(o: {
+  title: string;
+  magicUrl: string;
+  expiresMinutes: number;
+}): RenderedMail {
+  const url = esc(o.magicUrl);
+  const title = esc(o.title);
+
+  const html = shell(
+    `<p style="font-size:16px;line-height:1.5;margin:0 0 20px;">You've been given access to
+       <b>${title}</b>.</p>
+     <a href="${url}" style="display:inline-block;background:#2438c8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-size:15px;font-weight:500;">Open it</a>
+     <p style="font-size:15px;line-height:1.5;margin:22px 0 0;color:#565d78;">This link is yours
+       alone and expires in ${o.expiresMinutes} minutes. You don't need an account.</p>
+     <p style="font-size:13px;line-height:1.5;margin:16px 0 0;color:#565d78;">Or paste this:<br>${url}</p>`
+  );
+
+  const text = [
+    `You've been given access to ${o.title}.`,
+    "",
+    "Open it:",
+    o.magicUrl,
+    "",
+    `This link is yours alone and expires in ${o.expiresMinutes} minutes.`,
+    "You don't need an account.",
+  ].join("\n");
+
+  return { subject: `${o.title} was shared with you`, html, text };
+}

@@ -170,6 +170,8 @@ export interface Identity {
    * ever mints `"guest"`, and it always sets this explicitly.
    */
   kind?: "member" | "guest";
+  /** Guest sessions only: the single artifact this credential was issued for. */
+  slug?: string;
 }
 
 /** Minimal request shape the auth helpers need (a Hono context satisfies it). */
@@ -357,6 +359,7 @@ async function identityFromSession(c: AuthContext): Promise<Identity | null> {
       role: "member",
       token: null,
       kind: "guest",
+      ...(claims.slug ? { slug: claims.slug } : {}),
     };
   }
 

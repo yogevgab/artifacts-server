@@ -39,7 +39,7 @@ import { verifyHandoff, mintSession, SESSION_TTL_SECONDS } from "./session";
 import { landingPage } from "./landing";
 import { docsPage } from "./docs";
 import { privacyPage, termsPage } from "./legal";
-import { signupPage, loginPage } from "./login";
+import { signupPage, loginPage, guestSigninPage } from "./login";
 import {
   overviewPage,
   artifactsPage,
@@ -476,6 +476,21 @@ app.get("/signup", async (c) => {
   return c.html(signupPage(c.env, { kind: "signed-out" }));
 });
 
+/**
+ * Where the content host sends a visitor it cannot identify. `slug` is only used
+ * to address the guest challenge and is never confirmed to exist — this page
+ * looks the same for a real artifact and an invented one.
+ */
+app.get("/shared/:slug", async (c) => {
+  const { identity } = await resolveAuth(c);
+  const slug = c.req.param("slug");
+  if (identity?.email) {
+    const host = firstContentHostname(c.env);
+    if (host) return c.redirect(`https://${host}/${encodeURIComponent(slug)}/`, 302);
+  }
+  return c.html(guestSigninPage(c.env, slug));
+});
+
 app.get("/login", async (c) => {
   const { identity, disabled, disabledEmail } = await resolveAuth(c);
   if (disabled) return c.html(loginPage(c.env, { kind: "paused", email: disabledEmail }), 403);
@@ -618,6 +633,13 @@ app.get("*", async (c) => {
   const art = await getArtifact(c.env, slug);
   // 404 for both missing and unauthorized, so probing a slug can't reveal it exists.
   if (!art) return c.html(notFoundPage(slug), 404);
+  // A guest session is minted for one artifact. Holding a grant on another does
+  // not widen it: the credential was issued against a specific share, and a
+  // person can always re-authenticate for the other one.
+  if (identity?.kind === "guest" && identity.slug !== slug) {
+    return c.html(notFoundPage(slug), 404);
+  }
+
   let owned = isOwner(identity, art);
   let granted = false;
   if (art.visibility === "restricted" && !identity?.isAdmin && !owned && identity?.email) {
@@ -639,7 +661,10 @@ app.get("*", async (c) => {
   // there to be identified and come back. A machine client (no Sec-Fetch-Dest)
   // is never bounced — it gets the same 404 it always did.
   if (!identity && wantsShell(c) && c.env.SESSION_SECRET && isContentHost(c.env, c.req.url)) {
-    const back = `${c.env.PUBLIC_BASE_URL || siteOrigin(c.env)}/auth/content?next=${encodeURIComponent(c.req.url)}`;
+    const app_origin = c.env.PUBLIC_BASE_URL || siteOrigin(c.env);
+    // Ask the app host who this is. If it knows them, it hands them straight
+    // back; if not, that route shows the guest sign-in for this artifact.
+    const back = `${app_origin}/auth/content?next=${encodeURIComponent(c.req.url)}&slug=${encodeURIComponent(slug)}`;
     return c.redirect(back, 302);
   }
 
