@@ -72,6 +72,7 @@ import {
 import { peoplePage, type UsersInfo } from "./people";
 import { integrationsPage } from "./integrations";
 import { canSeeSection, portalNotFound, type PortalViewer } from "./portal";
+import { posthogConfig } from "./posthog";
 import { isContentHost, isManagementPath, isPerOriginPath, firstContentHostname, parseHostnames } from "./host";
 import {
   robotsTxt,
@@ -171,6 +172,9 @@ async function viewerOf(c: PortalContext): Promise<PortalViewer> {
     isAdmin: identity.isAdmin,
     role: identity.role,
     isTokenCaller: !!identity.token,
+    // null unless POSTHOG_KEY is configured, which is what keeps a deployment
+    // that never sets it behaving exactly as it did before the feature existed.
+    posthog: posthogConfig(c.env),
     workspace:
       ctx.active && ctx.role
         ? {

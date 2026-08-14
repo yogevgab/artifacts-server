@@ -197,15 +197,18 @@ describe("the cookie notice", () => {
     expect(body).not.toContain("document.cookie");
   });
 
-  it("tells the truth: essential cookies only, nothing to opt out of", async () => {
+  it("tells the truth: essential cookies only, nothing to opt out of on this page", async () => {
     const body = text(await html("/", ANON));
     expect(body).toContain("cookies on rtfx.pro");
     expect(body).toContain("our own sign-in session cookie");
     expect(body).toContain("edge security cookies");
     expect(body).toContain("first-party localstorage dismissal");
     expect(body).toContain("no analytics, no advertising");
-    expect(body).toContain("nothing here to opt out of");
+    expect(body).toContain("nothing on this page to opt out of");
     expect(body).toContain('href="/privacy#cookies"');
+    // The dashboard is different, and this notice says so rather than implying
+    // the same "nothing optional" claim covers the whole site.
+    expect(body).toContain('href="/privacy#dashboard-analytics"');
   });
 
   it("keeps the short notice consistent with the privacy cookie inventory", async () => {

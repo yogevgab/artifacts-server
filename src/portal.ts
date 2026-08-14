@@ -1,6 +1,13 @@
 import { layout, esc, brandLockup, BRAND_STYLE } from "./pages";
 import type { UserRole } from "./users";
 import { accountRoleLabel, type AccountRole } from "./accounts";
+import {
+  CONSENT_STYLE,
+  ANALYTICS_CONSENT_STYLE,
+  analyticsConsentNotice,
+  analyticsConsentScript,
+} from "./consent";
+import { posthogCsp, type PostHogConfig } from "./posthog";
 
 /**
  * The /admin portal shell: navigation, the page chrome every section shares,
@@ -59,6 +66,17 @@ export interface PortalViewer {
     /** How many workspaces this person belongs to, for the "+N more" hint. */
     count: number;
   } | null;
+  /**
+   * PostHog project key/host for this deployment, or `null`/absent when
+   * `POSTHOG_KEY` is unset — see `posthogConfig` in src/posthog.ts. Optional
+   * so that a caller which does not populate it (nothing does yet — see the
+   * PostHog rollout report) still type-checks: an absent field here means
+   * `portalShell` renders no consent banner and no script at all, which is
+   * required behavior, not a bug. Whoever constructs `PortalViewer` from a
+   * request (`viewerOf` in src/index.ts) is the one place that needs to call
+   * `posthogConfig(c.env)` to light this up for real.
+   */
+  posthog?: PostHogConfig | null;
 }
 
 interface SectionDef {
@@ -274,6 +292,10 @@ function crumbTrail(crumbs: Crumb[]): string {
 
 export function portalShell(o: ShellOptions): string {
   const { viewer } = o;
+  // `null`/absent means POSTHOG_KEY is unset for this deployment: no banner,
+  // no script, no CSP change, no mention anywhere in the response — see the
+  // `posthog` field's doc comment above and src/posthog.ts.
+  const ph = viewer.posthog ?? null;
   const body = `<a class="skip" href="#main">Skip to content</a>
     <header class="ptop" data-portal-top>
       ${brandLockup("/admin")}
@@ -308,8 +330,15 @@ export function portalShell(o: ShellOptions): string {
         <a href="/docs">Docs</a>
       </nav>
     </footer>
-    <script>${CORE_SCRIPT}${o.script ?? ""}</script>`;
-  return layout(`${o.title} · rtfx.pro`, body, BRAND_STYLE + PORTAL_STYLE + (o.style ?? ""));
+    ${ph ? analyticsConsentNotice() : ""}
+    <script>${CORE_SCRIPT}${o.script ?? ""}${ph ? analyticsConsentScript(ph) : ""}</script>`;
+  return layout(
+    `${o.title} · rtfx.pro`,
+    body,
+    BRAND_STYLE + PORTAL_STYLE + CONSENT_STYLE + ANALYTICS_CONSENT_STYLE + (o.style ?? ""),
+    undefined,
+    ph ? posthogCsp(ph) : undefined
+  );
 }
 
 /**

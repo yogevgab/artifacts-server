@@ -23,7 +23,7 @@ import { SITE, canonicalUrl, siteOrigin } from "./seo";
  */
 
 /** Last substantive edit to either document, shown on both. */
-const UPDATED = "13 August 2026";
+const UPDATED = "14 August 2026";
 
 const CONTACT = "privacy@rtfx.pro";
 const OPERATOR = "the rtfx.pro operator";
@@ -154,7 +154,7 @@ function legalPage(
         description: o.description,
         url: canonicalUrl(env, path),
         inLanguage: "en",
-        dateModified: "2026-08-13",
+        dateModified: "2026-08-14",
         isPartOf: { "@id": `${canonicalUrl(env, "/")}#website` },
         publisher: { "@id": `${canonicalUrl(env, "/")}#organization` },
       },
@@ -175,8 +175,9 @@ function legalPage(
 
 const PRIVACY_DESCRIPTION =
   "What rtfx.pro stores, why, and who can see it: your email address, the artifacts you " +
-  "publish, and the view log their owners see. No analytics, no advertising and no " +
-  "third-party tracking — only necessary Cloudflare security/sign-in cookies and first-party notice storage.";
+  "publish, and the view log their owners see. The public pages carry no analytics or " +
+  "third-party tracking; the dashboard offers optional, consent-gated session recording and " +
+  "error tracking, heavily masked, that you can decline.";
 
 const PRIVACY_PARTS: readonly Part[] = [
   {
@@ -190,8 +191,11 @@ const PRIVACY_PARTS: readonly Part[] = [
       <li>We record <b>who opened each artifact</b>, and show that log to the artifact's owner.
         This is a feature of the product, and it applies to you when you open somebody else's
         artifact too.</li>
-      <li>There is <b>no analytics, no advertising and no third-party tracking</b> on this site.
-        Nothing you publish or view is sold, shared with advertisers, or used to profile you.</li>
+      <li>The public pages — this one included — run <b>no analytics, no advertising and no
+        third-party tracking</b>. The dashboard is different: with your OK, it uses PostHog for
+        session recording and error tracking, heavily masked, and declining means it never loads.
+        See <a href="#dashboard-analytics">Session recording and error tracking</a> below.</li>
+      <li>Nothing you publish or view is sold, shared with advertisers, or used to profile you.</li>
     </ul>`,
   },
   {
@@ -243,18 +247,55 @@ const PRIVACY_PARTS: readonly Part[] = [
     <ul>
       <li>No passwords — sign-in is passwordless, so none exist.</li>
       <li>No payment details. There is no billing in this deployment.</li>
-      <li>No analytics, advertising, fingerprinting or session-replay of any kind.</li>
+      <li>No advertising or fingerprinting. No analytics or session recording anywhere except the
+        dashboard, and only there once you say yes — see the next section for exactly what that is
+        and how to say no.</li>
       <li>The product code does not inspect your artifacts' contents for analytics, advertising
         or profiling. Operators with infrastructure access may still be able to access stored
         files when required to operate, secure or troubleshoot the service.</li>
     </ul>`,
   },
   {
+    id: "dashboard-analytics",
+    heading: "Session recording and error tracking",
+    html: `<p>The dashboard at <code>/admin</code> — and only the dashboard; never this page, the
+      docs, sign-in, or an artifact you open — can use
+      <a href="https://posthog.com" rel="noopener">PostHog</a> to record what a session looked like
+      and to catch errors, so a broken page gets fixed instead of quietly abandoned. It is off until
+      you say yes.</p>
+    <h3>What it asks, and when</h3>
+    <p>The first time you open the dashboard after signing in, a banner asks you to accept or
+      decline. Accept, and it loads immediately and on every visit after, without asking again.
+      Decline, and nothing loads — not quietly disabled, not present-but-silent, simply never
+      requested by your browser. If your browser sends Do Not Track or Global Privacy Control, you
+      are not asked at all: every visit behaves as if you had declined, automatically.</p>
+    <h3>What is recorded</h3>
+    <ul>
+      <li>Mouse movement, clicks, scrolling and page navigation inside the dashboard, reconstructed
+        as a session replay.</li>
+      <li>Unhandled JavaScript errors and unhandled promise rejections — not <code>console.error</code>
+        calls, which are not captured.</li>
+    </ul>
+    <h3>What is masked, and what is never captured</h3>
+    <p>Every input's value is masked before it leaves your browser, and so is every piece of text on
+      the page — artifact titles, grantee email addresses, API token ids, view-log rows, even your
+      own email address in the header. A recording shows shapes, motion and layout; it never shows
+      what any of it says. We also turn off PostHog's default of logging the text and attributes of
+      whatever you click as an analytics event — on a page built out of other people's email
+      addresses, that default is exactly the leak this deployment does not take.</p>
+    <h3>Sub-processor</h3>
+    <p>PostHog processes this data as our sub-processor, under its own
+      <a href="https://posthog.com/privacy" rel="noopener">privacy policy</a>. Accepting sets one
+      cookie, described in the table in the next section.</p>`,
+  },
+  {
     id: "cookies",
     heading: "Cookies and local storage",
-    html: `<p>Three things can be stored in your browser by this site, and none of them are for
-      tracking. There is no consent banner asking you to accept optional cookies because there
-      are no optional cookies to accept.</p>
+    html: `<p>The public pages set nothing beyond what keeps the site working — no consent banner
+      asks you to accept anything there, because there is nothing optional to accept. The dashboard
+      adds exactly one optional cookie, set only after you accept session recording (previous
+      section). Everything else below is strictly necessary and cannot be declined while you use
+      the product.</p>
     <div class="table-wrap"><table class="data">
       <thead><tr><th scope="col">Name</th><th scope="col">Kind</th><th scope="col">What it is for</th></tr></thead>
       <tbody>
@@ -273,11 +314,21 @@ const PRIVACY_PARTS: readonly Part[] = [
           <td>Remembers that you dismissed the cookie notice, so it does not reappear on every
             page. Stored locally in your browser and never sent to our server. Clearing your
             browser storage brings the notice back.</td></tr>
+        <tr><th scope="row"><code>rtfx.dashboard-analytics</code></th>
+          <td>Local storage · dashboard only</td>
+          <td>Remembers your accept/decline choice for dashboard session recording, so the banner
+            does not ask again. Stored locally, never sent to our server. Clearing it asks again the
+            next time you open the dashboard.</td></tr>
+        <tr><th scope="row"><code>ph_&lt;project-key&gt;_posthog</code></th>
+          <td>Cookie + local storage · optional, dashboard only</td>
+          <td>Set by PostHog after you accept dashboard session recording — never before, never on
+            any other page. Holds an anonymous session/device id and nothing else. Decline, or never
+            accept, and it is never set.</td></tr>
       </tbody>
     </table></div>
-    <p>If optional cookies are ever introduced — analytics, for example — this page will say so
-      before they run, and the notice will become a real choice with a real "no". Until then,
-      nothing non-essential loads on this site, whether you dismiss the notice or ignore it.</p>`,
+    <p>That is the one optional cookie on this site, and it exists only because you said yes to it.
+      Nothing else here is a choice: the public-page notice has nothing to opt out of, and the
+      strictly-necessary rows above cannot be declined while you use the product.</p>`,
   },
   {
     id: "why",
@@ -289,8 +340,9 @@ const PRIVACY_PARTS: readonly Part[] = [
       <li><b>Legitimate interests.</b> The view log (an artifact's owner needs to know who opened
         what they shared), API token metadata, and security/abuse prevention. We keep these to
         the minimum that serves the purpose.</li>
-      <li><b>Consent.</b> The access-request form: you gave us your address so we would contact
-        you, and you can ask us to delete it at any time.</li>
+      <li><b>Consent.</b> The access-request form — you gave us your address so we would contact
+        you, and you can ask us to delete it at any time — and dashboard session recording and
+        error tracking, which runs only if you accept it and never again once you decline.</li>
     </ul>`,
   },
   {
@@ -311,8 +363,10 @@ const PRIVACY_PARTS: readonly Part[] = [
     <p>Cloudflare provides the whole platform: the network, the Workers runtime, Cloudflare Access
       (identity and the one-time-code emails), the D1 database and the R2 object storage holding
       your files. Data is processed on Cloudflare's global network, which means it may be handled
-      outside your own country under Cloudflare's data-processing terms. We disclose data to
-      anyone else only where the law requires it.</p>`,
+      outside your own country under Cloudflare's data-processing terms. PostHog processes
+      dashboard session recordings and error reports, but only for people who accepted them — see
+      <a href="#dashboard-analytics">Session recording and error tracking</a> above. We disclose
+      data to anyone else only where the law requires it.</p>`,
   },
   {
     id: "retention",

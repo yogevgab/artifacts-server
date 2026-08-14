@@ -18,6 +18,7 @@ import {
   type PortalViewer,
 } from "./portal";
 import { accountRoleLabel } from "./accounts";
+import { ANALYTICS_CONSENT_KEY } from "./consent";
 
 /**
  * The portal's own sections: Overview, Artifacts (list + detail), Settings and
@@ -1018,6 +1019,18 @@ export function settingsPage(viewer: PortalViewer): string {
         and carry only the scopes you gave them. They can never manage tokens or people.</span></div>
       <div class="row-actions"><a href="/admin/integrations">Integrations →</a></div>
     </div>
+    ${
+      viewer.posthog
+        ? `<div class="row" data-setting="dashboard-analytics">
+      <div class="info"><b>Session recording &amp; error tracking</b><span class="hint">Off until you
+        say yes — the first dashboard page you opened after signing in asked. Declining, or your
+        browser sending Do Not Track / Global Privacy Control, means nothing loads, ever. Change
+        your mind by clearing <code class="mono">${esc(ANALYTICS_CONSENT_KEY)}</code> from this
+        browser's storage — you'll be asked again.</span></div>
+      <div class="row-actions"><a href="/privacy#dashboard-analytics">What this collects →</a></div>
+    </div>`
+        : ""
+    }
   </section>`;
 
   const later = `<section class="panel" data-panel="upcoming" aria-labelledby="upcoming-h">
