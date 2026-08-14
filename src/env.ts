@@ -13,6 +13,8 @@ export interface Env {
   EMAIL?: { send(message: unknown): Promise<{ messageId?: string }> };
   /** Envelope sender for transactional mail. Defaults to "no-reply@rtfx.pro". */
   MAIL_FROM?: string;
+  /** Per-artifact chat rooms. Optional so dev and tests run without it. */
+  CHAT?: DurableObjectNamespace;
   /**
    * Secret (>= 32 bytes) signing app-owned session cookies. Set with
    * `wrangler secret put SESSION_SECRET`. Absent means app sessions are simply

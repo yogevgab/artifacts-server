@@ -38,10 +38,19 @@ import { allowlistView } from "./access-api";
 import { adminEmails, describeUsers, listUsers, privilegedEmails, superAdminEmails } from "./users";
 import { notFoundPage } from "./pages";
 import { shellPage } from "./shell";
+export { ChatRoom } from "./chat";
 import { redeemShareLink } from "./share";
 
-/** Carries a redeemed share key, scoped to one artifact's path. */
-const LINK_COOKIE = "rtfx_link";
+/**
+ * Carries a redeemed share key.
+ *
+ * Scoped by NAME rather than by path: the chat socket lives at `/_chat/<slug>`,
+ * which a cookie pathed to `/<slug>/` can never match, so path scoping silently
+ * broke chat for link holders. A per-slug name keeps two links held at once
+ * from overwriting each other, and the server still checks the key resolves to
+ * the slug being requested — so a cookie sent to another artifact does nothing.
+ */
+const linkCookieName = (slug: string) => `rtfx_link_${slug}`;
 import { shareRoutes } from "./share-routes";
 import { verifyHandoff, mintSession, SESSION_TTL_SECONDS } from "./session";
 import { landingPage } from "./landing";
@@ -613,6 +622,66 @@ function wantsShell(c: Context<{ Bindings: Env; Variables: AuthVars }>): boolean
   return c.req.header("Sec-Fetch-Dest") === "document";
 }
 
+
+/**
+ * The chat socket for one artifact.
+ *
+ * This handler is the entire authorization boundary for chat. It answers
+ * exactly the question `canView` already answers for the artifact itself, then
+ * hands the socket to the Durable Object — which never sees a credential and
+ * cannot be reached any other way. If you cannot open the document, you cannot
+ * open its conversation; there is one rule, not two.
+ *
+ * Lives on the content host because the shell does: the app origin's session
+ * cookie is host-only, so a cross-origin socket would arrive with nothing.
+ */
+app.get("/_chat/:slug", async (c) => {
+  if (c.req.header("Upgrade") !== "websocket") {
+    return c.json({ error: "expected_websocket" }, 426);
+  }
+  if (!c.env.CHAT) return c.json({ error: "not_configured" }, 503);
+
+  const slug = c.req.param("slug");
+  const art = await getArtifact(c.env, slug);
+  if (!art) return c.json({ error: "not_found" }, 404);
+
+  const key = readCookie(c.req.header("Cookie") ?? c.req.header("cookie"), linkCookieName(slug));
+  const link = key ? await redeemShareLink(c.env, key, new Date().toISOString()) : null;
+  const viaLink = !!link && link.slug === slug;
+
+  const identity = await getIdentity(c);
+  // A guest session is bound to one artifact; it must not open another's room.
+  if (identity?.kind === "guest" && identity.slug !== slug) {
+    return c.json({ error: "not_found" }, 404);
+  }
+
+  const owned = isOwner(identity, art);
+  let granted = false;
+  if (art.visibility === "restricted" && !identity?.isAdmin && !owned && identity?.email) {
+    granted = await hasGrant(c.env, slug, identity.email);
+  }
+  if (!viaLink && !canView(identity, art.visibility, granted, owned)) {
+    return c.json({ error: "not_found" }, 404);
+  }
+
+  const kind = owned || identity?.isAdmin
+    ? "owner"
+    : viaLink
+      ? "link"
+      : identity?.kind === "guest"
+        ? "guest"
+        : "member";
+
+  const headers = new Headers(c.req.raw.headers);
+  // A share-link viewer has no identity, and we do not invent one for them.
+  headers.set("X-Chat-Email", viaLink ? "" : (identity?.email ?? ""));
+  headers.set("X-Chat-Kind", kind);
+  headers.set("X-Chat-Version", String(art.current_version));
+
+  const stub = c.env.CHAT.get(c.env.CHAT.idFromName(slug));
+  return stub.fetch(new Request(c.req.url, { headers, method: "GET" }));
+});
+
 app.get("*", async (c) => {
   const rest = c.req.path.replace(/^\/+/, "");
   const idx = rest.indexOf("/");
@@ -651,7 +720,7 @@ app.get("*", async (c) => {
   // link would open index.html and nothing it references.
   const url = new URL(c.req.url);
   const queryKey = url.searchParams.get("k");
-  const cookieKey = readCookie(c.req.header("Cookie") ?? c.req.header("cookie"), LINK_COOKIE);
+  const cookieKey = readCookie(c.req.header("Cookie") ?? c.req.header("cookie"), linkCookieName(slug));
   const shareKey = queryKey ?? cookieKey;
   const viaLink = shareKey ? await redeemShareLink(c.env, shareKey, new Date().toISOString()) : null;
 
@@ -664,7 +733,7 @@ app.get("*", async (c) => {
         Location: clean.pathname + clean.search,
         // Path-scoped to this artifact, which is exactly the capability's
         // scope: the cookie cannot open anything the link could not.
-        "Set-Cookie": `${LINK_COOKIE}=${encodeURIComponent(queryKey)}; Path=/${encodeURIComponent(slug)}/; HttpOnly; Secure; SameSite=Lax; Max-Age=86400`,
+        "Set-Cookie": `${linkCookieName(slug)}=${encodeURIComponent(queryKey)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=86400`,
       },
     });
   }

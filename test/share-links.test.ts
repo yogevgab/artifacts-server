@@ -227,7 +227,10 @@ describe("a share link authorizes the whole artifact, not just its entry", () =>
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe("/report/");
     const cookie = res.headers.get("set-cookie") ?? "";
-    expect(cookie).toContain("Path=/report/");
+    // Named per slug rather than pathed per slug: the chat socket lives at
+    // /_chat/<slug>, which a cookie pathed to /<slug>/ can never reach.
+    expect(cookie).toContain("rtfx_link_report=");
+    expect(cookie).toContain("Path=/");
     expect(cookie).toContain("HttpOnly");
   });
 

@@ -8,11 +8,13 @@ export default defineWorkersConfig({
     exclude: ["**/node_modules/**", "**/dist/**", "**/.claude/**"],
     poolOptions: {
       workers: {
+        main: "./src/index.ts",
         singleWorker: true,
         isolatedStorage: false,
         miniflare: {
           compatibilityDate: "2025-04-01",
           r2Buckets: ["FILES"],
+          durableObjects: { CHAT: { className: "ChatRoom", useSQLite: true } },
           d1Databases: ["DB"],
           bindings: {
             // admin@test.com stays first so it remains the default dev identity.
