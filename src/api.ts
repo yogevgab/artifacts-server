@@ -22,8 +22,10 @@ import {
 import {
   accountIdsWithAtLeast,
   createAccount,
+  effectivePlan,
   ensurePersonalAccount,
   getAccount,
+  isSuspended,
   isAccountRole,
   listMembers,
   memberRole,
@@ -161,6 +163,36 @@ async function manageable(c: Context<Vars>, slug: string): Promise<ArtifactRow |
   const art = await getArtifact(c.env, slug);
   if (!art) return null;
   return canManage(c.get("identity"), art, (await accountsFor(c)).roles) ? art : null;
+}
+
+/**
+ * A 403 when `accountId` names a suspended workspace, or null when the request
+ * may proceed.
+ *
+ * Suspension is an operator control (src/operator.ts), and this is one of the
+ * two places it bites — the other is content serving (`blocksOnSuspension`,
+ * src/quota.ts). Returning a Response rather than a boolean keeps the wording
+ * of the refusal in one place: a caller that hits this in a CLI needs to be
+ * told the workspace is suspended and that nothing was deleted, not handed a
+ * bare `forbidden`.
+ *
+ * A null `accountId` — a legacy artifact, an un-migrated instance, a platform
+ * token — is never suspended, because there is no workspace to have suspended.
+ * That is the same "accounts only ever widen reach" rule the rest of the
+ * account layer follows.
+ */
+const SUSPENDED_DETAIL =
+  "this workspace is suspended, so it cannot publish. Nothing has been deleted — " +
+  "contact support at /contact to have it reviewed.";
+
+const suspendedResponse = (c: Context<Vars>) =>
+  c.json({ error: "account_suspended", detail: SUSPENDED_DETAIL }, 403);
+
+async function suspendedDenial(c: Context<Vars>, accountId: string | null): Promise<Response | null> {
+  if (!accountId) return null;
+  const account = await getAccount(c.env, accountId);
+  if (!account || !isSuspended(account)) return null;
+  return suspendedResponse(c);
 }
 
 /**
@@ -326,7 +358,15 @@ artifactRoutes.post("/artifacts", requireScope("publish"), async (c) => {
   let accountPlan = "free";
   if (quotaAccountId) {
     const quotaAccount = await getAccount(c.env, quotaAccountId);
-    accountPlan = quotaAccount?.plan ?? "free";
+    // A suspended workspace stops publishing, before any bytes are read from
+    // the upload and before the version number is reserved. Checked here rather
+    // than in middleware because this is the point at which the *target*
+    // workspace is known — a publish to an existing slug lands in that
+    // artifact's account, which is not necessarily the caller's active one.
+    if (quotaAccount && isSuspended(quotaAccount)) return suspendedResponse(c);
+    // The EFFECTIVE plan: an operator override outranks what billing says, so
+    // a comped workspace gets the limits it was comped onto (src/accounts.ts).
+    accountPlan = quotaAccount ? effectivePlan(quotaAccount) : "free";
     const limits = limitsFor(accountPlan);
     const usage = await usageFor(c.env, quotaAccountId);
     // A republish adds bytes to storage but not a new artifact; a brand-new
@@ -920,7 +960,9 @@ api.put("/accounts/:id/members/:email", async (c) => {
   // refused just because the workspace is full.
   if (!currentRole) {
     const seatDenial = seatLimitDenial(
-      found.account.plan,
+      // Effective plan, matching the seat check in members-routes.ts: an
+      // operator comp must lift the cap on both paths or on neither.
+      effectivePlan(found.account),
       (await listMembers(c.env, id)).length
     );
     if (seatDenial) return c.json({ error: "forbidden", detail: seatDenial }, 403);
@@ -1000,6 +1042,12 @@ artifactRoutes.post("/artifacts/:slug/current", requireScope("publish"), async (
   const slug = c.req.param("slug");
   const art = await manageable(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
+  // Rollback changes what the world sees, so it is a publish for the purposes
+  // of suspension too. Delete and access changes deliberately still work: a
+  // suspended workspace must be able to take its own content down and stop
+  // sharing it, which is the opposite of the thing suspension guards against.
+  const suspended = await suspendedDenial(c, art.account_id ?? null);
+  if (suspended) return suspended;
   const body = await c.req.json().catch(() => null);
   const version = Number(body?.version);
   if (!Number.isInteger(version) || version < 1) {

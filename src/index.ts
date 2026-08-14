@@ -36,7 +36,7 @@ import {
 } from "./accounts";
 import type { Identity } from "./auth";
 import { listApiTokens, toPublicToken, type PublicApiToken } from "./tokens";
-import { adminEmails, describeUsers, listUsers, privilegedEmails, superAdminEmails } from "./users";
+import { describeUsers, listUsers, privilegedEmails } from "./users";
 import { notFoundPage } from "./pages";
 import { shellPage } from "./shell";
 import { viewLimitStatus, blocksOnViewLimit } from "./quota";
@@ -74,16 +74,14 @@ import {
   artifactDetailPage,
   galleryPage,
   settingsPage,
-  platformPage,
   type ViewsInfo,
-  type PlatformInfo,
 } from "./admin";
+import { platformRoutes } from "./platform-routes";
+import { viewerOf, type PortalContext } from "./viewer";
 import { peoplePage, type UsersInfo } from "./people";
 import { integrationsPage } from "./integrations";
-import { canSeeSection, portalNotFound, type PortalViewer } from "./portal";
-import { posthogConfig } from "./posthog";
-import { workspaceBilling } from "./plan-copy";
-import { isContentHost, isManagementPath, isPerOriginPath, firstContentHostname, parseHostnames } from "./host";
+import { canSeeSection, portalNotFound } from "./portal";
+import { isContentHost, isManagementPath, isPerOriginPath, firstContentHostname } from "./host";
 import {
   robotsTxt,
   sitemapXml,
@@ -161,49 +159,6 @@ function scope<T>(map: Map<string, T>, slugs: Set<string>): Map<string, T> {
 // Admins see and manage every artifact; a member sees and manages only the ones
 // they own. (In production Cloudflare Access still gates who can reach /admin
 // at all — see docs/DEPLOY_RTFX.md.)
-
-type PortalContext = Context<{ Bindings: Env; Variables: AuthVars }>;
-
-/**
- * Who is looking at the portal, including which workspace they are acting in
- * (issue #27).
- *
- * The two role systems are carried side by side and never merged: `role` is
- * PLATFORM authority derived from configuration, `workspace.role` is the
- * ACCOUNT role read from D1. Nothing in the workspace half can change what the
- * platform half permits — the nav, for example, still gates the Platform section
- * on `role === 'super_admin'` alone.
- */
-async function viewerOf(c: PortalContext): Promise<PortalViewer> {
-  const identity = c.get("identity");
-  const ctx = await accountsFor(c);
-  // Costs one aggregate query, and only for a caller who actually has a
-  // workspace — the dashboard is the only surface that renders it.
-  const billing = ctx.active ? await workspaceBilling(c.env, ctx.active, c.get("email")) : undefined;
-  return {
-    email: c.get("email"),
-    isAdmin: identity.isAdmin,
-    role: identity.role,
-    isTokenCaller: !!identity.token,
-    // null unless POSTHOG_KEY is configured, which is what keeps a deployment
-    // that never sets it behaving exactly as it did before the feature existed.
-    posthog: posthogConfig(c.env),
-    workspace:
-      ctx.active && ctx.role
-        ? {
-            id: ctx.active.id,
-            name: ctx.active.name,
-            kind: ctx.active.kind,
-            role: ctx.role,
-            count: ctx.memberships.length,
-            // Usage against the plan's limits, plus real checkout links. Absent
-            // means "not computed", never "definitely free" — the UI degrades
-            // to showing nothing rather than showing something wrong.
-            billing,
-          }
-        : null,
-  };
-}
 
 /** The artifacts this caller manages, with everything the cards need. */
 async function artifactContext(c: PortalContext): Promise<{
@@ -398,36 +353,11 @@ app.get("/admin/integrations", requireUser, async (c) => {
 
 app.get("/admin/settings", requireUser, async (c) => c.html(settingsPage(await viewerOf(c))));
 
-app.get("/admin/platform", requireUser, async (c) => {
-  const viewer = await viewerOf(c);
-  if (!canSeeSection(viewer, "platform")) {
-    return c.html(portalNotFound(viewer, "The Platform section"), 404);
-  }
-  const [rows, versions, users, tokens] = await Promise.all([
-    listArtifacts(c.env),
-    allVersions(c.env),
-    listUsers(c.env),
-    listApiTokens(c.env),
-  ]);
-  const info: PlatformInfo = {
-    origin: siteOrigin(c.env),
-    accessConfigured: !!(c.env.ACCESS_AUD && c.env.ACCESS_TEAM_DOMAIN),
-    accessTeamDomain: c.env.ACCESS_TEAM_DOMAIN ?? "",
-    contentHosts: [...parseHostnames(c.env.CONTENT_HOSTNAMES)],
-    devLogin: c.env.DEV_LOGIN === "true",
-    adminCount: adminEmails(c.env).length,
-    superAdminCount: superAdminEmails(c.env).length,
-    serviceTokenCount: (c.env.ADMIN_SERVICE_TOKENS ?? "").split(",").filter((s) => s.trim()).length,
-    totals: {
-      artifacts: rows.length,
-      versions: [...versions.values()].reduce((n, v) => n + v.length, 0),
-      bytes: rows.reduce((n, r) => n + r.size_bytes, 0),
-      people: users.length,
-      tokens: tokens.length,
-    },
-  };
-  return c.html(platformPage(viewer, info));
-});
+// The operator control plane: /admin/platform and everything under it, GET and
+// POST. Mounted BEFORE the /admin/* catch-all below, which would otherwise
+// answer 404 to every one of its routes. It owns its own authorization — super
+// admin, re-checked per request — see src/platform-routes.ts.
+app.route("/", platformRoutes);
 
 // Anything else under /admin is not a section. Render the portal shell so the
 // person still has navigation, but answer 404 so a mistyped URL is never a 200.

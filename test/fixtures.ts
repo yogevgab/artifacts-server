@@ -22,6 +22,8 @@ export async function initDb() {
     "mail_log",
     "share_links",
     "billing_events",
+    "contact_requests",
+    "admin_audit",
   ]) {
     await env.DB.prepare(`DROP TABLE IF EXISTS ${table}`).run();
   }
@@ -69,12 +71,19 @@ export async function initDb() {
       invited_by TEXT, invited_at TEXT, created_at TEXT NOT NULL,
       last_seen_at TEXT, disabled_at TEXT)`
   ).run();
+  // The operator columns (migration 0018) are part of this table now. Keep the
+  // nine of them here rather than in a helper: `SELECT *` is what accounts.ts
+  // reads, so a fixture missing them silently exercises the un-migrated path
+  // for the whole suite instead of the shipped one.
   await env.DB.prepare(
     `CREATE TABLE accounts (
       id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'personal',
       status TEXT NOT NULL DEFAULT 'active', plan TEXT NOT NULL DEFAULT 'free',
       personal_email TEXT UNIQUE, created_by TEXT,
-      created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      plan_override TEXT, plan_override_expires_at TEXT, plan_override_note TEXT,
+      plan_override_by TEXT, plan_override_at TEXT, notes TEXT,
+      suspended_at TEXT, suspended_by TEXT, suspended_reason TEXT)`
   ).run();
   await env.DB.prepare(
     `CREATE TABLE account_members (
@@ -106,6 +115,40 @@ export async function initDb() {
       id TEXT PRIMARY KEY, event_name TEXT NOT NULL, account_id TEXT,
       processed_at TEXT NOT NULL)`
   ).run();
+  await env.DB.prepare(
+    `CREATE TABLE contact_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL, plan TEXT, message TEXT,
+      created_at TEXT NOT NULL)`
+  ).run();
+  await env.DB.prepare(
+    `CREATE TABLE admin_audit (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, actor_email TEXT, actor_role TEXT,
+      action TEXT NOT NULL, target_type TEXT NOT NULL, target_id TEXT,
+      summary TEXT, detail TEXT, created_at TEXT NOT NULL)`
+  ).run();
+}
+
+/**
+ * Drop the operator columns and the audit table, to exercise the
+ * "Worker ahead of migration 0018" path: every operator read must fail soft to
+ * empty, `effectivePlan` must fall back to the billed plan, and the platform
+ * page must still render rather than 500.
+ */
+export async function dropOperatorColumns() {
+  await env.DB.prepare("DROP TABLE IF EXISTS admin_audit").run();
+  for (const column of [
+    "plan_override",
+    "plan_override_expires_at",
+    "plan_override_note",
+    "plan_override_by",
+    "plan_override_at",
+    "notes",
+    "suspended_at",
+    "suspended_by",
+    "suspended_reason",
+  ]) {
+    await env.DB.prepare(`ALTER TABLE accounts DROP COLUMN ${column}`).run();
+  }
 }
 
 /** Drop the users table, to exercise the "directory not migrated yet" path. */

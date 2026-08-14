@@ -122,7 +122,14 @@ describe("viewLimitStatus", () => {
     const account = await ensurePersonalAccount(env as any, ALICE, NOW.toISOString());
     if (!account) throw new Error("expected a personal account");
     const status = await viewLimitStatus(env as any, account.id, NOW);
-    expect(status).toEqual({ plan: "free", views: 0, limit: PLANS.free.maxViewsPerMonth, overLimit: false });
+    expect(status).toEqual({
+      plan: "free",
+      views: 0,
+      limit: PLANS.free.maxViewsPerMonth,
+      overLimit: false,
+      status: "active",
+      suspended: false,
+    });
   });
 
   it("is over limit only once real usage crosses the plan's real boundary", async () => {
@@ -222,8 +229,22 @@ describe("viewLimitStatus caching", () => {
 // --- the bypass decision itself: pure, no auth machinery required -----------
 
 describe("blocksOnViewLimit", () => {
-  const over: ViewLimitStatus = { plan: "free", views: 6000, limit: 5000, overLimit: true };
-  const under: ViewLimitStatus = { plan: "free", views: 10, limit: 5000, overLimit: false };
+  const over: ViewLimitStatus = {
+    plan: "free",
+    views: 6000,
+    limit: 5000,
+    overLimit: true,
+    status: "active",
+    suspended: false,
+  };
+  const under: ViewLimitStatus = {
+    plan: "free",
+    views: 10,
+    limit: 5000,
+    overLimit: false,
+    status: "active",
+    suspended: false,
+  };
 
   it("blocks a stranger when the account is over its limit", () => {
     expect(blocksOnViewLimit(over, false)).toBe(true);

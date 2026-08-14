@@ -40,10 +40,20 @@ const GB = 1024 * MB;
  * deleted"), so those had to change in the same release. See the docs updates
  * alongside this commit.
  */
+/**
+ * `maxSeats` lives here, and nowhere else.
+ *
+ * It used to be a second table (`SEAT_LIMITS` in src/members.ts) carrying a
+ * TODO to fold it back in, which is exactly the drift the production-SaaS plan
+ * called out: two tables of plan limits are two tables that can disagree, and
+ * the one enforcement reads is not necessarily the one the pricing page prints.
+ * There is now one entitlement source. `maxSeatsFor` (src/members.ts) is a
+ * lookup into this table, and the marketing pages read it too.
+ */
 export const PLANS = {
-  free: { maxArtifacts: 10, maxStorageBytes: 100 * MB, maxViewsPerMonth: 5_000, keepVersions: 5 as number | null },
-  pro: { maxArtifacts: 100, maxStorageBytes: 5 * GB, maxViewsPerMonth: 100_000, keepVersions: null as number | null },
-  team: { maxArtifacts: 10_000, maxStorageBytes: 50 * GB, maxViewsPerMonth: 1_000_000, keepVersions: null as number | null },
+  free: { maxArtifacts: 10, maxStorageBytes: 100 * MB, maxViewsPerMonth: 5_000, keepVersions: 5 as number | null, maxSeats: 1 },
+  pro: { maxArtifacts: 100, maxStorageBytes: 5 * GB, maxViewsPerMonth: 100_000, keepVersions: null as number | null, maxSeats: 3 },
+  team: { maxArtifacts: 10_000, maxStorageBytes: 50 * GB, maxViewsPerMonth: 1_000_000, keepVersions: null as number | null, maxSeats: 25 },
 } as const;
 
 export type PlanName = keyof typeof PLANS;
@@ -170,7 +180,10 @@ export function versionsToExpire(
 export const VIEW_LIMIT_CACHE_TTL_MS = 60_000;
 
 interface CachedViewStatus {
+  /** The EFFECTIVE plan (operator override folded in), not the raw column. */
   plan: string;
+  /** `accounts.status` — 'active' | 'suspended'. */
+  status: string;
   views: number;
   monthStart: string;
   cachedAtMs: number;
@@ -178,6 +191,25 @@ interface CachedViewStatus {
 
 /** Isolate-local. See the design note above for why this is not shared storage. */
 const viewStatusCache = new Map<string, CachedViewStatus>();
+
+/**
+ * Forget what we cached about one account, so the next request re-reads D1.
+ *
+ * Called by every operator control that changes an account's plan or status
+ * (src/operator.ts) and by the billing webhook. Without it, suspending an
+ * account would keep serving its artifacts for up to a minute and — worse —
+ * *un*suspending would keep refusing them for up to a minute, which reads to an
+ * operator as "the button didn't work".
+ *
+ * Honest about its reach: the cache is isolate-local (see the design note
+ * above), so this clears the isolate that handled the operator's click and no
+ * other. The TTL is what bounds every other isolate, exactly as it did before.
+ * That is the right trade for a control an operator uses a handful of times a
+ * week — the alternative is a shared store on the hottest path in the app.
+ */
+export function invalidateAccountStatus(accountId: string): void {
+  viewStatusCache.delete(accountId);
+}
 
 function isMissingAccountsTable(e: unknown): boolean {
   const message = e instanceof Error ? e.message : String(e);
@@ -207,25 +239,52 @@ function monthWindow(now: Date): { start: string; end: string } {
  * database that predates the accounts tables or the account_id column
  * entirely. Callers must treat null as "never block".
  */
+/** A deploy that predates migration 0018 has no operator columns on `accounts`. */
+function isMissingOverrideColumn(e: unknown): boolean {
+  const message = e instanceof Error ? e.message : String(e);
+  return /no such column: (\w+\.)?plan_override/i.test(message);
+}
+
 async function loadViewStatus(
   env: Env,
   accountId: string,
   now: Date
-): Promise<{ plan: string; views: number } | null> {
+): Promise<{ plan: string; status: string; views: number } | null> {
   const { start, end } = monthWindow(now);
-  try {
-    const row = await env.DB.prepare(
-      `SELECT acc.plan AS plan, COUNT(v.id) AS n
+  const run = async (withOverride: boolean) => {
+    // The effective plan is resolved in SQL rather than by reading the row and
+    // calling `effectivePlan`, so a refresh still costs exactly one D1 round
+    // trip — the whole reason this query is shaped the way it is.
+    const planExpr = withOverride
+      ? `CASE WHEN acc.plan_override IS NOT NULL
+                AND (acc.plan_override_expires_at IS NULL OR acc.plan_override_expires_at > ?4)
+              THEN acc.plan_override ELSE acc.plan END`
+      : "acc.plan";
+    const stmt = env.DB.prepare(
+      `SELECT ${planExpr} AS plan, acc.status AS status, COUNT(v.id) AS n
          FROM accounts acc
          LEFT JOIN artifacts a ON a.account_id = acc.id
          LEFT JOIN artifact_views v ON v.slug = a.slug AND v.viewed_at >= ?2 AND v.viewed_at < ?3
         WHERE acc.id = ?1
-        GROUP BY acc.plan`
-    )
-      .bind(accountId, start, end)
-      .first<{ plan: string; n: number }>();
+        GROUP BY plan, acc.status`
+    );
+    return withOverride
+      ? stmt.bind(accountId, start, end, now.toISOString())
+      : stmt.bind(accountId, start, end);
+  };
+  try {
+    let row: { plan: string; status: string; n: number } | null;
+    try {
+      row = await (await run(true)).first<{ plan: string; status: string; n: number }>();
+    } catch (e) {
+      // Worker ahead of migration 0018: fall back to the pre-override query
+      // rather than refusing to enforce anything. Same tolerance `usageFor`
+      // already applies to a database that predates migration 0009.
+      if (!isMissingOverrideColumn(e)) throw e;
+      row = await (await run(false)).first<{ plan: string; status: string; n: number }>();
+    }
     if (!row) return null;
-    return { plan: row.plan, views: row.n ?? 0 };
+    return { plan: row.plan, status: row.status, views: row.n ?? 0 };
   } catch (e) {
     if (isMissingAccountColumn(e) || isMissingAccountsTable(e)) return null;
     throw e;
@@ -238,10 +297,15 @@ export function overMonthlyViewLimit(views: number, limit: number): boolean {
 }
 
 export interface ViewLimitStatus {
+  /** The EFFECTIVE plan: an operator override, when one is live, else billing's. */
   plan: string;
   views: number;
   limit: number;
   overLimit: boolean;
+  /** `accounts.status`. */
+  status: string;
+  /** True when an operator has suspended the owning workspace. */
+  suspended: boolean;
 }
 
 /**
@@ -265,16 +329,24 @@ export async function viewLimitStatus(
   const cached = viewStatusCache.get(accountId);
   let plan: string;
   let views: number;
+  let status: string;
   if (cached && cached.monthStart === start && wallClockMs - cached.cachedAtMs < VIEW_LIMIT_CACHE_TTL_MS) {
-    ({ plan, views } = cached);
+    ({ plan, views, status } = cached);
   } else {
     const fresh = await loadViewStatus(env, accountId, now);
     if (!fresh) return null;
-    ({ plan, views } = fresh);
-    viewStatusCache.set(accountId, { plan, views, monthStart: start, cachedAtMs: wallClockMs });
+    ({ plan, views, status } = fresh);
+    viewStatusCache.set(accountId, { plan, views, status, monthStart: start, cachedAtMs: wallClockMs });
   }
   const limit = limitsFor(plan).maxViewsPerMonth;
-  return { plan, views, limit, overLimit: overMonthlyViewLimit(views, limit) };
+  return {
+    plan,
+    views,
+    limit,
+    overLimit: overMonthlyViewLimit(views, limit),
+    status,
+    suspended: status === "suspended",
+  };
 }
 
 /**
@@ -292,4 +364,30 @@ export async function viewLimitStatus(
 export function blocksOnViewLimit(status: ViewLimitStatus | null, bypass: boolean): boolean {
   if (bypass) return false;
   return !!status?.overLimit;
+}
+
+/**
+ * Should a content request be refused because its owning workspace is
+ * suspended?
+ *
+ * Deliberately a stricter rule than {@link blocksOnViewLimit}, in two ways:
+ *
+ *  - **The owner does not bypass it.** Being over a view limit is a plan
+ *    problem, so the owner keeps reaching their own content in order to do
+ *    something about it. Suspension is an operator saying this workspace stops
+ *    serving; an owner who could still serve their own artifacts by opening
+ *    them themselves would make the control decorative. Only a platform admin
+ *    passes, and only so an operator can inspect what they suspended.
+ *  - **It applies to raw requests too**, not just browser navigations. A
+ *    suspension somebody could step around with `curl` is not a suspension.
+ *    That is affordable because the answer comes from the same isolate-local,
+ *    ~60s cache the view limit already uses (see {@link viewLimitStatus}), so
+ *    it costs a Map lookup on the hot path rather than a query.
+ *
+ * A null status means "nothing to enforce against" — no such account, or a
+ * database that predates the accounts tables — and never blocks.
+ */
+export function blocksOnSuspension(status: ViewLimitStatus | null, isPlatformAdmin: boolean): boolean {
+  if (isPlatformAdmin) return false;
+  return !!status?.suspended;
 }

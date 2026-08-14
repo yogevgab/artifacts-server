@@ -1,4 +1,4 @@
-import { SEAT_LIMITS, DEFAULT_SEAT_LIMIT } from "./members";
+import { maxSeatsFor } from "./members";
 import { layout, siteHeader, siteFooter, PUBLIC_CHROME_STYLE, SOURCE_URL } from "./pages";
 import { cookieNotice, CONSENT_STYLE, CONSENT_SCRIPT } from "./consent";
 import type { Env } from "./env";
@@ -258,7 +258,7 @@ function structuredData(env: Env): unknown[] {
  */
 /** Seats are what Team actually sells; a pricing table that omits them hides it. */
 function seatsLine(name: PlanName): string {
-  const seats = SEAT_LIMITS[name] ?? DEFAULT_SEAT_LIMIT;
+  const seats = maxSeatsFor(name);
   return seats === 1 ? "1 person" : `Up to ${seats} people`;
 }
 

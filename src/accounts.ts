@@ -95,12 +95,45 @@ export interface AccountRow {
   name: string;
   kind: AccountKind;
   status: AccountStatus;
+  /**
+   * What BILLING says this account is on. Lemon Squeezy writes it (see
+   * `processWebhookEvent`), and it is deliberately NOT the answer to "what may
+   * this account do" — {@link effectivePlan} is. Read this only when you
+   * specifically mean the subscription's plan.
+   */
   plan: string;
   /** Set only for `kind: 'personal'` — the one identity this workspace is for. */
   personal_email: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
+
+  // --- operator control plane (migration 0018) ------------------------------
+  //
+  // Every field below is optional rather than `| null`, and that is load-
+  // bearing rather than lazy: a Worker deployed ahead of migration 0018 reads
+  // rows that have no such columns at all, and a caller constructing an
+  // `AccountRow` in a test or a fixture should not have to name nine fields it
+  // does not care about. Absent and NULL mean the same thing everywhere —
+  // "no override, never suspended" — so there is no third state to handle.
+
+  /**
+   * What the OPERATOR says this account is on, overriding `plan` while it is
+   * live. A separate column from `plan` on purpose: that is what makes a
+   * billing webhook structurally incapable of clobbering a comp.
+   */
+  plan_override?: string | null;
+  /** NULL means "until an operator removes it". A past timestamp is simply inert. */
+  plan_override_expires_at?: string | null;
+  /** Why the override exists, in the operator's own words. */
+  plan_override_note?: string | null;
+  plan_override_by?: string | null;
+  plan_override_at?: string | null;
+  /** Internal operator notes about this account. Never shown to the customer. */
+  notes?: string | null;
+  suspended_at?: string | null;
+  suspended_by?: string | null;
+  suspended_reason?: string | null;
 }
 
 export interface MemberRow {
@@ -119,8 +152,69 @@ export interface Membership {
   role: AccountRole;
 }
 
-const ACCOUNT_COLUMNS =
-  "id, name, kind, status, plan, personal_email, created_by, created_at, updated_at";
+// --- entitlement: what the account may actually do ---------------------------
+
+/** Just the plan-bearing fields, so pure callers need no full row. */
+export type PlanBearing = Pick<
+  AccountRow,
+  "plan" | "plan_override" | "plan_override_expires_at"
+>;
+
+/**
+ * Is an operator plan override in force right now?
+ *
+ * An override with no expiry runs until an operator removes it; one whose
+ * expiry has passed is simply inert. That second case is why nothing schedules
+ * a job to "expire" overrides: an expired comp stops applying by being read,
+ * not by being cleaned up, so a Worker that never ran housekeeping still
+ * charges the customer the right thing.
+ *
+ * ISO-8601 UTC strings compare correctly as strings, which is why this is a
+ * `>` and not a `Date.parse` — every timestamp in this database is written by
+ * `new Date().toISOString()`.
+ */
+export function overrideActive(account: PlanBearing, now = new Date().toISOString()): boolean {
+  if (!account.plan_override) return false;
+  const expires = account.plan_override_expires_at;
+  return !expires || expires > now;
+}
+
+/**
+ * **The** answer to "what is this account entitled to" — the operator's
+ * override while it is live, otherwise what billing says.
+ *
+ * Every entitlement decision reads this and never `account.plan` directly:
+ * quota at publish time, the seat cap, the monthly view limit, the plan shown
+ * in Settings. `account.plan` continues to record the *subscription*, which is
+ * what makes the two independent — a Lemon Squeezy webhook writes `plan`, an
+ * operator writes `plan_override`, and neither can silently undo the other.
+ */
+export function effectivePlan(account: PlanBearing, now?: string): string {
+  return overrideActive(account, now) ? account.plan_override! : account.plan;
+}
+
+/**
+ * Is this workspace suspended? `status` (migration 0008) is authoritative; the
+ * `suspended_*` columns only record who, why and when.
+ */
+export function isSuspended(account: Pick<AccountRow, "status">): boolean {
+  return account.status === "suspended";
+}
+
+/**
+ * `*`, not an explicit list — the one place in this file where that is the
+ * careful choice rather than the lazy one.
+ *
+ * Migration 0018 added nine operator columns, and this Worker can be deployed
+ * before that migration runs. Naming them explicitly would make every read in
+ * this module throw "no such column" on such an instance, and because all of
+ * these readers fail soft to null/[], the visible symptom would be *every
+ * account disappearing* — strictly worse than today. With `*` the new fields
+ * simply come back `undefined`, which {@link AccountRow} already treats as
+ * "no override, never suspended". The table's shape is owned by this repo, so
+ * there is no third party who can widen it under us.
+ */
+const ACCOUNT_COLUMNS = "*";
 const MEMBER_COLUMNS = "account_id, email, role, status, invited_by, created_at, updated_at";
 
 export const MAX_ACCOUNT_NAME_LENGTH = 80;
@@ -489,19 +583,34 @@ export interface PublicAccount {
   name: string;
   kind: AccountKind;
   status: AccountStatus;
+  /**
+   * What this account is entitled to right now — {@link effectivePlan}, not the
+   * raw `plan` column. Identical to `billed_plan` for the overwhelming majority
+   * of accounts (nobody has an override), and when they differ, this is the one
+   * a customer-facing caller means: it is what their quota, seats and view
+   * limit are actually computed from.
+   */
   plan: string;
+  /** What billing says, when an override is making that different from `plan`. */
+  billed_plan?: string;
+  /** True while an operator override is in force. Deliberately no note/expiry: those are operator-facing. */
+  plan_overridden?: boolean;
   created_at: string;
   /** The requesting caller's role here, or null when they are not a member. */
   your_role: AccountRole | null;
 }
 
 export function toPublicAccount(account: AccountRow, role: AccountRole | null): PublicAccount {
+  const plan = effectivePlan(account);
   return {
     id: account.id,
     name: account.name,
     kind: account.kind,
     status: account.status,
-    plan: account.plan,
+    plan,
+    // Only present when it says something `plan` doesn't, so an ordinary
+    // account's payload is byte-identical to what it was before overrides.
+    ...(plan === account.plan ? {} : { billed_plan: account.plan, plan_overridden: true }),
     created_at: account.created_at,
     your_role: role,
   };

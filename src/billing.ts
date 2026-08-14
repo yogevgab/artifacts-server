@@ -12,7 +12,9 @@
  */
 
 import type { Env } from "./env";
-import { getAccount } from "./accounts";
+import { effectivePlan, getAccount, overrideActive } from "./accounts";
+import { recordAudit, SYSTEM_ACTOR } from "./audit";
+import { invalidateAccountStatus } from "./quota";
 
 /** The two plans Lemon Squeezy actually sells. `free` is never assigned by billing —
  *  it is the default every account starts at and the floor a cancellation returns to. */
@@ -219,7 +221,16 @@ export interface WebhookOutcome {
   /** True for an event type this webhook doesn't act on (e.g. order_created). */
   ignored?: boolean;
   accountId?: string | null;
+  /** The plan this delivery wrote to `accounts.plan` — what billing now says. */
   plan?: PaidPlan | "free" | null;
+  /**
+   * True when an operator plan override was in force, so this delivery changed
+   * what the account is *billed* for without changing what it is *entitled* to.
+   * See the note on `processWebhookEvent`.
+   */
+  overridden?: boolean;
+  /** What the account is actually entitled to after this delivery. */
+  effectivePlan?: string;
 }
 
 /**
@@ -231,6 +242,23 @@ export interface WebhookOutcome {
  * keeps a webhook from being able to grant a plan nobody actually paid for,
  * even if Lemon Squeezy's payload shape changed to include a stray plan-like
  * field some day.
+ *
+ * ## Operator overrides
+ *
+ * This writes `accounts.plan` and nothing else, so it cannot clobber an
+ * operator's comp — `plan_override` is a different column, and `effectivePlan`
+ * (src/accounts.ts) prefers it while it is live. That is a structural property,
+ * not a check somebody has to remember to write: there is no code path here
+ * that touches an override, because the override is not in the statement.
+ *
+ * The plan column is still updated under a live override, deliberately. It is
+ * the record of what the customer is actually paying for, and the operator
+ * needs that to stay true — otherwise removing an override would drop the
+ * account onto whatever plan it happened to hold when the override was applied,
+ * rather than onto the subscription it has been paying for all along. What the
+ * webhook does instead is leave a trail: an audit row (see src/audit.ts) saying
+ * that billing moved underneath an override, so the change is visible on the
+ * account's page rather than only in Lemon Squeezy.
  *
  * Idempotent: a row is inserted into `billing_events` keyed by the body's
  * digest (see `webhookEventId`) after (not before) the plan write, so a crash
@@ -280,10 +308,42 @@ export async function processWebhookEvent(
       : impliedStatus(eventName);
   const plan = entitlementFor(status, planForVariant(env, attributes?.variant_id));
 
-  if (accountId && plan && (await getAccount(env, accountId))) {
+  const account = accountId ? await getAccount(env, accountId) : null;
+  let overridden = false;
+  let effective: string | undefined;
+  if (accountId && plan && account) {
+    overridden = overrideActive(account, now);
     await env.DB.prepare("UPDATE accounts SET plan = ?, updated_at = ? WHERE id = ?")
       .bind(plan, now, accountId)
       .run();
+    // The monthly-view cache holds this account's effective plan; the row it
+    // was derived from just changed. Cheap, and it means a genuine upgrade
+    // takes effect on the next request instead of within the minute.
+    invalidateAccountStatus(accountId);
+    effective = effectivePlan({ ...account, plan }, now);
+    if (overridden) {
+      // Best-effort by design (see `recordAudit`): this is an observation, and
+      // failing to record it must never turn into a non-200 that makes Lemon
+      // Squeezy retry a delivery which in fact fully succeeded.
+      await recordAudit(env, {
+        actor: SYSTEM_ACTOR,
+        action: "billing.plan_change_under_override",
+        targetType: "account",
+        targetId: accountId,
+        summary:
+          `Billing moved ${account.name} to ${plan}, but an operator override keeps it on ` +
+          `${effective} — remove the override to hand the account back to billing`,
+        detail: {
+          account_name: account.name,
+          event: eventName,
+          billed_plan_before: account.plan,
+          billed_plan_after: plan,
+          effective_plan: effective,
+          override_expires_at: account.plan_override_expires_at ?? null,
+        },
+        now,
+      });
+    }
   }
 
   try {
@@ -296,5 +356,5 @@ export async function processWebhookEvent(
     if (!isUniqueViolation(e)) throw e;
   }
 
-  return { ok: true, accountId, plan };
+  return { ok: true, accountId, plan, overridden, ...(effective ? { effectivePlan: effective } : {}) };
 }

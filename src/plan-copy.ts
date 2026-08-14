@@ -174,12 +174,25 @@ export type CheckoutLinks = Record<PaidPlan, string | null>;
 
 /** Everything a dashboard page needs to render plan status, usage and an upgrade path for one workspace. */
 export interface WorkspaceBilling {
+  /**
+   * The EFFECTIVE plan — an operator override while one is live, otherwise
+   * what billing says. Every number beside it (`limits`, `warning`, `nextPlan`)
+   * is derived from this one, so a comped workspace sees the limits it actually
+   * has rather than the ones its subscription pays for.
+   */
   plan: string;
   limits: PlanLimits;
   usage: Usage;
   warning: UsageWarningInfo | null;
   nextPlan: PaidPlan | null;
   checkout: CheckoutLinks;
+  /**
+   * Set only when an operator override is making `plan` differ from the
+   * subscription. Present so the dashboard can say *why* somebody is on a plan
+   * they never bought — a Team-sized workspace with a Free invoice is
+   * alarming until it is explained.
+   */
+  override?: { billedPlan: string; expiresAt: string | null };
 }
 
 /**

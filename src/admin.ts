@@ -18,6 +18,7 @@ import {
   type PortalViewer,
 } from "./portal";
 import { accountRoleLabel } from "./accounts";
+import { operatorSections, PLATFORM_STYLE, type OperatorData } from "./platform";
 import { ANALYTICS_CONSENT_KEY } from "./consent";
 import { PLAN_LABEL, priceLabel, type WorkspaceBilling } from "./plan-copy";
 import type { PlanName } from "./quota";
@@ -1172,7 +1173,17 @@ function configRow(key: string, label: string, ok: boolean, detail: string, okWo
   </div>`;
 }
 
-export function platformPage(viewer: PortalViewer, info: PlatformInfo): string {
+/**
+ * `operator` carries the control plane's readouts (accounts, audit, enquiries,
+ * billing, mail — see src/platform.ts). Optional so that this page still renders
+ * for a caller that has only computed the configuration half; absent means those
+ * panels are simply not on the page, never that they are empty.
+ */
+export function platformPage(
+  viewer: PortalViewer,
+  info: PlatformInfo,
+  operator?: OperatorData
+): string {
   const config = `<section class="panel" data-panel="platform-config" aria-labelledby="config-h">
     <div class="panel-head"><div>
       <h2 id="config-h">Instance configuration</h2>
@@ -1254,7 +1265,8 @@ export function platformPage(viewer: PortalViewer, info: PlatformInfo): string {
     title: "Platform",
     heading: "Platform",
     lede: `Operator tools for this deployment. Only a super admin can open this page.`,
-    body: `${stats}${config}${operators}`,
+    body: `${stats}${operator ? operatorSections(operator) : ""}${config}${operators}`,
+    style: operator ? PLATFORM_STYLE : undefined,
   });
 }
 

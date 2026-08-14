@@ -20,6 +20,7 @@ import type { Env } from "./env";
 import { requireUser, accountsFor, type AuthVars } from "./auth";
 import { canManageMembers, canReadAccount, memberChangeDenial } from "./authz";
 import {
+  effectivePlan,
   getAccount,
   isAccountRole,
   listMembers,
@@ -62,8 +63,15 @@ async function readableAccount(
   return canReadAccount(c.get("identity"), ctx.roles, id) ? { account, roles: ctx.roles } : null;
 }
 
+/**
+ * Seats are counted against the EFFECTIVE plan (src/accounts.ts), so a
+ * workspace an operator comped onto Team gets Team's seats immediately —
+ * without which the comp would be visible in the platform UI and inert
+ * everywhere it mattered.
+ */
 function seatSummary(account: AccountRow, memberCount: number) {
-  return { plan: account.plan, used: memberCount, max: maxSeatsFor(account.plan) };
+  const plan = effectivePlan(account);
+  return { plan, used: memberCount, max: maxSeatsFor(plan) };
 }
 
 membersRoutes.get(LIST_PATH, async (c) => {
@@ -121,7 +129,7 @@ membersRoutes.post(LIST_PATH, async (c) => {
   if (denial) return c.json({ error: "forbidden", detail: denial }, 403);
 
   const before = await listMembers(c.env, id);
-  const seatDenial = seatLimitDenial(found.account.plan, before.length);
+  const seatDenial = seatLimitDenial(effectivePlan(found.account), before.length);
   if (seatDenial) return c.json({ error: "seat_limit_reached", detail: seatDenial }, 403);
 
   await upsertMember(c.env, {

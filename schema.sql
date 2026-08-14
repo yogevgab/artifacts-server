@@ -142,7 +142,25 @@ CREATE TABLE IF NOT EXISTS accounts (
   personal_email TEXT UNIQUE,
   created_by     TEXT,
   created_at     TEXT NOT NULL,
-  updated_at     TEXT NOT NULL
+  updated_at     TEXT NOT NULL,
+  -- Operator control plane (migration 0018). `plan` above stays what BILLING
+  -- says; `plan_override` is what the OPERATOR says, and because they are
+  -- different columns a Lemon Squeezy webhook physically cannot clobber a live
+  -- override. `effectivePlan` (src/accounts.ts) is the only place the two are
+  -- combined. A NULL/expired override is inert, so a comp that ran out needs no
+  -- cron job to stop applying.
+  plan_override            TEXT,
+  plan_override_expires_at TEXT,
+  plan_override_note       TEXT,
+  plan_override_by         TEXT,
+  plan_override_at         TEXT,
+  -- Internal operator notes. Never shown to the customer.
+  notes                    TEXT,
+  -- Suspension metadata. `status` above is authoritative; these record who,
+  -- why and when so an unsuspend is answerable rather than mysterious.
+  suspended_at             TEXT,
+  suspended_by             TEXT,
+  suspended_reason         TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_accounts_kind ON accounts (kind);
@@ -236,3 +254,29 @@ CREATE TABLE IF NOT EXISTS billing_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_billing_events_account ON billing_events (account_id);
+-- Operator audit trail (migration 0018). Append-only: nothing in the product
+-- UPDATEs or DELETEs a row here, which is what makes "append-only" a fact
+-- rather than a promise. Every operator control that changes what an account
+-- may do writes here in the SAME D1 batch as the change itself, so an
+-- unaudited override is not a state this schema can reach.
+CREATE TABLE IF NOT EXISTS admin_audit (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  -- NULL only for a system actor (the billing webhook), which records itself
+  -- as `actor_role = 'system'` instead.
+  actor_email  TEXT,
+  actor_role   TEXT,
+  -- Dotted, stable, machine-readable: 'account.suspended'. `summary` is the
+  -- sentence a human reads.
+  action       TEXT NOT NULL,
+  -- 'account' | 'user' | 'artifact' — what `target_id` names.
+  target_type  TEXT NOT NULL,
+  target_id    TEXT,
+  summary      TEXT,
+  -- JSON: whatever the action needs (before/after plan, expiry, reason).
+  detail       TEXT,
+  created_at   TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_target
+  ON admin_audit (target_type, target_id, created_at DESC);

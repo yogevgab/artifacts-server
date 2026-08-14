@@ -3,10 +3,12 @@ import { portalShell, stamp, plural, statTile, type PortalViewer } from "./porta
 import {
   ACCOUNT_ROLES,
   accountRoleLabel,
+  effectivePlan,
   type AccountRole,
   type AccountRow,
   type MemberRow,
 } from "./accounts";
+import { limitsFor, PLANS } from "./quota";
 
 /**
  * Workspace member management and seat counting — the Team plan's whole pitch.
@@ -26,29 +28,25 @@ import {
 
 // --- seats -------------------------------------------------------------------
 
-/**
- * Seats per plan.
- *
- * This belongs conceptually next to `PLANS` in src/quota.ts — a seat cap is
- * just another plan limit — but quota.ts is owned by another agent's
- * in-flight change, so it lives here instead to avoid a merge collision.
- * TODO(follow-up): fold this into `PLANS` as `maxSeats` once quota.ts is free,
- * and delete this module-local copy.
- */
-export const SEAT_LIMITS: Record<string, number> = {
-  free: 1,
-  pro: 3,
-  team: 25,
-};
-
 /** Ascending seat ceiling, so "the plan that lifts it" can be found by walking forward. */
 const PLAN_ORDER = ["free", "pro", "team"] as const;
 
-export const DEFAULT_SEAT_LIMIT = SEAT_LIMITS.free;
+export const DEFAULT_SEAT_LIMIT = PLANS.free.maxSeats;
 
-/** The seat ceiling for a plan name, falling back to `free`'s for anything unrecognized. */
+/**
+ * The seat ceiling for a plan name, falling back to `free`'s for anything
+ * unrecognized.
+ *
+ * This used to read a module-local `SEAT_LIMITS` table carrying a TODO to fold
+ * itself into `PLANS`. The production-SaaS plan called that out as a drift
+ * risk, and it was a real one: two tables of plan limits are two tables that
+ * can disagree, and the pricing pages read one while enforcement read the
+ * other. There is now a single entitlement source (`PLANS`, src/quota.ts) and
+ * this is a lookup into it. `limitsFor` supplies the unrecognized-plan
+ * fallback, so that rule also lives in exactly one place.
+ */
 export function maxSeatsFor(plan: string): number {
-  return SEAT_LIMITS[plan] ?? DEFAULT_SEAT_LIMIT;
+  return limitsFor(plan).maxSeats;
 }
 
 /** The word for a plan, as the product says it. */
@@ -140,7 +138,11 @@ function memberRow(m: MemberRow, canManage: boolean, viewerEmail: string | null,
 function membersPanel(info: MembersPageInput): string {
   const ownerCount = info.members.filter((m) => m.role === "owner").length;
   const rows = info.members.map((m) => memberRow(m, info.canManage, info.viewerEmail, ownerCount)).join("");
-  const max = maxSeatsFor(info.account.plan);
+  // The EFFECTIVE plan, so a workspace an operator comped onto Team shows —
+  // and is refused against — the seats it actually has, not the ones its
+  // (possibly still Free) subscription pays for.
+  const plan = effectivePlan(info.account);
+  const max = maxSeatsFor(plan);
   const used = info.members.length;
   const atCap = used >= max;
 
@@ -157,7 +159,7 @@ function membersPanel(info: MembersPageInput): string {
       <span id="members-status" class="status" data-status hidden></span>
     </form>
     <p class="hint" data-seat-summary>${used} of ${max} ${max === 1 ? "seat" : "seats"} used on the ${esc(
-        planLabel(info.account.plan)
+        planLabel(plan)
       )} plan.${atCap ? " You're at the limit — remove somebody or upgrade to invite more." : ""}</p>`
     : "";
 
@@ -322,11 +324,12 @@ export interface MembersPageInput {
  * visual language, scoped to one account instead of the whole instance.
  */
 export function membersPage(input: MembersPageInput): string {
-  const max = maxSeatsFor(input.account.plan);
+  const plan = effectivePlan(input.account);
+  const max = maxSeatsFor(plan);
   const used = input.members.length;
   const tiles = `<section class="stats" aria-label="Seats at a glance">
     ${statTile("seats-used", "Seats used", String(used), plural(used, "member"))}
-    ${statTile("seats-max", "Seat limit", String(max), `${planLabel(input.account.plan)} plan`)}
+    ${statTile("seats-max", "Seat limit", String(max), `${planLabel(plan)} plan`)}
     ${statTile(
       "seats-available",
       "Seats available",

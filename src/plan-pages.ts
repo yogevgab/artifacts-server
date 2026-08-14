@@ -3,7 +3,6 @@ import { esc, layout, siteHeader, siteFooter, PUBLIC_CHROME_STYLE } from "./page
 import { SITE, canonicalUrl } from "./seo";
 import { num, bytes } from "./portal";
 import { PLANS } from "./quota";
-import { SEAT_LIMITS } from "./members";
 import { TIER_LABEL, tierCta, tierPrice, type PublicTier } from "./plan-copy";
 
 /**
@@ -16,7 +15,7 @@ import { TIER_LABEL, tierCta, tierPrice, type PublicTier } from "./plan-copy";
  *
  * Three rules, and every sentence on these pages is downstream of them:
  *
- *  1. **Numbers come from `PLANS` and `SEAT_LIMITS`, never from prose.** Same
+ *  1. **Numbers come from `PLANS`, never from prose.** Same
  *     rule the pricing grid already follows (src/landing.ts): a marketing page
  *     that hand-types "50 GB" is a page that will still say 50 GB the day the
  *     limit changes.
@@ -156,7 +155,7 @@ const PRO_FACTS: readonly PlanFact[] = [
       "rolling back never breaks a link you already sent.",
   },
   {
-    title: `Up to ${SEAT_LIMITS.pro} people in the workspace.`,
+    title: `Up to ${PLANS.pro.maxSeats} people in the workspace.`,
     detail:
       "Enough for you and a couple of collaborators. Each carries a role — owner, admin, member " +
       "or viewer — and a viewer can open what the workspace owns without being able to change it.",
@@ -236,7 +235,7 @@ export function proPage(env: Env): string {
     },
     `Pro — ${bytes(PLANS.pro.maxStorageBytes)} and full version history · ${SITE.name}`,
     `rtfx.pro Pro: ${num(PLANS.pro.maxArtifacts)} artifacts, ${bytes(PLANS.pro.maxStorageBytes)} storage, ` +
-      `full version history and up to ${SEAT_LIMITS.pro} people. Start free, upgrade from Settings.`
+      `full version history and up to ${PLANS.pro.maxSeats} people. Start free, upgrade from Settings.`
   );
 }
 
@@ -244,7 +243,7 @@ export function proPage(env: Env): string {
 
 const TEAM_FACTS: readonly PlanFact[] = [
   {
-    title: `Up to ${SEAT_LIMITS.team} people in one workspace.`,
+    title: `Up to ${PLANS.team.maxSeats} people in one workspace.`,
     detail:
       "Everyone carries a role — owner, admin, member or viewer. A member publishes and manages; " +
       "a viewer opens what the workspace owns and can change none of it. Artifacts belong to the " +
@@ -294,7 +293,7 @@ export function teamPage(env: Env): string {
         <li><b>Start free today.</b> <a href="/signup">Create a workspace</a> and publish. Moving it
           onto Team later changes nothing about what you have already published or shared.</li>
         <li><b>Or start on <a href="/pro">Pro</a>.</b> Self-serve, and it already covers
-          ${SEAT_LIMITS.pro} people — enough for a lot of what gets called a team.</li>
+          ${PLANS.pro.maxSeats} people — enough for a lot of what gets called a team.</li>
       </ul>
     </section>`;
 
@@ -303,7 +302,7 @@ export function teamPage(env: Env): string {
     {
       tier: "team",
       eyebrow: "Team",
-      heading: `Team — one workspace, up to ${SEAT_LIMITS.team} people`,
+      heading: `Team — one workspace, up to ${PLANS.team.maxSeats} people`,
       lead:
         `${num(PLANS.team.maxArtifacts)} artifacts and ${bytes(PLANS.team.maxStorageBytes)} shared ` +
         "across a workspace with real roles. Set up with a person, because the invite email that " +
@@ -315,8 +314,8 @@ export function teamPage(env: Env): string {
         "A person answers by email — there is no queue and no automatic reply.",
       sections,
     },
-    `Team — a shared workspace for up to ${SEAT_LIMITS.team} people · ${SITE.name}`,
-    `rtfx.pro Team: ${bytes(PLANS.team.maxStorageBytes)} and up to ${SEAT_LIMITS.team} people in one ` +
+    `Team — a shared workspace for up to ${PLANS.team.maxSeats} people · ${SITE.name}`,
+    `rtfx.pro Team: ${bytes(PLANS.team.maxStorageBytes)} and up to ${PLANS.team.maxSeats} people in one ` +
       "workspace with owner, admin, member and viewer roles. Set up with us — talk to us."
   );
 }
