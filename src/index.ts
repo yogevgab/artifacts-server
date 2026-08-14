@@ -2,6 +2,7 @@ import { Hono, type Context } from "hono";
 import type { ArtifactRow, Env, VersionRow } from "./env";
 import { api } from "./api";
 import { waitlist } from "./waitlist";
+import { authRoutes } from "./auth-routes";
 import { requireUser, accessEmail, accountsFor, getIdentity, resolveAuth, type AuthVars } from "./auth";
 import { serveArtifact } from "./serve";
 import {
@@ -36,7 +37,7 @@ import { notFoundPage } from "./pages";
 import { landingPage } from "./landing";
 import { docsPage } from "./docs";
 import { privacyPage, termsPage } from "./legal";
-import { loginPage } from "./login";
+import { signupPage, loginPage } from "./login";
 import {
   overviewPage,
   artifactsPage,
@@ -372,6 +373,10 @@ app.route("/api", api);
 // Public landing-page waitlist signup (unauthenticated).
 app.route("/waitlist", waitlist);
 
+// App-owned sign-in (/auth/*). Mounted at the root because the module declares
+// its own full paths. App host only — see MANAGEMENT_PREFIXES in host.ts.
+app.route("/", authRoutes);
+
 // --- Public product surface (issue #29) -------------------------------------
 // Everything below is served to anyone, identically, without reading an identity:
 // the two marketing/doc pages plus the files crawlers and AI agents look for.
@@ -461,6 +466,14 @@ app.get("/logo.png", () => pngResponse(LOGO_PNG_BASE64));
 // OUTSIDE the Cloudflare Access application (see docs/DEPLOY_RTFX.md). It never
 // authenticates anyone itself — "Continue with email" simply hands off to
 // /admin, which Access gates, which is what sends the one-time code.
+app.get("/signup", async (c) => {
+  const { identity } = await resolveAuth(c);
+  if (identity?.email) {
+    return c.html(signupPage(c.env, { kind: "signed-in", email: identity.email }));
+  }
+  return c.html(signupPage(c.env, { kind: "signed-out" }));
+});
+
 app.get("/login", async (c) => {
   const { identity, disabled, disabledEmail } = await resolveAuth(c);
   if (disabled) return c.html(loginPage(c.env, { kind: "paused", email: disabledEmail }), 403);

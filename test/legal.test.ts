@@ -200,8 +200,8 @@ describe("the cookie notice", () => {
   it("tells the truth: essential cookies only, nothing to opt out of", async () => {
     const body = text(await html("/", ANON));
     expect(body).toContain("cookies on rtfx.pro");
-    expect(body).toContain("cloudflare access sign-in cookies");
-    expect(body).toContain("security cookies");
+    expect(body).toContain("our own sign-in session cookie");
+    expect(body).toContain("edge security cookies");
     expect(body).toContain("first-party localstorage dismissal");
     expect(body).toContain("no analytics, no advertising");
     expect(body).toContain("nothing here to opt out of");

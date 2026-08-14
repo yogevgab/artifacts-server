@@ -53,7 +53,80 @@ main.auth{display:flex;align-items:center;justify-content:center;min-height:62vh
   background:rgba(255,255,255,.035);text-align:left}
 .mail-help h2{font-size:.95rem;margin:0 0 .35rem;letter-spacing:-.02em}
 .mail-help ul{margin:.45rem 0 0;padding-inline-start:1.1rem;color:var(--muted);font-size:.86rem}
+/* The sign-in form. Two steps in one sheet — address, then code — so the page
+   never navigates and the brand never hands off mid-flow. */
+.auth-form{display:grid;gap:.85rem;margin:1.35rem 0 0;text-align:left}
+.field{display:grid;gap:.35rem}
+.field-label{font-size:.82rem;font-weight:600;letter-spacing:.01em;color:var(--muted)}
+.auth-form input{width:100%;padding:.7rem .8rem;border:1px solid var(--border);border-radius:var(--radius-sm);
+  background:rgba(255,255,255,.04);color:var(--fg);font:inherit;font-size:1rem}
+.auth-form input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.auth-form input[name="code"]{font-family:var(--mono);font-size:1.4rem;letter-spacing:.28em;text-align:center}
+.auth-form button{width:100%;justify-content:center}
+.status[data-auth-status]{margin:.9rem 0 0;font-size:.9rem;text-align:left}
+.status[data-auth-status][data-tone="error"]{color:var(--danger,#f2889a)}
 `;
+
+/**
+ * Progressive enhancement is not on offer here: without JavaScript there is no
+ * sign-in, which is the same trade the dashboard already makes. Kept in ES5-ish
+ * style to match `CONSENT_SCRIPT` and the People panel.
+ */
+const AUTH_SCRIPT = `(function(){
+  var emailForm=document.querySelector('[data-step="email"]');
+  var codeForm=document.querySelector('[data-step="code"]');
+  var status=document.querySelector('[data-auth-status]');
+  var sentTo=document.querySelector('[data-sent-to]');
+  if(!emailForm||!codeForm) return;
+  var address='';
+
+  function say(msg,tone){
+    status.hidden=!msg; status.textContent=msg||'';
+    if(tone){status.setAttribute('data-tone',tone);}else{status.removeAttribute('data-tone');}
+  }
+  function busy(form,on){
+    var b=form.querySelector('button[type="submit"]');
+    if(b){b.disabled=on; b.textContent=on?'Working…':b.getAttribute('data-label')||b.textContent;}
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('button[type="submit"]'),function(b){
+    b.setAttribute('data-label',b.textContent);
+  });
+
+  emailForm.addEventListener('submit',function(e){
+    e.preventDefault();
+    address=emailForm.elements.email.value.trim();
+    if(!address){say('Enter your email address.','error');return;}
+    busy(emailForm,true); say('');
+    fetch('/auth/start',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email:address})}).then(function(r){
+      busy(emailForm,false);
+      if(r.status===429){say('Too many attempts. Try again in an hour.','error');return;}
+      if(!r.ok){say('That address does not look right.','error');return;}
+      emailForm.hidden=true; codeForm.hidden=false;
+      sentTo.textContent='We sent a code to '+address+'. It expires in 15 minutes.';
+      codeForm.elements.code.focus();
+    }).catch(function(){busy(emailForm,false);say('Network problem. Try again.','error');});
+  });
+
+  codeForm.addEventListener('submit',function(e){
+    e.preventDefault();
+    var code=codeForm.elements.code.value.trim();
+    if(!/^[0-9]{6}$/.test(code)){say('Enter the six digits from the email.','error');return;}
+    busy(codeForm,true); say('');
+    fetch('/auth/verify',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email:address,code:code})}).then(function(r){
+      busy(codeForm,false);
+      if(r.ok){return r.json().then(function(j){window.location.href=j.redirect||'/admin';});}
+      say(r.status===401?'That code is wrong or has expired. Request a new one.':'Something went wrong.','error');
+    }).catch(function(){busy(codeForm,false);say('Network problem. Try again.','error');});
+  });
+
+  var back=codeForm.querySelector('[data-back]');
+  if(back){back.addEventListener('click',function(){
+    codeForm.hidden=true; emailForm.hidden=false; say('');
+    emailForm.elements.email.focus();
+  });}
+})();`;
 
 /**
  * Shared chrome so every auth state feels like the same quiet room — and, since
@@ -82,40 +155,63 @@ function sheet(state: string, inner: string): string {
  * which is exactly what a phishing page looks like. Saying "the next screen is
  * Cloudflare's" costs one line and removes the doubt entirely.
  */
-function signedOut(): string {
+interface SignedOutCopy {
+  eyebrow?: string;
+  heading?: string;
+  lede?: string;
+  footerHtml?: string;
+}
+
+function signedOut(copy: SignedOutCopy = {}): string {
   return sheet(
     "signed-out",
-    `<p class="eyebrow">Sign in</p>
-     <h1>Welcome back</h1>
-     <p class="lede">Use the email address your invitation was sent to. We'll email you a
-       one-time code — there's no password to create or remember.</p>
-     <div class="actions">
-       <a class="link-button" href="/admin" data-cta="sign-in">Continue with email</a>
-       <a class="ghost link-button" href="/#waitlist" data-cta="request-access">Request access</a>
-     </div>
-     <ol class="steps">
-       <li><span><b>The next screen is Cloudflare's.</b> Cloudflare Access is the identity
-         provider that secures rtfx.pro — it will ask for your email address.</span></li>
-       <li><span>Check your inbox for the one-time code and paste it in. It usually arrives
-         within a minute; look in spam or junk if it doesn't.</span></li>
-       <li><span>You land straight in your dashboard. The code is single-use, and this browser
-         stays signed in.</span></li>
-     </ol>
+    `<p class="eyebrow">${esc(copy.eyebrow ?? "Sign in")}</p>
+     <h1>${esc(copy.heading ?? "Welcome")}</h1>
+     <p class="lede">${esc(
+       copy.lede ??
+         "Enter your email and we'll send you a code. There's no password to create or remember."
+     )}</p>
+
+     <form class="auth-form" data-step="email" novalidate>
+       <label class="field">
+         <span class="field-label">Email address</span>
+         <input type="email" name="email" autocomplete="email" inputmode="email"
+                placeholder="you@example.com" required autofocus>
+       </label>
+       <button type="submit" class="link-button" data-cta="sign-in">Email me a code</button>
+     </form>
+
+     <form class="auth-form" data-step="code" hidden novalidate>
+       <p class="lede" data-sent-to></p>
+       <label class="field">
+         <span class="field-label">Six-digit code</span>
+         <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code"
+                pattern="[0-9]{6}" maxlength="6" placeholder="000000" required>
+       </label>
+       <button type="submit" class="link-button" data-cta="verify">Sign in</button>
+       <button type="button" class="ghost link-button" data-back>Use a different address</button>
+     </form>
+
+     <p class="status" data-auth-status role="status" aria-live="polite" hidden></p>
+
      <div class="mail-help" data-otp-help>
        <h2>Didn't get the email?</h2>
        <ul>
-         <li>Use the exact address that was invited.</li>
-         <li>Check spam, junk, promotions and any mail filter for a message from Cloudflare Access.</li>
-         <li>If nothing arrives after a minute, try again — a fresh code replaces the old one.</li>
+         <li>The code takes up to a minute. Check spam, junk and promotions.</li>
+         <li>The link in the message signs you in directly — no code to type.</li>
+         <li>Request another and the previous code stops working.</li>
        </ul>
      </div>
      <hr class="divider">
-     <p class="hint">No account yet? <a href="/#waitlist">Request access</a> and we'll be in
-       touch — rtfx.pro is invite-only, so signing in only works once your address has been
-       added. New here? <a href="/docs">Read the docs</a>.</p>
-     <p class="hint">Signing in sets one cookie — the Cloudflare Access session that keeps you
-       signed in. Nothing here tracks you: see the <a href="/privacy">privacy policy</a> and the
-       <a href="/terms">terms of use</a>.</p>`
+     ${
+       copy.footerHtml ??
+       `<p class="hint">New here? <a href="/signup">Create an account</a> — it takes one email and
+       nothing else. Or <a href="/docs">read the docs</a> first.</p>`
+     }
+     <p class="hint">Signing in sets one cookie, the session that keeps you signed in. Nothing
+       here tracks you: see the <a href="/privacy">privacy policy</a> and the
+       <a href="/terms">terms of use</a>.</p>
+     <script>${AUTH_SCRIPT}</script>`
   );
 }
 
@@ -181,6 +277,32 @@ function signedOutMeta(env: Env): HeadMeta {
   };
 }
 
+/**
+ * `/signup` is the same sheet with different copy. It must be, because signup
+ * and sign-in are literally the same endpoint (`/auth/start`) — giving them two
+ * different forms would let the two paths disagree about who you are.
+ */
+export function signupPage(env: Env, state: LoginState): string {
+  if (state.kind === "signed-in") {
+    return layout("Signed in \u00b7 rtfx.pro", signedIn(state.email), LOGIN_STYLE);
+  }
+  return layout(
+    "Create an account \u00b7 rtfx.pro",
+    signedOut({
+      eyebrow: "Create an account",
+      heading: "Get started",
+      lede:
+        "Enter your email and we'll send you a code. No password, no credit card \u2014 " +
+        "you'll have a workspace in about thirty seconds.",
+      footerHtml:
+        '<p class="hint">Already have an account? <a href="/login">Sign in</a> \u2014 ' +
+        "it's the same code either way.</p>",
+    }),
+    LOGIN_STYLE,
+    signedOutMeta(env)
+  );
+}
+
 export function loginPage(env: Env, state: LoginState): string {
   if (state.kind === "signed-in") {
     return layout("Signed in · rtfx.pro", signedIn(state.email), LOGIN_STYLE);
@@ -194,4 +316,31 @@ export function loginPage(env: Env, state: LoginState): string {
 /** The paused sheet on its own, for HTML routes that reject a disabled caller. */
 export function accountPausedPage(env: Env, email: string | null): string {
   return loginPage(env, { kind: "paused", email });
+}
+
+/**
+ * The magic-link confirm step.
+ *
+ * A mail scanner will fetch this page; it will not press the button. That one
+ * fact is the whole reason the page exists — see the route comment in
+ * src/auth-routes.ts.
+ */
+export function magicLinkConfirmPage(env: Env, token: string): string {
+  return layout(
+    "Confirm sign-in \u00b7 rtfx.pro",
+    sheet(
+      "confirm",
+      `<p class="eyebrow">Almost there</p>
+       <h1>Confirm sign-in</h1>
+       <p class="lede">Press the button to finish signing in to rtfx.pro. We ask because mail
+         providers open links automatically, and a sign-in should happen when you say so.</p>
+       <form class="auth-form" method="post" action="/auth/m/${esc(token)}">
+         <button type="submit" class="link-button" data-cta="confirm-signin">Sign me in</button>
+       </form>
+       <hr class="divider">
+       <p class="hint">Didn't ask for this? Close the tab and nothing happens — the link stops
+         working on its own.</p>`
+    ),
+    LOGIN_STYLE
+  );
 }

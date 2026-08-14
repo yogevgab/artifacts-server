@@ -194,6 +194,11 @@ export function memberChangeDenial(
  */
 export function canUseDashboard(identity: Identity | null): identity is Identity {
   if (!identity) return false;
+  // Checked before anything else, including isAdmin. A guest session cannot set
+  // isAdmin — that is config-derived — but the ordering must not depend on that
+  // staying true forever. A guest reaches granted artifact content and nothing
+  // else, ever.
+  if (identity.kind === "guest") return false;
   return identity.isAdmin || !!identity.email;
 }
 

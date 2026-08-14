@@ -165,3 +165,36 @@ describe("userActionDenial", () => {
     expect(allowed(adminToken, member)).toEqual(ALL);
   });
 });
+
+/**
+ * The guest boundary (app-owned identity). `canUseDashboard` is the one place
+ * where a mistake is a privilege escalation rather than a bug: a granted guest
+ * reaching /admin would see every artifact the dashboard lists. The table is
+ * exhaustive over {kind} x {isAdmin} x {email present} on purpose.
+ */
+describe("canUseDashboard with session kinds", () => {
+  const base = { commonName: null, role: "member" as const };
+
+  const cases: Array<[string, Identity, boolean]> = [
+    ["member with email", { ...base, email: "dana@acme.com", isAdmin: false, kind: "member" }, true],
+    ["member admin", { ...base, email: "admin@x.com", isAdmin: true, kind: "member" }, true],
+    ["guest with email", { ...base, email: "dana@acme.com", isAdmin: false, kind: "guest" }, false],
+    ["guest with no email", { ...base, email: null, isAdmin: false, kind: "guest" }, false],
+    ["member with no email", { ...base, email: null, isAdmin: false, kind: "member" }, false],
+    ["kind absent (Access-authenticated human)", { ...base, email: "dana@acme.com", isAdmin: false }, true],
+  ];
+
+  for (const [name, identity, expected] of cases) {
+    it(`${name} -> ${expected}`, () => {
+      expect(canUseDashboard(identity)).toBe(expected);
+    });
+  }
+
+  it("a guest is refused even when isAdmin is somehow true", () => {
+    // Defense in depth: isAdmin is config-derived and a guest session can never
+    // set it, but the ordering must not depend on that being true forever.
+    expect(
+      canUseDashboard({ ...base, email: "admin@x.com", isAdmin: true, kind: "guest" })
+    ).toBe(false);
+  });
+});
