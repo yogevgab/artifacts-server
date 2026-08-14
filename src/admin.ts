@@ -1,4 +1,5 @@
 import type { ArtifactRow, VersionRow, ViewRow } from "./env";
+import type { ViewerSummary, VersionViewSummary, ViewSources } from "./db";
 import { esc } from "./pages";
 import { MAX_UPLOAD_BYTES } from "./upload";
 import { tokenState } from "./integrations";
@@ -613,6 +614,89 @@ function viewsPanel(slug: string, info: ViewsInfo): string {
   </section>`;
 }
 
+/**
+ * "Did the person I shared this with actually read it?" — the single most
+ * valuable question an owner can ask, and the one the raw event log above
+ * doesn't answer directly. One row per distinct viewer, aggregated in SQL by
+ * `viewersFor`, not here.
+ */
+function viewersPanel(slug: string, viewers: ViewerSummary[]): string {
+  const rows = viewers
+    .map(
+      (v) => `<div class="row"><div class="info">${esc(v.email ?? "Signed out")}
+        <span class="hint">${plural(v.views, "view")} · last ${stamp(v.lastViewedAt)} · v${v.lastVersion}</span></div></div>`
+    )
+    .join("");
+  return `<section class="panel sub-panel" data-panel="viewers" aria-labelledby="viewers-h">
+    <div class="panel-head"><div>
+      <h2 id="viewers-h">Viewers <span class="hint">${plural(viewers.length, "person")}</span></h2>
+      <p class="hint">Everyone who has opened it, how often, and which version they last saw.</p>
+    </div></div>
+    ${
+      viewers.length
+        ? rows
+        : `<p class="note">Nobody has opened this yet — copy the share link above and send it to someone who has access.</p>`
+    }
+  </section>`;
+}
+
+/** Which versions are still being opened, so rolling back doesn't quietly break someone's link. */
+function versionViewsPanel(slug: string, versions: VersionViewSummary[]): string {
+  const rows = versions
+    .map(
+      (v) => `<div class="row"><div class="info"><b>v${v.version}</b>
+        <span class="hint">${plural(v.total, "view")} · ${plural(v.unique, "viewer")} · last ${stamp(v.lastViewedAt)}</span></div></div>`
+    )
+    .join("");
+  return `<section class="panel sub-panel" data-panel="version-views" aria-labelledby="version-views-h">
+    <div class="panel-head"><div>
+      <h2 id="version-views-h">Views by version</h2>
+      <p class="hint">Which versions people are still opening — check before making an older one live.</p>
+    </div></div>
+    ${versions.length ? rows : `<p class="note">No version has been opened yet.</p>`}
+  </section>`;
+}
+
+/** One ranked list, shared by the referrer and country halves of `sourcesPanel`. */
+function sourceList<T extends { count: number }>(
+  rows: T[],
+  label: (r: T) => string | null,
+  unknown: string
+): string {
+  if (!rows.length) return "";
+  return rows
+    .map(
+      (r) => `<div class="row"><div class="info">${esc(label(r) || unknown)}</div>
+        <span class="hint">${plural(r.count, "view")}</span></div>`
+    )
+    .join("");
+}
+
+/** Where views came from — already captured on every row, never surfaced until now. */
+function sourcesPanel(slug: string, sources: ViewSources): string {
+  const empty = !sources.referrers.length && !sources.countries.length;
+  return `<section class="panel sub-panel" data-panel="sources" aria-labelledby="sources-h">
+    <div class="panel-head"><div>
+      <h2 id="sources-h">Where views come from</h2>
+      <p class="hint">Top referrers and countries, from the same view log.</p>
+    </div></div>
+    ${
+      empty
+        ? `<p class="note">No referrer or country data yet — it fills in as people open the link.</p>`
+        : `<div class="pcols">
+      <div data-sources="referrers">
+        <h3 class="sources-h3">Referrers</h3>
+        ${sourceList(sources.referrers, (r) => r.referrer, "Direct / no referrer")}
+      </div>
+      <div data-sources="countries">
+        <h3 class="sources-h3">Countries</h3>
+        ${sourceList(sources.countries, (r) => r.country, "Unknown")}
+      </div>
+    </div>`
+    }
+  </section>`;
+}
+
 function accessPanel(r: ArtifactRow, emails: string[]): string {
   const restricted = r.visibility === "restricted";
   return `<section class="panel sub-panel" data-panel="access" id="acc-${esc(r.slug)}" aria-labelledby="access-h">
@@ -646,10 +730,13 @@ export interface ArtifactDetailInput {
   emails: string[];
   versions: VersionRow[];
   views: ViewsInfo;
+  viewers: ViewerSummary[];
+  versionViews: VersionViewSummary[];
+  sources: ViewSources;
 }
 
 export function artifactDetailPage(o: ArtifactDetailInput): string {
-  const { viewer, row, emails, versions, views } = o;
+  const { viewer, row, emails, versions, views, viewers, versionViews, sources } = o;
   const viewCount = views.counts.get(row.slug)?.total ?? 0;
   const badges = artifactBadges(row, emails, versions.length, viewCount, viewer.isAdmin);
 
@@ -699,8 +786,13 @@ export function artifactDetailPage(o: ArtifactDetailInput): string {
     body: `${summary}
       <div class="pcols">
         ${versionsPanel(row, versions)}
-        ${viewsPanel(row.slug, views)}
+        ${viewersPanel(row.slug, viewers)}
       </div>
+      <div class="pcols">
+        ${versionViewsPanel(row.slug, versionViews)}
+        ${sourcesPanel(row.slug, sources)}
+      </div>
+      ${viewsPanel(row.slug, views)}
       ${accessPanel(row, emails)}
       ${danger}`,
     style: ARTIFACTS_STYLE,
@@ -1333,6 +1425,7 @@ a.ghost.link-button.small-link{padding:.42rem .85rem;font-size:.82rem}
 form.newver{display:grid;gap:.55rem;margin-top:.9rem;padding-top:.9rem;border-top:1px solid var(--border)}
 .emails-wrap{margin-bottom:.5rem}
 .panel[data-panel=views] .row{padding:.55rem 0}
+.sources-h3{font-size:.72rem;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);margin:0 0 .35rem}
 
 @media(max-width:720px){
   .art-actions{width:100%;justify-content:flex-start}
