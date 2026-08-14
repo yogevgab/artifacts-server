@@ -71,6 +71,31 @@ export interface Env {
   /** The viewer Access application id and its human (email) policy id. */
   ACCESS_VIEWER_APP_ID?: string;
   ACCESS_VIEWER_POLICY_ID?: string;
+
+  // --- Lemon Squeezy billing (src/billing.ts, src/billing-routes.ts). All
+  //     optional so dev and tests run without a Lemon Squeezy store configured
+  //     at all — see PLANS in quota.ts for what an account gets on each plan. ---
+  /**
+   * Signing secret for the Lemon Squeezy webhook (Settings → Webhooks in the
+   * Lemon Squeezy dashboard). SECRET — set with `wrangler secret put
+   * LEMONSQUEEZY_WEBHOOK_SECRET`, never as a plain var. This is the entire
+   * authorization boundary for POST /api/billing/webhook: that route is
+   * reachable with no session or API token, so an unset secret means the route
+   * refuses every request rather than trusting an unverifiable body.
+   */
+  LEMONSQUEEZY_WEBHOOK_SECRET?: string;
+  /**
+   * The store's subdomain (e.g. "my-store" for my-store.lemonsqueezy.com), used
+   * to build hosted checkout URLs. Despite the name, this is the subdomain
+   * slug, not the numeric store id the Lemon Squeezy API also calls
+   * `store_id` — the hosted checkout URL only ever addresses a store by its
+   * subdomain. Plain var.
+   */
+  LEMONSQUEEZY_STORE_ID?: string;
+  /** Variant id for the `pro` plan (Lemon Squeezy product → variant). Plain var. */
+  LEMONSQUEEZY_VARIANT_PRO?: string;
+  /** Variant id for the `team` plan. Plain var. */
+  LEMONSQUEEZY_VARIANT_TEAM?: string;
 }
 
 export type Visibility = "restricted" | "everyone";
