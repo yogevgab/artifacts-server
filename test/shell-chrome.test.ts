@@ -75,3 +75,28 @@ describe("who sees the banner", () => {
     expect(await (await nav("reader@example.com")).text()).not.toContain("data-share-banner");
   });
 });
+
+describe("artifact content can actually be framed by the shell", () => {
+  /**
+   * Regression: the global security middleware stamps X-Frame-Options: DENY on
+   * every response that lacks one. Artifact content set `frame-ancestors 'self'`
+   * but no XFO, so it inherited DENY and browsers refused to render the frame —
+   * the shell rendered perfectly around an empty box. Caught in a real browser,
+   * not by curling the markup.
+   */
+  it("does not send X-Frame-Options: DENY on framed content", async () => {
+    const res = await req("/demo/?raw=1", as(OWNER));
+    expect(res.headers.get("x-frame-options")).not.toBe("DENY");
+  });
+
+  it("allows same-origin framing explicitly", async () => {
+    const res = await req("/demo/?raw=1", as(OWNER));
+    expect(res.headers.get("x-frame-options")).toBe("SAMEORIGIN");
+    expect(res.headers.get("content-security-policy")).toContain("frame-ancestors 'self'");
+  });
+
+  it("keeps DENY on the app's own pages, which must never be framed", async () => {
+    const res = await req("/login", { headers: { "X-Dev-Anonymous": "true" } });
+    expect(res.headers.get("x-frame-options")).toBe("DENY");
+  });
+});

@@ -56,12 +56,28 @@ export async function serveArtifact<E extends { Bindings: Env }>(
   // somehow holds a session must still not index or archive what it sees.
   headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
   headers.set("X-Content-Type-Options", "nosniff");
+  // Set explicitly so the app-wide middleware does not stamp DENY here. The
+  // viewer shell frames this content from the same origin; DENY blocked it
+  // outright and the shell rendered neatly around an empty box. Kept alongside
+  // `frame-ancestors 'self'` because the two disagree about precedence across
+  // browsers, and both must say the same thing.
+  headers.set("X-Frame-Options", "SAMEORIGIN");
   headers.set("Referrer-Policy", "no-referrer");
   // frame-ancestors is 'self', not 'none' and never '*': the viewer shell must be able
   // to frame this content, and nothing else on the internet may. See src/shell.ts.
   // Keep artifact pages working: AI-built pages often load CDNs, fonts, images or iframes.
   // This CSP hardens the browser boundary that matters for the shared content origin
   // (no framing, no hostile <base>) without blocking those artifact subresources.
+  // The permissive policy below exists for HTML artifacts, which routinely load
+  // CDNs, fonts and inline scripts. Anything else — a PDF, an image, a font —
+  // executes nothing, so the script/style directives buy no safety and can
+  // interfere with the browser's own viewers. Framing control still applies.
+  if (!headers.get("Content-Type")?.startsWith("text/html")) {
+    headers.set("Content-Security-Policy", "frame-ancestors 'self'");
+    headers.set("ETag", obj.httpEtag);
+    return new Response(obj.body, { headers });
+  }
+
   headers.set(
     "Content-Security-Policy",
     "default-src * data: blob: 'unsafe-inline' 'unsafe-eval'; " +
