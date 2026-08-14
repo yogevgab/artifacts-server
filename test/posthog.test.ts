@@ -365,7 +365,16 @@ describe("analyticsConsentNotice", () => {
 // --- privacy copy: honest before and after ------------------------------------
 
 describe("the privacy page describes PostHog honestly", () => {
-  const privacy = async () => await (await req("/privacy", { headers: { "X-Dev-Anonymous": "true" } })).text();
+  // Must carry a key: the privacy copy describing recording is only rendered
+  // by a deployment that can actually record. See privacyParts in src/legal.ts.
+  const privacy = async () =>
+    await (
+      await app.request(
+        "/privacy",
+        { headers: { "X-Dev-Anonymous": "true" } },
+        { ...(env as any), POSTHOG_KEY: CFG.key, POSTHOG_HOST: CFG.host } as any
+      )
+    ).text();
 
   it("no longer makes the old blanket claims this feature would falsify", async () => {
     const body = await privacy();
@@ -416,5 +425,31 @@ describe("the public cookie notice points at the dashboard's separate choice", (
     const body = (await (await req("/", { headers: { "X-Dev-Anonymous": "true" } })).text()).toLowerCase();
     expect(body).toContain("nothing on this page to opt out of");
     expect(body).toContain("dashboard");
+  });
+});
+
+describe("the privacy page only describes recording when it can happen", () => {
+  /**
+   * The script was gated on POSTHOG_KEY but the copy was not, so a self-hosted
+   * instance with no key told its users about a sub-processor it does not use.
+   * That is the same failure this whole change set out to fix, pointing the
+   * other way.
+   */
+  it("omits the recording section when POSTHOG_KEY is unset", async () => {
+    const res = await app.request("/privacy", {}, { ...(env as any), POSTHOG_KEY: undefined } as any);
+    const html = await res.text();
+    expect(html).not.toMatch(/posthog/i);
+    expect(html).not.toContain("Session recording and error tracking");
+  });
+
+  it("includes it when a key is configured", async () => {
+    const res = await app.request(
+      "/privacy",
+      {},
+      { ...(env as any), POSTHOG_KEY: "phc_test", POSTHOG_HOST: "https://us.i.posthog.com" } as any
+    );
+    const html = await res.text();
+    expect(html).toContain("Session recording and error tracking");
+    expect(html).toMatch(/posthog/i);
   });
 });
