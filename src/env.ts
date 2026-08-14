@@ -4,6 +4,15 @@ export type AppBindings = { Bindings: Env; Variables: { email: string } };
 export interface Env {
   FILES: R2Bucket;
   DB: D1Database;
+  /**
+   * Cloudflare Email Sending. Restricted in wrangler.jsonc to the single
+   * `no-reply@rtfx.pro` sender: this Worker also serves user-uploaded HTML from
+   * the content host, so capping what it can ever send From limits the blast
+   * radius of any future bug. Optional so dev and tests run without it.
+   */
+  EMAIL?: { send(message: unknown): Promise<{ messageId?: string }> };
+  /** Envelope sender for transactional mail. Defaults to "no-reply@rtfx.pro". */
+  MAIL_FROM?: string;
   /** Comma-separated list of admin emails allowed to publish/delete. */
   ADMIN_EMAILS: string;
   /**
