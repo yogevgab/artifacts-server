@@ -20,6 +20,7 @@ export async function initDb() {
     "account_members",
     "auth_challenges",
     "mail_log",
+    "share_links",
   ]) {
     await env.DB.prepare(`DROP TABLE IF EXISTS ${table}`).run();
   }
@@ -87,6 +88,12 @@ export async function initDb() {
       token_hash TEXT NOT NULL, purpose TEXT NOT NULL, slug TEXT,
       attempts INTEGER NOT NULL DEFAULT 0, expires_at TEXT NOT NULL,
       consumed_at TEXT, created_at TEXT NOT NULL)`
+  ).run();
+  await env.DB.prepare(
+    `CREATE TABLE share_links (
+      id TEXT PRIMARY KEY, slug TEXT NOT NULL, token_hash TEXT NOT NULL,
+      created_by TEXT NOT NULL, expires_at TEXT, revoked_at TEXT,
+      created_at TEXT NOT NULL, last_used_at TEXT)`
   ).run();
   await env.DB.prepare(
     `CREATE TABLE mail_log (

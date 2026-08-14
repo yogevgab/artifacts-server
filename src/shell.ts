@@ -77,6 +77,10 @@ body{margin:0;background:var(--sh-bg);color:var(--sh-fg);
 .add{display:flex;gap:8px;margin-top:10px}
 .add input{flex:1;padding:6px 9px;border:1px solid var(--sh-rule);border-radius:6px;
   background:transparent;color:var(--sh-fg);font:inherit;font-size:13px}
+.sep{border:0;border-top:1px solid var(--sh-rule);margin:14px 0 10px}
+.link-row{display:flex;gap:8px;align-items:center;padding:6px 0;font-size:12px}
+.link-row code{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--sh-muted)}
 `;
 
 /**
@@ -102,6 +106,13 @@ function banner(i: ShellInput): string {
         <input type="email" name="email" placeholder="name@example.com" aria-label="Email address">
         <button type="submit">Add</button>
       </form>
+      <hr class="sep">
+      <h2>Or share a link</h2>
+      <p class="hint">Anyone with the link can open this — no sign-in. Revoke it any time.</p>
+      <div class="add">
+        <button type="button" data-make-link>Create share link</button>
+      </div>
+      <div data-link-list></div>
     </section>`;
 }
 
@@ -223,6 +234,32 @@ const SHELL_SCRIPT = `(function(){
         .then(function(r){return r.ok?r.json():null;})
         .then(function(j){ if(j)render(j.emails||[]); });
     }
+  });
+
+  var mk=panel.querySelector('[data-make-link]');
+  var linkList=panel.querySelector('[data-link-list]');
+
+  /* The key comes back exactly once — it is hashed on the server and cannot be
+     shown again — so it goes straight to the clipboard and is never re-fetched. */
+  if(mk) mk.addEventListener('click',function(){
+    mk.disabled=true; mk.textContent='Creating\u2026';
+    fetch('/api/artifacts/'+encodeURIComponent(slug)+'/links',{
+      method:'POST',headers:{'Content-Type':'application/json'},body:'{}'
+    }).then(function(r){return r.ok?r.json():null;}).then(function(j){
+      mk.disabled=false; mk.textContent='Create share link';
+      if(!j) return;
+      navigator.clipboard.writeText(j.url).catch(function(){});
+      var row=document.createElement('div'); row.className='link-row';
+      var c=document.createElement('code'); c.textContent=j.url;
+      var copied=document.createElement('span'); copied.textContent='Copied';
+      var rev=document.createElement('button'); rev.type='button'; rev.textContent='Revoke';
+      rev.addEventListener('click',function(){
+        fetch('/api/artifacts/'+encodeURIComponent(slug)+'/links/'+encodeURIComponent(j.id),
+          {method:'DELETE'}).then(function(){ row.remove(); });
+      });
+      row.appendChild(c); row.appendChild(copied); row.appendChild(rev);
+      linkList.appendChild(row);
+    }).catch(function(){ mk.disabled=false; mk.textContent='Create share link'; });
   });
 
   panel.querySelector('[data-share-add]').addEventListener('submit',function(e){

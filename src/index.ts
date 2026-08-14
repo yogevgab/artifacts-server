@@ -35,6 +35,8 @@ import { allowlistView } from "./access-api";
 import { adminEmails, describeUsers, listUsers, privilegedEmails, superAdminEmails } from "./users";
 import { notFoundPage } from "./pages";
 import { shellPage } from "./shell";
+import { redeemShareLink } from "./share";
+import { shareRoutes } from "./share-routes";
 import { verifyHandoff, mintSession, SESSION_TTL_SECONDS } from "./session";
 import { landingPage } from "./landing";
 import { docsPage } from "./docs";
@@ -378,6 +380,7 @@ app.route("/waitlist", waitlist);
 // App-owned sign-in (/auth/*). Mounted at the root because the module declares
 // its own full paths. App host only — see MANAGEMENT_PREFIXES in host.ts.
 app.route("/", authRoutes);
+app.route("/", shareRoutes);
 
 // --- Public product surface (issue #29) -------------------------------------
 // Everything below is served to anyone, identically, without reading an identity:
@@ -629,6 +632,12 @@ app.get("*", async (c) => {
     }
   }
 
+  // A share link is a capability: whoever holds the URL may open this one
+  // artifact, with no identity involved. Checked before identity so a link
+  // works for somebody who has never signed in and never will.
+  const shareKey = new URL(c.req.url).searchParams.get("k");
+  const viaLink = shareKey ? await redeemShareLink(c.env, shareKey, new Date().toISOString()) : null;
+
   const identity = await getIdentity(c);
   const art = await getArtifact(c.env, slug);
   // 404 for both missing and unauthorized, so probing a slug can't reveal it exists.
@@ -660,7 +669,9 @@ app.get("*", async (c) => {
   // the session cookie is host-only and lives on the app host. Send a browser
   // there to be identified and come back. A machine client (no Sec-Fetch-Dest)
   // is never bounced — it gets the same 404 it always did.
-  if (!identity && wantsShell(c) && c.env.SESSION_SECRET && isContentHost(c.env, c.req.url)) {
+  const linkGrantsThis = !!viaLink && viaLink.slug === slug;
+
+  if (!identity && !linkGrantsThis && wantsShell(c) && c.env.SESSION_SECRET && isContentHost(c.env, c.req.url)) {
     const app_origin = c.env.PUBLIC_BASE_URL || siteOrigin(c.env);
     // Ask the app host who this is. If it knows them, it hands them straight
     // back; if not, that route shows the guest sign-in for this artifact.
@@ -668,7 +679,9 @@ app.get("*", async (c) => {
     return c.redirect(back, 302);
   }
 
-  if (!canView(identity, art.visibility, granted, owned)) return c.html(notFoundPage(slug), 404);
+  if (!linkGrantsThis && !canView(identity, art.visibility, granted, owned)) {
+    return c.html(notFoundPage(slug), 404);
+  }
 
   // A top-level navigation gets the viewer shell; everything else — subresources,
   // the shell's own framed request (?raw=1), curl, the CLI — gets the bytes.
@@ -681,7 +694,13 @@ app.get("*", async (c) => {
         slug,
         title: art.title || slug,
         version: art.current_version,
-        canManage: canManage(identity, art, (await resolveAccountContext(c.env, identity)).roles),
+        // Holding a link is not ownership. Even if the same person could manage
+        // this artifact when signed in, arriving by link means they are here as
+        // a reader — and the banner would otherwise appear for anyone the URL
+        // was forwarded to.
+        canManage:
+          !linkGrantsThis &&
+          canManage(identity, art, (await resolveAccountContext(c.env, identity)).roles),
         visibility: art.visibility,
         grantCount: grants.length,
         filePath,
