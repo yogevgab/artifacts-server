@@ -71,6 +71,7 @@ import {
 } from "./tokens";
 import { isValidSlug, slugify, contentType } from "./util";
 import { processZip, singleHtml, UploadError, MAX_UPLOAD_BYTES, type ProcessedUpload } from "./upload";
+import { exceeds, limitsFor, usageFor } from "./quota";
 import {
   listArtifacts,
   listArtifactsForCaller,
@@ -310,6 +311,47 @@ artifactRoutes.post("/artifacts", requireScope("publish"), async (c) => {
   // (race-safe), then write its files; roll the reservation back if storage fails.
   const now = new Date().toISOString();
   const size = processed.files.reduce((n, f) => n + f.bytes.byteLength, 0);
+
+  // Enforce plan limits before any bytes are written to D1 or R2 (design spec
+  // §8.2). Scoped to the account this artifact belongs (or will belong) to —
+  // the same precedence `row.account_id` uses below — so a caller with no
+  // account at all (un-migrated instance, platform token) is simply not
+  // checked, matching the "accounts only ever widen reach, never narrow it"
+  // rule the rest of this module follows (see accounts.ts).
+  const quotaAccountId = existing?.account_id ?? accounts.active?.id ?? null;
+  if (quotaAccountId) {
+    const quotaAccount = await getAccount(c.env, quotaAccountId);
+    const limits = limitsFor(quotaAccount?.plan ?? "free");
+    const usage = await usageFor(c.env, quotaAccountId);
+    // A republish adds bytes to storage but not a new artifact; a brand-new
+    // slug adds one of each. Checked against what usage would become *after*
+    // this publish, so the account can never end up over either cap.
+    const hit = exceeds(
+      { artifacts: usage.artifacts + (existing ? 0 : 1), storageBytes: usage.storageBytes + size },
+      limits
+    );
+    if (hit === "artifacts") {
+      return c.json(
+        {
+          error: "quota_exceeded",
+          detail: `this workspace is at its ${limits.maxArtifacts}-artifact limit; delete one or upgrade`,
+          limit: "artifacts",
+        },
+        413
+      );
+    }
+    if (hit === "storage") {
+      const maxMb = Math.round(limits.maxStorageBytes / (1024 * 1024));
+      return c.json(
+        {
+          error: "quota_exceeded",
+          detail: `this workspace is at its ${maxMb}MB storage limit; delete a version or upgrade`,
+          limit: "storage",
+        },
+        413
+      );
+    }
+  }
 
   const version = await insertNextVersion(c.env, {
     slug,
