@@ -15,14 +15,15 @@ import { SESSION_COOKIE } from "./auth";
 import { mintSession, mintHandoff, SESSION_TTL_SECONDS } from "./session";
 import { createChallenge, redeemCode, redeemToken, CHALLENGE_TTL_MINUTES } from "./otp";
 import { sendMail } from "./mail";
-import { signinMail } from "./mail-templates";
+import { signinMail, guestMail } from "./mail-templates";
 import { normalizeEmail } from "./waitlist";
 import { incrementRateLimitBucket, clientAddress } from "./rate-limit";
 import { touchLastSeen, effectiveRole } from "./users";
 import { ensurePersonalAccount } from "./accounts";
 import { siteOrigin } from "./seo";
-import { parseHostnames } from "./host";
+import { parseHostnames, firstContentHostname } from "./host";
 import { getIdentity } from "./auth";
+import { hasGrant, getArtifact } from "./db";
 import { magicLinkConfirmPage } from "./login";
 
 export const authRoutes = new Hono<AppBindings>();
@@ -139,6 +140,24 @@ authRoutes.post("/auth/m/:token", async (c) => {
   const challenge = await redeemToken(c.env, c.req.param("token"), new Date().toISOString());
   if (!challenge) return c.json({ error: "invalid_link" }, 401);
 
+  // A guest challenge yields a guest credential on the content host, never a
+  // member session here: redeeming a share invitation must not create an
+  // account for somebody who never asked for one.
+  if (challenge.purpose === "guest" && challenge.slug && c.env.SESSION_SECRET) {
+    const host = firstContentHostname(c.env);
+    if (host) {
+      const ct = await mintHandoff(
+        c.env.SESSION_SECRET,
+        { email: challenge.email, kind: "guest", slug: challenge.slug },
+        new Date().toISOString()
+      );
+      return c.redirect(
+        `https://${host}/${encodeURIComponent(challenge.slug)}/?ct=${encodeURIComponent(ct)}`,
+        302
+      );
+    }
+  }
+
   const cookie = await establishSession(c.env, challenge.email);
   if (!cookie) return c.json({ error: "not_configured" }, 503);
 
@@ -149,6 +168,47 @@ authRoutes.post("/auth/m/:token", async (c) => {
     status: 302,
     headers: { Location: "/admin", "Set-Cookie": cookie },
   });
+});
+
+/**
+ * Guest sign-in: prove you control an address somebody granted this artifact to.
+ *
+ * Answers 202 whether or not the address holds a grant, and whether or not the
+ * artifact exists. Anything else would let a stranger enumerate both who has
+ * access and which slugs are real.
+ */
+authRoutes.post("/auth/guest", async (c) => {
+  const slug = (c.req.query("slug") ?? "").trim().toLowerCase();
+  const body = await c.req.json().catch(() => null);
+  const email = normalizeEmail((body as { email?: unknown } | null)?.email);
+  if (!email || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)) {
+    return c.json({ error: "bad_request" }, 400);
+  }
+
+  const [emailOk, ipOk] = await Promise.all([
+    incrementRateLimitBucket(c, `guest:email:${email}`, START_PER_EMAIL),
+    incrementRateLimitBucket(c, `guest:ip:${clientAddress(c)}`, START_PER_IP),
+  ]);
+  if (!emailOk || !ipOk) return c.json({ error: "rate_limited" }, 429, { "Retry-After": "3600" });
+
+  const art = await getArtifact(c.env, slug);
+  if (art && (await hasGrant(c.env, slug, email))) {
+    const now = new Date().toISOString();
+    const issued = await createChallenge(c.env, { email, purpose: "guest", slug, now });
+    const origin = c.env.PUBLIC_BASE_URL || siteOrigin(c.env);
+    await sendMail(c.env, {
+      to: email,
+      kind: "share_notice",
+      message: guestMail({
+        title: art.title || slug,
+        magicUrl: `${origin}/auth/m/${issued.token}`,
+        expiresMinutes: CHALLENGE_TTL_MINUTES,
+      }),
+      now,
+    });
+  }
+
+  return c.json(ACCEPTED, 202);
 });
 
 authRoutes.post("/auth/signout", (c) =>
@@ -182,7 +242,10 @@ authRoutes.get("/auth/content", async (c) => {
 
   const identity = await getIdentity(c);
   if (!identity?.email) {
-    return c.redirect(`/login?next=${encodeURIComponent(next)}`, 302);
+    // Somebody following a shared link is usually not a member. Send them to the
+    // guest page for this artifact rather than a sign-in they have no account for.
+    const slug = c.req.query("slug");
+    return c.redirect(slug ? `/shared/${encodeURIComponent(slug)}` : `/login`, 302);
   }
   if (!c.env.SESSION_SECRET) return c.json({ error: "not_configured" }, 503);
 

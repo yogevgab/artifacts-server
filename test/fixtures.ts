@@ -18,6 +18,8 @@ export async function initDb() {
     "users",
     "accounts",
     "account_members",
+    "auth_challenges",
+    "mail_log",
   ]) {
     await env.DB.prepare(`DROP TABLE IF EXISTS ${table}`).run();
   }
@@ -78,6 +80,18 @@ export async function initDb() {
       status TEXT NOT NULL DEFAULT 'active', invited_by TEXT,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
       PRIMARY KEY (account_id, email))`
+  ).run();
+  await env.DB.prepare(
+    `CREATE TABLE auth_challenges (
+      id TEXT PRIMARY KEY, email TEXT NOT NULL, code_hash TEXT NOT NULL,
+      token_hash TEXT NOT NULL, purpose TEXT NOT NULL, slug TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0, expires_at TEXT NOT NULL,
+      consumed_at TEXT, created_at TEXT NOT NULL)`
+  ).run();
+  await env.DB.prepare(
+    `CREATE TABLE mail_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL, kind TEXT NOT NULL,
+      status TEXT NOT NULL, error_code TEXT, created_at TEXT NOT NULL)`
   ).run();
 }
 
