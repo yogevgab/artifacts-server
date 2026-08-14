@@ -9,3 +9,6 @@ dist/
 
 # Agent worktrees are checked out inside the repo; they are not source.
 .claude/worktrees/
+
+# Every variant, not just the exact name — a .bak of a secrets file is still a secrets file.
+.dev.vars*
