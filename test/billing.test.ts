@@ -3,7 +3,7 @@ import { env } from "cloudflare:test";
 import { billingRoutes } from "../src/billing-routes";
 import app from "../src/index";
 import { createAccount } from "../src/accounts";
-import { verifyWebhook, planForVariant, checkoutUrl, processWebhookEvent } from "../src/billing";
+import { verifyWebhook, planForVariant, checkoutUrl, processWebhookEvent, entitlementFor } from "../src/billing";
 import { initDb, clearR2 } from "./fixtures";
 
 const SECRET = "whsec_test_lemonsqueezy_secret";
@@ -36,11 +36,26 @@ async function sign(secret: string, body: string): Promise<string> {
   return [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/**
+ * The status Lemon Squeezy would actually send with a given event. The fixture
+ * used to hard-code "active" for every event, including subscription_expired —
+ * a payload that cannot occur, and one the handler is right to refuse to act
+ * on, since status is what determines entitlement.
+ */
+function realisticStatus(eventName: string): string {
+  if (eventName === "subscription_expired") return "expired";
+  if (eventName === "subscription_cancelled") return "cancelled";
+  if (eventName === "subscription_paused") return "paused";
+  if (eventName === "subscription_payment_failed") return "past_due";
+  return "active";
+}
+
 function subscriptionPayload(opts: {
   eventName: string;
   accountId?: string | null;
   variantId?: string | number | null;
   subscriptionId?: string;
+  status?: string;
 }): string {
   return JSON.stringify({
     meta: {
@@ -55,7 +70,7 @@ function subscriptionPayload(opts: {
       attributes: {
         store_id: 1,
         variant_id: opts.variantId ?? null,
-        status: "active",
+        status: opts.status ?? realisticStatus(opts.eventName),
       },
     },
   });
@@ -224,11 +239,24 @@ describe("POST /api/billing/webhook", () => {
     expect(row.plan).toBe("free");
   });
 
-  it("subscription_cancelled returns the account to free", async () => {
+  it("subscription_cancelled keeps the plan — cancelling means 'do not renew'", async () => {
+    // In Lemon Squeezy a cancelled subscription stays live until ends_at, and
+    // subscription_expired fires then. Revoking on cancellation would take away
+    // time the customer has already paid for.
     const acct = await account("pro");
     const body = subscriptionPayload({ eventName: "subscription_cancelled", accountId: acct.id, variantId: VARIANT_PRO });
     const res = await post(body, { "X-Signature": await sign(SECRET, body) });
     expect(res.status).toBe(200);
+    const row = await env.DB.prepare("SELECT plan FROM accounts WHERE id = ?").bind(acct.id).first<any>();
+    expect(row.plan).toBe("pro");
+  });
+
+  it("...and the expiry that follows it does revoke", async () => {
+    const acct = await account("pro");
+    const cancelled = subscriptionPayload({ eventName: "subscription_cancelled", accountId: acct.id, variantId: VARIANT_PRO });
+    await post(cancelled, { "X-Signature": await sign(SECRET, cancelled) });
+    const expired = subscriptionPayload({ eventName: "subscription_expired", accountId: acct.id, variantId: VARIANT_PRO });
+    await post(expired, { "X-Signature": await sign(SECRET, expired) });
     const row = await env.DB.prepare("SELECT plan FROM accounts WHERE id = ?").bind(acct.id).first<any>();
     expect(row.plan).toBe("free");
   });
@@ -265,18 +293,20 @@ describe("POST /api/billing/webhook", () => {
     expect(count.n).toBe(1);
   });
 
-  it("a replay cannot un-cancel a subscription that moved on since", async () => {
-    // Regression shape: process created (-> pro), then cancelled (-> free), then
+  it("a replay cannot resurrect a subscription that moved on since", async () => {
+    // Regression shape: process created (-> pro), then expired (-> free), then
     // replay the *original* created delivery. It must still be a no-op — the
     // replay is keyed by its own body digest, already recorded — not a second
     // application that would silently resurrect the paid plan.
+    // (Uses expired rather than cancelled: cancelling deliberately does not
+    // revoke, so it would not give this test a terminal state to test against.)
     const acct = await account();
     const createdBody = subscriptionPayload({ eventName: "subscription_created", accountId: acct.id, variantId: VARIANT_PRO });
     const createdSig = await sign(SECRET, createdBody);
     await post(createdBody, { "X-Signature": createdSig });
 
-    const cancelledBody = subscriptionPayload({ eventName: "subscription_cancelled", accountId: acct.id, variantId: VARIANT_PRO });
-    await post(cancelledBody, { "X-Signature": await sign(SECRET, cancelledBody) });
+    const expiredBody = subscriptionPayload({ eventName: "subscription_expired", accountId: acct.id, variantId: VARIANT_PRO });
+    await post(expiredBody, { "X-Signature": await sign(SECRET, expiredBody) });
 
     await post(createdBody, { "X-Signature": createdSig });
 
@@ -390,5 +420,124 @@ describe("downgrading to the free variant", () => {
       .bind(account!.id)
       .first<{ plan: string }>();
     expect(row?.plan).toBe("free");
+  });
+});
+
+/**
+ * Entitlement is derived from the subscription's STATUS crossed with its
+ * variant, not from which event happened to arrive. Lemon Squeezy sends a dozen
+ * subscription_* events and every one of them carries the current status, so
+ * one rule covers all of them — including ones added to the store later.
+ */
+describe("entitlementFor", () => {
+  it("grants the variant's plan while the subscription is live", () => {
+    expect(entitlementFor("active", "pro")).toBe("pro");
+    expect(entitlementFor("on_trial", "team")).toBe("team");
+  });
+
+  it("revokes when the subscription is over or suspended", () => {
+    expect(entitlementFor("expired", "pro")).toBe("free");
+    expect(entitlementFor("unpaid", "pro")).toBe("free");
+    expect(entitlementFor("paused", "team")).toBe("free");
+  });
+
+  /**
+   * Cancelling in Lemon Squeezy means "do not renew" — the subscription stays
+   * active until ends_at, and subscription_expired fires then. Dropping them to
+   * free on cancellation would take away time they have already paid for.
+   */
+  it("leaves a cancelled-but-not-yet-expired subscription alone", () => {
+    expect(entitlementFor("cancelled", "pro")).toBeNull();
+  });
+
+  it("leaves a past_due subscription alone, so dunning can run its course", () => {
+    expect(entitlementFor("past_due", "team")).toBeNull();
+  });
+
+  it("changes nothing when the variant is unrecognized, whatever the status", () => {
+    expect(entitlementFor("active", null)).toBeNull();
+  });
+});
+
+describe("the events the store actually sends", () => {
+  const e = () => ({
+    ...(env as any),
+    LEMONSQUEEZY_WEBHOOK_SECRET: SECRET,
+    LEMONSQUEEZY_VARIANT_PRO: "2020319",
+    LEMONSQUEEZY_VARIANT_TEAM: "2020323",
+    LEMONSQUEEZY_VARIANT_FREE: "2020313",
+  });
+
+  async function deliver(eventName: string, variantId: string, status: string, accountId: string) {
+    const body = JSON.stringify({
+      meta: { event_name: eventName, custom_data: { account_id: accountId } },
+      data: { attributes: { variant_id: variantId, status } },
+    });
+    return billingRoutes.request(
+      "/api/billing/webhook",
+      { method: "POST", body, headers: { "X-Signature": await sign(SECRET, body) } },
+      e()
+    );
+  }
+
+  async function accountOnPlan(plan: string) {
+    const a = await createAccount(env as any, {
+      name: "Sub",
+      kind: "team",
+      personalEmail: null,
+      createdBy: "s@x.com",
+      now: new Date().toISOString(),
+    });
+    await env.DB.prepare("UPDATE accounts SET plan = ? WHERE id = ?").bind(plan, a!.id).run();
+    return a!.id;
+  }
+
+  const planOf = async (id: string) =>
+    (await env.DB.prepare("SELECT plan FROM accounts WHERE id = ?").bind(id).first<{ plan: string }>())?.plan;
+
+  it("upgrades on subscription_plan_changed — the event an upgrade actually sends", async () => {
+    const id = await accountOnPlan("pro");
+    expect((await deliver("subscription_plan_changed", "2020323", "active", id)).status).toBe(200);
+    expect(await planOf(id)).toBe("team");
+  });
+
+  it("restores access on resume and unpause", async () => {
+    for (const ev of ["subscription_resumed", "subscription_unpaused"]) {
+      const id = await accountOnPlan("free");
+      await deliver(ev, "2020319", "active", id);
+      expect(await planOf(id), ev).toBe("pro");
+    }
+  });
+
+  it("revokes on pause", async () => {
+    const id = await accountOnPlan("pro");
+    await deliver("subscription_paused", "2020319", "paused", id);
+    expect(await planOf(id)).toBe("free");
+  });
+
+  it("does not revoke the moment somebody cancels — they paid through the period", async () => {
+    const id = await accountOnPlan("team");
+    await deliver("subscription_cancelled", "2020323", "cancelled", id);
+    expect(await planOf(id)).toBe("team");
+  });
+
+  it("revokes when it finally expires", async () => {
+    const id = await accountOnPlan("team");
+    await deliver("subscription_expired", "2020323", "expired", id);
+    expect(await planOf(id)).toBe("free");
+  });
+
+  it("keeps access through a failed payment, and confirms it on recovery", async () => {
+    const id = await accountOnPlan("pro");
+    await deliver("subscription_payment_failed", "2020319", "past_due", id);
+    expect(await planOf(id)).toBe("pro");
+    await deliver("subscription_payment_recovered", "2020319", "active", id);
+    expect(await planOf(id)).toBe("pro");
+  });
+
+  it("never grants a plan from a status alone when the variant is unknown", async () => {
+    const id = await accountOnPlan("free");
+    await deliver("subscription_created", "9999999", "active", id);
+    expect(await planOf(id)).toBe("free");
   });
 });
