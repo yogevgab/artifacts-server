@@ -71,6 +71,16 @@ export interface Env {
   /** The viewer Access application id and its human (email) policy id. */
   ACCESS_VIEWER_APP_ID?: string;
   ACCESS_VIEWER_POLICY_ID?: string;
+
+  // --- PostHog: session recording and error tracking, dashboard only ---
+  //     See src/posthog.ts. Both optional; unset means the feature does not
+  //     exist for this deployment — no script, no cookie, no consent banner,
+  //     nothing different from before it existed. Self-hosted operators who
+  //     never set POSTHOG_KEY get exactly today's behavior.
+  /** PostHog project API key. Unset disables the feature entirely — see src/posthog.ts. */
+  POSTHOG_KEY?: string;
+  /** PostHog ingestion host, e.g. "https://us.i.posthog.com" or a self-hosted origin. Defaults to PostHog Cloud (US) when POSTHOG_KEY is set but this isn't. */
+  POSTHOG_HOST?: string;
 }
 
 export type Visibility = "restricted" | "everyone";

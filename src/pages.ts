@@ -366,12 +366,23 @@ function headTags(title: string, meta?: HeadMeta): string {
   return tags.join("\n");
 }
 
-export function layout(title: string, body: string, extraStyle = "", meta?: HeadMeta): string {
+/**
+ * `csp`, when given, is rendered as a `<meta http-equiv="Content-Security-Policy">`
+ * tag — the only way to add a page-scoped CSP directive without a response-header
+ * middleware for that route. Today only the `/admin` portal shell passes one (see
+ * `posthogCsp` in `src/posthog.ts`, called from `src/portal.ts`), to allow the
+ * PostHog host once a deployment opts into it. A meta tag cannot carry
+ * `frame-ancestors`, `report-uri` or `sandbox` — irrelevant here, since this is
+ * always an additive `script-src`/`connect-src`/`worker-src` allowance, never a
+ * restriction, and never touches the artifact content host's own CSP header
+ * (`src/serve.ts`).
+ */
+export function layout(title: string, body: string, extraStyle = "", meta?: HeadMeta, csp?: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark light">
 <meta name="theme-color" content="#06070a">
-<link rel="icon" href="${FAVICON}">
+${csp ? `<meta http-equiv="Content-Security-Policy" content="${esc(csp)}">\n` : ""}<link rel="icon" href="${FAVICON}">
 <title>${esc(title)}</title>
 ${headTags(title, meta)}
 <style>${STYLE}${extraStyle}</style></head>
