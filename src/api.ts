@@ -93,14 +93,6 @@ import {
   setCurrentVersion,
   getViews,
 } from "./db";
-import {
-  addUsers,
-  removeUser,
-  isConfigured,
-  allowlistView,
-  AccessNotConfiguredError,
-  AccessApiError,
-} from "./access-api";
 import { firstContentHostname } from "./host";
 import { apiCors } from "./cors";
 
@@ -480,13 +472,12 @@ async function directory(
   extra: { warning?: string; removed?: string; focus?: string } = {}
 ): Promise<Record<string, unknown>> {
   const { focus, ...rest } = extra;
-  const [rows, allowlist] = await Promise.all([listUsers(env), allowlistView(env)]);
-  const users = describeUsers(env, rows, allowlist.emails);
+  const rows = await listUsers(env);
+  const users = describeUsers(env, rows);
   return {
     users,
     admins: privilegedEmails(env),
     super_admins: superAdminEmails(env),
-    allowlist,
     ...(focus ? { user: users.find((u) => u.email === normalize(focus)) ?? null } : {}),
     ...rest,
   };
@@ -577,18 +568,9 @@ api.post("/users", async (c) => {
     );
   }
 
-  let warning: string | undefined;
-  if (isConfigured(c.env)) {
-    try {
-      await addUsers(c.env, [target.email]);
-    } catch (e) {
-      if (e instanceof AccessNotConfiguredError) return c.json({ error: "not_configured" }, 503);
-      return c.json({ error: "access_api", detail: (e as Error).message }, 502);
-    }
-  } else {
-    warning =
-      "Cloudflare Access isn't configured, so this only records them locally — they can't sign in yet";
-  }
+  // Inviting used to write a Cloudflare Access allow-list before touching the
+  // directory. The app owns sign-in now, so the directory row IS the invite.
+  const warning: string | undefined = undefined;
 
   await upsertInvite(c.env, {
     email: target.email,
@@ -642,15 +624,6 @@ api.post("/users/:email/disable", async (c) => {
   await revokeTokensForEmail(c.env, target.email, now);
 
   let warning: string | undefined;
-  if (isConfigured(c.env)) {
-    try {
-      await removeUser(c.env, target.email);
-    } catch (e) {
-      if (!(e instanceof AccessNotConfiguredError)) {
-        warning = `disabled here, but the Cloudflare Access allow-list still lists them (${(e as Error).message}) — this app refuses them either way`;
-      }
-    }
-  }
   return c.json(await directory(c.env, { warning, focus: target.email }));
 });
 
@@ -665,16 +638,6 @@ api.post("/users/:email/enable", async (c) => {
   if (target instanceof Response) return target;
 
   let warning: string | undefined;
-  if (isConfigured(c.env)) {
-    try {
-      await addUsers(c.env, [target.email]);
-    } catch (e) {
-      if (e instanceof AccessNotConfiguredError) return c.json({ error: "not_configured" }, 503);
-      return c.json({ error: "access_api", detail: (e as Error).message }, 502);
-    }
-  } else {
-    warning = "Cloudflare Access isn't configured, so they still can't sign in";
-  }
   await enableUser(c.env, target.email, target.role, new Date().toISOString());
   return c.json(
     await directory(c.env, {
@@ -697,17 +660,7 @@ api.delete("/users/:email", async (c) => {
   const target = await targetUser(c, c.req.param("email"), "remove");
   if (target instanceof Response) return target;
 
-  let warning: string | undefined;
-  if (isConfigured(c.env)) {
-    try {
-      await removeUser(c.env, target.email);
-    } catch (e) {
-      if (e instanceof AccessNotConfiguredError) return c.json({ error: "not_configured" }, 503);
-      return c.json({ error: "access_api", detail: (e as Error).message }, 502);
-    }
-  } else {
-    warning = "Cloudflare Access isn't configured — removed locally only";
-  }
+  const warning: string | undefined = undefined;
   const now = new Date().toISOString();
   await removeEmailFromAllGrants(c.env, target.email);
   await revokeTokensForEmail(c.env, target.email, now);
@@ -1105,17 +1058,6 @@ artifactRoutes.put("/artifacts/:slug/access", requireScope("manage"), async (c) 
   // must not be able to widen who can sign in. Their grants still apply; the
   // recipient just needs an admin to invite them first.
   let allowlistWarning: string | undefined;
-  if (emails.length && isConfigured(c.env)) {
-    if (!c.get("identity").isAdmin) {
-      allowlistWarning = "anyone who hasn't been invited to rtfx.pro yet needs an admin to add them";
-    } else {
-      try {
-        await addUsers(c.env, emails);
-      } catch (e) {
-        if (!(e instanceof AccessNotConfiguredError)) allowlistWarning = (e as Error).message;
-      }
-    }
-  }
   return c.json({ slug, visibility, emails: await listGrants(c.env, slug), allowlistWarning });
 });
 

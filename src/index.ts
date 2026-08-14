@@ -36,7 +36,6 @@ import {
 } from "./accounts";
 import type { Identity } from "./auth";
 import { listApiTokens, toPublicToken, type PublicApiToken } from "./tokens";
-import { allowlistView } from "./access-api";
 import { adminEmails, describeUsers, listUsers, privilegedEmails, superAdminEmails } from "./users";
 import { notFoundPage } from "./pages";
 import { shellPage } from "./shell";
@@ -278,11 +277,10 @@ async function readableArtifacts(c: PortalContext): Promise<ArtifactRow[]> {
 async function usersInfoFor(c: PortalContext): Promise<UsersInfo | null> {
   const identity = c.get("identity");
   if (!identity.isAdmin || identity.token) return null;
-  const [rows, allowlist] = await Promise.all([listUsers(c.env), allowlistView(c.env)]);
+  const rows = await listUsers(c.env);
   return {
-    users: describeUsers(c.env, rows, allowlist.emails),
+    users: describeUsers(c.env, rows),
     admins: privilegedEmails(c.env),
-    allowlist,
     viewer: identity.email,
     canManageAdmins: identity.role === "super_admin",
   };
@@ -414,12 +412,6 @@ app.get("/admin/platform", requireUser, async (c) => {
     origin: siteOrigin(c.env),
     accessConfigured: !!(c.env.ACCESS_AUD && c.env.ACCESS_TEAM_DOMAIN),
     accessTeamDomain: c.env.ACCESS_TEAM_DOMAIN ?? "",
-    accessManagementConfigured: !!(
-      c.env.CF_API_TOKEN &&
-      c.env.CF_ACCOUNT_ID &&
-      c.env.ACCESS_VIEWER_APP_ID &&
-      c.env.ACCESS_VIEWER_POLICY_ID
-    ),
     contentHosts: [...parseHostnames(c.env.CONTENT_HOSTNAMES)],
     devLogin: c.env.DEV_LOGIN === "true",
     adminCount: adminEmails(c.env).length,

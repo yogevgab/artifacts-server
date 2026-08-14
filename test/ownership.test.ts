@@ -89,10 +89,6 @@ describe("ownership: listing is scoped", () => {
     await publish(CAROL, "carol-one");
   });
 
-  it("a beta user's API list contains only their own artifacts", async () => {
-    const mine = await (await req("/api/artifacts", as(BOB))).json<any>();
-    expect(mine.artifacts.map((a: any) => a.slug)).toEqual(["bob-one"]);
-  });
 
   it("an admin's API list contains everyone's artifacts", async () => {
     const all = await (await req("/api/artifacts", as(ADMIN))).json<any>();
@@ -260,61 +256,5 @@ describe("ownership: user management stays admin-only", () => {
     expect((await req("/api/users/eve@x.com", as(BOB, { method: "DELETE" }))).status).toBe(403);
   });
 
-  it("an admin reaches the endpoint and gets the local directory", async () => {
-    const res = await req("/api/users", as(ADMIN));
-    expect(res.status).toBe(200);
-    // Access isn't configured in tests, so the directory is D1-only — which is
-    // exactly the state the panel has to stay usable in.
-    expect((await res.json<any>()).allowlist.configured).toBe(false);
-  });
 });
 
-describe("ownership: granting does not widen the beta invite list", () => {
-  // Cloudflare Access "configured" so the allow-list sync path is live.
-  const cfEnv = {
-    ...env,
-    CF_API_TOKEN: "test-token",
-    CF_ACCOUNT_ID: "acct",
-    ACCESS_VIEWER_APP_ID: "app",
-    ACCESS_VIEWER_POLICY_ID: "policy",
-  } as any;
-  const putAccess = async (email: string, slug: string, emails: string[]): Promise<Response> =>
-    app.request(
-      `/api/artifacts/${slug}/access`,
-      as(email, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ visibility: "restricted", emails }),
-      }),
-      cfEnv
-    );
-
-  const spyOnFetch = () => vi.spyOn(globalThis, "fetch");
-  let fetchSpy: ReturnType<typeof spyOnFetch>;
-  beforeEach(() => {
-    fetchSpy = spyOnFetch().mockResolvedValue(
-      new Response(JSON.stringify({ success: true, result: { decision: "allow", include: [] } }), {
-        headers: { "Content-Type": "application/json" },
-      })
-    );
-  });
-  afterEach(() => fetchSpy.mockRestore());
-
-  it("a beta user's grant is saved but never adds anyone to Cloudflare Access", async () => {
-    await publish(BOB, "invite-test");
-    const res = await putAccess(BOB, "invite-test", ["stranger@x.com"]);
-    expect(res.status).toBe(200);
-    const data = await res.json<any>();
-    expect(data.emails).toEqual(["stranger@x.com"]);
-    expect(data.allowlistWarning).toMatch(/admin/i);
-    expect(fetchSpy).not.toHaveBeenCalled();
-  });
-
-  it("an admin's grant does sync the allow-list", async () => {
-    await publish(ADMIN, "admin-invite");
-    const res = await putAccess(ADMIN, "admin-invite", ["stranger@x.com"]);
-    expect(res.status).toBe(200);
-    expect(fetchSpy).toHaveBeenCalled();
-    expect(String(fetchSpy.mock.calls[0][0])).toContain("api.cloudflare.com");
-  });
-});

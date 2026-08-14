@@ -384,12 +384,6 @@ describe("admin dashboard UX", () => {
     expect(page.toLowerCase()).toContain("share link");
   });
 
-  it("tells the admin how to fix an unconfigured user-management setup", async () => {
-    const body = await (await req("/admin/people")).text();
-    expect(body).toContain("data-users-unconfigured");
-    expect(body).toContain("CF_API_TOKEN");
-    expect(body).toContain("ACCESS_VIEWER_POLICY_ID");
-  });
 });
 
 describe("per-artifact permissions", () => {
@@ -633,24 +627,6 @@ describe("user management (Cloudflare Access not configured in tests)", () => {
   // own state, so it is readable and writable with or without Cloudflare Access.
   // Access being absent is reported as `allowlist.configured: false` plus a
   // warning on writes, not as a 503 that makes the whole panel unusable.
-  it("GET /api/users returns the local directory and reports Access as unconfigured", async () => {
-    const res = await req("/api/users");
-    expect(res.status).toBe(200);
-    const body = await res.json<any>();
-    expect(body.allowlist).toEqual({ configured: false, emails: null, error: null });
-    expect(Array.isArray(body.users)).toBe(true);
-  });
-  it("POST /api/users records the invite locally and warns that they can't sign in", async () => {
-    const res = await req("/api/users", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: "x@y.com" }),
-    });
-    expect(res.status).toBe(200);
-    const body = await res.json<any>();
-    expect(body.user).toMatchObject({ email: "x@y.com", status: "invited", role: "member" });
-    expect(body.warning).toContain("Cloudflare Access");
-  });
   it("POST /api/users rejects bad email with 400 before hitting Access", async () => {
     const res = await req("/api/users", {
       method: "POST",

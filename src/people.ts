@@ -1,6 +1,5 @@
 import { esc } from "./pages";
 import { MAX_DISPLAY_NAME_LENGTH, MAX_NOTES_LENGTH, type PublicUser } from "./users";
-import type { AllowlistView } from "./access-api";
 import { portalShell, stamp, type PortalViewer } from "./portal";
 
 /** Everything the People section needs. Mirrors the GET /api/users payload. */
@@ -8,8 +7,6 @@ export interface UsersInfo {
   users: PublicUser[];
   /** Emails that can never lose access — rendered as protected. */
   admins: string[];
-  /** What we can see of the Cloudflare Access allow-list right now. */
-  allowlist: AllowlistView;
   /** The signed-in admin, so the panel can refuse to let them disable themselves. */
   viewer: string | null;
   /** True only for a super admin, who alone may act on another admin. */
@@ -33,23 +30,6 @@ const STATUS_LABEL: Record<PublicUser["status"], string> = {
  * than a red box. Only a genuine API failure is an error — "not configured yet"
  * is a setup step, and dressing it up as a fault trains people to ignore red.
  */
-function allowlistNote(view: AllowlistView): string {
-  if (!view.configured) {
-    return `<p class="note" data-users-unconfigured>Cloudflare Access isn't connected yet, so
-      invites are recorded here but nobody new can sign in. Set <span class="mono">CF_API_TOKEN</span>,
-      <span class="mono">CF_ACCOUNT_ID</span>, <span class="mono">ACCESS_VIEWER_APP_ID</span> and
-      <span class="mono">ACCESS_VIEWER_POLICY_ID</span> to manage sign-in from here. Pausing
-      somebody still works — this app refuses a paused account either way.</p>`;
-  }
-  if (view.error) {
-    return `<p class="status is-error" data-users-error>Couldn't reach Cloudflare Access: ${esc(view.error)}</p>
-      <p class="note">Check that <span class="mono">CF_API_TOKEN</span> is valid and has the
-        <b>Access: Apps and Policies — Edit</b> permission, then reload. Everything below is the
-        local directory, which still applies.</p>`;
-  }
-  return "";
-}
-
 /** The timeline of one person, in the order it actually reads: newest fact last. */
 function userMeta(u: PublicUser): string {
   const bits: string[] = [];
@@ -73,9 +53,6 @@ function userRow(u: PublicUser, info: UsersInfo): string {
     `<span class="badge is-${u.status === "disabled" ? "disabled" : u.status}" data-badge="status">${esc(STATUS_LABEL[u.status])}</span>`,
   ];
   // Drift: the directory says they're a member, but Access won't let them in.
-  if (u.allowlisted === false && u.status !== "disabled" && !u.is_protected) {
-    badges.push(`<span class="badge is-warn" data-badge="allowlist">No sign-in</span>`);
-  }
 
   let actions: string;
   if (locked) {
@@ -141,7 +118,6 @@ function usersPanel(info: UsersInfo): string {
         about. Inviting somebody adds them to the Access allow-list — grant them individual
         artifacts from the artifact's own page.</p>
     </div></div>
-    ${allowlistNote(info.allowlist)}
     <form id="userform" class="userform" data-invite-form>
       <input id="newuser" type="email" placeholder="person@example.com" autocomplete="off"
         aria-label="Email to invite" required>
