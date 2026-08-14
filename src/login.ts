@@ -45,10 +45,14 @@ main.auth{display:flex;align-items:center;justify-content:center;min-height:62vh
    in the header bar, and centred, because on this page the brand IS the content
    above the fold. */
 .auth-brand{display:flex;justify-content:center;margin-bottom:1.15rem}
-.auth-brand .brand-lockup{font-size:1.2rem;gap:.65rem}
+.auth-brand .brand-lockup{font-size:1.34rem;gap:.65rem}
 .sheet[data-page="login"]{text-align:center}
 .sheet[data-page="login"] .steps li,.sheet[data-page="login"] .hint{text-align:left}
 .sheet[data-page="login"] .actions{justify-content:center}
+.mail-help{margin:1rem 0 0;padding:1rem;border:1px solid var(--border);border-radius:var(--radius-sm);
+  background:rgba(255,255,255,.035);text-align:left}
+.mail-help h2{font-size:.95rem;margin:0 0 .35rem;letter-spacing:-.02em}
+.mail-help ul{margin:.45rem 0 0;padding-inline-start:1.1rem;color:var(--muted);font-size:.86rem}
 `;
 
 /**
@@ -97,6 +101,14 @@ function signedOut(): string {
        <li><span>You land straight in your dashboard. The code is single-use, and this browser
          stays signed in.</span></li>
      </ol>
+     <div class="mail-help" data-otp-help>
+       <h2>Didn't get the email?</h2>
+       <ul>
+         <li>Use the exact address that was invited.</li>
+         <li>Check spam, junk, promotions and any mail filter for a message from Cloudflare Access.</li>
+         <li>If nothing arrives after a minute, try again — a fresh code replaces the old one.</li>
+       </ul>
+     </div>
      <hr class="divider">
      <p class="hint">No account yet? <a href="/#waitlist">Request access</a> and we'll be in
        touch — rtfx.pro is invite-only, so signing in only works once your address has been
@@ -117,10 +129,10 @@ function signedIn(email: string): string {
      <div class="actions">
        <a class="link-button" href="/admin" data-cta="dashboard">Go to dashboard</a>
        <a class="ghost link-button" href="/admin/gallery">Browse the gallery</a>
+       <a class="ghost link-button" href="/logout" data-cta="logout">Sign out</a>
      </div>
      <hr class="divider">
-     <p class="hint">Signing in as somebody else? Sign out of Cloudflare Access first, at
-       <span class="mono">/cdn-cgi/access/logout</span> on this domain.</p>`
+     <p class="hint">Signing in as somebody else? Use Sign out first, then continue with email again.</p>`
   );
 }
 

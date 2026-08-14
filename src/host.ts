@@ -7,6 +7,7 @@ const MANAGEMENT_PATHS = new Set([
   "/waitlist",
   "/gallery",
   "/login",
+  "/logout",
   "/docs",
   "/privacy",
   "/terms",

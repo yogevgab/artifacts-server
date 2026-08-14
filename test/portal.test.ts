@@ -100,6 +100,21 @@ describe("portal shell", () => {
     expect(await page("/admin", BOB)).toContain("data-viewer-role>Member");
   });
 
+  it("offers Cloudflare Access logout from the portal top bar", async () => {
+    const html = await page("/admin");
+    expect(html).toContain('href="/logout" data-cta="logout"');
+  });
+
+  it("has a first-party logout route that clears Access cookies", async () => {
+    const res = await req("/logout", as(SUPER, { redirect: "manual" }));
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/login");
+    const cookies = res.headers.getSetCookie().join("\n");
+    expect(cookies).toContain("CF_Authorization=");
+    expect(cookies).toContain("CF_AppSession=");
+    expect(cookies).toContain("Max-Age=0");
+  });
+
   it("keeps the whole portal out of every index", async () => {
     for (const [path] of SECTIONS) {
       expect(await page(path), path).toContain(

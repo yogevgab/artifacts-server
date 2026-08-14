@@ -468,6 +468,27 @@ app.get("/login", async (c) => {
   return c.html(loginPage(c.env, { kind: "signed-out" }));
 });
 
+// Cloudflare's built-in /cdn-cgi/access/logout is edge-owned and can be awkward
+// to expose consistently on a custom-domain Worker route. This first-party route
+// gives the portal a stable Sign out target: expire the Access app cookies for
+// this domain and land back on the public sign-in explainer.
+app.get("/logout", () =>
+  new Response(null, {
+    status: 302,
+    headers: [
+      ["Location", "/login"],
+      [
+        "Set-Cookie",
+        "CF_Authorization=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; HttpOnly; SameSite=None",
+      ],
+      [
+        "Set-Cookie",
+        "CF_AppSession=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; HttpOnly; SameSite=Lax",
+      ],
+    ],
+  })
+);
+
 /**
  * The gallery is a dashboard section now (issue #35). This route is kept as a
  * permanent alias, because the old URL is in bookmarks, in sent links and in

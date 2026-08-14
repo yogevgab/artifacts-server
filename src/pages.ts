@@ -187,12 +187,11 @@ export function brandMark(size = 28): string {
 }
 
 /**
- * Mark + wordmark, split exactly the way the dashboard header splits it
- * (`rtfx` in full weight, `.pro` quiet). Signing in and being signed in should
- * not look like two products.
+ * Wordmark-only lockup. The mark still exists for the favicon and social card,
+ * but the product chrome leads with the domain itself: rtfx.pro.
  */
 export function brandLockup(href = "/"): string {
-  return `<a class="brand brand-lockup" data-brand-lockup href="${esc(href)}">${brandMark()}<span
+  return `<a class="brand brand-lockup" data-brand-lockup href="${esc(href)}"><span
     class="wordmark">rtfx<span>.pro</span></span></a>`;
 }
 
@@ -201,7 +200,7 @@ export const BRAND_STYLE = `
 .brand-lockup{display:inline-flex;align-items:center;gap:.55rem;color:var(--fg);font-weight:750;
   letter-spacing:-.03em;font-size:1.02rem;text-decoration:none}
 .brand-lockup:hover{color:var(--accent);text-decoration:none}
-.brand-lockup .mark{display:block;border-radius:8px;flex:none}
+.brand-lockup .wordmark{display:inline-block}
 .brand-lockup .wordmark span{color:var(--muted);font-weight:600}
 `;
 

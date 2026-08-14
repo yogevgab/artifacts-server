@@ -32,20 +32,18 @@ const PUBLIC_PAGES = ["/", "/docs", "/login"];
 const APP_PAGES = ["/admin", "/admin/artifacts", "/admin/gallery", "/admin/settings"];
 
 describe("the rtfx mark is the same mark everywhere", () => {
-  it("appears as an inline lockup on every public page", async () => {
+  it("uses a wordmark-only lockup on every public page", async () => {
     for (const path of PUBLIC_PAGES) {
       const body = await html(path, ANON);
       expect(body, path).toContain("data-brand-lockup");
-      expect(body, path).toContain(MARK_PATH);
-      expect(body.toLowerCase(), path).toContain(MARK_BLUE);
+      expect(body, path).toContain("rtfx<span>.pro</span>");
     }
   });
 
-  it("appears as the same lockup on every dashboard section", async () => {
+  it("uses the same wordmark-only lockup on every dashboard section", async () => {
     for (const path of APP_PAGES) {
       const body = await html(path, as(SUPER));
       expect(body, path).toContain("data-brand-lockup");
-      expect(body, path).toContain(MARK_PATH);
       expect(body, path).toContain("rtfx<span>.pro</span>");
     }
   });
@@ -53,7 +51,7 @@ describe("the rtfx mark is the same mark everywhere", () => {
   it("appears on the 404 an unauthorized or missing artifact gets", async () => {
     const body = await html("/no-such-artifact/");
     expect(body).toContain("data-brand-lockup");
-    expect(body).toContain(MARK_PATH);
+    expect(body).toContain("rtfx<span>.pro</span>");
   });
 
   it("is redrawn — not reinvented — on the social card", () => {

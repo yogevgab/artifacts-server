@@ -263,15 +263,20 @@ Drop `<adminAud>` from `vars.ACCESS_AUD` only after the app is retired, never be
 
 ### Branding the one-time-code screen — MANUAL, mutates Cloudflare (§5d)
 
-`/login` is ours and now carries the rtfx mark, wordmark and copy (`src/login.ts`). The screen
-immediately after it — the email prompt and the one-time code — is **hosted by Cloudflare Access**
-and cannot be styled by the Worker at all. Match it in Zero Trust or the handoff still looks like
-two unrelated products:
+`/login` is ours and carries the rtfx.pro wordmark, product copy, and troubleshooting help
+(`src/login.ts`). The screen immediately after it — the email prompt and the one-time code — is
+**hosted by Cloudflare Access** and cannot be styled by the Worker at all. Match it in Zero Trust or
+the handoff still looks like two unrelated products:
 
 1. Zero Trust → **Settings → Custom Pages** → *Login page* → Customize.
-2. Set the **logo** (the rtfx mark), **background** and **header text** ("rtfx.pro").
-3. Zero Trust → Settings → Custom Pages → **Block page**: same logo, and a support link that
-   points at `https://rtfx.pro/login`, which explains invite-only access in plain words.
+2. Use **rtfx.pro** as the header/brand text. Do not upload the old square mark if the product
+   chrome is intentionally wordmark-only.
+3. Zero Trust → Settings → Custom Pages → **Block page**: same wordmark treatment, and a support
+   link that points at `https://rtfx.pro/login`, which explains invite-only access in plain words.
+
+The one-time-code **email** is sent by Cloudflare Access, not the Worker. Keep the Cloudflare team
+and application names product-clean (`rtfx.pro`) so the sender/context look trustworthy, but do not
+promise repo-controlled HTML email styling unless Cloudflare exposes that account-level feature.
 
 No deploy or `wrangler.jsonc` change is involved; it is account-level Zero Trust configuration.
 

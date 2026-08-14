@@ -282,6 +282,7 @@ export function portalShell(o: ShellOptions): string {
         <span class="badge is-role" data-viewer-role>${esc(roleLabel(viewer.role))}</span>
         <span class="mono" data-viewer-email>${esc(viewer.email)}</span>
         <a href="/docs">Docs</a>
+        <a href="/logout" data-cta="logout">Sign out</a>
       </div>
     </header>
     <div class="pgrid" data-portal data-section="${esc(o.section)}">

@@ -48,18 +48,18 @@ describe("brand mark", () => {
     expect(brandMark().toLowerCase()).toContain(MARK_BLUE.slice(1).toLowerCase());
   });
 
-  it("renders a wordmark split the same way the dashboard header splits it", () => {
+  it("renders the product as a wordmark-only lockup", () => {
     expect(brandLockup()).toContain("rtfx<span>.pro</span>");
-    expect(brandLockup()).toContain("<svg");
+    expect(brandLockup()).not.toContain("<svg");
   });
 });
 
 describe("signed-out sign-in page", () => {
-  it("leads with the rtfx logo, not a bare text link", async () => {
+  it("leads with the rtfx.pro wordmark, not the old mark", async () => {
     const { status, html } = await login(ANON);
     expect(status).toBe(200);
     expect(html).toContain("data-brand-lockup");
-    expect(html).toContain("<svg");
+    expect(html).toContain("rtfx<span>.pro</span>");
   });
 
   it("uses the same wordmark treatment as the dashboard header", async () => {
@@ -92,6 +92,7 @@ describe("signed-out sign-in page", () => {
   it("sets expectations about the code itself rather than leaving people waiting", async () => {
     const { html } = await login(ANON);
     expect(html).toMatch(/spam|junk/i);
+    expect(html).toContain("data-otp-help");
   });
 });
 
@@ -124,6 +125,11 @@ describe("the other two sign-in states are the same page", () => {
   it("keeps a signed-in person's page out of search results", async () => {
     const { html } = await login(as(SUPER));
     expect(html).toContain(`<meta name="robots" content="noindex,nofollow">`);
+  });
+
+  it("offers a real Cloudflare Access logout link", async () => {
+    const { html } = await login(as(SUPER));
+    expect(html).toContain('href="/logout" data-cta="logout"');
   });
 
   it("keeps the public sign-out page indexable, because it explains how to get in", async () => {
