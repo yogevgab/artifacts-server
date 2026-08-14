@@ -274,6 +274,113 @@ export async function recentViews(env: Env, perSlug = 8, scan = 500): Promise<Ma
   return map;
 }
 
+// --- Owner-facing view analytics ---
+//
+// The event log (`artifact_views`) already carries everything below on every
+// row. These are read-only aggregates for one artifact's owner — no new
+// instrumentation, just different questions asked of data that already exists.
+
+export interface ViewerSummary {
+  email: string | null;
+  views: number;
+  lastVersion: number;
+  lastViewedAt: string;
+}
+
+/**
+ * Every distinct viewer of one artifact: how many times they opened it, and
+ * which version they last saw. `email IS NULL` groups every anonymous view
+ * into its own row rather than being dropped or folded into a named viewer —
+ * SQLite's `GROUP BY` and `IS` both treat NULL as equal to NULL, so this falls
+ * out of the grouping for free instead of needing special-casing.
+ *
+ * `last_version` is a correlated subquery rather than a window function: D1's
+ * SQLite build support varies by compatibility date, and a subquery keyed on
+ * the same (slug, email) pair — matched with `IS` so the anonymous group
+ * matches itself — is the version-agnostic way to get "the version of this
+ * group's most recent row".
+ */
+export async function viewersFor(env: Env, slug: string, limit = 200): Promise<ViewerSummary[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT v1.email AS email,
+            COUNT(*) AS views,
+            MAX(v1.viewed_at) AS last_viewed_at,
+            (SELECT v2.version FROM artifact_views v2
+               WHERE v2.slug = v1.slug AND v2.email IS v1.email
+               ORDER BY v2.viewed_at DESC, v2.id DESC LIMIT 1) AS last_version
+       FROM artifact_views v1
+      WHERE v1.slug = ?
+      GROUP BY v1.email
+      ORDER BY last_viewed_at DESC
+      LIMIT ?`
+  )
+    .bind(slug, limit)
+    .all<{ email: string | null; views: number; last_viewed_at: string; last_version: number }>();
+  return (results ?? []).map((r) => ({
+    email: r.email,
+    views: r.views,
+    lastVersion: r.last_version,
+    lastViewedAt: r.last_viewed_at,
+  }));
+}
+
+export interface VersionViewSummary {
+  version: number;
+  total: number;
+  unique: number;
+  lastViewedAt: string;
+}
+
+/** Views grouped by version — which ones are still being opened, so an owner can tell when a rollback is safe. */
+export async function viewsByVersion(env: Env, slug: string): Promise<VersionViewSummary[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT version, COUNT(*) AS total, COUNT(DISTINCT email) AS uniq, MAX(viewed_at) AS last_viewed_at
+       FROM artifact_views
+      WHERE slug = ?
+      GROUP BY version
+      ORDER BY version DESC`
+  )
+    .bind(slug)
+    .all<{ version: number; total: number; uniq: number; last_viewed_at: string }>();
+  return (results ?? []).map((r) => ({
+    version: r.version,
+    total: r.total,
+    unique: r.uniq,
+    lastViewedAt: r.last_viewed_at,
+  }));
+}
+
+export interface ViewSources {
+  referrers: { referrer: string | null; count: number }[];
+  countries: { country: string | null; count: number }[];
+}
+
+/**
+ * Where views came from: top referrers and countries, both already captured
+ * on every row and never shown until now. A NULL referrer/country groups into
+ * its own "unknown" bucket rather than being excluded from the ranking.
+ */
+export async function viewSources(env: Env, slug: string, limit = 8): Promise<ViewSources> {
+  const [referrers, countries] = await Promise.all([
+    env.DB.prepare(
+      `SELECT referrer, COUNT(*) AS count FROM artifact_views WHERE slug = ?
+       GROUP BY referrer ORDER BY count DESC, referrer LIMIT ?`
+    )
+      .bind(slug, limit)
+      .all<{ referrer: string | null; count: number }>(),
+    env.DB.prepare(
+      `SELECT country, COUNT(*) AS count FROM artifact_views WHERE slug = ?
+       GROUP BY country ORDER BY count DESC, country LIMIT ?`
+    )
+      .bind(slug, limit)
+      .all<{ country: string | null; count: number }>(),
+  ]);
+  return {
+    referrers: referrers.results ?? [],
+    countries: countries.results ?? [],
+  };
+}
+
 export async function listGrants(env: Env, slug: string): Promise<string[]> {
   const { results } = await env.DB.prepare(
     "SELECT email FROM artifact_grants WHERE slug = ? ORDER BY email"

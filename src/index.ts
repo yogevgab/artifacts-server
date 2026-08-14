@@ -19,6 +19,9 @@ import {
   logView,
   viewCounts,
   recentViews,
+  viewersFor,
+  viewsByVersion,
+  viewSources,
 } from "./db";
 import { canView, canManage, isOwner, belongsToCaller } from "./authz";
 import {
@@ -287,16 +290,19 @@ app.get("/admin/artifacts/:slug", requireUser, async (c) => {
   if (!row || !canManage(c.get("identity"), row, (await accountsFor(c)).roles)) {
     return c.html(portalNotFound(viewer, `The artifact "${slug}"`), 404);
   }
-  const [emails, versions, stats] = await Promise.all([
+  const [emails, versions, stats, viewers, versionViews, sources] = await Promise.all([
     listGrants(c.env, slug),
     listVersions(c.env, slug),
     getViews(c.env, slug),
+    viewersFor(c.env, slug),
+    viewsByVersion(c.env, slug),
+    viewSources(c.env, slug),
   ]);
   const views: ViewsInfo = {
     counts: new Map([[slug, { total: stats.total, unique: stats.unique }]]),
     recent: new Map([[slug, stats.recent]]),
   };
-  return c.html(artifactDetailPage({ viewer, row, emails, versions, views }));
+  return c.html(artifactDetailPage({ viewer, row, emails, versions, views, viewers, versionViews, sources }));
 });
 
 // The Gallery section (issue #35): what this person can open, rather than what
