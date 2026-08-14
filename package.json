@@ -1,7 +1,7 @@
 {
   "name": "artifacts-server",
   "version": "1.0.0",
-  "description": "Private, access-gated hosting for landing pages and HTML/Claude artifacts on Cloudflare Workers — with per-artifact permissions and versioning.",
+  "description": "Private, access-gated hosting for landing pages and HTML/Claude artifacts on Cloudflare Workers \u2014 with per-artifact permissions and versioning.",
   "type": "module",
   "license": "MIT",
   "keywords": [
@@ -32,7 +32,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "check": "tsc --noEmit && vitest run && node scripts/validate-plugin.mjs"
+    "check": "tsc --noEmit && vitest run && node scripts/validate-plugin.mjs",
+    "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
     "fflate": "^0.8.2",
