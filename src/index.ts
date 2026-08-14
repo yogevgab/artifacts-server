@@ -710,6 +710,8 @@ app.get("*", async (c) => {
         visibility: art.visibility,
         grantCount: grants.length,
         filePath,
+        entry: art.entry,
+        isDocument: art.entry?.toLowerCase().endsWith(".pdf") ?? false,
       })
     );
   }
