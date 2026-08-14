@@ -6,3 +6,6 @@ node_modules/
 dist/
 *.log
 .DS_Store
+
+# Agent worktrees are checked out inside the repo; they are not source.
+.claude/worktrees/

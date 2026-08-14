@@ -2,6 +2,10 @@ import { defineWorkersConfig } from "@cloudflare/vitest-pool-workers/config";
 
 export default defineWorkersConfig({
   test: {
+    // Agent worktrees are checked out inside the repo (.claude/worktrees/*), so
+    // without this the suite globs every worktree's copy of every test and
+    // reports a count that has nothing to do with this working tree.
+    exclude: ["**/node_modules/**", "**/dist/**", "**/.claude/**"],
     poolOptions: {
       workers: {
         singleWorker: true,
