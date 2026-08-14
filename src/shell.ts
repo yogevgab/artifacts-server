@@ -124,6 +124,33 @@ function banner(i: ShellInput): string {
     </section>`;
 }
 
+/**
+ * The frame's sandbox, or null to omit the attribute entirely.
+ *
+ * `allow-scripts` with `allow-same-origin` is the pair that defeats a sandbox —
+ * framed content can reach its own frame element and strip the attribute. So
+ * HTML artifacts, which are attacker-controlled and need scripts, never get
+ * same-origin. That is what stops an artifact reading cookies or touching the
+ * shell, and it must not be relaxed.
+ *
+ * PDFs get no sandbox at all, and this was established by experiment rather
+ * than assumption: Chrome refuses to instantiate its PDF viewer inside a
+ * sandboxed frame under ANY combination of flags, rendering a broken-document
+ * icon with no console error and no failed request. Only removing the attribute
+ * works.
+ *
+ * That is acceptable here for one reason: no attacker-controlled document can
+ * occupy that URL. `singlePdf` verifies the leading %PDF bytes at publish, and
+ * the response is served `application/pdf` with `nosniff`, so the browser
+ * cannot be talked into treating it as HTML. Both layers must hold. If either
+ * is ever removed, PDFs must stop being framed this way.
+ */
+function sandboxFor(i: ShellInput): string | null {
+  return i.isDocument
+    ? null
+    : "allow-scripts allow-forms allow-popups allow-downloads allow-modals";
+}
+
 export function shellPage(i: ShellInput): string {
   // An empty filePath means "the artifact itself", which is its entry — not
   // necessarily index.html.
@@ -149,7 +176,7 @@ export function shellPage(i: ShellInput): string {
   <button data-hide-bar aria-label="Hide toolbar" title="Hide toolbar">&times;</button>
 </div>
 <iframe class="frame" title="${esc(i.title)}"
-  sandbox="allow-scripts allow-forms allow-popups allow-downloads allow-modals"
+  ${sandboxFor(i) === null ? "" : `sandbox="${sandboxFor(i)}"`}
   src="${esc(src)}"></iframe>
 <script>${SHELL_SCRIPT}</script>
 </body></html>`;

@@ -3,7 +3,7 @@ import type { ArtifactRow, Env, VersionRow } from "./env";
 import { api } from "./api";
 import { waitlist } from "./waitlist";
 import { authRoutes } from "./auth-routes";
-import { requireUser, accessEmail, accountsFor, getIdentity, resolveAuth, SESSION_COOKIE, type AuthVars } from "./auth";
+import { requireUser, accessEmail, accountsFor, getIdentity, resolveAuth, readCookie, SESSION_COOKIE, type AuthVars } from "./auth";
 import { serveArtifact } from "./serve";
 import {
   listArtifacts,
@@ -39,6 +39,9 @@ import { adminEmails, describeUsers, listUsers, privilegedEmails, superAdminEmai
 import { notFoundPage } from "./pages";
 import { shellPage } from "./shell";
 import { redeemShareLink } from "./share";
+
+/** Carries a redeemed share key, scoped to one artifact's path. */
+const LINK_COOKIE = "rtfx_link";
 import { shareRoutes } from "./share-routes";
 import { verifyHandoff, mintSession, SESSION_TTL_SECONDS } from "./session";
 import { landingPage } from "./landing";
@@ -641,8 +644,30 @@ app.get("*", async (c) => {
   // A share link is a capability: whoever holds the URL may open this one
   // artifact, with no identity involved. Checked before identity so a link
   // works for somebody who has never signed in and never will.
-  const shareKey = new URL(c.req.url).searchParams.get("k");
+  //
+  // The key is accepted from the query once, then exchanged for a cookie scoped
+  // to this artifact's path. Without that, the shell's frame URL and every
+  // relative asset inside the artifact arrive with no credential and 404 — a
+  // link would open index.html and nothing it references.
+  const url = new URL(c.req.url);
+  const queryKey = url.searchParams.get("k");
+  const cookieKey = readCookie(c.req.header("Cookie") ?? c.req.header("cookie"), LINK_COOKIE);
+  const shareKey = queryKey ?? cookieKey;
   const viaLink = shareKey ? await redeemShareLink(c.env, shareKey, new Date().toISOString()) : null;
+
+  if (queryKey && viaLink && viaLink.slug === slug) {
+    const clean = new URL(c.req.url);
+    clean.searchParams.delete("k");
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: clean.pathname + clean.search,
+        // Path-scoped to this artifact, which is exactly the capability's
+        // scope: the cookie cannot open anything the link could not.
+        "Set-Cookie": `${LINK_COOKIE}=${encodeURIComponent(queryKey)}; Path=/${encodeURIComponent(slug)}/; HttpOnly; Secure; SameSite=Lax; Max-Age=86400`,
+      },
+    });
+  }
 
   const identity = await getIdentity(c);
   const art = await getArtifact(c.env, slug);

@@ -96,9 +96,19 @@ describe("opening an artifact with a share link", () => {
   }
 
   it("opens the artifact for somebody with no identity at all", async () => {
-    const res = await app.request(
+    // Two steps by design: the key is exchanged for a path-scoped cookie so the
+    // frame and every asset inside the artifact are authorized too.
+    const first = await app.request(
       `https://a.rtfx.pro/report/?k=${await key()}`,
       { headers: { "Sec-Fetch-Dest": "document" } },
+      e()
+    );
+    expect(first.status).toBe(302);
+    const cookie = (first.headers.get("set-cookie") ?? "").split(";")[0];
+
+    const res = await app.request(
+      "https://a.rtfx.pro/report/",
+      { headers: { "Sec-Fetch-Dest": "document", Cookie: cookie } },
       e()
     );
     expect(res.status).toBe(200);
@@ -197,5 +207,66 @@ describe("the share panel offers links", () => {
     ).text();
     expect(html).toContain("data-make-link");
     expect(html).toContain("data-link-list");
+  });
+});
+
+describe("a share link authorizes the whole artifact, not just its entry", () => {
+  /**
+   * Regression found in a real browser: the shell's frame URL does not carry
+   * ?k=, and neither does a relative <img src> inside an artifact. So a link
+   * opened index.html and then 404'd on everything it referenced. The key is
+   * exchanged once for a cookie scoped to that artifact's path.
+   */
+  it("sets a path-scoped cookie when the key is presented", async () => {
+    const k = (await createShareLink(env as any, { slug: "report", createdBy: OWNER, now: new Date().toISOString() })).key;
+    const res = await app.request(
+      `https://a.rtfx.pro/report/?k=${k}`,
+      { headers: { "Sec-Fetch-Dest": "document" } },
+      e()
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/report/");
+    const cookie = res.headers.get("set-cookie") ?? "";
+    expect(cookie).toContain("Path=/report/");
+    expect(cookie).toContain("HttpOnly");
+  });
+
+  it("authorizes subresources from that cookie alone", async () => {
+    const k = (await createShareLink(env as any, { slug: "report", createdBy: OWNER, now: new Date().toISOString() })).key;
+    const first = await app.request(`https://a.rtfx.pro/report/?k=${k}`, {}, e());
+    const cookie = (first.headers.get("set-cookie") ?? "").split(";")[0];
+
+    // No key in the URL at all — exactly what a relative asset request looks like.
+    const asset = await app.request(
+      "https://a.rtfx.pro/report/",
+      { headers: { Cookie: cookie } },
+      e()
+    );
+    expect(asset.status).toBe(200);
+  });
+
+  it("does not let that cookie open a different artifact", async () => {
+    const body = new FormData();
+    body.set("slug", "other");
+    body.set("title", "Other");
+    body.set("visibility", "restricted");
+    body.set("file", new File(["<p>x</p>"], "index.html", { type: "text/html" }));
+    await req("/api/artifacts", { method: "POST", body, ...as(OWNER) });
+
+    const k = (await createShareLink(env as any, { slug: "report", createdBy: OWNER, now: new Date().toISOString() })).key;
+    const first = await app.request(`https://a.rtfx.pro/report/?k=${k}`, {}, e());
+    const cookie = (first.headers.get("set-cookie") ?? "").split(";")[0];
+
+    const res = await app.request("https://a.rtfx.pro/other/", { headers: { Cookie: cookie } }, e());
+    expect(res.status).not.toBe(200);
+  });
+
+  it("stops working the moment the link is revoked", async () => {
+    const link = await createShareLink(env as any, { slug: "report", createdBy: OWNER, now: new Date().toISOString() });
+    const first = await app.request(`https://a.rtfx.pro/report/?k=${link.key}`, {}, e());
+    const cookie = (first.headers.get("set-cookie") ?? "").split(";")[0];
+    await revokeShareLink(env as any, "report", link.id, new Date().toISOString());
+    const res = await app.request("https://a.rtfx.pro/report/", { headers: { Cookie: cookie } }, e());
+    expect(res.status).not.toBe(200);
   });
 });
