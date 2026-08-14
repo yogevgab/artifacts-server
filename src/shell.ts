@@ -42,7 +42,18 @@ body{margin:0;background:var(--sh-bg);color:var(--sh-fg);
   font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
   display:flex;flex-direction:column}
 .bar{flex:none;display:flex;align-items:center;gap:12px;padding:8px 14px;
-  background:var(--sh-surface);border-bottom:1px solid var(--sh-rule);flex-wrap:wrap}
+  background:var(--sh-surface);border-bottom:1px solid var(--sh-rule);flex-wrap:wrap;
+  transition:margin-top .18s ease}
+.bar[data-collapsed]{margin-top:calc(-1 * var(--bar-h,46px))}
+@media(prefers-reduced-motion:reduce){.bar{transition:none}}
+/* The peek tab is the only way back once the bar is hidden, so it is always
+   reachable and never covers content it would obscure. */
+.peek{position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:5;
+  border:1px solid var(--sh-rule);border-top:0;border-radius:0 0 8px 8px;
+  background:var(--sh-surface);color:var(--sh-muted);font:inherit;font-size:11px;
+  letter-spacing:.06em;text-transform:uppercase;padding:3px 12px;cursor:pointer}
+.peek[hidden]{display:none}
+.peek:focus-visible{outline:2px solid var(--sh-accent);outline-offset:2px}
 .bar .mark{font-weight:600;letter-spacing:-.02em;font-size:14px;text-decoration:none;color:var(--sh-fg)}
 .bar .mark span{color:var(--sh-accent)}
 .bar .title{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:34ch}
@@ -105,13 +116,15 @@ export function shellPage(i: ShellInput): string {
 <title>${esc(i.title)} · rtfx.pro</title>
 <style>${SHELL_STYLE}</style>
 </head><body>
-<div class="bar">
+<button class="peek" data-show-bar hidden aria-label="Show toolbar">rtfx.pro</button>
+<div class="bar" data-bar>
   <a class="mark" href="/">rtfx<span>.</span>pro</a>
   <span class="title">${esc(i.title)}</span>
   <span class="ver">v${i.version}</span>
   <span class="spacer"></span>
   <button data-copy-link>Copy link</button>
   ${banner(i)}
+  <button data-hide-bar aria-label="Hide toolbar" title="Hide toolbar">&times;</button>
 </div>
 <iframe class="frame" title="${esc(i.title)}"
   sandbox="allow-scripts allow-forms allow-popups allow-downloads allow-modals"
@@ -121,6 +134,47 @@ export function shellPage(i: ShellInput): string {
 }
 
 const SHELL_SCRIPT = `(function(){
+  /* --- chrome: hide by hand, or get out of the way while reading ---------- */
+  var bar=document.querySelector('[data-bar]');
+  var peek=document.querySelector('[data-show-bar]');
+  var hide=document.querySelector('[data-hide-bar]');
+  var pinnedHidden=false;
+
+  try{ pinnedHidden = localStorage.getItem('rtfx.bar')==='hidden'; }catch(e){}
+
+  function measure(){
+    if(!bar.hasAttribute('data-collapsed'))
+      document.documentElement.style.setProperty('--bar-h', bar.offsetHeight+'px');
+  }
+  function collapse(on){
+    if(on){ bar.setAttribute('data-collapsed',''); peek.hidden=false; }
+    else { bar.removeAttribute('data-collapsed'); peek.hidden=true; }
+  }
+  measure(); addEventListener('resize',measure);
+  if(pinnedHidden) collapse(true);
+
+  if(hide) hide.addEventListener('click',function(){
+    pinnedHidden=true; collapse(true);
+    try{ localStorage.setItem('rtfx.bar','hidden'); }catch(e){}
+  });
+  if(peek) peek.addEventListener('click',function(){
+    pinnedHidden=false; collapse(false);
+    try{ localStorage.removeItem('rtfx.bar'); }catch(e){}
+  });
+
+  /* The frame is cross-origin, so it tells us where it is rather than us
+     reading it. Down hides, up reveals — the message is cosmetic only. */
+  var lastY=0;
+  addEventListener('message',function(ev){
+    var d=ev.data;
+    if(!d||d.type!=='rtfx:scroll'||typeof d.y!=='number') return;
+    if(pinnedHidden) return;
+    var dy=d.y-lastY; lastY=d.y;
+    if(d.y<40){ collapse(false); return; }
+    if(dy>6) collapse(true);
+    else if(dy<-6) collapse(false);
+  });
+
   var copy=document.querySelector('[data-copy-link]');
   if(copy){copy.addEventListener('click',function(){
     var url=location.origin+location.pathname;
