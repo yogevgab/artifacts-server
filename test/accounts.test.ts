@@ -373,6 +373,10 @@ describe("team workspaces", () => {
     );
     expect(res.status).toBe(201);
     const { id } = await res.json<{ id: string }>();
+    // Seats are enforced per plan, and a free workspace has exactly one. These
+    // tests are about roles and authorization, not billing, so the workspace is
+    // put on a plan with room rather than each test working around the cap.
+    await env.DB.prepare("UPDATE accounts SET plan = 'team' WHERE id = ?").bind(id).run();
     for (const [email, role] of Object.entries(members)) {
       const put = await req(
         `/api/accounts/${id}/members/${encodeURIComponent(email)}`,

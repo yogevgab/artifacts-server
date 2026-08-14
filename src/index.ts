@@ -25,8 +25,9 @@ import {
   viewsByVersion,
   viewSources,
 } from "./db";
-import { canView, canManage, isOwner, belongsToCaller } from "./authz";
+import { canView, canManage, canManageMembers, isOwner, belongsToCaller } from "./authz";
 import {
+  listMembers,
   accountIdsWithAtLeast,
   atLeast,
   memberRole,
@@ -54,6 +55,8 @@ import { redeemShareLink } from "./share";
 const linkCookieName = (slug: string) => `rtfx_link_${slug}`;
 import { shareRoutes } from "./share-routes";
 import { billingRoutes } from "./billing-routes";
+import { membersRoutes } from "./members-routes";
+import { membersPage } from "./members";
 import { verifyHandoff, mintSession, SESSION_TTL_SECONDS } from "./session";
 import { landingPage } from "./landing";
 import { docsPage } from "./docs";
@@ -336,6 +339,31 @@ app.get("/admin/artifacts/:slug", requireUser, async (c) => {
 
 // The Gallery section (issue #35): what this person can open, rather than what
 // they manage. Formerly the standalone /gallery page, which now redirects here.
+
+/**
+ * Workspace members. Distinct from /admin/people, which is the PLATFORM
+ * directory: this is who is in *this workspace*, which is what the Team plan
+ * sells. `canManage` is computed here and used for rendering only — every
+ * route in membersRoutes re-checks it.
+ */
+app.get("/admin/members", requireUser, async (c) => {
+  const viewer = await viewerOf(c);
+  const ctx = await accountsFor(c);
+  const account = ctx.active;
+  if (!account) return c.html(portalNotFound(viewer, "A workspace"), 404);
+
+  const identity = c.get("identity");
+  return c.html(
+    membersPage({
+      viewer,
+      account,
+      members: await listMembers(c.env, account.id),
+      canManage: canManageMembers(identity, ctx.roles, account.id),
+      viewerEmail: identity.email,
+    })
+  );
+});
+
 app.get("/admin/gallery", requireUser, async (c) => {
   const viewer = await viewerOf(c);
   return c.html(galleryPage(viewer, await readableArtifacts(c)));
@@ -407,6 +435,7 @@ app.get("/admin/*", requireUser, async (c) =>
 // unauthenticated by necessity — the HMAC signature on the raw body is its
 // only gate. See src/billing.ts.
 app.route("/", billingRoutes);
+app.route("/", membersRoutes);
 
 app.route("/api", api);
 

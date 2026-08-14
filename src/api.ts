@@ -72,6 +72,7 @@ import {
 import { isValidSlug, slugify, contentType } from "./util";
 import { processZip, singleHtml, singlePdf, sniffKind, UploadError, MAX_UPLOAD_BYTES, type ProcessedUpload } from "./upload";
 import { exceeds, limitsFor, usageFor } from "./quota";
+import { seatLimitDenial } from "./members";
 import {
   listArtifacts,
   listArtifactsForCaller,
@@ -926,12 +927,26 @@ api.put("/accounts/:id/members/:email", async (c) => {
       400
     );
   }
+  const currentRole = await memberRole(c.env, id, email);
   const denial = memberChangeDenial(c.get("identity"), found.ctx.roles.get(id) ?? null, {
-    targetCurrentRole: await memberRole(c.env, id, email),
+    targetCurrentRole: currentRole,
     nextRole: nextRole as AccountRole,
     ownerCount: await ownerCount(c.env, id),
   });
   if (denial) return c.json({ error: "forbidden", detail: denial }, 403);
+
+  // Seats. This route predates them and upserts directly, so without the same
+  // check the limit enforced on the workspace route would be decorative —
+  // anyone who knew this older path could add members past the cap. Only a NEW
+  // member consumes a seat; changing an existing member's role must not be
+  // refused just because the workspace is full.
+  if (!currentRole) {
+    const seatDenial = seatLimitDenial(
+      found.account.plan,
+      (await listMembers(c.env, id)).length
+    );
+    if (seatDenial) return c.json({ error: "forbidden", detail: seatDenial }, 403);
+  }
 
   await upsertMember(c.env, {
     accountId: id,
