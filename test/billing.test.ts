@@ -337,3 +337,58 @@ describe("the webhook is actually reachable in the app", () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe("downgrading to the free variant", () => {
+  /**
+   * The store has a free "starter" variant alongside the paid ones. Before this
+   * was mapped, a subscription_updated naming it resolved to null, no plan was
+   * written, and the customer silently kept the paid plan they had just left.
+   */
+  const freeEnv = (extra: Record<string, unknown> = {}) => ({
+    ...(env as any),
+    LEMONSQUEEZY_WEBHOOK_SECRET: SECRET,
+    LEMONSQUEEZY_VARIANT_PRO: "2020319",
+    LEMONSQUEEZY_VARIANT_TEAM: "2020323",
+    LEMONSQUEEZY_VARIANT_FREE: "2020313",
+    ...extra,
+  });
+
+  it("maps the free variant to the free plan, not to null", () => {
+    expect(planForVariant(freeEnv(), "2020313")).toBe("free");
+    expect(planForVariant(freeEnv(), "2020319")).toBe("pro");
+    expect(planForVariant(freeEnv(), "2020323")).toBe("team");
+  });
+
+  it("still refuses a variant nobody configured", () => {
+    expect(planForVariant(freeEnv(), "9999999")).toBeNull();
+    expect(planForVariant(freeEnv(), "")).toBeNull();
+  });
+
+  it("actually moves a paid account back to free", async () => {
+    const account = await createAccount(env as any, {
+      name: "Downgrader",
+      kind: "team",
+      personalEmail: null,
+      createdBy: "d@x.com",
+      now: new Date().toISOString(),
+    });
+    await env.DB.prepare("UPDATE accounts SET plan = 'pro' WHERE id = ?").bind(account!.id).run();
+
+    const e = freeEnv();
+    const body = JSON.stringify({
+      meta: { event_name: "subscription_updated", custom_data: { account_id: account!.id } },
+      data: { attributes: { variant_id: 2020313, status: "active" } },
+    });
+    const res = await billingRoutes.request(
+      "/api/billing/webhook",
+      { method: "POST", body, headers: { "X-Signature": await sign(SECRET, body) } },
+      e
+    );
+    expect(res.status).toBe(200);
+
+    const row = await env.DB.prepare("SELECT plan FROM accounts WHERE id = ?")
+      .bind(account!.id)
+      .first<{ plan: string }>();
+    expect(row?.plan).toBe("free");
+  });
+});
