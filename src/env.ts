@@ -96,6 +96,12 @@ export interface Env {
   LEMONSQUEEZY_VARIANT_PRO?: string;
   /** Variant id for the `team` plan. Plain var. */
   LEMONSQUEEZY_VARIANT_TEAM?: string;
+  /**
+   * Variant id for the store's free tier, if it sells one. Needed so a
+   * downgrade to it writes `free` rather than resolving to null and leaving
+   * the customer on the plan they just left. Plain var.
+   */
+  LEMONSQUEEZY_VARIANT_FREE?: string;
 
   // --- PostHog: session recording and error tracking, dashboard only ---
   //     See src/posthog.ts. Both optional; unset means the feature does not

@@ -60,6 +60,18 @@
     // dashboard). Each hostname listed here must also have a `routes` entry above.
     // Leave empty to keep a single origin.
     "CONTENT_HOSTNAMES": "a.rtfx.pro",
+    // --- Lemon Squeezy billing. The signing secret is NOT here: it is set with
+    //     `wrangler secret put LEMONSQUEEZY_WEBHOOK_SECRET`. ---
+    // The store's SUBDOMAIN, not the numeric store id (#452239) — hosted
+    // checkout URLs address a store as <subdomain>.lemonsqueezy.com.
+    "LEMONSQUEEZY_STORE_ID": "rtfxpro",
+    // Variants of product 1291234. The free "starter" variant is mapped
+    // deliberately: without it a downgrade writes no plan and the customer
+    // keeps the paid tier they just left.
+    "LEMONSQUEEZY_VARIANT_FREE": "2020313",
+    "LEMONSQUEEZY_VARIANT_PRO": "2020319",
+    "LEMONSQUEEZY_VARIANT_TEAM": "2020323",
+
     // Canonical public origin of the app host. Canonical links, OpenGraph URLs,
     // sitemap.xml and llms.txt are absolute against it, and any host that isn't
     // this one serves a disallow-everything robots.txt — so a preview deploy

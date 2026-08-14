@@ -86,12 +86,17 @@ export async function verifyWebhook(
  * configured variant is unknown, not a default — a webhook must never be able
  * to grant a plan just by naming a variant nobody configured as `pro`/`team`.
  */
-export function planForVariant(env: Env, variantId: unknown): PaidPlan | null {
+export function planForVariant(env: Env, variantId: unknown): PaidPlan | "free" | null {
   if (variantId === null || variantId === undefined) return null;
   const id = String(variantId).trim();
   if (!id) return null;
   if (env.LEMONSQUEEZY_VARIANT_PRO && id === env.LEMONSQUEEZY_VARIANT_PRO) return "pro";
   if (env.LEMONSQUEEZY_VARIANT_TEAM && id === env.LEMONSQUEEZY_VARIANT_TEAM) return "team";
+  // The store also sells a free "starter" variant. It must map explicitly:
+  // returning null for it would mean a downgrade webhook writes no plan at all,
+  // and the customer keeps the paid plan they just left. Still `null` for any
+  // variant nobody configured — an unknown id must never grant anything.
+  if (env.LEMONSQUEEZY_VARIANT_FREE && id === env.LEMONSQUEEZY_VARIANT_FREE) return "free";
   return null;
 }
 
