@@ -142,6 +142,12 @@ function planPage(env: Env, page: PlanPageInput, title: string, description: str
 
 const PRO_FACTS: readonly PlanFact[] = [
   {
+    title: "Dedicated URL for every artifact.",
+    detail:
+      "Every artifact gets a stable rtfx.pro/a.rtfx.pro URL you can keep sending after republish or rollback. " +
+      "This is not a custom domain; those are not built yet.",
+  },
+  {
     title: `${num(PLANS.pro.maxArtifacts)} artifacts, ${bytes(PLANS.pro.maxStorageBytes)} of storage.`,
     detail:
       "Per workspace, not per person, and enforced at publish time — you are told which limit " +
@@ -242,6 +248,11 @@ export function proPage(env: Env): string {
 // --- /team -------------------------------------------------------------------
 
 const TEAM_FACTS: readonly PlanFact[] = [
+  {
+    title: "Dedicated URL for every artifact.",
+    detail:
+      "Each artifact keeps one stable URL through republish and rollback. Custom customer domains are not built yet.",
+  },
   {
     title: `Up to ${PLANS.team.maxSeats} people in one workspace.`,
     detail:
@@ -367,6 +378,11 @@ const ENTERPRISE_ASKS: readonly PlanFact[] = [
 ];
 
 const ENTERPRISE_TODAY: readonly PlanFact[] = [
+  {
+    title: "Dedicated URL for every artifact.",
+    detail:
+      "The same stable artifact URL model as Pro and Team. Enterprise does not add custom domains today.",
+  },
   {
     title: "The whole product, source-available and MIT-licensed.",
     detail:
