@@ -67,9 +67,9 @@ function seatWord(n: number): string {
 }
 
 /**
- * Why an invite may NOT be sent, purely on seat count — or null when there is
+ * Why somebody may NOT be added, purely on seat count — or null when there is
  * room. `memberCount` is how many people already belong to the workspace;
- * inviting a brand-new email always costs exactly one more seat, so the check
+ * adding a brand-new email always costs exactly one more seat, so the check
  * is `memberCount >= max`, not `>`.
  *
  * Names both the limit and, when one exists, the plan that raises it — an
@@ -81,8 +81,8 @@ export function seatLimitDenial(plan: string, memberCount: number): string | nul
   if (memberCount < max) return null;
   const lift = planThatLifts(plan);
   return lift
-    ? `this workspace is on the ${planLabel(plan)} plan, which caps out at ${seatWord(max)} — upgrade to ${planLabel(lift)} (${seatWord(maxSeatsFor(lift))}) to invite more people`
-    : `this workspace is at its ${planLabel(plan)} plan's limit of ${seatWord(max)} — remove somebody before inviting another`;
+    ? `this workspace is on the ${planLabel(plan)} plan, which caps out at ${seatWord(max)} — upgrade to ${planLabel(lift)} (${seatWord(maxSeatsFor(lift))}) to add more people`
+    : `this workspace is at its ${planLabel(plan)} plan's limit of ${seatWord(max)} — remove somebody before adding another`;
 }
 
 // --- presentation --------------------------------------------------------------
@@ -146,21 +146,31 @@ function membersPanel(info: MembersPageInput): string {
   const used = info.members.length;
   const atCap = used >= max;
 
+  // COPY RULE, and it is load-bearing: this form sends nothing. `POST
+  // /api/workspace/:id/members` writes the membership row and makes no mail
+  // call at all (see src/members-routes.ts, and the note in src/plan-copy.ts on
+  // why Team is still a "talk to us" tier because of it). So nothing here may
+  // say "invited", "invitation sent" or "we've emailed them" — the honest
+  // description of what the button does is "adds them, and they're in as soon
+  // as they sign in with that address". Change this copy only when a send
+  // actually ships alongside it.
   const inviteForm = info.canManage
     ? `<form id="memberform" class="userform" data-invite-form data-account-id="${esc(info.account.id)}">
       <input id="newmember" type="email" placeholder="person@example.com" autocomplete="off"
-        aria-label="Email to invite" required>
-      <select id="newmember-role" class="small" aria-label="Role to invite as">
+        aria-label="Email address to add to this workspace" required>
+      <select id="newmember-role" class="small" aria-label="Role to add them as">
         ${ACCOUNT_ROLES.map(
           (r) => `<option value="${esc(r)}"${r === "member" ? " selected" : ""}>${esc(accountRoleLabel(r))}</option>`
         ).join("")}
       </select>
-      <button type="submit" class="small"${atCap ? " disabled" : ""}>Invite</button>
+      <button type="submit" class="small"${atCap ? " disabled" : ""}>Add member</button>
       <span id="members-status" class="status" data-status hidden></span>
     </form>
+    <p class="hint" data-no-invite-mail>No email is sent. Adding somebody grants them this
+      workspace the moment they sign in with that address — tell them yourself that they're in.</p>
     <p class="hint" data-seat-summary>${used} of ${max} ${max === 1 ? "seat" : "seats"} used on the ${esc(
         planLabel(plan)
-      )} plan.${atCap ? " You're at the limit — remove somebody or upgrade to invite more." : ""}</p>`
+      )} plan.${atCap ? " You're at the limit — remove somebody or upgrade to add more." : ""}</p>`
     : "";
 
   return `<section class="panel" data-panel="members" data-account-id="${esc(info.account.id)}"
@@ -174,7 +184,7 @@ function membersPanel(info: MembersPageInput): string {
     <div class="member-list">${
       rows ||
       `<div class="empty" data-empty="members"><h3>Nobody here yet</h3>
-        <p>Invite the first teammate above.</p></div>`
+        <p>Add the first teammate above.</p></div>`
     }</div>
   </section>`;
 }
@@ -216,13 +226,13 @@ if(memberForm && MEMBERS_BASE){
     var role = $('#newmember-role').value;
     var btn = $('button[type=submit]', memberForm);
     btn.disabled = true;
-    setStatus(status, 'Inviting…');
+    setStatus(status, 'Adding…');
     try {
       var res = await apiFetch(MEMBERS_BASE, {
         method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email: email, role: role })
       });
       if(needsReauth(res)){ reauth(status); return; }
-      if(!res.ok){ setStatus(status, (await detail(res)) || 'Could not invite that person.', 'error'); return; }
+      if(!res.ok){ setStatus(status, (await detail(res)) || 'Could not add that person.', 'error'); return; }
       location.reload();
     } catch(err){ setStatus(status, 'Network error — try again.', 'error'); }
     finally { btn.disabled = false; }
@@ -340,16 +350,13 @@ export function membersPage(input: MembersPageInput): string {
 
   return portalShell({
     viewer: input.viewer,
-    // No dedicated SectionId exists for a per-workspace members page (portal.ts
-    // is owned by another agent's change) — "settings" is where workspace
-    // context already lives (see workspacePanel in admin.ts), so the nav
-    // highlights the closest existing home until this gets its own entry.
-    section: "settings",
+    section: "members",
     title: `Members · ${input.account.name}`,
     heading: "Members",
-    lede: `Who belongs to ${esc(
+    lede: `Who belongs to <b>${esc(
       input.account.name
-    )} and what they can do inside it. Seats are counted per workspace, not per platform sign-in.`,
+    )}</b> — the workspace you are acting in — and what they can do inside it. Switch workspaces in
+      the header to manage a different one. Seats are counted per workspace, not per platform sign-in.`,
     body: `${tiles}${membersPanel(input)}`,
     style: MEMBERS_STYLE,
     script: MEMBERS_SCRIPT,

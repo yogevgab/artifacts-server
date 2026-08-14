@@ -40,6 +40,19 @@ export async function viewerOf(c: PortalContext): Promise<PortalViewer> {
     // null unless POSTHOG_KEY is configured, which is what keeps a deployment
     // that never sets it behaving exactly as it did before the feature existed.
     posthog: posthogConfig(c.env),
+    // The switcher's options. Withheld from a token caller: its context is
+    // pinned to one workspace, and enumerating its owner's others would leak a
+    // list the credential has no business seeing. `resolveAccountContext`
+    // already returns a single-entry membership list for a token, so this is
+    // belt and braces.
+    workspaces: identity.token
+      ? undefined
+      : ctx.memberships.map((m) => ({
+          id: m.account.id,
+          name: m.account.name,
+          kind: m.account.kind,
+          role: m.role,
+        })),
     workspace:
       ctx.active && ctx.role
         ? {

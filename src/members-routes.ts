@@ -87,10 +87,15 @@ membersRoutes.get(LIST_PATH, async (c) => {
 });
 
 /**
- * Invite somebody new into the workspace. Distinct from the role-change route
- * below: an email that is already a member costs no seat and is refused here
- * with a pointer at the route that actually changes a role, rather than
- * silently upserting.
+ * Add somebody new to the workspace. Distinct from the role-change route below:
+ * an email that is already a member costs no seat and is refused here with a
+ * pointer at the route that actually changes a role, rather than silently
+ * upserting.
+ *
+ * Deliberately NOT an invitation: this writes the membership row and sends
+ * nothing. There is no `sendMail` call on this path and no place a caller can
+ * ask for one, which is why every surface that reaches it has to say "added",
+ * never "invited" — see the copy rule in `membersPanel` (src/members.ts).
  */
 membersRoutes.post(LIST_PATH, async (c) => {
   const id = c.req.param("id");
@@ -115,7 +120,7 @@ membersRoutes.post(LIST_PATH, async (c) => {
     return c.json(
       {
         error: "already_member",
-        detail: `${email} is already a member of this workspace — change their role instead of inviting them again`,
+        detail: `${email} is already a member of this workspace — change their role instead of adding them again`,
       },
       409
     );

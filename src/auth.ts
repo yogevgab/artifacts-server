@@ -322,6 +322,21 @@ async function applyDirectory(c: AuthContext, identity: Identity): Promise<AuthR
 /** The app-owned session cookie. Host-only on the app origin — never the content host. */
 export const SESSION_COOKIE = "rtfx_session";
 
+/**
+ * Which workspace an interactive session is acting in.
+ *
+ * Deliberately a *selector*, not a grant: it names an account id and nothing
+ * else, and `resolveAccountContext` only honors it when the signed-in identity
+ * is still a member of that account. So it is unsigned on purpose — forging it
+ * buys nothing that changing a `<select>` would not, and every value it can
+ * hold is re-checked against `account_members` on every request.
+ *
+ * Host-only and `SameSite=Lax`, exactly like the session cookie it rides
+ * beside: it must never reach the content host, and a cross-site POST must
+ * never be able to move somebody's workspace under them.
+ */
+export const WORKSPACE_COOKIE = "rtfx_account";
+
 /** One cookie value out of a Cookie header, without pulling in a parser. */
 export function readCookie(header: string | undefined, name: string): string | null {
   if (!header) return null;
@@ -464,10 +479,31 @@ export async function accountsFor(c: AccountAwareContext): Promise<AccountContex
   const identity = c.get("identity") ?? null;
   const ctx = await resolveAccountContext(
     c.env,
-    identity && { email: identity.email, accountId: identity.accountId, isToken: !!identity.token }
+    identity && { email: identity.email, accountId: identity.accountId, isToken: !!identity.token },
+    // Read the selector only for an interactive session. A bearer token is
+    // pinned to the workspace it was issued for, and a cookie riding along on
+    // the same request must not be able to move it — `resolveAccountContext`
+    // ignores `selected` on the token path too, so this is belt and braces.
+    { selected: identity?.token ? null : selectedWorkspaceId(c) }
   );
   c.set("accountCtx", ctx);
   return ctx;
+}
+
+/** The workspace this browser last switched to, or null. Validated downstream. */
+export function selectedWorkspaceId(c: {
+  req: { header(name: string): string | undefined };
+}): string | null {
+  const raw = readCookie(c.req.header("Cookie") ?? c.req.header("cookie"), WORKSPACE_COOKIE);
+  if (!raw) return null;
+  let value = raw;
+  try {
+    value = decodeURIComponent(raw);
+  } catch {
+    // A malformed escape is not an account id either way — fall through and let
+    // the membership check reject it.
+  }
+  return value || null;
 }
 
 /** Display/audit name for an identity: their email, the token, or the service token. */

@@ -133,11 +133,16 @@ describe("portal shell", () => {
 });
 
 describe("portal navigation is scoped to the viewer", () => {
-  it("offers a member five sections, and neither People nor Platform", async () => {
+  // Members is workspace-scoped and everybody owns their personal workspace, so
+  // it is offered to all three of these — unlike People, which is the PLATFORM
+  // directory and admin-only. That the two sit next to each other and are
+  // nonetheless gated differently is the distinction this suite exists to keep.
+  it("offers a member Members but neither People nor Platform", async () => {
     expect(navItems(await page("/admin", BOB))).toEqual([
       "overview",
       "artifacts",
       "gallery",
+      "members",
       "integrations",
       "settings",
     ]);
@@ -148,6 +153,7 @@ describe("portal navigation is scoped to the viewer", () => {
       "overview",
       "artifacts",
       "gallery",
+      "members",
       "people",
       "integrations",
       "settings",
@@ -159,6 +165,7 @@ describe("portal navigation is scoped to the viewer", () => {
       "overview",
       "artifacts",
       "gallery",
+      "members",
       "people",
       "integrations",
       "settings",

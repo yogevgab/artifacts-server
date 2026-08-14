@@ -480,6 +480,17 @@ export interface AccountContext {
    * never reach another, even if the person who owns it belongs to several.
    */
   pinned: boolean;
+  /**
+   * True when `active` came from an explicit selection the caller made (the
+   * `rtfx_account` cookie), rather than from the default "your personal
+   * workspace first" ordering.
+   *
+   * Deliberately reported rather than inferred: a stale selection — a workspace
+   * that was deleted, or one the caller was removed from — resolves to `false`
+   * here *and* to the default active account, which is exactly what makes an
+   * ignored selection indistinguishable from never having made one.
+   */
+  selected: boolean;
 }
 
 /**
@@ -501,6 +512,7 @@ export const EMPTY_ACCOUNT_CONTEXT: AccountContext = {
   memberships: [],
   roles: new Map(),
   pinned: false,
+  selected: false,
 };
 
 /** Just the identity fields the account resolver needs (an `Identity` satisfies it). */
@@ -526,11 +538,18 @@ export interface AccountSubject {
  * `ensure` provisions the personal account on the spot when the identity has no
  * memberships at all, which is how an instance that skipped migration 0010
  * converges. Pass `false` from read-only paths that must not write.
+ *
+ * `selected` is the workspace an interactive caller picked (the `rtfx_account`
+ * cookie — see `accountsFor` in src/auth.ts). It is honored *only* when it names
+ * an account the caller is currently a member of, so it can never widen reach:
+ * an unknown id, a deleted workspace, or one they were removed from all fall
+ * back to the default active account rather than erroring. Token callers ignore
+ * it entirely, which is what keeps a bearer credential pinned.
  */
 export async function resolveAccountContext(
   env: Env,
   subject: AccountSubject | null,
-  opts: { ensure?: boolean; now?: string } = {}
+  opts: { ensure?: boolean; now?: string; selected?: string | null } = {}
 ): Promise<AccountContext> {
   if (!subject) return EMPTY_ACCOUNT_CONTEXT;
   const now = opts.now ?? new Date().toISOString();
@@ -551,6 +570,7 @@ export async function resolveAccountContext(
       memberships: [{ account, role }],
       roles: new Map([[id, role]]),
       pinned: true,
+      selected: false,
     };
   }
 
@@ -563,15 +583,19 @@ export async function resolveAccountContext(
   }
   if (!memberships.length) return EMPTY_ACCOUNT_CONTEXT;
 
-  // `listMemberships` sorts the personal workspace first, so this is "your own
-  // workspace unless you only belong to team ones".
-  const active = memberships[0];
+  // `listMemberships` sorts the personal workspace first, so the default is
+  // "your own workspace unless you only belong to team ones". An explicit
+  // selection wins over that default — but only if it is still a membership,
+  // which is the check that makes a stale cookie inert rather than dangerous.
+  const chosen = opts.selected ? memberships.find((m) => m.account.id === opts.selected) : undefined;
+  const active = chosen ?? memberships[0];
   return {
     active: active.account,
     role: active.role,
     memberships,
     roles: new Map(memberships.map((m) => [m.account.id, m.role])),
     pinned: false,
+    selected: !!chosen,
   };
 }
 

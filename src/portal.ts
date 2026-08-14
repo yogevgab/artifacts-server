@@ -26,6 +26,7 @@ export type SectionId =
   | "overview"
   | "artifacts"
   | "gallery"
+  | "members"
   | "people"
   | "integrations"
   | "settings"
@@ -53,10 +54,10 @@ export interface PortalViewer {
   isTokenCaller: boolean;
   /**
    * The account/workspace this request is acting in (issue #27), or null when the
-   * caller has none yet (un-migrated instance, or a platform token). Shown as
-   * context so it is always obvious *whose* artifacts a page is listing —
-   * deliberately not a switcher, which is a bigger piece of UX than the model
-   * needs today.
+   * caller has none yet (un-migrated instance, or a platform token). Shown on
+   * every page so it is always obvious *whose* artifacts are listed and where a
+   * publish will land; switchable from the header when {@link workspaces} holds
+   * more than one.
    */
   workspace?: {
     id: string;
@@ -76,6 +77,16 @@ export interface PortalViewer {
      */
     billing?: WorkspaceBilling;
   } | null;
+  /**
+   * Every workspace this person belongs to, in the order the switcher lists
+   * them (personal first — see `listMemberships`). Optional: a caller that
+   * hasn't computed it gets the passive chip instead of a switcher, which is
+   * the pre-switcher behavior rather than an empty dropdown.
+   *
+   * Absent for a bearer token on purpose. A token is pinned to one workspace
+   * and must never be handed the list of the workspaces its owner belongs to.
+   */
+  workspaces?: { id: string; name: string; kind: "personal" | "team"; role: AccountRole }[];
   /**
    * PostHog project key/host for this deployment, or `null`/absent when
    * `POSTHOG_KEY` is unset — see `posthogConfig` in src/posthog.ts. Optional
@@ -123,6 +134,19 @@ const SECTIONS: SectionDef[] = [
     // and it is the whole product for somebody who has only ever been granted
     // access to other people's work.
     visible: () => true,
+  },
+  {
+    id: "members",
+    path: "/admin/members",
+    label: "Members",
+    blurb: "Who's in this workspace",
+    // The workspace half of access, next to the workspace's artifacts and above
+    // the platform directory it is constantly confused with. Only for somebody
+    // who can act on it — a `member` or `viewer` opening it would find a
+    // read-only list and every control refused — and never for a bearer token,
+    // which `POST /api/workspace/:id/members` rejects outright.
+    visible: (v) =>
+      !v.isTokenCaller && (v.workspace?.role === "owner" || v.workspace?.role === "admin"),
   },
   {
     id: "people",
@@ -176,31 +200,72 @@ export function roleLabel(role: UserRole): string {
 }
 
 /**
- * The workspace chip in the header: which account this page is about, and the
- * viewer's role in it.
+ * The name a workspace goes by in the UI.
  *
- * Kept to one line of text on purpose. The account model is new and every
- * identity currently has exactly one personal workspace, so a full switcher
- * would be chrome for a choice nobody has yet — this just removes the ambiguity
- * about *whose* artifacts are listed, which is the part that would otherwise
- * become confusing the moment a second workspace exists.
+ * A personal workspace is named after its owner's email, which the identity
+ * beside it already shows. Repeating it put the same address on screen twice, so
+ * that case is labelled by what it IS rather than by its name.
  */
-function workspaceChip(v: PortalViewer): string {
+export function workspaceLabel(
+  ws: { name: string; kind: "personal" | "team" },
+  viewerEmail: string | null | undefined
+): string {
+  const sameAsEmail =
+    ws.kind === "personal" && ws.name.trim().toLowerCase() === (viewerEmail ?? "").trim().toLowerCase();
+  return sameAsEmail ? "Personal" : ws.name;
+}
+
+/**
+ * The workspace control in the header: which account this page is about, the
+ * viewer's role in it, and — once they belong to more than one — a way to move.
+ *
+ * A plain `<form method="post">` with a real `<select>`: no client router, no
+ * fetch, no JavaScript at all, which is the same bargain every other navigation
+ * in the portal makes. `next` carries the section back so switching leaves you
+ * where you were rather than dumping you on the overview. It is re-validated
+ * server-side (`safeNext`, src/workspace-routes.ts) — a hidden field is a
+ * request, not a fact.
+ *
+ * A token caller never gets the switcher: it is pinned to the workspace its
+ * credential names, and offering a control that cannot work would be a lie.
+ */
+function workspaceControl(v: PortalViewer, section: SectionId): string {
   const ws = v.workspace;
   if (!ws) return "";
-  // A personal workspace is named after its owner's email, which the identity
-  // beside it already shows. Repeating it put the same address on screen twice,
-  // so that case is labelled by what it IS rather than by its name.
-  const sameAsEmail =
-    ws.kind === "personal" && ws.name.trim().toLowerCase() === (v.email ?? "").trim().toLowerCase();
-  const label = sameAsEmail ? "Personal" : ws.name;
-  const extra = ws.count > 1 ? ` +${ws.count - 1}` : "";
-  const title = `${ws.kind === "personal" ? "Personal workspace" : "Team workspace"} · you are ${accountRoleLabel(
-    ws.role
-  ).toLowerCase()} here${ws.count > 1 ? ` · ${ws.count} workspaces in total` : ""}`;
-  return `<span class="badge is-workspace" data-viewer-workspace data-workspace-id="${esc(ws.id)}"
+  const label = workspaceLabel(ws, v.email);
+  const kindWord = ws.kind === "personal" ? "Personal workspace" : "Team workspace";
+  const roleWord = accountRoleLabel(ws.role).toLowerCase();
+
+  const others = v.workspaces ?? [];
+  if (v.isTokenCaller || others.length < 2) {
+    const extra = ws.count > 1 ? ` +${ws.count - 1}` : "";
+    const title = `${kindWord} · you are ${roleWord} here${
+      ws.count > 1 ? ` · ${ws.count} workspaces in total` : ""
+    }`;
+    return `<span class="badge is-workspace" data-viewer-workspace data-workspace-id="${esc(ws.id)}"
     data-workspace-kind="${esc(ws.kind)}" data-workspace-role="${esc(ws.role)}"
     title="${esc(title)}">${esc(label)}${esc(extra)}</span>`;
+  }
+
+  const back = SECTIONS.find((s) => s.id === section)?.path ?? "/admin";
+  const options = others
+    .map((w) => {
+      const name = workspaceLabel(w, v.email);
+      const suffix = w.kind === "personal" ? "Personal" : "Team";
+      return `<option value="${esc(w.id)}"${w.id === ws.id ? " selected" : ""}
+        data-workspace-kind="${esc(w.kind)}" data-workspace-role="${esc(w.role)}"
+      >${esc(name)} · ${esc(suffix)} · ${esc(accountRoleLabel(w.role))}</option>`;
+    })
+    .join("");
+
+  return `<form class="wsswitch" method="post" action="/admin/workspace"
+    data-viewer-workspace data-workspace-switcher data-workspace-id="${esc(ws.id)}"
+    data-workspace-kind="${esc(ws.kind)}" data-workspace-role="${esc(ws.role)}">
+    <input type="hidden" name="next" value="${esc(back)}">
+    <select name="account_id" class="small" data-workspace-select
+      aria-label="Active workspace — everything you publish and manage belongs to it">${options}</select>
+    <button type="submit" class="small ghost" data-workspace-switch>Switch</button>
+  </form>`;
 }
 
 // --- formatting, shared by every section ------------------------------------
@@ -316,7 +381,7 @@ export function portalShell(o: ShellOptions): string {
     <header class="ptop" data-portal-top>
       ${brandLockup("/admin")}
       <div class="who" data-portal-identity>
-        ${workspaceChip(viewer)}
+        ${workspaceControl(viewer, o.section)}
         <span class="badge is-role" data-viewer-role>${esc(roleLabel(viewer.role))}</span>
         <span class="mono" data-viewer-email>${esc(viewer.email)}</span>
         <a href="/docs">Docs</a>
@@ -469,9 +534,17 @@ export const PORTAL_STYLE = `
   backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);box-shadow:var(--shadow);margin-bottom:1.25rem}
 .ptop .who{display:flex;align-items:center;gap:.85rem;font-size:.85rem;color:var(--muted);flex-wrap:wrap}
 .ptop .who .mono{color:var(--fg);font-size:.8rem}
-/* The workspace chip sits left of the role badge: whose stuff, then who you are.
-   Quieter than the role badge — it is context, not status. */
+/* The workspace control sits left of the role badge: whose stuff, then who you
+   are. Quieter than the role badge — it is context, not status. */
 .badge.is-workspace{max-width:14rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* The switcher replaces the chip for somebody in more than one workspace. Sized
+   to read as chrome rather than as a form: it is a place-marker you can move,
+   not a setting you fill in. */
+.wsswitch{display:flex;align-items:center;gap:.35rem;margin:0}
+.wsswitch select{max-width:15rem;min-height:2.1rem;font-size:.8rem;padding:.25rem .5rem;
+  border-radius:999px}
+.wsswitch button{min-height:2.1rem;font-size:.78rem;padding:.25rem .7rem;border-radius:999px}
+@media(pointer:coarse){.wsswitch select,.wsswitch button{min-height:44px}}
 
 .pgrid{display:grid;grid-template-columns:14.5rem 1fr;gap:1.4rem;align-items:start}
 /* Grid items default to min-width:auto, which lets a wide child (a long slug, a

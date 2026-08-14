@@ -15,6 +15,7 @@ import {
   people,
   stamp,
   roleLabel,
+  workspaceLabel,
   type PortalViewer,
 } from "./portal";
 import { accountRoleLabel } from "./accounts";
@@ -393,7 +394,30 @@ a.ghost.link-button.small-link{padding:.42rem .85rem;font-size:.82rem}
 
 // --- Artifacts: the list ----------------------------------------------------
 
-function publishPanel(): string {
+/**
+ * Where a publish will actually land.
+ *
+ * `POST /api/artifacts` writes `account_id = existing?.account_id ?? accounts.active?.id`
+ * (src/api.ts), so the destination is the workspace the header switcher points
+ * at — not "personal", and not whichever workspace the artifact list happens to
+ * be sorted by. Somebody who belongs to more than one needs to be told that
+ * before they drop a file, not after; a publish into the wrong workspace is
+ * visible to the wrong people and cannot be moved.
+ */
+function publishTarget(viewer: PortalViewer): string {
+  const ws = viewer.workspace;
+  if (!ws) return "";
+  const name = workspaceLabel(ws, viewer.email);
+  const switchable = !viewer.isTokenCaller && (viewer.workspaces?.length ?? 0) > 1;
+  return `<p class="hint" data-publish-target data-publish-account="${esc(ws.id)}">
+    Publishing to <b>${esc(name)}</b> — ${
+      ws.kind === "personal" ? "your personal workspace" : "a team workspace"
+    }. Everything you publish here belongs to it, and everyone in it can reach it.${
+      switchable ? " Switch workspaces in the header to publish somewhere else." : ""
+    }</p>`;
+}
+
+function publishPanel(viewer: PortalViewer): string {
   const cap = `${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB`;
   return `<section class="panel publish" aria-labelledby="publish-h">
     <div class="panel-head">
@@ -401,6 +425,7 @@ function publishPanel(): string {
         <h2 id="publish-h">Publish an artifact</h2>
         <p class="hint">Drop a file to ship it. New artifacts start private — only you can see them
           until you grant access.</p>
+        ${publishTarget(viewer)}
       </div>
     </div>
 
@@ -521,9 +546,13 @@ export function artifactsPage(o: ArtifactsInput): string {
     heading: "Artifacts",
     lede: viewer.isAdmin
       ? `Everything published here. Open one to manage its versions, its audience and its view log.`
-      : `Everything you have published. Open one to manage its versions, its audience and its
-         view log — you only ever see your own.`,
-    body: `${publishPanel()}${listSection}`,
+      : `Everything ${
+          viewer.workspace
+            ? `<b>${esc(workspaceLabel(viewer.workspace, viewer.email))}</b> has published`
+            : "you have published"
+        }. Publishing and managing happen in the workspace named in the header — open an artifact to
+         manage its versions, its audience and its view log.`,
+    body: `${publishPanel(viewer)}${listSection}`,
     style: ARTIFACTS_STYLE,
     script: PICK_SCRIPT + PUBLISH_SCRIPT + FILTER_SCRIPT,
   });
@@ -949,11 +978,11 @@ export function artifactDetailPage(o: ArtifactDetailInput): string {
 /**
  * The workspace the viewer is acting in (issue #27).
  *
- * Deliberately a plain readout rather than a management surface: the point is to
- * make the *distinction* legible — this account owns the artifacts, your platform
- * role is a separate thing — without inventing an org-admin UI the product does
- * not need while every workspace is personal. Membership is managed through
- * `/api/accounts/:id/members` until a second workspace kind is common.
+ * Still a readout rather than an editor: the point is to make the *distinction*
+ * legible — this account owns the artifacts, your platform role is a separate
+ * thing. What changed is that "acting in" is now a choice, so this panel points
+ * at the two places that act on it: the header switcher, and the Members page
+ * for the workspace it currently names.
  */
 function workspacePanel(viewer: PortalViewer): string {
   const ws = viewer.workspace;
@@ -986,8 +1015,12 @@ function workspacePanel(viewer: PortalViewer): string {
     <div class="row" data-setting="workspace-kind">
       <div class="info"><b>Type</b><span class="hint">${
         ws.count > 1
-          ? `You belong to ${plural(ws.count, "workspace")}. Pages show the one above.`
-          : "You belong to this one workspace."
+          ? `You belong to ${plural(
+              ws.count,
+              "workspace"
+            )}. This is the one every page is acting in — publishing, artifacts and members all
+             follow it. Switch with the control in the header.`
+          : "You belong to this one workspace, and everything you publish lands in it."
       }</span></div>
       <div class="row-actions"><span class="badge" data-badge="workspace-kind">${esc(kindWord)}</span></div>
     </div>
@@ -1005,6 +1038,18 @@ function workspacePanel(viewer: PortalViewer): string {
         accountRoleLabel(ws.role)
       )}</span></div>
     </div>
+    ${
+      ws.role === "owner" || ws.role === "admin"
+        ? `<div class="row" data-setting="workspace-members">
+      <div class="info"><b>Members</b><span class="hint">Who else is in ${esc(
+        ws.name
+      )}, and what they may do inside it. Adding somebody grants them this workspace — it does not
+        email them, and it does not let them sign in to the instance.</span></div>
+      <div class="row-actions"><a class="ghost link-button small-link"
+        href="/admin/members" data-cta="workspace-members">Manage members &rarr;</a></div>
+    </div>`
+        : ""
+    }
     ${planRow(ws.billing)}
   </section>`;
 }

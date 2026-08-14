@@ -77,6 +77,7 @@ import {
   type ViewsInfo,
 } from "./admin";
 import { platformRoutes } from "./platform-routes";
+import { workspaceRoutes } from "./workspace-routes";
 import { viewerOf, type PortalContext } from "./viewer";
 import { peoplePage, type UsersInfo } from "./people";
 import { integrationsPage } from "./integrations";
@@ -358,6 +359,12 @@ app.get("/admin/settings", requireUser, async (c) => c.html(settingsPage(await v
 // answer 404 to every one of its routes. It owns its own authorization — super
 // admin, re-checked per request — see src/platform-routes.ts.
 app.route("/", platformRoutes);
+
+// Switching the active workspace: POST /admin/workspace (the header switcher)
+// and POST /api/workspace/active (the JSON equivalent). Mounted here for the
+// same reason platformRoutes is — the /admin/* catch-all below owns everything
+// after it. See src/workspace-routes.ts.
+app.route("/", workspaceRoutes);
 
 // Anything else under /admin is not a section. Render the portal shell so the
 // person still has navigation, but answer 404 so a mistyped URL is never a 200.
