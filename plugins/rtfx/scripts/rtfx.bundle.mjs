@@ -238,9 +238,23 @@ function fromFile(path, io) {
     return { field: "file", filename: basename(path), type: "text/html", bytes, entries: [basename(path)], skipped: [] };
   }
 
+  // A PDF is a single document rather than a site. The server decides the kind
+  // from the leading bytes, not this extension, so a mislabelled file is caught
+  // there too — this check exists to fail early with a useful message.
+  if (ext === ".pdf") {
+    const magic = String.fromCharCode(...bytes.slice(0, 4));
+    if (magic !== "%PDF") {
+      throw new BundleError(
+        `${path} is named .pdf but does not start with %PDF`,
+        "Check the file — publishing it would be refused by the server anyway."
+      );
+    }
+    return { field: "file", filename: basename(path), type: "application/pdf", bytes, entries: [basename(path)], skipped: [] };
+  }
+
   throw new BundleError(
     `unsupported file type "${ext || basename(path)}"`,
-    "Publish a .html file, a .zip, or a directory containing index.html."
+    "Publish a .html file, a .pdf, a .zip, or a directory containing index.html."
   );
 }
 

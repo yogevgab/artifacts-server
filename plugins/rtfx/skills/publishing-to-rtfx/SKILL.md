@@ -55,6 +55,7 @@ One command covers all three shapes. Pick the path by what actually exists:
 | What you have | What to pass |
 |---|---|
 | One self-contained HTML file | the `.html` path |
+| A PDF document | the `.pdf` path |
 | A built site with assets | the **output directory** (must contain `index.html` at its root) |
 | An already-built archive | the `.zip` path (must contain `index.html` at its root) |
 

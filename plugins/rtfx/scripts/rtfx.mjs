@@ -51,7 +51,7 @@ import { BundleError, describeSkips, prepareBundle } from "./rtfx.bundle.mjs";
 const USAGE = `rtfx — publish to rtfx.pro
 
   publish <path> [--slug s] [--title t] [--description d] [--note n]
-        <path> is an .html file, a .zip, or a directory containing index.html.
+        <path> is an .html file, a .pdf, a .zip, or a directory containing index.html.
         A new slug creates the artifact at v1; an existing slug you own adds a
         new version and makes it live. Prints the artifact URL.
   list                              artifacts this token can reach
