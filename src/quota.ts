@@ -21,8 +21,24 @@ function isMissingAccountColumn(e: unknown): boolean {
  * 404 for content requests — that is separate, out-of-scope work. The field
  * stays in the table so the shape doesn't need to change when it lands.
  */
+const MB = 1024 * 1024;
+const GB = 1024 * MB;
+
+/**
+ * `keepVersions` is the retention window, and it exists because storage counts
+ * every immutable version. Without it a storage cap is really a cap on LIFETIME
+ * PUBLISHES — republish a 5MB page twenty times and a 100MB account is full
+ * with a single artifact live, which is not what anybody would expect a
+ * "100MB" limit to mean. `null` means unlimited history.
+ *
+ * This narrows a promise the product makes in several places ("nothing is
+ * deleted"), so those had to change in the same release. See the docs updates
+ * alongside this commit.
+ */
 export const PLANS = {
-  free: { maxArtifacts: 10, maxStorageBytes: 100 * 1024 * 1024, maxViewsPerMonth: 5_000 },
+  free: { maxArtifacts: 10, maxStorageBytes: 100 * MB, maxViewsPerMonth: 5_000, keepVersions: 5 as number | null },
+  pro: { maxArtifacts: 100, maxStorageBytes: 5 * GB, maxViewsPerMonth: 100_000, keepVersions: null as number | null },
+  team: { maxArtifacts: 10_000, maxStorageBytes: 50 * GB, maxViewsPerMonth: 1_000_000, keepVersions: null as number | null },
 } as const;
 
 export type PlanName = keyof typeof PLANS;
@@ -97,4 +113,24 @@ export async function usageFor(env: Env, accountId: string): Promise<Usage> {
     if (isMissingAccountColumn(e)) return { artifacts: 0, storageBytes: 0 };
     throw e;
   }
+}
+
+
+/**
+ * Which versions fall outside the retention window.
+ *
+ * The live version is never expired, even when it sits outside the window: a
+ * rollback can make an old version current, and deleting it would break the
+ * artifact outright — worse than briefly exceeding the window.
+ *
+ * Pure so the rule is testable at its boundaries without a database.
+ */
+export function versionsToExpire(
+  versions: number[],
+  keep: number | null,
+  currentVersion: number
+): number[] {
+  if (keep === null || keep <= 0) return [];
+  const sorted = [...versions].sort((a, b) => b - a);
+  return sorted.slice(keep).filter((v) => v !== currentVersion);
 }

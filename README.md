@@ -10,7 +10,8 @@ or multi-file static bundles — are published from a web dashboard, a CLI, or a
 
 - 🤖 **Agent-native publishing** — Claude Code, a native MCP server, Hermes, the CLI and the HTTP API all take the same path a human takes; no separate, weaker agent route. See [`plugins/rtfx`](plugins/rtfx) and [`docs/MCP.md`](docs/MCP.md).
 - 👥 **Access by identity, not a secret link** — each artifact is private, shared with named people, or open to all signed-in users. Unauthorized and non-existent both return **404**.
-- 🕓 **Versioning** — every re-publish is a new immutable version; roll back anytime.
+- 🕓 **Versioning** — every re-publish is a new immutable version; roll back within your plan's
+  retention window (free keeps the last 5; paid plans keep everything).
 - 📈 **Views log** — see who viewed each artifact, when, which version, and from where — per person, not an aggregate counter.
 - 🏢 **Workspaces & roles** — artifacts belong to an account with `owner`/`admin`/`member`/`viewer` roles; instance privilege is re-derived from config, never read from a table.
 - 🌐 **Public product site** — `/`, `/docs`, `/login`, `/privacy`, `/terms` and `/waitlist` are reachable by anyone, with SEO metadata, `sitemap.xml`, `robots.txt` and `llms.txt`; everything else needs an identity.
@@ -382,7 +383,10 @@ existing database — 0008 and 0010 are safe to re-run, 0009 adds two columns an
 the same rows on first use. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full model.
 
 ### Versioning
-Each publish to an existing slug creates a new immutable version and makes it live; previous
+Each publish to an existing slug creates a new immutable version and makes it live. On the free
+plan the five most recent versions are retained and older ones expire — their bytes are removed
+but the history entry stays, so a version list never has holes in it. Paid plans keep every
+version. Previous
 versions are kept. Admins preview any version at `/v/<slug>/<n>/`; roll back from the dashboard
 or `rollback <slug> <n>`.
 

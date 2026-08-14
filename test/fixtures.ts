@@ -43,7 +43,7 @@ export async function initDb() {
       slug TEXT NOT NULL, version INTEGER NOT NULL, type TEXT NOT NULL,
       entry TEXT NOT NULL DEFAULT 'index.html', file_count INTEGER NOT NULL DEFAULT 1,
       size_bytes INTEGER NOT NULL DEFAULT 0, note TEXT, created_by TEXT,
-      created_at TEXT NOT NULL, PRIMARY KEY (slug, version))`
+      created_at TEXT NOT NULL, expired_at TEXT, PRIMARY KEY (slug, version))`
   ).run();
   await env.DB.prepare(
     `CREATE TABLE artifact_views (

@@ -110,7 +110,8 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs" rollback q3-report 2
 node "${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs" list
 ```
 
-Rollback is instant and non-destructive — the newer version's files stay, so rolling forward is
+Rollback is instant and non-destructive within the plan's retention window — the newer version's
+files stay, so rolling forward is
 just another `rollback` to the higher number. Confirm with the user before rolling back: it
 changes what everyone who has the link sees.
 
