@@ -320,3 +320,15 @@ describe("platform", () => {
     }
   });
 });
+
+describe("the portal header", () => {
+  it("does not print the viewer's email twice", async () => {
+    // A personal workspace is named after its owner, so the workspace chip and
+    // the identity both rendered the same address.
+    const html = await page("/admin");
+    const email = "admin@test.com";
+    const header = html.slice(html.indexOf("data-portal-identity"), html.indexOf("</header>"));
+    const occurrences = header.split(email).length - 1;
+    expect(occurrences).toBe(1);
+  });
+});

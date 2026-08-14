@@ -42,7 +42,8 @@ h1{font-size:clamp(1.55rem,3.2vw,2.7rem);line-height:1.05;margin:0;letter-spacin
 .card:hover{border-color:var(--border-strong);transform:translateY(-2px);box-shadow:0 26px 80px -42px rgba(0,0,0,.72)}
 .card h3{margin:0 0 .35rem;font-size:1.08rem;color:var(--fg);letter-spacing:-.02em}.card p{margin:0 0 .75rem;color:var(--muted);font-size:.9rem}
 .meta{font-size:.78rem;color:var(--muted);display:flex;gap:.45rem;flex-wrap:wrap;align-items:center}
-.tag,.badge{display:inline-flex;align-items:center;gap:.3rem;border:1px solid var(--border);border-radius:999px;padding:.16rem .62rem;font-size:.74rem;color:var(--muted);white-space:nowrap;line-height:1.55;background:rgba(255,255,255,.04)}
+.hint{font-weight:400}
+.tag,.badge{display:inline-flex;align-items:center;gap:.3rem;border:1px solid var(--border);border-radius:999px;padding:.16rem .62rem;font-size:.74rem;font-weight:500;color:var(--muted);white-space:nowrap;line-height:1.55;background:rgba(255,255,255,.04)}
 .badge.is-open{color:var(--accent);border-color:rgba(10,132,255,.42);background:var(--accent-weak)}
 .badge.is-locked{color:var(--muted)}
 .mono{font-family:var(--mono);font-size:.82em}
@@ -89,7 +90,7 @@ button.danger:hover{border-color:var(--danger);background:var(--danger-weak)}
 .badge.is-invited{color:var(--accent);border-color:rgba(10,132,255,.42);background:var(--accent-weak)}
 .badge.is-disabled{color:var(--danger);border-color:var(--danger);background:var(--danger-weak)}
 .badge.is-warn{color:var(--danger);border-color:var(--border-strong)}
-.badge.is-role{font-weight:650;letter-spacing:.005em}
+.badge.is-role{letter-spacing:.005em}
 /* A visual cue that needs a spoken one. */
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
   clip:rect(0 0 0 0);white-space:nowrap;border:0}
