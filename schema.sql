@@ -14,7 +14,10 @@ CREATE TABLE IF NOT EXISTS artifacts (
   owner_email     TEXT,
   -- Owning account/workspace (issue #27). Nullable: a row with only owner_email
   -- is authorized exactly as it was before accounts existed.
-  account_id      TEXT
+  account_id      TEXT,
+  -- Read receipts (migration 0016): notify the owner the first time a named
+  -- person opens this artifact. Default ON; an explicit 0 turns it off.
+  read_receipts   INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE INDEX IF NOT EXISTS idx_artifacts_created_at ON artifacts (created_at DESC);

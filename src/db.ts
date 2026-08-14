@@ -432,6 +432,41 @@ export async function hasGrant(env: Env, slug: string, email: string): Promise<b
   return !!row;
 }
 
+// --- Read receipts ---
+//
+// "Has this person opened this before?" needs an answer from the *existing*
+// rows in `artifact_views`, asked before the current view is logged — see
+// `hasViewed`. Once logged, every view is indistinguishable from any other,
+// so the check has to run first or the view being recorded would count as
+// its own history and no view could ever be "first".
+
+/** Whether `email` has ever viewed this artifact, prior to whatever view is about to be logged. */
+export async function hasViewed(env: Env, slug: string, email: string): Promise<boolean> {
+  const row = await env.DB.prepare(
+    "SELECT 1 AS ok FROM artifact_views WHERE slug = ? AND email = ? LIMIT 1"
+  )
+    .bind(slug, email.toLowerCase())
+    .first<{ ok: number }>();
+  return !!row;
+}
+
+/**
+ * Read the `read_receipts` column defensively: only an explicit 0 disables
+ * it. NULL/undefined (a row read before migration 0016, or a test fixture
+ * that predates it) is treated as the documented default — ON — rather than
+ * as "off", which would silently suppress a feature nobody chose to disable.
+ */
+export function readReceiptsEnabled(art: Pick<ArtifactRow, "read_receipts">): boolean {
+  return art.read_receipts !== 0;
+}
+
+/** Flip an artifact's read-receipts setting. Owner-facing; see src/receipts-routes.ts. */
+export async function setReadReceipts(env: Env, slug: string, enabled: boolean, now: string): Promise<void> {
+  await env.DB.prepare("UPDATE artifacts SET read_receipts = ?, updated_at = ? WHERE slug = ?")
+    .bind(enabled ? 1 : 0, now, slug)
+    .run();
+}
+
 // --- Mail delivery status (per-grantee) ---
 //
 // `mail_log` already records every send attempt (see migration 0011); this is

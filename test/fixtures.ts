@@ -32,7 +32,7 @@ export async function initDb() {
       size_bytes INTEGER NOT NULL DEFAULT 0, created_by TEXT,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
       visibility TEXT NOT NULL DEFAULT 'restricted', current_version INTEGER NOT NULL DEFAULT 1,
-      owner_email TEXT, account_id TEXT)`
+      owner_email TEXT, account_id TEXT, read_receipts INTEGER NOT NULL DEFAULT 1)`
   ).run();
   await env.DB.prepare(
     `CREATE TABLE artifact_grants (

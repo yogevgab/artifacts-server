@@ -56,6 +56,9 @@ const linkCookieName = (slug: string) => `rtfx_link_${slug}`;
 import { shareRoutes } from "./share-routes";
 import { billingRoutes } from "./billing-routes";
 import { membersRoutes } from "./members-routes";
+import { receiptsRoutes } from "./receipts-routes";
+import { accessRequestRoutes } from "./access-request-routes";
+import { recordViewAndMaybeNotify } from "./read-receipts";
 import { membersPage } from "./members";
 import { verifyHandoff, mintSession, SESSION_TTL_SECONDS } from "./session";
 import { landingPage } from "./landing";
@@ -436,6 +439,8 @@ app.get("/admin/*", requireUser, async (c) =>
 // only gate. See src/billing.ts.
 app.route("/", billingRoutes);
 app.route("/", membersRoutes);
+app.route("/", receiptsRoutes);
+app.route("/", accessRequestRoutes);
 
 app.route("/api", api);
 
@@ -864,7 +869,10 @@ app.get("*", async (c) => {
   const isHtml = (res.headers.get("Content-Type") ?? "").startsWith("text/html");
   if (res.ok && isHtml && identity?.email) {
     const cf = (c.req.raw as { cf?: { country?: string } }).cf;
-    const p = logView(c.env, {
+    // Records the view and, on somebody's FIRST view of an artifact shared with
+    // them, emails the owner. Same view object, same fire-and-forget handling —
+    // a mail failure must never affect serving the page.
+    const p = recordViewAndMaybeNotify(c.env, {
       slug,
       version: art.current_version,
       email: identity.email,
@@ -872,7 +880,7 @@ app.get("*", async (c) => {
       country: cf?.country ?? null,
       referrer: (c.req.header("Referer") ?? "").slice(0, 500) || null,
       viewed_at: new Date().toISOString(),
-    });
+    }, art);
     let ctx: { waitUntil(promise: Promise<unknown>): void } | undefined;
     try {
       ctx = c.executionCtx;

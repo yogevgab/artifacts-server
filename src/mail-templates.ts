@@ -109,3 +109,74 @@ export function guestMail(o: {
 
   return { subject: `${o.title} was shared with you`, html, text };
 }
+
+/**
+ * Read receipt: the first time a person the artifact was shared with opens
+ * it, this is what the owner sees. Answers exactly the question the owner
+ * dashboard exists for — "did they see it yet" — without their having to look.
+ *
+ * There is no display-name field consulted anywhere else mail is sent from
+ * (the grant list and the view log both name people by address), so this
+ * names the viewer by the address they signed in with, for the same reason.
+ */
+export function viewNoticeMail(o: {
+  viewerEmail: string;
+  title: string;
+  dashboardUrl: string;
+}): RenderedMail {
+  const viewer = esc(o.viewerEmail);
+  const title = esc(o.title);
+  const url = esc(o.dashboardUrl);
+
+  const html = shell(
+    `<p style="font-size:16px;line-height:1.5;margin:0 0 20px;"><b>${viewer}</b> opened <b>${title}</b>.</p>
+     <a href="${url}" style="display:inline-block;background:#2438c8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-size:15px;font-weight:500;">View activity</a>
+     <p style="font-size:13px;line-height:1.5;margin:20px 0 0;color:#565d78;">This is the first time they've opened it — you'll only get this once per
+       person, per artifact. Turn it off any time from the artifact's settings.</p>`
+  );
+
+  const text = [
+    `${o.viewerEmail} opened ${o.title}.`,
+    "",
+    "This is the first time they've opened it. You'll only get this once per person, per artifact.",
+    "",
+    "View activity:",
+    o.dashboardUrl,
+    "",
+    "Turn this off any time from the artifact's settings.",
+  ].join("\n");
+
+  return { subject: `${o.viewerEmail} opened ${o.title}`, html, text };
+}
+
+/**
+ * Somebody without access asked for it, from the 404 page. Named and titled
+ * so the owner can act without digging: who is asking, for what, and the one
+ * link that grants it.
+ */
+export function accessRequestMail(o: {
+  requesterEmail: string;
+  title: string;
+  manageUrl: string;
+}): RenderedMail {
+  const requester = esc(o.requesterEmail);
+  const title = esc(o.title);
+  const url = esc(o.manageUrl);
+
+  const html = shell(
+    `<p style="font-size:16px;line-height:1.5;margin:0 0 20px;"><b>${requester}</b> asked for access to
+       <b>${title}</b>.</p>
+     <a href="${url}" style="display:inline-block;background:#2438c8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-size:15px;font-weight:500;">Review access</a>
+     <p style="font-size:13px;line-height:1.5;margin:20px 0 0;color:#565d78;">Open the link above and add
+       ${requester} to grant it.</p>`
+  );
+
+  const text = [
+    `${o.requesterEmail} asked for access to ${o.title}.`,
+    "",
+    "Review and grant access:",
+    o.manageUrl,
+  ].join("\n");
+
+  return { subject: `${o.requesterEmail} is asking for access to ${o.title}`, html, text };
+}

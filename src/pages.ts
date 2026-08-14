@@ -389,6 +389,52 @@ ${headTags(title, meta)}
 <body><div class="wrap">${body}</div></body></html>`;
 }
 
+const NOT_FOUND_STYLE = `
+.ask-access{margin-top:1.9rem;padding-top:1.6rem;border-top:1px solid var(--border);text-align:left}
+.ask-access p.hint{margin:0 0 .75rem;text-align:center;color:var(--muted);font-size:.9rem}
+.ask-access form{display:flex;gap:.6rem;flex-wrap:wrap;justify-content:center}
+.ask-access input{flex:1;min-width:14rem}
+.ask-access #ra-msg{max-width:28rem;margin:.85rem auto 0}
+`;
+
+/**
+ * The "ask for access" form's behaviour. Kept minimal on purpose: it posts an
+ * address, disables the button while in flight, and shows one of a small,
+ * fixed set of sentences — none of which is allowed to depend on whether the
+ * artifact exists, only on whether the *request itself* succeeded (see
+ * src/access-request-routes.ts for why).
+ */
+const REQUEST_ACCESS_SCRIPT = `<script>(function(){
+  var form = document.querySelector('[data-request-access]');
+  if(!form) return;
+  var msg = document.getElementById('ra-msg');
+  var btn = form.querySelector('button[type=submit]');
+  var email = document.getElementById('ra-email');
+  function show(text, kind){
+    msg.textContent = text; msg.hidden = false;
+    msg.className = kind === 'ok' ? 'is-ok' : kind === 'error' ? 'is-error' : '';
+  }
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    btn.disabled = true;
+    show('Sending…', '');
+    fetch(form.getAttribute('data-request-access'), {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ email: email.value.trim() })
+    }).then(function(res){
+      if (res.status === 429) { show('Too many requests — please try again in an hour.', 'error'); return; }
+      if (!res.ok) { show('Enter a valid email address.', 'error'); return; }
+      show("Sent. If you're missing access, the owner will hear from you.", 'ok');
+      form.reset();
+    }).catch(function(){
+      show('Network error — please try again.', 'error');
+    }).finally(function(){
+      btn.disabled = false;
+    });
+  });
+})();</script>`;
+
 /**
  * The 404 every missing *or* unauthorized artifact gets. This is the one page
  * rendered on the content origin as well as the app origin, which is why it
@@ -397,8 +443,28 @@ ${headTags(title, meta)}
  * It carries the lockup like every other surface (issue #35): somebody who
  * followed a link that no longer resolves should still be able to tell whose
  * product just answered them.
+ *
+ * The "ask for access" form below is a pure function of `slug` alone — it
+ * never queries anything, never learns whether the slug is real, and is
+ * shown whenever a slug is present, full stop. That is what keeps this page
+ * from becoming an existence oracle: a real, access-restricted slug and a
+ * completely invented one render the exact same markup, because the only
+ * input either path has ever had is the string itself. See
+ * src/access-request-routes.ts for the other half of that guarantee — the
+ * form's POST target, which is equally indifferent to what it answers.
  */
 export function notFoundPage(slug?: string): string {
+  const askAccess = slug
+    ? `<div class="ask-access" data-ask-access>
+        <p class="hint">Think you should have access? Ask the owner.</p>
+        <form data-request-access="/_access-request/${esc(encodeURIComponent(slug))}">
+          <label class="sr-only" for="ra-email">Your email address</label>
+          <input id="ra-email" name="email" type="email" required placeholder="you@example.com" autocomplete="email">
+          <button type="submit">Ask for access</button>
+        </form>
+        <div id="ra-msg" role="status" aria-live="polite" hidden></div>
+      </div>${REQUEST_ACCESS_SCRIPT}`
+    : "";
   const body = `${skipLink()}
     <header class="top">${brandLockup("/")}</header>
     <main class="empty" id="main" data-empty="not-found">
@@ -409,6 +475,7 @@ export function notFoundPage(slug?: string): string {
           : "Check the address, or head back to your dashboard."
       }</p>
       <p style="margin-top:1rem"><a href="/admin">← Back to your dashboard</a></p>
+      ${askAccess}
     </main>`;
-  return layout("Not found", body, BRAND_STYLE);
+  return layout("Not found", body, `${BRAND_STYLE}${NOT_FOUND_STYLE}`);
 }

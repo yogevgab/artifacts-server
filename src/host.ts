@@ -26,8 +26,15 @@ const MANAGEMENT_PREFIXES = ["/admin", "/api", "/v", "/auth", "/shared"];
  * origin's session cookie is host-only, so a cross-origin socket would carry no
  * credential at all. `_chat` can never be a slug — SLUG_RE requires the first
  * character to be [a-z0-9] — so this prefix is collision-free by construction.
+ *
+ * `/_access-request` joins it for the same structural reason: the "ask for
+ * access" form lives on `notFoundPage` (src/pages.ts), which is rendered on
+ * the content host too — that is the host somebody actually lands on when a
+ * shared link 404s. Its POST target must resolve there, not just on the app
+ * host where `/api/*` already lives (and is management-only, so it 404s on
+ * a content host). See src/access-request-routes.ts.
  */
-const CONTENT_PREFIXES = ["/_chat"];
+const CONTENT_PREFIXES = ["/_chat", "/_access-request"];
 
 export function isContentPrefix(path: string): boolean {
   return CONTENT_PREFIXES.some((p) => path === p || path.startsWith(p + "/"));
