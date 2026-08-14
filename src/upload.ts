@@ -7,7 +7,45 @@ export class UploadError extends Error {}
 export interface ProcessedUpload {
   files: UploadFile[];
   entry: string;
-  type: "single" | "bundle";
+  type: "single" | "bundle" | "pdf";
+}
+
+/**
+ * What was actually uploaded, decided by the bytes rather than the filename.
+ *
+ * A filename is a claim by the uploader; magic bytes are a fact. Trusting the
+ * extension would let `evil.pdf` contain HTML that then renders as a document
+ * with our chrome around it.
+ */
+export type UploadKind = "pdf" | "html" | "zip" | "unknown";
+
+const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46]; // %PDF
+const ZIP_MAGIC = [0x50, 0x4b]; // PK
+
+function startsWith(bytes: Uint8Array, magic: number[]): boolean {
+  if (bytes.length < magic.length) return false;
+  return magic.every((b, i) => bytes[i] === b);
+}
+
+export function sniffKind(_name: string, bytes: Uint8Array): UploadKind {
+  if (startsWith(bytes, PDF_MAGIC)) return "pdf";
+  if (startsWith(bytes, ZIP_MAGIC)) return "zip";
+  // Not magic-byte detectable, so fall back to a cheap structural check on the
+  // leading non-whitespace character. Good enough: HTML is the default anyway.
+  const head = new TextDecoder().decode(bytes.slice(0, 512)).trimStart().toLowerCase();
+  if (head.startsWith("<!doctype") || head.startsWith("<html") || head.startsWith("<")) return "html";
+  return "unknown";
+}
+
+/**
+ * Wrap a PDF as an artifact. Stored under a fixed entry name so the viewer
+ * always knows where to point, regardless of what the file was called.
+ */
+export function singlePdf(bytes: Uint8Array): ProcessedUpload {
+  if (!startsWith(bytes, PDF_MAGIC)) {
+    throw new UploadError("that file is not a PDF (it does not start with %PDF)");
+  }
+  return { files: [{ path: "document.pdf", bytes }], entry: "document.pdf", type: "pdf" };
 }
 
 /** Max size (bytes) of the raw upload as received (compressed .zip or a single .html), checked before reading the request body. */
