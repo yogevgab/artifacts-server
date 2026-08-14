@@ -13,6 +13,13 @@ export interface Env {
   EMAIL?: { send(message: unknown): Promise<{ messageId?: string }> };
   /** Envelope sender for transactional mail. Defaults to "no-reply@rtfx.pro". */
   MAIL_FROM?: string;
+  /**
+   * Secret (>= 32 bytes) signing app-owned session cookies. Set with
+   * `wrangler secret put SESSION_SECRET`. Absent means app sessions are simply
+   * not honoured — during the Cloudflare Access migration that degrades to the
+   * previous behaviour rather than failing the request.
+   */
+  SESSION_SECRET?: string;
   /** Comma-separated list of admin emails allowed to publish/delete. */
   ADMIN_EMAILS: string;
   /**

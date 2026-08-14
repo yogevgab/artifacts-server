@@ -2,6 +2,7 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { Context, MiddlewareHandler } from "hono";
 import type { Env } from "./env";
 import { canUseDashboard, hasScope } from "./authz";
+import { verifySession } from "./session";
 import { resolveAccountContext, type AccountContext } from "./accounts";
 import {
   findApiToken,
@@ -316,6 +317,59 @@ async function applyDirectory(c: AuthContext, identity: Identity): Promise<AuthR
  * Bearer auth does not bypass Cloudflare Access: Access still gates the
  * hostname/path at the edge. This is the second, app-layer check.
  */
+/** The app-owned session cookie. Host-only on the app origin — never the content host. */
+export const SESSION_COOKIE = "rtfx_session";
+
+/** One cookie value out of a Cookie header, without pulling in a parser. */
+export function readCookie(header: string | undefined, name: string): string | null {
+  if (!header) return null;
+  for (const part of header.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq === -1) continue;
+    if (part.slice(0, eq).trim() === name) return part.slice(eq + 1).trim();
+  }
+  return null;
+}
+
+/**
+ * Identity from an app-owned session cookie, or null.
+ *
+ * A guest is never an admin, even when their address appears in ADMIN_EMAILS: a
+ * guest session is a deliberately narrower credential than a sign-in, minted by
+ * clicking a link in a shared artifact's invitation, and it must not silently
+ * carry operator authority.
+ */
+async function identityFromSession(c: AuthContext): Promise<Identity | null> {
+  const secret = c.env.SESSION_SECRET;
+  if (!secret) return null;
+
+  const raw = readCookie(c.req.header("Cookie") ?? c.req.header("cookie"), SESSION_COOKIE);
+  if (!raw) return null;
+
+  const claims = await verifySession(secret, raw, new Date().toISOString());
+  if (!claims) return null;
+
+  if (claims.kind === "guest") {
+    return {
+      email: claims.email,
+      commonName: null,
+      isAdmin: false,
+      role: "member",
+      token: null,
+      kind: "guest",
+    };
+  }
+
+  return {
+    email: claims.email,
+    commonName: null,
+    isAdmin: isAdmin(c.env, claims.email),
+    role: effectiveRole(c.env, claims.email),
+    token: null,
+    kind: "member",
+  };
+}
+
 export async function resolveAuth(c: AuthContext): Promise<AuthResult> {
   const presented = bearerToken(c);
   if (presented !== null) {
@@ -326,6 +380,9 @@ export async function resolveAuth(c: AuthContext): Promise<AuthResult> {
     return applyDirectory(c, identity);
   }
   const env = c.env;
+  const session = await identityFromSession(c);
+  if (session) return applyDirectory(c, session);
+
   if (env.DEV_LOGIN === "true" && !isCanonicalProductionRequest(env, c.req.url)) {
     if (c.req.header("X-Dev-Anonymous") === "true") return ANONYMOUS;
     const email = (c.req.header("X-Dev-Email") || adminList(env)[0] || "dev@local").toLowerCase();
