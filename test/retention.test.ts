@@ -107,3 +107,45 @@ describe("publishing past the window on a free plan", () => {
     expect(row?.n).toBe(7);
   });
 });
+
+describe("expired versions are visible as expired", () => {
+  beforeEach(async () => {
+    await initDb();
+    await clearR2();
+  });
+
+  async function publish(n: number) {
+    const body = new FormData();
+    body.set("slug", "rolling");
+    if (n === 1) body.set("title", "Rolling");
+    body.set("file", new File([`<h1>v${n}</h1>`], "index.html", { type: "text/html" }));
+    return req("/api/artifacts", { method: "POST", body, ...as(OWNER) });
+  }
+
+  /**
+   * A version list that shows v1 and v2 exactly like v6 invites somebody to
+   * roll back to bytes that are gone. Marking them is the whole reason the row
+   * is kept rather than deleted.
+   */
+  it("reports expired on the versions API", async () => {
+    for (let i = 1; i <= 7; i++) await publish(i);
+    const res = await req("/api/artifacts/rolling/versions", as(OWNER));
+    const body = (await res.json()) as { versions: Array<{ version: number; expired: boolean }> };
+    const byVersion = Object.fromEntries(body.versions.map((v) => [v.version, v.expired]));
+    expect(byVersion[7]).toBe(false);
+    expect(byVersion[1]).toBe(true);
+    expect(byVersion[2]).toBe(true);
+  });
+
+  it("refuses a rollback to a version whose bytes are gone", async () => {
+    for (let i = 1; i <= 7; i++) await publish(i);
+    const res = await req("/api/artifacts/rolling/current", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version: 1 }),
+      ...as(OWNER),
+    });
+    expect(res.status).toBe(409);
+    expect((await res.json()) as any).toMatchObject({ error: "version_expired" });
+  });
+});

@@ -128,4 +128,6 @@ export interface VersionRow {
   note: string | null;
   created_by: string | null;
   created_at: string;
+  /** Set when the version fell outside the plan's retention window and its bytes were removed. */
+  expired_at?: string | null;
 }

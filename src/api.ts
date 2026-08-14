@@ -85,6 +85,7 @@ import {
   applyRetention,
   deleteVersion,
   listVersions,
+  getVersion,
   setCurrentVersion,
   getViews,
 } from "./db";
@@ -980,10 +981,14 @@ artifactRoutes.get("/artifacts/:slug/versions", requireScope("read"), async (c) 
   const slug = c.req.param("slug");
   const art = await manageable(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
+  const rows = await listVersions(c.env, slug);
   return c.json({
     current: art.current_version,
     url: artifactUrl(c, slug),
-    versions: await listVersions(c.env, slug),
+    // `expired` is surfaced rather than the raw timestamp because that is the
+    // only thing a caller can act on: an expired version cannot be rolled back
+    // to. Showing it identically to a live one would invite exactly that.
+    versions: rows.map((v) => ({ ...v, expired: !!v.expired_at })),
   });
 });
 
@@ -1007,6 +1012,21 @@ artifactRoutes.post("/artifacts/:slug/current", requireScope("publish"), async (
   if (!Number.isInteger(version) || version < 1) {
     return c.json({ error: "bad_request", detail: "version must be a positive integer" }, 400);
   }
+  // An expired version still has a history row but no bytes, so rolling back to
+  // it would leave the artifact serving nothing. Refused explicitly rather than
+  // 404 — "that version has expired" is actionable, "not found" is confusing
+  // when the version list plainly shows it.
+  const target = await getVersion(c.env, slug, version);
+  if (target?.expired_at) {
+    return c.json(
+      {
+        error: "version_expired",
+        detail: `version ${version} is outside this plan's retention window and its files are gone`,
+      },
+      409
+    );
+  }
+
   const ok = await setCurrentVersion(c.env, slug, version, new Date().toISOString());
   if (!ok) return c.json({ error: "not_found", detail: `version ${version} does not exist` }, 404);
   return c.json({ slug, current: version, url: artifactUrl(c, slug) });
