@@ -77,7 +77,8 @@ export interface ArtifactRow {
   slug: string;
   title: string;
   description: string | null;
-  type: "single" | "bundle";
+  /** "pdf" is a single document rather than a site; see src/upload.ts. */
+  type: "single" | "bundle" | "pdf";
   entry: string;
   file_count: number;
   size_bytes: number;
@@ -117,7 +118,8 @@ export interface ViewRow {
 export interface VersionRow {
   slug: string;
   version: number;
-  type: "single" | "bundle";
+  /** "pdf" is a single document rather than a site; see src/upload.ts. */
+  type: "single" | "bundle" | "pdf";
   entry: string;
   file_count: number;
   size_bytes: number;

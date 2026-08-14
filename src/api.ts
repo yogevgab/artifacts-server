@@ -70,7 +70,7 @@ import {
   MAX_EXPIRES_IN_DAYS,
 } from "./tokens";
 import { isValidSlug, slugify, contentType } from "./util";
-import { processZip, singleHtml, UploadError, MAX_UPLOAD_BYTES, type ProcessedUpload } from "./upload";
+import { processZip, singleHtml, singlePdf, sniffKind, UploadError, MAX_UPLOAD_BYTES, type ProcessedUpload } from "./upload";
 import { exceeds, limitsFor, usageFor } from "./quota";
 import {
   listArtifacts,
@@ -297,7 +297,11 @@ artifactRoutes.post("/artifacts", requireScope("publish"), async (c) => {
     if (bundleFile instanceof File && bundleFile.size > 0) {
       processed = processZip(new Uint8Array(await bundleFile.arrayBuffer()));
     } else if (htmlFile instanceof File && htmlFile.size > 0) {
-      processed = singleHtml(new Uint8Array(await htmlFile.arrayBuffer()));
+      // Decided by the bytes, never the filename: a filename is a claim by the
+      // uploader, magic bytes are a fact. Without this, `deck.pdf` containing
+      // HTML would be served as a document with our chrome around it.
+      const bytes = new Uint8Array(await htmlFile.arrayBuffer());
+      processed = sniffKind(htmlFile.name, bytes) === "pdf" ? singlePdf(bytes) : singleHtml(bytes);
     } else {
       return c.json({ error: "bad_request", detail: "provide a 'file' (.html) or 'bundle' (.zip)" }, 400);
     }

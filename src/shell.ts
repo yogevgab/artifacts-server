@@ -29,6 +29,14 @@ export interface ShellInput {
   grantCount: number;
   /** The path inside the artifact being viewed, "" for the root. */
   filePath: string;
+  /**
+   * The artifact's entry file. Usually index.html, but a PDF artifact's entry
+   * is document.pdf — the frame must point at what actually exists, or the
+   * shell renders around a 404.
+   */
+  entry?: string;
+  /** True when this artifact is a single document rather than a site. */
+  isDocument?: boolean;
 }
 
 const SHELL_STYLE = `
@@ -117,7 +125,10 @@ function banner(i: ShellInput): string {
 }
 
 export function shellPage(i: ShellInput): string {
-  const src = `/${encodeURIComponent(i.slug)}/${i.filePath}${i.filePath.includes("?") ? "&" : "?"}raw=1`;
+  // An empty filePath means "the artifact itself", which is its entry — not
+  // necessarily index.html.
+  const target = i.filePath || (i.entry && i.entry !== "index.html" ? i.entry : "");
+  const src = `/${encodeURIComponent(i.slug)}/${target}${target.includes("?") ? "&" : "?"}raw=1`;
 
   return `<!doctype html>
 <html lang="en"><head>
