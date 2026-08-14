@@ -111,7 +111,7 @@ export const TOOLS = [
           type: "string",
           minLength: 1,
           description:
-            "Path to publish: an .html file, a .zip, or a directory with index.html at its root. Relative paths resolve against the working directory the server was started in, so prefer an absolute path.",
+            "Path to publish: an .html file, a .pdf, a .zip, or a directory with index.html at its root. Relative paths resolve against the working directory the server was started in, so prefer an absolute path.",
         },
         slug: SLUG,
         title: {
