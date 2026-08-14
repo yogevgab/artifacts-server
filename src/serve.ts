@@ -33,6 +33,8 @@ export async function serveArtifact<E extends { Bindings: Env }>(
   headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("Referrer-Policy", "no-referrer");
+  // frame-ancestors is 'self', not 'none' and never '*': the viewer shell must be able
+  // to frame this content, and nothing else on the internet may. See src/shell.ts.
   // Keep artifact pages working: AI-built pages often load CDNs, fonts, images or iframes.
   // This CSP hardens the browser boundary that matters for the shared content origin
   // (no framing, no hostile <base>) without blocking those artifact subresources.
@@ -42,7 +44,7 @@ export async function serveArtifact<E extends { Bindings: Env }>(
       "script-src * data: blob: 'unsafe-inline' 'unsafe-eval'; " +
       "style-src * 'unsafe-inline'; img-src * data: blob:; font-src * data:; " +
       "connect-src *; media-src * data: blob:; frame-src *; worker-src * blob:; " +
-      "frame-ancestors 'none'; base-uri 'none'"
+      "frame-ancestors 'self'; base-uri 'none'"
   );
   headers.set("ETag", obj.httpEtag);
   return new Response(obj.body, { headers });
