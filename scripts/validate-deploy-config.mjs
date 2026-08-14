@@ -32,7 +32,7 @@ function main() {
     for (const m of ok) console.log(`  ✓ ${m}`);
   }
   if (pending.length) {
-    console.log("\nPending (fill in during manual Cloudflare provisioning — see docs/DEPLOY_RTFX.md):");
+    console.log("\nPending (fill in before production launch — see docs/DEPLOY_RTFX.md):");
     for (const m of pending) console.log(`  … ${m}`);
   }
   if (errors.length) {

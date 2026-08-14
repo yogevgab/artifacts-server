@@ -144,12 +144,13 @@ describe("the legal pages are honest about what they are", () => {
   it("describes the data this codebase actually stores, table by table", async () => {
     const body = (await html("/privacy", ANON)).toLowerCase();
     for (const claim of [
-      "cloudflare access",
       "one-time code",
+      "magic link",
       "view log",
       "api token",
       "hash",
       "r2",
+      "lemon squeezy",
     ]) {
       expect(body, claim).toContain(claim);
     }
@@ -214,7 +215,7 @@ describe("the cookie notice", () => {
   it("keeps the short notice consistent with the privacy cookie inventory", async () => {
     const notice = text(await html("/", ANON));
     const privacy = text(await html("/privacy", ANON));
-    for (const claim of ["cloudflare access", "security cookies", "localstorage", "no analytics"]) {
+    for (const claim of ["sign-in session cookie", "security cookies", "localstorage", "no analytics"]) {
       expect(notice, claim).toContain(claim);
       expect(privacy, claim).toContain(claim);
     }
@@ -228,7 +229,7 @@ describe("the cookie notice", () => {
   it("documents each stored item on /privacy under a stable #cookies anchor", async () => {
     const body = await html("/privacy", ANON);
     expect(body).toContain('<section id="cookies">');
-    for (const name of ["CF_Authorization", "__cf_bm", CONSENT_KEY]) {
+    for (const name of ["rtfx_session", "__cf_bm", CONSENT_KEY]) {
       expect(body, name).toContain(name);
     }
     expect(body).toContain("strictly necessary");

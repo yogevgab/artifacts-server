@@ -196,8 +196,8 @@ const privacyParts = (analytics: boolean): readonly Part[] => [
     id: "summary",
     heading: "The short version",
     html: `<ul>
-      <li>We identify you by <b>email address</b>, because that is what Cloudflare Access signs
-        you in with. There is no password to store, and we never see one.</li>
+      <li>We identify you by <b>email address</b>. Sign-in is passwordless: rtfx.pro emails
+        a one-time code and magic link, and there is no password to store.</li>
       <li>We store <b>what you publish</b> — your files, their versions, and the access list you
         set — because hosting them is the product.</li>
       <li>We record <b>who opened each artifact</b>, and show that log to the artifact's owner.
@@ -231,7 +231,7 @@ const privacyParts = (analytics: boolean): readonly Part[] => [
       <thead><tr><th scope="col">What</th><th scope="col">Where it comes from</th><th scope="col">Why</th></tr></thead>
       <tbody>
         <tr><th scope="row">Email address</th>
-          <td>Cloudflare Access, when you sign in with a one-time code.</td>
+          <td>You, when you sign in or create an account with a one-time code.</td>
           <td>It is your identity here: it decides what you can open and what you own.</td></tr>
         <tr><th scope="row">Account record</th>
           <td>Created on first sign-in; an admin may add a display name or note.</td>
@@ -251,9 +251,15 @@ const privacyParts = (analytics: boolean): readonly Part[] => [
           <td>You, when you mint one.</td>
           <td>Name, scopes, owner, created/last-used timestamps. The token itself is stored only
             as a hash — we cannot show it to you again after it is created.</td></tr>
-        <tr><th scope="row">Access requests</th>
-          <td>The "Request access" form on the landing page.</td>
-          <td>Your email address and when you submitted it, so we can send an invitation.</td></tr>
+        <tr><th scope="row">Signup records</th>
+          <td>You, when you create a workspace.</td>
+          <td>Your email address, workspace membership and plan so the account can exist and limits can be enforced.</td></tr>
+        <tr><th scope="row">Sign-in challenges</th>
+          <td>Created when you ask rtfx.pro to email a code or magic link.</td>
+          <td>Hashed code/link data, attempts and expiry time, so a short-lived code can sign you in without storing a password.</td></tr>
+        <tr><th scope="row">Billing records</th>
+          <td>Lemon Squeezy, when a workspace changes plan.</td>
+          <td>Plan, subscription/customer identifiers and status. Payment-card details stay with Lemon Squeezy, not rtfx.pro.</td></tr>
         <tr><th scope="row">Infrastructure logs</th>
           <td>Cloudflare, as the network and platform serving every request.</td>
           <td>Standard request logging and abuse prevention, under Cloudflare's own terms.</td></tr>
@@ -262,7 +268,7 @@ const privacyParts = (analytics: boolean): readonly Part[] => [
     <h3>What we do not collect</h3>
     <ul>
       <li>No passwords — sign-in is passwordless, so none exist.</li>
-      <li>No payment details. There is no billing in this deployment.</li>
+      <li>No card numbers or bank details. Paid checkout is handled by Lemon Squeezy; rtfx.pro stores only plan/subscription metadata.</li>
       <li>No advertising or fingerprinting. No analytics or session recording anywhere except the
         dashboard, and only there once you say yes — see the next section for exactly what that is
         and how to say no.</li>
@@ -315,11 +321,10 @@ const privacyParts = (analytics: boolean): readonly Part[] => [
     <div class="table-wrap"><table class="data">
       <thead><tr><th scope="col">Name</th><th scope="col">Kind</th><th scope="col">What it is for</th></tr></thead>
       <tbody>
-        <tr><th scope="row"><code>CF_Authorization</code></th>
+        <tr><th scope="row"><code>rtfx_session</code></th>
           <td>Cookie · strictly necessary</td>
-          <td>Set by Cloudflare Access when you sign in, and the reason you stay signed in. Without
-            it there is no way to be authenticated, so it cannot be declined while using the
-            dashboard. Cleared by signing out at <code>/cdn-cgi/access/logout</code>.</td></tr>
+          <td>Set by rtfx.pro after you verify your email address. It is the reason you stay signed in;
+            without it there is no dashboard session. Cleared by signing out at <code>/logout</code>.</td></tr>
         <tr><th scope="row"><code>__cf_bm</code> and similar</th>
           <td>Cookie · strictly necessary</td>
           <td>Cloudflare's own bot-management and security cookies, set by the network in front of
@@ -360,9 +365,8 @@ const privacyParts = (analytics: boolean): readonly Part[] => [
       <li><b>Legitimate interests.</b> The view log (an artifact's owner needs to know who opened
         what they shared), API token metadata, and security/abuse prevention. We keep these to
         the minimum that serves the purpose.</li>
-      <li><b>Consent.</b> The access-request form — you gave us your address so we would contact
-        you, and you can ask us to delete it at any time — and dashboard session recording and
-        error tracking, which runs only if you accept it and never again once you decline.</li>
+      <li><b>Consent.</b> Dashboard session recording and error tracking, which runs only if you
+        accept it and never again once you decline.</li>
     </ul>`,
   },
   {
@@ -380,17 +384,18 @@ const privacyParts = (analytics: boolean): readonly Part[] => [
         and we do not use it to train anything.</li>
     </ul>
     <h3>Processors</h3>
-    <p>Cloudflare provides the whole platform: the network, the Workers runtime, Cloudflare Access
-      (identity and the one-time-code emails), the D1 database and the R2 object storage holding
-      your files. Data is processed on Cloudflare's global network, which means it may be handled
-      outside your own country under Cloudflare's data-processing terms.${
+    <p>Cloudflare provides the platform: the network, Workers runtime, D1 database, R2 object
+      storage and Email Sending used for one-time-code messages. Data is processed on Cloudflare's
+      global network, which means it may be handled outside your own country under Cloudflare's
+      data-processing terms.${
         analytics
           ? ` PostHog processes
       dashboard session recordings and error reports, but only for people who accepted them — see
       <a href="#dashboard-analytics">Session recording and error tracking</a> above.`
           : ""
-      } We disclose
-      data to anyone else only where the law requires it.</p>`,
+      }</p>
+    <p>Lemon Squeezy processes paid-plan checkout and subscription events when a workspace upgrades.
+      We disclose data to anyone else only where the law requires it.</p>`,
   },
   {
     id: "retention",
@@ -402,8 +407,9 @@ const privacyParts = (analytics: boolean): readonly Part[] => [
       <li><b>Your account record</b> — for as long as you have access. Pausing an account keeps
         it; deletion removes it.</li>
       <li><b>API tokens</b> — until revoked or expired.</li>
-      <li><b>Access requests</b> — stored as a waitlist record until the operator acts on it or
-        removes it manually.</li>
+      <li><b>Sign-in challenges</b> — expire after a short time and cannot be used once consumed.</li>
+      <li><b>Billing metadata</b> — kept while the workspace exists and as needed for accounting,
+        fraud prevention and dispute handling.</li>
     </ul>`,
   },
   {
@@ -426,8 +432,8 @@ const privacyParts = (analytics: boolean): readonly Part[] => [
       <li>Artifact files are served from a separate origin, so uploaded HTML can never run in the
         same origin as the dashboard or the API.</li>
       <li>API tokens are stored hashed, scoped, owner-bound and revocable.</li>
-      <li>Everything is served over TLS, and sign-in is handled by Cloudflare Access rather than
-        by a password store of our own.</li>
+      <li>Everything is served over TLS, and sign-in uses one-time email codes and magic links rather
+        than a password store.</li>
     </ul>
     <p>No system is perfect. If you find a security problem, please report it rather than test it
       further — see the repository's security policy.</p>`,
@@ -435,8 +441,8 @@ const privacyParts = (analytics: boolean): readonly Part[] => [
   {
     id: "children",
     heading: "Children",
-    html: `<p>rtfx.pro is a tool for professional work and is not directed at children. Access is
-      by invitation, and we do not knowingly create accounts for anyone under 16.</p>`,
+    html: `<p>rtfx.pro is a tool for professional work and is not directed at children. We do not
+      knowingly create accounts for anyone under 16.</p>`,
   },
   {
     id: "changes",
@@ -472,7 +478,7 @@ export function privacyPage(env: Env): string {
 // --- /terms -----------------------------------------------------------------
 
 const TERMS_DESCRIPTION =
-  "The terms of use for rtfx.pro: invite-only access, what you may publish, who owns your " +
+  "The terms of use for rtfx.pro: accounts, plans, what you may publish, who owns your " +
   "content, how API tokens and agents are treated, and the limits of the service.";
 
 const TERMS_PARTS: readonly Part[] = [
@@ -488,10 +494,10 @@ const TERMS_PARTS: readonly Part[] = [
     id: "access",
     heading: "Access and accounts",
     html: `<ul>
-      <li>Access is <b>by invitation</b>. An account exists because somebody added your address,
-        and it can be paused or removed by an administrator of this deployment.</li>
-      <li>Sign-in is passwordless: Cloudflare Access emails you a one-time code. Keep control of
-        the mailbox behind your address — anyone with it can sign in as you.</li>
+      <li>You create an account by verifying control of an email address. Every workspace starts on
+        the Free plan and can be paused or removed by an administrator where needed.</li>
+      <li>Sign-in is passwordless: rtfx.pro emails you a one-time code and magic link. Keep control
+        of the mailbox behind your address — anyone with it can sign in as you.</li>
       <li>One account is one person. Do not share an account; use per-person invitations, or an
         API token for anything automated.</li>
     </ul>`,
@@ -550,9 +556,10 @@ const TERMS_PARTS: readonly Part[] = [
   {
     id: "fees",
     heading: "Fees",
-    html: `<p>There is no charge for accounts in this phase, and no billing exists in the product
-      today. If paid plans are introduced, existing accounts will be told what changes before it
-      applies to them, and nothing you already published will be held hostage to it.</p>`,
+    html: `<p>Every workspace starts on the Free plan. Paid Pro and Team plans are optional monthly
+      upgrades handled by Lemon Squeezy, and the dashboard shows the plan limits before you upgrade.
+      Downgrading never makes existing artifacts disappear, but lower limits may stop new publishing
+      until usage fits the selected plan.</p>`,
   },
   {
     id: "suspension",

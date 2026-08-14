@@ -80,7 +80,7 @@ describe("public pages share one header and one footer", () => {
       expect(body, path).toContain('<nav aria-label="Footer">');
       // Same destinations, in the same order, wherever you are.
       expect(body, path).toContain('href="/docs#use-cases"');
-      expect(body, path).toContain('data-cta="request-access"');
+      expect(body, path).toContain('data-cta="signup"');
       expect(body, path).toContain('href="/llms.txt"');
     }
   });
@@ -103,7 +103,7 @@ describe("public pages share one header and one footer", () => {
   it("hides only the orientation links on a narrow screen, never the next step", async () => {
     const body = await html("/", ANON);
     expect(body).toContain('.nav a[data-nav="use-cases"],.nav a[data-nav="home"]{display:none}');
-    expect(body).not.toMatch(/\.nav a\[data-cta="request-access"\][^{]*\{display:none/);
+    expect(body).not.toMatch(/\.nav a\[data-cta="signup"\][^{]*\{display:none/);
   });
 });
 
@@ -145,7 +145,7 @@ describe("the landing page leads with one idea", () => {
 
   it("uses valid links for the hero CTAs, not nested interactive controls", async () => {
     const body = await html("/", ANON);
-    expect(body).toContain('<a class="link-button" href="#waitlist" data-cta="request-access">Request access</a>');
+    expect(body).toContain('<a class="link-button" href="/signup" data-cta="signup">Start free</a>');
     expect(body).toContain('<a class="ghost link-button" href="/docs" data-cta="docs">See how it works</a>');
     expect(body).not.toMatch(/<a[^>]*>\s*<button/i);
   });
@@ -170,10 +170,10 @@ describe("the landing page leads with one idea", () => {
     }
   });
 
-  it("still carries the waitlist form the whole funnel depends on", async () => {
+  it("still carries the final conversion section the whole funnel depends on", async () => {
     const body = await html("/", ANON);
     expect(body).toContain('id="waitlist"');
-    expect(body).toContain('id="wl"');
+    expect(body).toContain('data-cta="signup-final"');
   });
 
   /**

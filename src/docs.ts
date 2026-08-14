@@ -119,9 +119,9 @@ const FAQS: readonly Faq[] = [
   {
     q: "Who can sign in to rtfx.pro?",
     a:
-      "Access is by invitation. Cloudflare Access is the identity provider and sign-in is " +
-      "passwordless — you get a one-time code by email. Request access from the landing page and " +
-      "we'll send an invitation.",
+      "Signup is self-serve. rtfx.pro is the identity provider and sign-in is passwordless — " +
+      "create an account or sign in with a one-time code or magic link by email. Every workspace " +
+      "starts on Free; paid plans are optional upgrades from Settings.",
   },
   {
     q: "Can someone I share an artifact with see my other artifacts?",
@@ -134,9 +134,9 @@ const FAQS: readonly Faq[] = [
     a:
       "Not today, and nothing here pretends otherwise. Access is by identity instead: you name " +
       "the people who may open an artifact, and everyone else — signed in or not — gets a 404. " +
-      "Sign-in itself is passwordless, a one-time code by email through Cloudflare Access, so " +
-      "there is no shared secret to leak, rotate or forget. Per-link secrets, link expiry and " +
-      "custom domains are planned, and they are listed as planned on this page.",
+      "Sign-in itself is passwordless — a one-time code or magic link by email — so there is " +
+      "no shared secret to leak, rotate or forget. Per-link secrets and custom domains are " +
+      "listed as not built on this page; share links with optional expiry are built.",
   },
   {
     q: "How is this different from the other tools for sharing what Claude built?",
@@ -371,9 +371,9 @@ tools: publish · list_artifacts · get_versions · rollback · doctor</code></p
         <h2>Access &amp; privacy model</h2>
         <p>There are two independent layers, and both must say yes.</p>
         <ol>
-          <li><b>Who may sign in at all.</b> Cloudflare Access is the identity provider; the people
-            list is managed in the dashboard. Sign-in is passwordless — a one-time code by email.
-            Access to rtfx.pro is by invitation.</li>
+          <li><b>Who may sign in at all.</b> rtfx.pro owns the identity layer. Signup and sign-in are
+            passwordless — a one-time code or magic link by email — and every new workspace starts
+            on the Free plan.</li>
           <li><b>Who may open a given artifact.</b> Either <i>restricted</i> (the owner plus the
             people they name) or <i>everyone signed in</i>. Sharing one artifact never widens who can
             sign in, and never exposes anything else you own.</li>
@@ -469,19 +469,17 @@ tools: publish · list_artifacts · get_versions · rollback · doctor</code></p
         <p>Listed so you know they are deliberate gaps rather than things you failed to find. If a
           project needs one of these today, this is the honest place to find that out.</p>
         <ul class="stance" data-positioning="not-yet">
-          <li><b>Per-link secrets.</b> <span class="stance-flag">Not built</span> A shared code on
-            the link itself, for handing something to someone who will never have an account. Today
-            the answer is an invitation and an access list.</li>
-          <li><b>Link expiry.</b> <span class="stance-flag">Not built</span> Access is revoked by
-            hand, not on a timer. API tokens do carry an optional expiry.</li>
+          <li><b>Per-link secrets.</b> <span class="stance-flag">Not built</span> A shared password
+            on the link itself, separate from the recipient's email identity. Today the answer is an
+            identity-backed access list, an optional share link, and optional expiry.</li>
           <li><b>Custom domains.</b> <span class="stance-flag">Not built</span> Serving artifacts
             from your own hostname. Content already runs on its own origin, which is the hard
             part.</li>
           <li><b>Comments, approvals and polls.</b> <span class="stance-flag">Not built</span>
             rtfx.pro publishes and controls the artifact; it is not the review tool around it.</li>
-          <li><b>Self-serve signup and billing.</b> <span class="stance-flag">Not built</span>
-            Access is granted by invitation, by a person. There is no signup form that ends in an
-            account, no plans and no payment — nothing is charged for rtfx.pro today.</li>
+          <li><b>Approvals, polls and review workflows.</b> <span class="stance-flag">Not built</span>
+            rtfx.pro can show read receipts and access requests, but it is not a review workflow
+            system around the artifact yet.</li>
         </ul>
       </section>
 
@@ -493,7 +491,7 @@ tools: publish · list_artifacts · get_versions · rollback · doctor</code></p
           <thead><tr><th scope="col">What you need</th><th scope="col">Generic static hosting</th><th scope="col">rtfx.pro</th></tr></thead>
           <tbody>
             <tr><th scope="row">Privacy</th><td>Public by default; an unlisted URL is the whole defence — anyone with the link is in.</td><td>Private by default. Access is per artifact, per person, and revocable.</td></tr>
-            <tr><th scope="row">Identity</th><td>Bring your own auth, or bolt on a password everyone shares.</td><td>Passwordless sign-in through Cloudflare Access, with a managed people list.</td></tr>
+            <tr><th scope="row">Identity</th><td>Bring your own auth, or bolt on a password everyone shares.</td><td>Passwordless rtfx.pro email sign-in, workspace members and per-artifact guests.</td></tr>
             <tr><th scope="row">Versions</th><td>A deploy overwrites the last one; rollback means a rebuild.</td><td>Every publish is an immutable version with its own preview and one-click rollback.</td></tr>
             <tr><th scope="row">Audit</th><td>Raw request logs, if you wire up analytics.</td><td>A per-artifact view log: person, time, country, version.</td></tr>
             <tr><th scope="row">Agent workflow</th><td>Git push, build, wait, configure.</td><td>One command, or one API call, from inside the session that made the page.</td></tr>
@@ -537,9 +535,9 @@ tools: publish · list_artifacts · get_versions · rollback · doctor</code></p
 
       <section class="doc-cta">
         <h2>Get an account</h2>
-        <p>Access is invite-only — tell us where to send yours.</p>
+        <p>Create a workspace on the Free plan, or sign in if you already have one.</p>
         <div class="actions">
-          <a class="link-button" href="/#waitlist" data-cta="request-access">Request access</a>
+          <a class="link-button" href="/signup" data-cta="signup">Start free</a>
           <a class="ghost link-button" href="/login" data-cta="sign-in">Sign in</a>
         </div>
       </section>

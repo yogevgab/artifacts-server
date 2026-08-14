@@ -139,10 +139,8 @@ describe("/docs#why-rtfx: table stakes vs differentiators", () => {
     const section = html.slice(open, html.indexOf("</ul>", open));
     for (const gap of [
       "Per-link secrets",
-      "Link expiry",
       "Custom domains",
-      // The two an invite-only product is most likely to be assumed to have.
-      "Self-serve signup and billing",
+      "Approvals, polls and review workflows",
     ]) {
       expect(section, `not-yet list missing: ${gap}`).toContain(gap);
     }
@@ -161,7 +159,7 @@ describe("/docs#why-rtfx: table stakes vs differentiators", () => {
      * fails here rather than shipping as an implied feature.
      */
     const items = section.split("<li>").slice(1);
-    expect(items.length, "not-yet list has no items").toBeGreaterThanOrEqual(5);
+    expect(items.length, "not-yet list has no items").toBeGreaterThanOrEqual(4);
     for (const item of items) {
       expect(item, `unlabelled gap: ${item.slice(0, 60)}`).toContain(
         '<span class="stance-flag">Not built</span>'
@@ -175,6 +173,8 @@ describe("/docs#why-rtfx: table stakes vs differentiators", () => {
     // so it must have left this list — that is the failure mode of a feature
     // landing and the copy only being half-updated.
     expect(section.toLowerCase(), "MCP is shipped; it cannot still be listed as planned").not.toContain("mcp");
+    expect(section.toLowerCase(), "Link expiry is shipped; it cannot still be listed as planned").not.toContain("link expiry");
+    expect(section.toLowerCase(), "Signup and billing are shipped; they cannot still be listed as planned").not.toContain("self-serve signup");
   });
 
   it("keeps the new prose inside the existing docs shell, not a new page", async () => {

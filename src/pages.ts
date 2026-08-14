@@ -238,7 +238,7 @@ export function siteHeader(current: PublicPage = "home"): string {
     current === "home" ? "" : `<a href="/" data-nav="home">Home</a>`,
     current === "docs" ? "" : `<a href="/docs" data-cta="docs">Docs</a>`,
     `<a href="/docs#use-cases" data-nav="use-cases">Use cases</a>`,
-    `<a href="/#waitlist" class="primary" data-cta="request-access">Request access</a>`,
+    `<a href="/signup" class="primary" data-cta="signup">Start free</a>`,
     current === "login" ? "" : `<a href="/login" data-cta="sign-in">Sign in →</a>`,
   ].filter(Boolean);
   return `${skipLink()}
@@ -260,12 +260,13 @@ export function siteFooter(): string {
         <a href="/">Home</a>
         <a href="/docs" data-cta="docs">Docs</a>
         <a href="/docs#use-cases">Use cases</a>
+        <a href="/signup" data-cta="signup">Start free</a>
         <a href="/login" data-cta="sign-in">Sign in</a>
-        <!-- The strongest thing a security product can offer somebody it has not
-             invited yet: read the code and the threat model before asking for an
-             account. The repository is public and the product is MIT-licensed, so
-             this costs nothing and answers the question an invite-only page
-             otherwise leaves open — "what am I being asked to trust?" -->
+        <!-- The strongest thing a security product can offer somebody before they
+             sign up: read the code and the threat model. The repository is public
+             and the product is MIT-licensed, so this costs nothing and answers the
+             question every secure-hosting product has to earn — "what am I being
+             asked to trust?" -->
         <a href="${SOURCE_URL}" data-nav="source" rel="noopener">Source</a>
         <a href="${SOURCE_URL}/blob/main/SECURITY.md" data-nav="security" rel="noopener">Security</a>
         <a href="/llms.txt">llms.txt</a>
@@ -302,7 +303,7 @@ footer.site nav.legal a:hover{color:var(--fg)}
   header.top{position:static;border-radius:22px}
   .nav{gap:.55rem}
   /* The two orientation links go first on a narrow screen; the two that move a
-     person forward (request access, sign in) always stay. */
+     person forward (signup, sign in) always stay. */
   .nav a[data-nav="use-cases"],.nav a[data-nav="home"]{display:none}
 }
 /* Touch targets in the nav: a 0.9rem text link is not 44px on its own. The

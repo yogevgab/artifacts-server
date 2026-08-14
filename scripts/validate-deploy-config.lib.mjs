@@ -72,7 +72,7 @@ function parseHostnames(raw) {
  * `errors` are structural mistakes that break the app regardless of provisioning
  * state (e.g. a content hostname with no matching route). `pending` are fields
  * that are legitimately blank until Cloudflare resources are manually provisioned
- * (D1 database id, Access ids, admin email).
+ * state (D1 database id, admin email, billing ids).
  */
 export function checkWranglerConfig(config) {
   const errors = [];
@@ -148,20 +148,16 @@ export function checkWranglerConfig(config) {
   }
 
   for (const key of [
-    "ACCESS_TEAM_DOMAIN",
-    "ACCESS_AUD",
-    "CF_ACCOUNT_ID",
-    "ACCESS_VIEWER_APP_ID",
-    "ACCESS_VIEWER_POLICY_ID",
-    "ADMIN_SERVICE_TOKENS",
+    "LEMONSQUEEZY_STORE_ID",
+    "LEMONSQUEEZY_VARIANT_FREE",
+    "LEMONSQUEEZY_VARIANT_PRO",
+    "LEMONSQUEEZY_VARIANT_TEAM",
   ]) {
-    if (!vars[key]) pending.push(`vars.${key} is empty — set after configuring Cloudflare Access (see docs/DEPLOY_RTFX.md)`);
+    if (!vars[key]) pending.push(`vars.${key} is empty — set Lemon Squeezy billing config before paid launch`);
     else ok.push(`${key} is set`);
   }
 
-  pending.push(
-    "secret CF_API_TOKEN is not checked here (not stored in wrangler.jsonc) — set with `wrangler secret put CF_API_TOKEN`"
-  );
+  ok.push("SESSION_SECRET and LEMONSQUEEZY_WEBHOOK_SECRET are secrets — verify with `wrangler secret list`");
 
   return { errors, pending, ok };
 }

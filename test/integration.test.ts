@@ -22,15 +22,15 @@ describe("health + landing", () => {
     expect(res.status).toBe(200);
     const body = await res.text();
     expect(body).toContain('id="waitlist"');
-    expect(body).toContain('id="wl"');
-    expect(body).toContain("Request access");
+    expect(body).toContain('data-cta="signup"');
+    expect(body).toContain("Start free");
     expect(body).toContain("Sign in");
     expect(body).not.toContain("No artifacts yet");
   });
 
   // Issue #29: rtfx.pro is a shipped product with controlled access, not a
-  // preview of one. "Invite-only" describes who may sign in and is welcome;
-  // "beta"/"MVP" describe how finished the product is, and must not appear.
+  // preview of one. "beta"/"MVP" describe how finished the product is and must
+  // not appear.
   it("public pages avoid preview-stage framing", async () => {
     for (const path of ["/", "/docs", "/login"]) {
       const body = (await (await req(path)).text()).toLowerCase();

@@ -149,7 +149,7 @@ describe("llms.txt", () => {
   it("describes the access model and says what is deliberately not crawlable", () => {
     const txt = llmsTxt({}).toLowerCase();
     expect(txt).toContain("private by default");
-    expect(txt).toContain("cloudflare access");
+    expect(txt).toContain("passwordless one-time email code or magic link");
     expect(txt).toContain("claude code");
     expect(txt).toContain("hermes");
     expect(txt).toContain("not indexed");

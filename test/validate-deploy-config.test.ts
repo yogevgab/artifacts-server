@@ -17,13 +17,12 @@ function baseConfig(overrides: Record<string, unknown> = {}) {
     send_email: [{ name: "EMAIL", allowed_sender_addresses: ["no-reply@rtfx.pro"] }],
     vars: {
       ADMIN_EMAILS: "admin@rtfx.pro",
-      ACCESS_TEAM_DOMAIN: "rtfx.cloudflareaccess.com",
-      ACCESS_AUD: "aud1,aud2",
-      CF_ACCOUNT_ID: "acct123",
-      ACCESS_VIEWER_APP_ID: "app1",
-      ACCESS_VIEWER_POLICY_ID: "pol1",
-      ADMIN_SERVICE_TOKENS: "cli-token.access",
+      MAIL_FROM: "no-reply@rtfx.pro",
       CONTENT_HOSTNAMES: "a.rtfx.pro",
+      LEMONSQUEEZY_STORE_ID: "rtfxpro",
+      LEMONSQUEEZY_VARIANT_FREE: "free",
+      LEMONSQUEEZY_VARIANT_PRO: "pro",
+      LEMONSQUEEZY_VARIANT_TEAM: "team",
     },
     ...overrides,
   };
@@ -42,10 +41,11 @@ describe("stripJsonComments", () => {
 });
 
 describe("checkWranglerConfig", () => {
-  it("reports a fully-configured config with no errors and only the CF_API_TOKEN secret reminder pending", () => {
-    const { errors, pending } = checkWranglerConfig(baseConfig());
+  it("reports a fully-configured launch config with no errors or pending config", () => {
+    const { errors, pending, ok } = checkWranglerConfig(baseConfig());
     expect(errors).toEqual([]);
-    expect(pending).toEqual([expect.stringContaining("CF_API_TOKEN")]);
+    expect(pending).toEqual([]);
+    expect(ok.some((m: string) => m.includes("SESSION_SECRET"))).toBe(true);
   });
 
   it("errors when the app hostname route is missing", () => {
@@ -96,11 +96,11 @@ describe("checkWranglerConfig", () => {
     expect(pending.some((p: string) => p.includes("ADMIN_EMAILS"))).toBe(true);
   });
 
-  it("flags empty Access vars as pending", () => {
+  it("flags empty billing vars as pending", () => {
     const cfg = baseConfig();
-    (cfg.vars as Record<string, string>).ACCESS_TEAM_DOMAIN = "";
+    (cfg.vars as Record<string, string>).LEMONSQUEEZY_VARIANT_PRO = "";
     const { pending } = checkWranglerConfig(cfg);
-    expect(pending.some((p: string) => p.includes("ACCESS_TEAM_DOMAIN"))).toBe(true);
+    expect(pending.some((p: string) => p.includes("LEMONSQUEEZY_VARIANT_PRO"))).toBe(true);
   });
 
   it("errors when the R2 FILES binding is missing", () => {

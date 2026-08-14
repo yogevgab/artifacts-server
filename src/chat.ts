@@ -152,6 +152,15 @@ export class ChatRoom extends DurableObject<Env> {
     }
   }
 
+  /** The hibernation API expects close/error hooks when sockets disappear. */
+  webSocketClose(): void {
+    // No per-socket in-memory state is kept, so there is nothing to clean up.
+  }
+
+  webSocketError(): void {
+    // A broken client connection must not affect the room or stored history.
+  }
+
   /** Read-only history, for callers that want it without a socket. */
   async history(): Promise<StoredMessage[]> {
     return this.recent();

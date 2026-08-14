@@ -13,9 +13,9 @@ import { ALL_PLANS, planFeatures } from "./plan-copy";
  * — no Access application in front of it, no identity read, same bytes for a
  * crawler and a customer. Three things follow from that:
  *
- *  - **It reads like a shipped product, not a preview.** Access to rtfx.pro is
- *    by invitation, and the copy says so plainly, but "invite-only" describes
- *    *who can sign in*, never the maturity of the thing they're signing in to.
+ *  - **It reads like a shipped product, not a preview.** Signup is self-serve,
+ *    every workspace starts free, and the page says so without a waitlist-shaped
+ *    detour.
  *  - **It carries the site's metadata.** Canonical URL, OpenGraph/Twitter card
  *    and structured data all live here (see `src/seo.ts`), because this page is
  *    what gets linked, shared and quoted by an answer engine.
@@ -122,7 +122,7 @@ const btn = $('#wl button[type=submit]');
    class now, and only a real answer turns the box green or red. */
 function show(text, kind){ msg.textContent=text; msg.hidden=false;
   msg.className = kind === 'ok' ? 'is-ok' : kind === 'error' ? 'is-error' : ''; }
-$('#wl').addEventListener('submit', async (e)=>{
+if ($('#wl')) $('#wl').addEventListener('submit', async (e)=>{
   e.preventDefault();
   const email = $('#email').value.trim();
   /* Disabling the button is what stops an impatient double-submit from
@@ -218,19 +218,20 @@ function structuredData(env: Env): unknown[] {
           softwareVersion: "1.0.0",
           codeRepository: SOURCE_URL,
           license: "https://opensource.org/licenses/MIT",
-          /* Deliberately no `offers` and no `aggregateRating`. Google wants one
-             of them before it will render a SoftwareApplication rich result, and
-             we have neither to give: there is no billing, so `price: "0"` would
-             advertise a free self-serve tier that does not exist, and a rating
-             we invented is the one SEO tactic that earns a manual penalty. The
-             lost rich result is the correct trade. */
+          offers: {
+            "@type": "Offer",
+            price: "0",
+            priceCurrency: "USD",
+            availability: "https://schema.org/InStock",
+            url: canonicalUrl(env, "/signup"),
+          },
           featureList: [
             "Per-artifact access control by identity, not a secret link",
             "Agent-native publishing from Claude Code, a native MCP server, Hermes, the CLI or the API",
             "Immutable versions with one-click rollback",
             "View log: who opened an artifact, when, and which version",
             "Workspaces with owner, admin, member and viewer roles",
-            "Passwordless sign-in through Cloudflare Access",
+            "Passwordless rtfx.pro email sign-in",
           ],
           publisher: { "@id": `${url}#organization` },
         },
@@ -305,12 +306,12 @@ export function landingPage(env: Env): string {
         built — a single HTML page, or a whole folder of them. Publish straight from the session
         that made it, hand out a link only the people you name can open, and keep every version.</p>
       <div class="cta">
-        <a class="link-button" href="#waitlist" data-cta="request-access">Request access</a>
+        <a class="link-button" href="/signup" data-cta="signup">Start free</a>
         <a class="ghost link-button" href="/docs" data-cta="docs">See how it works</a>
       </div>
-      <p class="cta-note">Access to rtfx.pro is invite-only, so every page has a known audience.
-        <b>Request access</b> if you're new; <b><a href="/login" data-cta="sign-in">sign in</a></b>
-        if you already have an account.</p>
+      <p class="cta-note">Create a workspace with one email code. No password, no human review,
+        no card for Free. <b><a href="/login" data-cta="sign-in">Sign in</a></b> if you already
+        have an account.</p>
       <!-- One round trip, as real content rather than a picture of content.
            What stood here was a rounded window with macOS traffic-light dots
            and grey bars for text — the universal signature of a landing page
@@ -378,39 +379,21 @@ export function landingPage(env: Env): string {
     </section>
 
     <section id="waitlist">
-      <h2>Request access</h2>
-      <!-- "We onboard a few teams at a time" asserted an operating cadence that
-           nothing in the product enforces or measures. What is actually true is
-           narrower and reads better: invitations are granted by a person. -->
-      <p>Access is granted by hand, so every account has a real person behind it. Tell us where to
-        send your invitation and what you'd publish.</p>
-      <form id="wl">
-        <!-- A placeholder is not a label: it disappears the moment you type, and
-             a screen reader may never announce it at all. -->
-        <label class="sr-only" for="email">Email address</label>
-        <input id="email" name="email" type="email" required placeholder="you@example.com"
-          autocomplete="email" autocapitalize="off" spellcheck="false">
-        <button type="submit">Request access</button>
-      </form>
-      <div id="msg" role="status" aria-live="polite" hidden></div>
-      <!-- What it costs is a question every reader forms in the first ten seconds.
-           It used to be answered with a hedge about the future ("if paid plans
-           arrive…"), which was true when there was no billing at all. There is
-           now — see Pricing above — so the honest present-tense answer changed
-           with it: every workspace starts free, and access itself stays invited
-           either way. -->
-      <p class="note">Already have an account? <a href="/login" data-cta="sign-in">Sign in instead →</a>
-        We'll email you a one-time code — there's no password to set. Every workspace starts on the
-        Free plan at no cost; see <a href="#pricing">Pricing</a> for what upgrading gets you. Access
-        itself is still invited, not self-serve — requesting it here costs nothing either way.</p>
-      <p class="note">Submitting this stores your email address so we can send an invitation —
-        nothing else. See the <a href="/privacy">privacy policy</a>.</p>
+      <h2>Start free</h2>
+      <p>One email code creates your workspace on the Free plan. Upgrade later only if you outgrow
+        the limits.</p>
+      <div class="cta">
+        <a class="link-button" href="/signup" data-cta="signup-final">Create your workspace</a>
+        <a class="ghost link-button" href="/login" data-cta="sign-in">Sign in instead</a>
+      </div>
+      <p class="note">No password and no card for Free. Paid upgrades are handled from Settings once
+        you're inside. Read the <a href="/privacy">privacy policy</a> first if you want the data model.</p>
     </section>
     </main>
 
     ${siteFooter()}
     ${cookieNotice()}
-    <script>${SCRIPT}${CONSENT_SCRIPT}</script>`;
+    <script>${CONSENT_SCRIPT}</script>`;
   return layout(TITLE, body, LANDING_STYLE, {
     description: SITE.description,
     canonical: canonicalUrl(env, "/"),

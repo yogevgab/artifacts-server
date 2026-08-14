@@ -129,21 +129,15 @@ describe("every control says what it is", () => {
     }
   });
 
-  it("labels the waitlist email field, the one input the whole funnel depends on", async () => {
+  it("keeps the final conversion CTA explicit and keyboard reachable", async () => {
     const body = await publicHtml("/");
-    expect(body).toContain('<label class="sr-only" for="email">Email address</label>');
-    expect(body).toContain('id="email"');
+    expect(body).toContain('data-cta="signup-final"');
+    expect(body).toContain('href="/signup"');
   });
 
-  it("announces the waitlist result in a live region rather than colour alone", async () => {
+  it("does not leave a dead waitlist form or live-region script on the landing page", async () => {
     const body = await publicHtml("/");
-    expect(body).toContain('<div id="msg" role="status" aria-live="polite" hidden></div>');
-    // The status class carries the colour; the sentence carries the meaning.
-    // Colour must never be applied inline, which would bypass the status tokens
-    // that are tuned for contrast in both schemes.
-    expect(body).toContain("msg.className =");
-    expect(body).toContain("'is-ok'");
-    expect(body).toContain("'is-error'");
+    expect(body).not.toContain('id="wl"');
     expect(body).not.toContain("msg.style.color");
   });
 
@@ -153,9 +147,9 @@ describe("every control says what it is", () => {
    * decoration, which docs/DESIGN.md forbids. Pending is now its own neutral
    * state, and only a real answer colours the box.
    */
-  it("does not dress a pending waitlist request as a success", async () => {
+  it("does not keep obsolete waitlist pending-state script on the signup funnel", async () => {
     const body = await publicHtml("/");
-    expect(body).toContain("show('Sending…', 'pending')");
+    expect(body).not.toContain("show('Sending…', 'pending')");
     expect(body).not.toContain("show('Sending…', true)");
   });
 
@@ -165,10 +159,10 @@ describe("every control says what it is", () => {
    * validation failure are different problems with different remedies, and the
    * live region is the only place either is ever explained.
    */
-  it("tells a rate-limited request apart from an invalid address", async () => {
+  it("does not ship the obsolete waitlist fetch handler on the signup funnel", async () => {
     const body = await publicHtml("/");
-    expect(body).toContain("res.status === 429");
-    expect(body).toContain("res.status === 400");
+    expect(body).not.toContain("res.status === 429");
+    expect(body).not.toContain("res.status === 400");
   });
 
   it("never nests a control inside a control", async () => {

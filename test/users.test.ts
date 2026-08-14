@@ -418,14 +418,15 @@ describe("login page", () => {
     return { status: res.status, html: await res.text() };
   };
 
-  it("is public and offers both request-access and sign-in paths", async () => {
+  it("is public and offers both signup and sign-in paths", async () => {
     const { status, html } = await page({ headers: { "X-Dev-Anonymous": "true" } });
     expect(status).toBe(200);
     expect(html).toContain('data-page="login"');
     expect(html).toContain('data-state="signed-out"');
     expect(html).toContain('data-cta="sign-in"');
-    expect(html).toContain('data-cta="request-access"');
-    // Cloudflare Access stays the auth provider: no password field anywhere.
+    expect(html).toContain('data-cta="signup"');
+    expect(html).toContain('href="/signup"');
+    // App-owned email OTP stays passwordless: no password field anywhere.
     expect(html).not.toContain('type="password"');
   });
 
@@ -465,11 +466,12 @@ describe("login page", () => {
 });
 
 describe("landing page CTAs", () => {
-  it("distinguishes requesting access from signing in", async () => {
+  it("distinguishes starting free from signing in", async () => {
     const html = await (await req("/")).text();
-    expect(html).toContain('data-cta="request-access"');
+    expect(html).toContain('data-cta="signup"');
     expect(html).toContain('data-cta="sign-in"');
+    expect(html).toContain('href="/signup"');
     expect(html).toContain('href="/login"');
-    expect(html).toContain("invite-only");
+    expect(html).toContain("Start free");
   });
 });

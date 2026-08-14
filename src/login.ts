@@ -14,17 +14,14 @@ import { canonicalUrl } from "./seo";
 /**
  * The sign-in surface (issue #24).
  *
- * `/login` is deliberately a *public, unauthenticated* page — it must not sit
- * behind the Cloudflare Access application, or a visitor would meet Cloudflare's
- * own login screen with no explanation of what this product is or how to get in.
- * See docs/DEPLOY_RTFX.md.
+ * `/login` is deliberately a *public, unauthenticated* page: it explains the
+ * product-owned email-code flow before a visitor becomes a signed-in user.
  *
- * It does not authenticate anybody. Cloudflare Access is the identity provider
- * and there is no password here by design (issue #24 non-goal). The page's whole
- * job is to make the next step obvious, which is one of exactly three things:
+ * It starts the passwordless app-owned authentication flow. There is no password
+ * here by design. The page's whole job is to make the next step obvious, which
+ * is one of exactly three things:
  *
- *  - **Signed out** → "Continue with email" hands off to `/admin`, which Access
- *    gates, which is what triggers the one-time-code email.
+ *  - **Signed out** → email address first, then the one-time code or magic link.
  *  - **Signed in** → say who they are and get out of the way.
  *  - **Paused** → explain, in plain words, that the account is disabled and what
  *    to do about it. Never a generic 403: being told "forbidden" when you were
@@ -129,10 +126,9 @@ const AUTH_SCRIPT = `(function(){
 })();`;
 
 /**
- * Shared chrome so every auth state feels like the same quiet room — and, since
- * the very next screen belongs to Cloudflare rather than to us, so that the
- * screen before it is unmistakably ours (issue #37). The mark is the same one
- * the dashboard and the browser tab use; see `brandMark` in src/pages.ts.
+ * Shared chrome so every auth state feels like the same quiet room. The mark is
+ * the same one the dashboard and the browser tab use; see `brandMark` in
+ * src/pages.ts.
  */
 function sheet(state: string, inner: string): string {
   return `${siteHeader("login")}
@@ -145,15 +141,8 @@ function sheet(state: string, inner: string): string {
 }
 
 /**
- * The signed-out state. Two routes in, and the copy's only real job is to make
- * clear which one applies to *you* — "I was invited" vs "I wasn't". Everything
- * else on this page is subordinate to that one fork.
- *
- * The second job, added in issue #37: name the handoff before it happens. The
- * next screen is hosted by Cloudflare Access and looks nothing like this one, so
- * a person who wasn't told lands on an unfamiliar page asking for their email —
- * which is exactly what a phishing page looks like. Saying "the next screen is
- * Cloudflare's" costs one line and removes the doubt entirely.
+ * The signed-out state. It is a two-step form in one branded sheet — address,
+ * then code — so the person never feels bounced into a different product.
  */
 interface SignedOutCopy {
   eyebrow?: string;
@@ -269,8 +258,8 @@ export type LoginState =
 function signedOutMeta(env: Env): HeadMeta {
   return {
     description:
-      "Sign in to rtfx.pro. Access is by invitation and sign-in is passwordless — we email " +
-      "you a one-time code. No account yet? Request access in a click.",
+      "Sign in to rtfx.pro. Sign-in is passwordless — we email you a one-time code or magic " +
+      "link. No account yet? Create one on the Free plan.",
     canonical: canonicalUrl(env, "/login"),
     image: canonicalUrl(env, "/og.png"),
     socialTitle: "Sign in to rtfx.pro",
