@@ -118,6 +118,29 @@ export function checkWranglerConfig(config) {
     ok.push(`D1 binding DB -> ${d1.database_name} (${d1.database_id})`);
   }
 
+  // Transactional email. The binding is restricted to a single sender on
+  // purpose — this Worker also serves user-uploaded HTML, so capping the
+  // addresses it can send From limits the blast radius of any future bug.
+  // `remote: true` is a local-dev convenience that sends REAL mail; it must
+  // never be committed.
+  const emailBinding = (config.send_email ?? []).find((b) => b && b.name === "EMAIL");
+  if (!emailBinding) {
+    errors.push('send_email must declare a binding named "EMAIL"');
+  } else if (emailBinding.remote) {
+    errors.push('send_email binding "EMAIL" must not set "remote" in committed config');
+  } else {
+    const allowed = emailBinding.allowed_sender_addresses ?? [];
+    if (allowed.length === 0) {
+      errors.push('send_email binding "EMAIL" must restrict allowed_sender_addresses');
+    } else if (vars.MAIL_FROM && !allowed.includes(vars.MAIL_FROM)) {
+      errors.push(
+        `vars.MAIL_FROM "${vars.MAIL_FROM}" is not in the EMAIL binding's allowed_sender_addresses`
+      );
+    } else {
+      ok.push(`EMAIL binding restricted to ${allowed.join(", ")}`);
+    }
+  }
+
   if (!vars.ADMIN_EMAILS || vars.ADMIN_EMAILS === DEFAULT_ADMIN_EMAIL_PLACEHOLDER) {
     pending.push("vars.ADMIN_EMAILS is unset/default — set real admin email(s) before deploying");
   } else {

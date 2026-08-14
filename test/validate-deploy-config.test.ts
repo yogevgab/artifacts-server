@@ -14,6 +14,7 @@ function baseConfig(overrides: Record<string, unknown> = {}) {
     ],
     r2_buckets: [{ binding: "FILES", bucket_name: "artifacts-files" }],
     d1_databases: [{ binding: "DB", database_name: "artifacts-meta", database_id: "abc-123" }],
+    send_email: [{ name: "EMAIL", allowed_sender_addresses: ["no-reply@rtfx.pro"] }],
     vars: {
       ADMIN_EMAILS: "admin@rtfx.pro",
       ACCESS_TEAM_DOMAIN: "rtfx.cloudflareaccess.com",
@@ -112,5 +113,41 @@ describe("checkWranglerConfig", () => {
     const cfg = baseConfig({ d1_databases: [] });
     const { errors } = checkWranglerConfig(cfg);
     expect(errors.some((e: string) => e.includes('"DB" binding'))).toBe(true);
+  });
+});
+
+describe("email sending binding", () => {
+  it("requires a send_email binding named EMAIL", () => {
+    const { errors } = checkWranglerConfig(baseConfig({ send_email: [] }));
+    expect(errors).toContain('send_email must declare a binding named "EMAIL"');
+  });
+
+  it("refuses a remote binding, which would send real mail from local dev", () => {
+    const { errors } = checkWranglerConfig(
+      baseConfig({ send_email: [{ name: "EMAIL", remote: true }] })
+    );
+    expect(errors).toContain(
+      'send_email binding "EMAIL" must not set "remote" in committed config'
+    );
+  });
+
+  it("requires MAIL_FROM to be one of the allowed sender addresses", () => {
+    const cfg: any = baseConfig({
+      send_email: [{ name: "EMAIL", allowed_sender_addresses: ["no-reply@rtfx.pro"] }],
+    });
+    cfg.vars.MAIL_FROM = "someone-else@rtfx.pro";
+    const { errors } = checkWranglerConfig(cfg);
+    expect(errors).toContain(
+      'vars.MAIL_FROM "someone-else@rtfx.pro" is not in the EMAIL binding\'s allowed_sender_addresses'
+    );
+  });
+
+  it("accepts a correctly restricted binding", () => {
+    const cfg: any = baseConfig({
+      send_email: [{ name: "EMAIL", allowed_sender_addresses: ["no-reply@rtfx.pro"] }],
+    });
+    cfg.vars.MAIL_FROM = "no-reply@rtfx.pro";
+    const { errors } = checkWranglerConfig(cfg);
+    expect(errors.filter((e: string) => e.includes("send_email") || e.includes("MAIL_FROM"))).toEqual([]);
   });
 });

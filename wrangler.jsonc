@@ -21,9 +21,21 @@
     { "binding": "DB", "database_name": "artifacts-meta", "database_id": "05f77557-3709-43b9-aad8-0cddf53765a8" }
   ],
 
+  // Cloudflare Email Sending. Restricted to one sender on purpose: this Worker
+  // also serves user-uploaded HTML from a.rtfx.pro, so capping the addresses it
+  // can send From limits the blast radius of any future bug. Requires
+  // `wrangler email sending enable rtfx.pro` to have been run on the account.
+  // Never add "remote": true here — that sends real mail from local dev.
+  "send_email": [
+    { "name": "EMAIL", "allowed_sender_addresses": ["no-reply@rtfx.pro"] }
+  ],
+
   "vars": {
     // Comma-separated emails with admin (publish/delete/manage) rights.
     "ADMIN_EMAILS": "yogevgab@gmail.com",
+    // Envelope sender for transactional email. Must appear in the EMAIL
+    // binding's allowed_sender_addresses above.
+    "MAIL_FROM": "no-reply@rtfx.pro",
     // Comma-separated Access service-token client ids (…access) that get admin
     // rights — used by the CLI. `npm run setup` fills this in.
     "ADMIN_SERVICE_TOKENS": "9872ac5cdfdcc53a1c8d348c009ed1d8.access",
