@@ -156,6 +156,19 @@ export interface Identity {
    * `role` above stay config-derived.
    */
   accountId?: string | null;
+  /**
+   * How this caller signed in, once the app owns identity (see
+   * docs/superpowers/specs/2026-08-14-app-owned-identity-design.md §5).
+   *
+   * - `"member"` — signed up or was invited; has a `users` row.
+   * - `"guest"` — holds only `artifact_grants`; reaches granted content and
+   *   nothing else. Never sees the dashboard.
+   *
+   * Absent means an Access-authenticated human or an API token, i.e. every
+   * pre-existing caller, all of whom are members. Only our own session code
+   * ever mints `"guest"`, and it always sets this explicitly.
+   */
+  kind?: "member" | "guest";
 }
 
 /** Minimal request shape the auth helpers need (a Hono context satisfies it). */
