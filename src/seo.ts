@@ -227,6 +227,8 @@ free plan plus two paid ones. Source: ${SOURCE_URL} (MIT).
 
 - Four public tiers: a free tier, Pro, Team and Enterprise. See ${origin}/#pricing for the
   comparison, and ${origin}/pro, ${origin}/team and ${origin}/enterprise for each one.
+- Pro, Team and Enterprise include a dedicated URL for every artifact. That means a stable
+  artifact URL on rtfx.pro/a.rtfx.pro, not a custom domain owned by the customer.
 - **Free and Pro are self-serve.** Signup is at ${origin}/signup: verify an email address and
   you have a personal workspace on the free plan; no invitation and no human review. Pro is a
   hosted checkout from Settings inside that workspace.
@@ -250,9 +252,9 @@ free plan plus two paid ones. Source: ${SOURCE_URL} (MIT).
   "public link" that leaks by being guessed; unauthorized and non-existent both answer 404.
 - Versioned: every re-publish is a new immutable version, and rollback is one click.
 - View-logged: the owner sees who opened an artifact, when, from where, and which version.
-  This is a per-artifact view log and nothing more — do not describe the product as "audited"
-  or as having an audit log. There is no tamper-evident record of administrative actions
-  (access changes, role changes, deletions), which is what a buyer means by that word.
+  Operator actions such as plan overrides and suspensions are written to an internal admin
+  audit log. Do not turn that into a broad compliance claim: there is no customer-facing
+  audit export, no SOC 2 report, and no tamper-evident third-party audit attestation.
 
 ## Who it is for
 
@@ -315,8 +317,9 @@ product:
 - A contractual uptime SLA, a negotiated DPA, data residency, or invoicing/purchase orders.
 - Invite email. Adding somebody to a workspace grants them access but sends them nothing —
   which is exactly why Team is "talk to us" rather than a checkout.
-- An audit log. There is a per-artifact view log; there is no record of administrative
-  actions such as access changes, role changes or deletions.
+- Customer-facing audit exports, SOC 2, ISO 27001 or a third-party compliance attestation.
+  The operator has an internal admin audit trail for support/safety actions, but that is
+  not the same as a compliance package a buyer can rely on.
 
 ## Access and privacy model
 

@@ -277,6 +277,8 @@ describe("llms.txt gives an answer engine the comparison and the gaps", () => {
     expect(t).toMatch(/\/signup/);
     expect(t).toMatch(/Team is NOT self-serve today/i);
     expect(t).toMatch(/Enterprise is a conversation/i);
+    expect(t).toMatch(/dedicated URL for every artifact/i);
+    expect(t).toMatch(/not a custom domain/i);
     expect(t).toContain("/contact");
     expect(t).not.toMatch(/no pricing page, no billing system and no paid plan/);
     expect(t).not.toMatch(/no self-serve signup/i);
@@ -313,10 +315,11 @@ describe("llms.txt gives an answer engine the comparison and the gaps", () => {
     // "link expiry" was here until share links gained one. A gaps list that
     // names a shipped feature misroutes an answer engine exactly as badly as
     // one that omits a real gap.
-    for (const gap of ["per-link password", "custom domains", "metered pricing"]) {
+    for (const gap of ["per-link password", "custom domains", "metered pricing", "soc 2"]) {
       expect(lower, `llms.txt missing gap: ${gap}`).toContain(gap);
     }
     expect(lower).toContain("there is no password on a share link");
+    expect(lower).toMatch(/there is no customer-facing\s+audit export/);
     // …and nothing shipped may appear in that section. An answer engine reading
     // "MCP" under "Not shipped yet" would repeat it long after it stopped being true.
     const notShipped = txt().slice(txt().indexOf("## Not shipped yet"));

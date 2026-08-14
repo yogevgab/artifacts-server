@@ -323,14 +323,15 @@ export async function viewLimitStatus(
   env: Env,
   accountId: string,
   now: Date = new Date(),
-  wallClockMs: number = Date.now()
+  wallClockMs: number = Date.now(),
+  bypassCache = false
 ): Promise<ViewLimitStatus | null> {
   const { start } = monthWindow(now);
   const cached = viewStatusCache.get(accountId);
   let plan: string;
   let views: number;
   let status: string;
-  if (cached && cached.monthStart === start && wallClockMs - cached.cachedAtMs < VIEW_LIMIT_CACHE_TTL_MS) {
+  if (!bypassCache && cached && cached.monthStart === start && wallClockMs - cached.cachedAtMs < VIEW_LIMIT_CACHE_TTL_MS) {
     ({ plan, views, status } = cached);
   } else {
     const fresh = await loadViewStatus(env, accountId, now);

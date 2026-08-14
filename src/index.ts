@@ -39,8 +39,8 @@ import { listApiTokens, toPublicToken, type PublicApiToken } from "./tokens";
 import { describeUsers, listUsers, privilegedEmails } from "./users";
 import { notFoundPage } from "./pages";
 import { shellPage } from "./shell";
-import { viewLimitStatus, blocksOnViewLimit } from "./quota";
-import { overViewLimitPage } from "./view-limit-page";
+import { viewLimitStatus, blocksOnViewLimit, blocksOnSuspension } from "./quota";
+import { overViewLimitPage, suspendedContentPage } from "./view-limit-page";
 export { ChatRoom } from "./chat";
 import { redeemShareLink } from "./share";
 
@@ -876,11 +876,22 @@ app.get("*", async (c) => {
   // `owned` here is deliberately the route's existing notion, which includes a
   // workspace member: somebody inside the account can always still reach their
   // own content, which is what lets them see the message and act on it.
-  if (wantsShell(c) && art.account_id) {
-    const status = await viewLimitStatus(c.env, art.account_id);
-    if (blocksOnViewLimit(status, owned || !!identity?.isAdmin)) {
-      return c.html(overViewLimitPage(slug), 503);
-    }
+  //
+  // Suspension is checked off the same status object but is deliberately not
+  // subject to either of those narrowings: it applies to raw requests as well
+  // as navigations, and the owner does not bypass it. An operator who suspends
+  // a workspace for phishing has to have its content actually stop serving,
+  // including to `curl` and including to the person who published it. See
+  // `blocksOnSuspension` in src/quota.ts for the reasoning. This read bypasses
+  // the ~60s view-limit cache on purpose: suspension is an abuse/takedown
+  // control, so a still-warm "active" cache entry must not keep a phishing page
+  // serving to share-link holders after an operator has flipped the account.
+  const status = art.account_id ? await viewLimitStatus(c.env, art.account_id, undefined, undefined, true) : null;
+  if (blocksOnSuspension(status, !!identity?.isAdmin)) {
+    return c.html(suspendedContentPage(slug), 403);
+  }
+  if (wantsShell(c) && blocksOnViewLimit(status, owned || !!identity?.isAdmin)) {
+    return c.html(overViewLimitPage(slug), 503);
   }
 
   if (wantsShell(c)) {

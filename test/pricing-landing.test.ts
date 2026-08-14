@@ -96,6 +96,16 @@ describe("pricing section", () => {
     }
   });
 
+  it("states the dedicated URL offer on Pro, Team and Enterprise cards", async () => {
+    const html = await landing();
+    for (const plan of ["pro", "team", "enterprise"]) {
+      const start = html.indexOf(`data-tier="${plan}"`);
+      expect(start, `missing tier ${plan}`).toBeGreaterThanOrEqual(0);
+      const card = html.slice(start, html.indexOf("</div>", start));
+      expect(card, `missing dedicated URL copy for ${plan}`).toContain("Dedicated URL for every artifact");
+    }
+  });
+
   it("adds no preview-stage framing and no self-serve claim it can't back", async () => {
     const html = await landing();
     const lower = html.toLowerCase();

@@ -2,17 +2,20 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { env } from "cloudflare:test";
 import { ensurePersonalAccount } from "../src/accounts";
 import { upsertArtifact } from "../src/db";
-import { req, as } from "./fixtures";
+import { req, as, htmlForm } from "./fixtures";
 import type { ArtifactRow } from "../src/env";
 import {
   PLANS,
   VIEW_LIMIT_CACHE_TTL_MS,
   blocksOnViewLimit,
+  blocksOnSuspension,
+  invalidateAccountStatus,
   overMonthlyViewLimit,
   viewLimitStatus,
   type ViewLimitStatus,
 } from "../src/quota";
-import { overViewLimitPage } from "../src/view-limit-page";
+import { overViewLimitPage, suspendedContentPage } from "../src/view-limit-page";
+import { createShareLink } from "../src/share";
 import { clearR2, dropAccountIdColumns, dropAccountTables, initDb } from "./fixtures";
 
 const ALICE = "alice@test.com";
@@ -357,5 +360,204 @@ describe("through the content route", () => {
     const res = await req("/busy/?raw=1", as(OWNER));
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("busy");
+  });
+});
+
+// --- suspension: the stricter sibling of the view limit ----------------------
+
+describe("blocksOnSuspension", () => {
+  const suspended: ViewLimitStatus = {
+    plan: "free",
+    views: 10,
+    limit: 5000,
+    overLimit: false,
+    status: "suspended",
+    suspended: true,
+  };
+  const active: ViewLimitStatus = {
+    plan: "free",
+    views: 10,
+    limit: 5000,
+    overLimit: false,
+    status: "active",
+    suspended: false,
+  };
+
+  it("blocks a stranger when the workspace is suspended", () => {
+    expect(blocksOnSuspension(suspended, false)).toBe(true);
+  });
+
+  it("still blocks the owner — unlike the view limit, they do not bypass it", () => {
+    // The bypass argument is platform-admin only. There is no owner bypass to
+    // pass in at all, which is the point: a suspension the owner can serve
+    // around by opening their own artifact is decorative.
+    expect(blocksOnSuspension(suspended, false)).toBe(true);
+  });
+
+  it("lets a platform admin through, so an operator can inspect what they suspended", () => {
+    expect(blocksOnSuspension(suspended, true)).toBe(false);
+  });
+
+  it("does not block an active workspace", () => {
+    expect(blocksOnSuspension(active, false)).toBe(false);
+  });
+
+  it("does not block when there is nothing to enforce (null status)", () => {
+    expect(blocksOnSuspension(null, false)).toBe(false);
+    expect(blocksOnSuspension(null, true)).toBe(false);
+  });
+
+  it("is independent of the view limit — suspended but well under quota still blocks", () => {
+    expect(blocksOnViewLimit(suspended, false)).toBe(false);
+    expect(blocksOnSuspension(suspended, false)).toBe(true);
+  });
+});
+
+describe("suspendedContentPage", () => {
+  it("says the page is unavailable without saying the workspace was suspended", () => {
+    const main = (/<main[^>]*>([\s\S]*?)<\/main>/.exec(suspendedContentPage("report"))?.[1] ?? "");
+    expect(main).toContain("unavailable");
+    // The reason is between the owner and the operator. Publishing "suspended"
+    // to every passer-by convicts them in public over a decision they may be
+    // contesting.
+    expect(main.toLowerCase()).not.toContain("suspend");
+  });
+
+  it("does not promise the viewer it will start working again, the way the view-limit page does", () => {
+    const main = (/<main[^>]*>([\s\S]*?)<\/main>/.exec(suspendedContentPage("report"))?.[1] ?? "");
+    expect(main.toLowerCase()).not.toContain("temporarily");
+    expect(main.toLowerCase()).not.toContain("try again later");
+  });
+
+  it("tells the owner nothing was deleted and points them at support", () => {
+    const html = suspendedContentPage("report");
+    expect(html).toContain("Nothing has been deleted");
+    expect(html).toContain('href="/contact"');
+  });
+
+  it("leaks no plan name, usage number, or owner identity", () => {
+    const main = (/<main[^>]*>([\s\S]*?)<\/main>/.exec(suspendedContentPage("report"))?.[1] ?? "")
+      .replace(/rtfx\.pro/gi, "");
+    expect(main.toLowerCase()).not.toMatch(/\bfree\b|\bpro\b|\bteam\b/);
+    expect(main).not.toMatch(/\d{2,}/);
+    expect(main).not.toContain("@");
+  });
+
+  it("escapes the slug", () => {
+    const html = suspendedContentPage('"><script>evil()</script>');
+    expect(html).not.toContain("<script>evil()</script>");
+  });
+
+  it("works with no slug at all", () => {
+    expect(suspendedContentPage()).toContain("unavailable");
+  });
+});
+
+describe("suspension through the content route", () => {
+  /**
+   * The regression this locks down: `blocksOnSuspension` shipped fully written,
+   * documented and unreferenced — suspending a workspace stopped it publishing
+   * but left everything it had already published serving happily, which is the
+   * one thing suspension exists to stop.
+   */
+  const PUBLISHER = "alice@test.com"; // deliberately NOT in ADMIN_EMAILS
+  const ADMIN = "admin@test.com";
+  const STRANGER = "bob@test.com";
+
+  async function seedSuspended() {
+    const res = await req(
+      "/api/artifacts",
+      as(PUBLISHER, {
+        method: "POST",
+        body: htmlForm(
+          { slug: "phishy", title: "Phishy", visibility: "everyone" },
+          "index.html",
+          new TextEncoder().encode("<h1>phishy</h1>")
+        ),
+      })
+    );
+    expect(res.status).toBe(200);
+
+    const acct = await env.DB.prepare("SELECT account_id FROM artifacts WHERE slug = 'phishy'")
+      .first<{ account_id: string | null }>();
+    if (!acct?.account_id) return null;
+    await env.DB.prepare("UPDATE accounts SET status = 'suspended' WHERE id = ?")
+      .bind(acct.account_id)
+      .run();
+    // These tests write the status straight to D1 rather than going through the
+    // operator route, so they have to do by hand what that route does for real:
+    // drop the isolate-local status cache. It is module-level and outlives
+    // `initDb()`, so without this a verdict cached by an earlier test in the
+    // same isolate could answer for this one.
+    invalidateAccountStatus(acct.account_id);
+    return acct.account_id;
+  }
+
+  const navigate = (who: string) =>
+    req("/phishy/", {
+      ...as(who),
+      headers: { ...(as(who).headers as Record<string, string>), "Sec-Fetch-Dest": "document" },
+    });
+
+  it("shows a stranger the same 404 they always got — access control refuses them first", async () => {
+    if (!(await seedSuspended())) return; // legacy schema without accounts
+    // Not a 403: since Phase 0, `everyone` means "everyone in the workspace"
+    // (src/authz.ts `canView`), so a signed-in outsider never reached this
+    // artifact to begin with and is turned away before suspension is consulted.
+    // Asserted so that a future widening of `canView` cannot quietly hand
+    // strangers a suspended workspace's content.
+    const res = await navigate(STRANGER);
+    expect(res.status).toBe(404);
+  });
+
+  it("stops serving to someone holding a live share link — the takedown case", async () => {
+    // The one that matters for abuse. A share-link holder bypasses `canView`
+    // entirely (`linkGrantsThis` in src/index.ts), which is exactly the
+    // population a phishing page is sent to, and exactly who must stop being
+    // served the moment the workspace is suspended. Revoking the link is not
+    // the answer: suspension has to work without knowing which links exist.
+    if (!(await seedSuspended())) return;
+    const { key } = await createShareLink(env as any, {
+      slug: "phishy",
+      createdBy: PUBLISHER,
+      now: new Date().toISOString(),
+    });
+    const acct = await env.DB.prepare("SELECT account_id FROM artifacts WHERE slug = 'phishy'")
+      .first<{ account_id: string | null }>();
+    expect(acct?.account_id ? await viewLimitStatus(env as any, acct.account_id, undefined, undefined, true) : null)
+      .toMatchObject({ suspended: true });
+    const res = await req("/phishy/", {
+      headers: { "X-Dev-Anonymous": "true", Cookie: `rtfx_link_phishy=${encodeURIComponent(key)}` },
+    });
+    expect(res.status).toBe(403);
+    expect(await res.text()).not.toContain("<h1>phishy</h1>");
+  });
+
+  it("stops serving it to the owner too", async () => {
+    if (!(await seedSuspended())) return;
+    const res = await navigate(PUBLISHER);
+    expect(res.status).toBe(403);
+  });
+
+  it("stops the raw/curl path as well — a suspension curl steps around is not one", async () => {
+    if (!(await seedSuspended())) return;
+    const res = await req("/phishy/?raw=1", as(PUBLISHER));
+    expect(res.status).toBe(403);
+    expect(await res.text()).not.toContain("<h1>phishy</h1>");
+  });
+
+  it("still serves it to a platform admin, so an operator can inspect it", async () => {
+    if (!(await seedSuspended())) return;
+    const res = await req("/phishy/?raw=1", as(ADMIN));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("phishy");
+  });
+
+  it("serves normally again once the workspace is unsuspended", async () => {
+    const id = await seedSuspended();
+    if (!id) return;
+    await env.DB.prepare("UPDATE accounts SET status = 'active' WHERE id = ?").bind(id).run();
+    const res = await req("/phishy/?raw=1", as(PUBLISHER));
+    expect(res.status).toBe(200);
   });
 });

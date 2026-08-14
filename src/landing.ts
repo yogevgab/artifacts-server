@@ -279,7 +279,8 @@ function tierCard(name: PublicTier): string {
           f.limits.keepVersions === null
             ? "Full version history"
             : `Keeps the last ${f.limits.keepVersions} versions of each artifact`;
-        return `<li>${num(f.limits.maxArtifacts)} artifacts</li>
+        return `<li>Dedicated URL for every artifact</li>
+      <li>${num(f.limits.maxArtifacts)} artifacts</li>
       <li>${bytes(f.limits.maxStorageBytes)} storage</li>
       <li>${versions}</li>
       <li>${seatsLine(name)}</li>`;
@@ -288,7 +289,8 @@ function tierCard(name: PublicTier): string {
       // would be the one hand-typed number in this section. What it lists
       // instead is what the conversation is about — see /enterprise, which is
       // explicit that none of it is built today.
-      `<li>Everything in Team, plus a conversation</li>
+      `<li>Dedicated URL for every artifact</li>
+      <li>Everything in Team, plus a conversation</li>
       <li>SSO, SCIM and contractual SLAs — none built yet</li>
       <li>Security review, DPA, invoicing</li>
       <li>Or self-host it: the source is MIT</li>`;

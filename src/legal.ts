@@ -14,9 +14,12 @@ import { SITE, canonicalUrl, siteOrigin } from "./seo";
  *     table; the cookie table is the cookies that actually reach a browser. A
  *     privacy policy that describes a generic SaaS instead of this one is worse
  *     than no page at all, because it is a promise nobody checked.
- *  2. **The repository copy remains reusable for self-hosted operators.** The canonical
- *     rtfx.pro deployment renders production-facing wording, while non-rtfx deployments
- *     still get the operator-template notice until they adapt the text.
+ *  2. **The repository copy remains reusable for self-hosted operators, and the
+ *     canonical rtfx.pro deployment stays honest too.** Until a real legal
+ *     entity, physical address, governing law and lawyer-reviewed DPA language
+ *     exist, production renders the same notice as self-hosted deployments. A
+ *     less polished warning is safer than silently presenting a template as a
+ *     final EU-ready legal document.
  *
  * Both pages are public and crawlable: they are the pages a person reads *before*
  * deciding to sign up, so putting them behind sign-in would defeat them entirely.
@@ -89,10 +92,6 @@ function sections(parts: readonly Part[]): string {
  * before either page can be relied on, rather than gesturing vaguely at "consult
  * a lawyer" — the fill-ins are the contact address and the governing law.
  */
-function isRtfxProduction(env: Env): boolean {
-  return siteOrigin(env) === SITE.origin;
-}
-
 function templateNotice(kind: "privacy" | "terms"): string {
   return `<div class="template" data-legal-template role="note">
       <h2>Operator template — not legal advice</h2>
@@ -131,7 +130,7 @@ function legalPage(
         <p class="updated">Last updated ${esc(UPDATED)}</p>
       </div>
 
-      ${isRtfxProduction(env) ? "" : templateNotice(o.current)}
+      ${templateNotice(o.current)}
       ${toc(o.parts)}
 
       <article class="legal">${sections(o.parts)}</article>

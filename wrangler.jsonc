@@ -5,6 +5,7 @@
   "name": "artifacts-server",
   "main": "src/index.ts",
   "compatibility_date": "2026-06-01",
+  "workers_dev": false,
   "observability": { "enabled": true },
 
   // rtfx.pro = app/dashboard/API; a.rtfx.pro = artifact content only (must be a
@@ -43,14 +44,13 @@
     // Envelope sender for transactional email. Must appear in the EMAIL
     // binding's allowed_sender_addresses above.
     "MAIL_FROM": "no-reply@rtfx.pro",
-    // Comma-separated Access service-token client ids (…access) that get admin
-    // rights — used by the CLI. `npm run setup` fills this in.
-    "ADMIN_SERVICE_TOKENS": "9872ac5cdfdcc53a1c8d348c009ed1d8.access",
-    // Your Cloudflare Zero Trust team domain, e.g. myteam.cloudflareaccess.com.
-    "ACCESS_TEAM_DOMAIN": "yogevgab.cloudflareaccess.com",
-    // Comma-separated Access application AUD tags: "<viewerAud>,<adminAud>".
-    // The Worker verifies request JWTs against either. `npm run setup` fills this in.
-    "ACCESS_AUD": "25844c315a88a2f617d4e0bb418305b1a532492b96d46968f4518ac5bd39efc9,9d5478cef60e7400b38b20b5ff77d3e5767a31e9519e65de4d3a2d9474e072f9",
+    // Cloudflare Access is intentionally disabled for rtfx.pro production.
+    // Public sign-in is app-owned email OTP/session; leaving stale Access AUDs
+    // here would create a parallel identity path that bypasses signup/account
+    // attachment. Use app API tokens for non-interactive publishing instead.
+    "ADMIN_SERVICE_TOKENS": "",
+    "ACCESS_TEAM_DOMAIN": "",
+    "ACCESS_AUD": "",
     // Comma-separated hostnames that serve artifact content ONLY (no admin/API/
     // dashboard). Each hostname listed here must also have a `routes` entry above.
     // Leave empty to keep a single origin.

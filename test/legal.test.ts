@@ -120,11 +120,11 @@ describe("the legal pages are findable", () => {
 // --- what the pages actually say --------------------------------------------
 
 describe("the legal pages are honest about what they are", () => {
-  it("does not show the operator-template banner on canonical rtfx.pro legal pages", async () => {
+  it("shows the not-legal-advice banner on canonical rtfx.pro until the real legal entity is filled in", async () => {
     for (const path of LEGAL) {
       const body = await html(path, ANON);
-      expect(body, path).not.toContain("data-legal-template");
-      expect(body, path).not.toContain("Operator template — not legal advice");
+      expect(body, path).toContain("data-legal-template");
+      expect(body, path).toContain("Operator template — not legal advice");
       expect(body, path).toContain("Last updated");
       expect(body, path).toContain("privacy@rtfx.pro");
     }
