@@ -495,6 +495,26 @@ function invalidTokenResponse(c: Parameters<MiddlewareHandler<AuthApp>>[0]) {
  * explanation. Machines are unaffected: no agent sends `Accept: text/html`, and
  * the status code is 403 either way.
  */
+/**
+ * Refused for want of an identity.
+ *
+ * Nobody signed in, in a browser, means "you need to sign in" — send them to
+ * the sign-in page. Cloudflare Access used to do this bounce before the Worker
+ * ever saw the request; once it stopped, a person typing /admin got raw JSON.
+ *
+ * Somebody who IS signed in and still may not be here (a guest, a non-admin
+ * service token) gets 403 and stays put. Redirecting them would loop forever,
+ * because signing in again changes nothing about what they may reach.
+ */
+function forbiddenResponse(
+  c: Parameters<MiddlewareHandler<AuthApp>>[0],
+  identity: Identity | null
+) {
+  const wantsHtml = (c.req.header("Accept") ?? "").includes("text/html");
+  if (!identity && wantsHtml) return c.redirect("/login", 302);
+  return c.json({ error: "forbidden", detail: "sign-in required" }, 403);
+}
+
 function disabledResponse(c: Parameters<MiddlewareHandler<AuthApp>>[0], email: string | null) {
   if ((c.req.header("Accept") ?? "").includes("text/html")) {
     return c.html(accountPausedPage(c.env, email), 403);
@@ -545,7 +565,7 @@ export const requireUser: MiddlewareHandler<AuthApp> = async (c, next) => {
     c.set("email", displayName(identity));
     return next();
   }
-  return c.json({ error: "forbidden", detail: "sign-in required" }, 403);
+  return forbiddenResponse(c, identity);
 };
 
 /**

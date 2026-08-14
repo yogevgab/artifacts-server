@@ -34,6 +34,7 @@ import { listApiTokens, toPublicToken, type PublicApiToken } from "./tokens";
 import { allowlistView } from "./access-api";
 import { adminEmails, describeUsers, listUsers, privilegedEmails, superAdminEmails } from "./users";
 import { notFoundPage } from "./pages";
+import { shellPage } from "./shell";
 import { landingPage } from "./landing";
 import { docsPage } from "./docs";
 import { privacyPage, termsPage } from "./legal";
@@ -567,6 +568,23 @@ app.get("/v/*", async (c) => {
 
 // Catch-all: serve the current version's files, subject to per-artifact
 // authorization. Runs last so named routes win.
+
+/**
+ * Should this request get the shell rather than the bytes?
+ *
+ * Only a top-level browser navigation. `Sec-Fetch-Dest: document` is sent by
+ * every current browser on a navigation and by nothing else; its absence means
+ * a non-browser client (curl, the CLI, the MCP server), which must keep getting
+ * raw content exactly as before. `?raw=1` is how the shell asks for the content
+ * it frames, and is therefore never itself shelled — without it the shell would
+ * frame a copy of itself, forever.
+ */
+function wantsShell(c: Context<{ Bindings: Env; Variables: AuthVars }>): boolean {
+  if (new URL(c.req.url).searchParams.has("raw")) return false;
+  if (c.req.method !== "GET") return false;
+  return c.req.header("Sec-Fetch-Dest") === "document";
+}
+
 app.get("*", async (c) => {
   const rest = c.req.path.replace(/^\/+/, "");
   const idx = rest.indexOf("/");
@@ -594,6 +612,25 @@ app.get("*", async (c) => {
     owned = true;
   }
   if (!canView(identity, art.visibility, granted, owned)) return c.html(notFoundPage(slug), 404);
+
+  // A top-level navigation gets the viewer shell; everything else — subresources,
+  // the shell's own framed request (?raw=1), curl, the CLI — gets the bytes.
+  // Sec-Fetch-Dest is absent on non-browser clients, which is why its absence
+  // means "raw" rather than "shell": the machine path must not change.
+  if (wantsShell(c)) {
+    const grants = art.visibility === "restricted" ? await listGrants(c.env, slug) : [];
+    return c.html(
+      shellPage({
+        slug,
+        title: art.title || slug,
+        version: art.current_version,
+        canManage: canManage(identity, art, (await resolveAccountContext(c.env, identity)).roles),
+        visibility: art.visibility,
+        grantCount: grants.length,
+        filePath,
+      })
+    );
+  }
 
   const res = await serveArtifact(c, slug, art.current_version, filePath);
 

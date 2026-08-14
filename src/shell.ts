@@ -1,0 +1,182 @@
+/**
+ * The viewer shell.
+ *
+ * Product UI — the share banner, the chat, the version indicator — cannot live
+ * inside the artifact. Artifact HTML runs arbitrary JavaScript by design (see
+ * the CSP in `src/serve.ts`), so a share control in that document would be
+ * privileged UI sitting same-origin with attacker-controlled code.
+ *
+ * So the chrome lives here, on our origin, and the artifact renders in a frame
+ * with `sandbox` and deliberately WITHOUT `allow-same-origin`. That omission is
+ * the entire security property: the browser hands the framed document an opaque
+ * origin, so it cannot read cookies, cannot make credentialed same-origin
+ * requests, and cannot reach `window.parent`.
+ *
+ * See docs/superpowers/specs/2026-08-14-viewer-shell-design.md.
+ */
+
+import { esc } from "./pages";
+
+export interface ShellInput {
+  slug: string;
+  title: string;
+  version: number;
+  /** Whether this caller may change access — decides if the banner exists at all. */
+  canManage: boolean;
+  /** Current visibility, for the banner's summary line. */
+  visibility: "restricted" | "everyone";
+  /** How many people are named on a restricted artifact. */
+  grantCount: number;
+  /** The path inside the artifact being viewed, "" for the root. */
+  filePath: string;
+}
+
+const SHELL_STYLE = `
+:root{color-scheme:light dark;--sh-bg:#F2F3F7;--sh-fg:#14182B;--sh-muted:#565D78;
+  --sh-rule:#D3D7E4;--sh-accent:#2438C8;--sh-surface:#FFFFFF}
+@media(prefers-color-scheme:dark){:root{--sh-bg:#0D1020;--sh-fg:#E7E9F3;--sh-muted:#9AA1BC;
+  --sh-rule:#2B3252;--sh-accent:#8C9BFF;--sh-surface:#161A2E}}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--sh-bg);color:var(--sh-fg);
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+  display:flex;flex-direction:column}
+.bar{flex:none;display:flex;align-items:center;gap:12px;padding:8px 14px;
+  background:var(--sh-surface);border-bottom:1px solid var(--sh-rule);flex-wrap:wrap}
+.bar .mark{font-weight:600;letter-spacing:-.02em;font-size:14px;text-decoration:none;color:var(--sh-fg)}
+.bar .mark span{color:var(--sh-accent)}
+.bar .title{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:34ch}
+.bar .ver{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--sh-muted);
+  border:1px solid var(--sh-rule);border-radius:999px;padding:1px 7px}
+.bar .spacer{flex:1 1 auto}
+.bar button{font:inherit;font-size:13px;padding:5px 11px;border-radius:6px;border:1px solid var(--sh-rule);
+  background:transparent;color:var(--sh-fg);cursor:pointer}
+.bar button.primary{background:var(--sh-accent);border-color:var(--sh-accent);color:#fff}
+.bar button:focus-visible{outline:2px solid var(--sh-accent);outline-offset:2px}
+.frame{flex:1 1 auto;width:100%;border:0;display:block;background:var(--sh-surface)}
+.panel{position:fixed;inset:auto 0 0 auto;width:min(380px,100%);max-height:70vh;overflow:auto;
+  background:var(--sh-surface);border:1px solid var(--sh-rule);border-radius:10px 10px 0 0;
+  margin:0 14px;padding:14px;box-shadow:0 -6px 30px rgba(0,0,0,.18)}
+.panel[hidden]{display:none}
+.panel h2{margin:0 0 8px;font-size:14px}
+.panel .hint{color:var(--sh-muted);font-size:12.5px;margin:0 0 10px}
+.row{display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--sh-rule)}
+.row:last-child{border-bottom:0}
+.row .who{flex:1;overflow:hidden;text-overflow:ellipsis;font-size:13px}
+.add{display:flex;gap:8px;margin-top:10px}
+.add input{flex:1;padding:6px 9px;border:1px solid var(--sh-rule);border-radius:6px;
+  background:transparent;color:var(--sh-fg);font:inherit;font-size:13px}
+`;
+
+/**
+ * The banner is rendered only for a caller who may manage the artifact. A
+ * viewer gets no markup at all rather than a disabled control — advertising a
+ * button somebody cannot press is worse than not having one.
+ */
+function banner(i: ShellInput): string {
+  if (!i.canManage) return "";
+  const summary =
+    i.visibility === "everyone"
+      ? "Anyone signed in can open this"
+      : i.grantCount === 1
+        ? "1 person can open this"
+        : `${i.grantCount} people can open this`;
+
+  return `<button class="primary" data-share-banner data-open-share>Share</button>
+    <section class="panel" data-share-panel hidden aria-label="Sharing">
+      <h2>Who can open this</h2>
+      <p class="hint" data-share-summary>${esc(summary)}</p>
+      <div data-share-list></div>
+      <form class="add" data-share-add>
+        <input type="email" name="email" placeholder="name@example.com" aria-label="Email address">
+        <button type="submit">Add</button>
+      </form>
+    </section>`;
+}
+
+export function shellPage(i: ShellInput): string {
+  const src = `/${encodeURIComponent(i.slug)}/${i.filePath}${i.filePath.includes("?") ? "&" : "?"}raw=1`;
+
+  return `<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>${esc(i.title)} · rtfx.pro</title>
+<style>${SHELL_STYLE}</style>
+</head><body>
+<div class="bar">
+  <a class="mark" href="/">rtfx<span>.</span>pro</a>
+  <span class="title">${esc(i.title)}</span>
+  <span class="ver">v${i.version}</span>
+  <span class="spacer"></span>
+  <button data-copy-link>Copy link</button>
+  ${banner(i)}
+</div>
+<iframe class="frame" title="${esc(i.title)}"
+  sandbox="allow-scripts allow-forms allow-popups allow-downloads allow-modals"
+  src="${esc(src)}"></iframe>
+<script>${SHELL_SCRIPT}</script>
+</body></html>`;
+}
+
+const SHELL_SCRIPT = `(function(){
+  var copy=document.querySelector('[data-copy-link]');
+  if(copy){copy.addEventListener('click',function(){
+    var url=location.origin+location.pathname;
+    navigator.clipboard.writeText(url).then(function(){
+      var t=copy.textContent; copy.textContent='Copied';
+      setTimeout(function(){copy.textContent=t;},1400);
+    });
+  });}
+
+  var open=document.querySelector('[data-open-share]');
+  var panel=document.querySelector('[data-share-panel]');
+  if(!open||!panel) return;
+
+  var slug=location.pathname.split('/').filter(Boolean)[0];
+  var list=panel.querySelector('[data-share-list]');
+
+  function render(emails){
+    list.innerHTML='';
+    if(!emails.length){
+      var p=document.createElement('p');
+      p.className='hint'; p.textContent='Nobody is named yet.';
+      list.appendChild(p); return;
+    }
+    emails.forEach(function(e){
+      var row=document.createElement('div'); row.className='row';
+      var who=document.createElement('span'); who.className='who'; who.textContent=e;
+      var rm=document.createElement('button'); rm.type='button'; rm.textContent='Remove';
+      rm.addEventListener('click',function(){ save(emails.filter(function(x){return x!==e;})); });
+      row.appendChild(who); row.appendChild(rm); list.appendChild(row);
+    });
+  }
+
+  function save(emails){
+    fetch('/api/artifacts/'+encodeURIComponent(slug)+'/access',{
+      method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({visibility:'restricted',emails:emails})
+    }).then(function(r){return r.ok?r.json():null;}).then(function(j){
+      if(j)render(j.emails||[]);
+    });
+  }
+
+  open.addEventListener('click',function(){
+    panel.hidden=!panel.hidden;
+    if(!panel.hidden){
+      fetch('/api/artifacts/'+encodeURIComponent(slug)+'/access')
+        .then(function(r){return r.ok?r.json():null;})
+        .then(function(j){ if(j)render(j.emails||[]); });
+    }
+  });
+
+  panel.querySelector('[data-share-add]').addEventListener('submit',function(e){
+    e.preventDefault();
+    var input=e.target.elements.email, v=input.value.trim().toLowerCase();
+    if(!v||v.indexOf('@')===-1) return;
+    var current=[].map.call(list.querySelectorAll('.who'),function(n){return n.textContent;});
+    if(current.indexOf(v)===-1) current.push(v);
+    input.value=''; save(current);
+  });
+})();`;

@@ -319,7 +319,11 @@ describe("private surfaces stay out of every index", () => {
     expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
     expect(res.headers.get("Referrer-Policy")).toBe("no-referrer");
     const csp = res.headers.get("Content-Security-Policy") ?? "";
-    expect(csp).toContain("frame-ancestors 'none'");
+    // 'self', not 'none': the viewer shell frames this content (src/shell.ts).
+    // It must never widen to '*', which would let any site on the internet frame
+    // a signed-in viewer's artifact.
+    expect(csp).toContain("frame-ancestors 'self'");
+    expect(csp).not.toContain("frame-ancestors *");
     expect(csp).toContain("base-uri 'none'");
     expect(csp).toContain("script-src *");
   });

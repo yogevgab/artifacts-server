@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { env } from "cloudflare:test";
 import app from "../src/index";
 import { SESSION_COOKIE } from "../src/auth";
-import { verifySession } from "../src/session";
+import { verifySession, mintSession } from "../src/session";
 
 const SECRET = "test-secret-at-least-32-bytes-long-for-hs256!!";
 const NOW = () => new Date().toISOString();
@@ -263,5 +263,38 @@ describe("GET /logout", () => {
     const value = /rtfx_session=([^;]*)/.exec(ours)?.[1] ?? "x";
     expect(value).toBe("");
     expect(await verifySession(SECRET, value, NOW())).toBeNull();
+  });
+});
+
+describe("signed-out access to a dashboard page", () => {
+  const browser = { headers: { Accept: "text/html,application/xhtml+xml" } };
+
+  /**
+   * Regression exposed by the Cloudflare Access cutover: Access used to bounce
+   * anonymous visitors to a login screen before the Worker saw them. With Access
+   * gone, /admin answered raw JSON to a person typing the URL.
+   */
+  it("sends a signed-out browser to /login, not a JSON 403", async () => {
+    const res = await app.request("/admin", browser, testEnv());
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/login");
+  });
+
+  it("still answers JSON to a machine client", async () => {
+    const res = await app.request("/admin", {}, testEnv());
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ error: "forbidden" });
+  });
+
+  it("does not redirect a caller who IS signed in but may not be here", async () => {
+    // A guest holds a valid session. Sending them to /login would loop forever,
+    // because signing in again changes nothing about what they may reach.
+    const token = await mintSession(SECRET, { email: "g@x.com", kind: "guest" }, NOW());
+    const res = await app.request(
+      "/admin",
+      { headers: { ...browser.headers, Cookie: `${SESSION_COOKIE}=${token}` } },
+      testEnv()
+    );
+    expect(res.status).toBe(403);
   });
 });
