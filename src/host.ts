@@ -21,6 +21,19 @@ const MANAGEMENT_PATHS = new Set([
 const MANAGEMENT_PREFIXES = ["/admin", "/api", "/v", "/auth", "/shared"];
 
 /**
+ * Paths the CONTENT host serves in addition to artifact files. The chat socket
+ * has to live here: the viewer shell runs on the content origin, and the app
+ * origin's session cookie is host-only, so a cross-origin socket would carry no
+ * credential at all. `_chat` can never be a slug — SLUG_RE requires the first
+ * character to be [a-z0-9] — so this prefix is collision-free by construction.
+ */
+const CONTENT_PREFIXES = ["/_chat"];
+
+export function isContentPrefix(path: string): boolean {
+  return CONTENT_PREFIXES.some((p) => path === p || path.startsWith(p + "/"));
+}
+
+/**
  * Paths every host answers for itself, whatever else it serves. `robots.txt` is
  * per-origin by definition: a crawler asks the *content* host what it may crawl
  * there, so answering 404 (as management paths do) would leave that question
@@ -70,6 +83,8 @@ export function firstContentHostname(env: Env): string | undefined {
  * never be reachable from a content host.
  */
 export function isManagementPath(path: string): boolean {
+  // Served by the content host, so never treated as management.
+  if (isContentPrefix(path)) return false;
   if (MANAGEMENT_PATHS.has(path)) return true;
   return MANAGEMENT_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
 }

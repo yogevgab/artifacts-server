@@ -89,6 +89,21 @@ body{margin:0;background:var(--sh-bg);color:var(--sh-fg);
 .link-row{display:flex;gap:8px;align-items:center;padding:6px 0;font-size:12px}
 .link-row code{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--sh-muted)}
+.chat{position:fixed;right:14px;bottom:0;width:min(340px,calc(100% - 28px));display:flex;
+  flex-direction:column;max-height:60vh;background:var(--sh-surface);border:1px solid var(--sh-rule);
+  border-bottom:0;border-radius:10px 10px 0 0;box-shadow:0 -6px 30px rgba(0,0,0,.18);z-index:4}
+.chat[hidden]{display:none}
+.chat-head{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--sh-rule)}
+.chat-head b{font-size:13px;flex:1}
+.chat-log{flex:1 1 auto;overflow:auto;padding:10px 12px;display:flex;flex-direction:column;gap:9px}
+.msg{display:flex;flex-direction:column;gap:2px}
+.msg .who{font-size:11px;color:var(--sh-muted)}
+.msg .who b{color:var(--sh-fg);font-weight:600}
+.msg .body{font-size:13.5px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}
+.chat-form{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--sh-rule)}
+.chat-form input{flex:1;padding:7px 9px;border:1px solid var(--sh-rule);border-radius:6px;
+  background:transparent;color:var(--sh-fg);font:inherit;font-size:13px}
+.chat-empty{color:var(--sh-muted);font-size:12.5px}
 `;
 
 /**
@@ -171,10 +186,22 @@ export function shellPage(i: ShellInput): string {
   <span class="title">${esc(i.title)}</span>
   <span class="ver">v${i.version}</span>
   <span class="spacer"></span>
+  <button data-open-chat aria-expanded="false">Chat</button>
   <button data-copy-link>Copy link</button>
   ${banner(i)}
   <button data-hide-bar aria-label="Hide toolbar" title="Hide toolbar">&times;</button>
 </div>
+<section class="chat" data-chat hidden aria-label="Conversation">
+  <div class="chat-head">
+    <b>Conversation</b>
+    <button type="button" data-close-chat aria-label="Close conversation">&times;</button>
+  </div>
+  <div class="chat-log" data-chat-log role="log" aria-live="polite"></div>
+  <form class="chat-form" data-chat-form>
+    <input name="body" placeholder="Say something…" autocomplete="off" aria-label="Message">
+    <button type="submit">Send</button>
+  </form>
+</section>
 <iframe class="frame" title="${esc(i.title)}"
   ${sandboxFor(i) === null ? "" : `sandbox="${sandboxFor(i)}"`}
   src="${esc(src)}"></iframe>
@@ -222,6 +249,72 @@ const SHELL_SCRIPT = `(function(){
     if(d.y<40){ collapse(false); return; }
     if(dy>6) collapse(true);
     else if(dy<-6) collapse(false);
+  });
+
+  /* --- chat ---------------------------------------------------------------
+     The socket lives on this origin (/_chat/<slug>) because the app origin's
+     session cookie is host-only: a cross-origin socket would arrive with no
+     credential at all. Authorization happens in the Worker before the socket
+     is handed to the room. */
+  var chat=document.querySelector('[data-chat]');
+  var chatBtn=document.querySelector('[data-open-chat]');
+  var log=document.querySelector('[data-chat-log]');
+  var slugForChat=location.pathname.split('/').filter(Boolean)[0];
+  var sock=null;
+
+  function stamp(m){
+    var el=document.createElement('div'); el.className='msg';
+    var who=document.createElement('span'); who.className='who';
+    var name=document.createElement('b');
+    name.textContent=m.author_email||(m.author_kind==='link'?'Someone with the link':'Signed out');
+    who.appendChild(name);
+    who.appendChild(document.createTextNode(' \u00b7 v'+m.version));
+    var body=document.createElement('div'); body.className='body'; body.textContent=m.body;
+    el.appendChild(who); el.appendChild(body); log.appendChild(el);
+    log.scrollTop=log.scrollHeight;
+  }
+  function empty(text){
+    log.innerHTML=''; var p=document.createElement('p');
+    p.className='chat-empty'; p.textContent=text; log.appendChild(p);
+  }
+
+  function connect(){
+    if(sock) return;
+    var proto=location.protocol==='https:'?'wss://':'ws://';
+    try{ sock=new WebSocket(proto+location.host+'/_chat/'+encodeURIComponent(slugForChat)); }
+    catch(e){ empty('Chat is unavailable here.'); return; }
+    sock.addEventListener('message',function(ev){
+      var d; try{ d=JSON.parse(ev.data); }catch(e){ return; }
+      if(d.type==='history'){
+        if(!d.messages.length){ empty('No messages yet. Say the first thing.'); return; }
+        log.innerHTML=''; d.messages.forEach(stamp);
+      } else if(d.type==='message'){
+        if(log.querySelector('.chat-empty')) log.innerHTML='';
+        stamp(d.message);
+      }
+    });
+    sock.addEventListener('close',function(){ sock=null; });
+    sock.addEventListener('error',function(){ empty('Lost the connection. Reopen to retry.'); });
+  }
+
+  if(chatBtn) chatBtn.addEventListener('click',function(){
+    var open=chat.hidden;
+    chat.hidden=!open;
+    chatBtn.setAttribute('aria-expanded',String(open));
+    if(open){ empty('Connecting\u2026'); connect(); }
+  });
+  var closeChat=document.querySelector('[data-close-chat]');
+  if(closeChat) closeChat.addEventListener('click',function(){
+    chat.hidden=true; chatBtn.setAttribute('aria-expanded','false');
+  });
+
+  var chatForm=document.querySelector('[data-chat-form]');
+  if(chatForm) chatForm.addEventListener('submit',function(ev){
+    ev.preventDefault();
+    var input=chatForm.elements.body, text=input.value.trim();
+    if(!text||!sock||sock.readyState!==1) return;
+    sock.send(JSON.stringify({type:'post',body:text}));
+    input.value='';
   });
 
   var copy=document.querySelector('[data-copy-link]');

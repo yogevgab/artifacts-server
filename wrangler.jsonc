@@ -16,6 +16,13 @@
 
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "artifacts-files" }],
 
+  // One chat room per artifact. Keyed by slug, so the coordination atom is a
+  // single document's conversation rather than a global bottleneck.
+  "durable_objects": {
+    "bindings": [{ "name": "CHAT", "class_name": "ChatRoom" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ChatRoom"] }],
+
   // `npm run setup` (or `wrangler d1 create`) fills in database_id.
   "d1_databases": [
     { "binding": "DB", "database_name": "artifacts-meta", "database_id": "05f77557-3709-43b9-aad8-0cddf53765a8" }
