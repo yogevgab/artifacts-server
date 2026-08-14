@@ -527,6 +527,25 @@ export async function addToWaitlist(env: Env, email: string, now: string): Promi
   return row !== null;
 }
 
+/**
+ * Record one "Talk to us" request (src/contact.ts).
+ *
+ * Always an INSERT — no upsert, no dedupe. Unlike `addToWaitlist`, which is
+ * answering "is this address on the list?", this is answering "what did this
+ * person ask, and when?", and collapsing two questions from the same address
+ * into one row loses the second question outright.
+ */
+export async function addContactRequest(
+  env: Env,
+  input: { email: string; plan: string | null; message: string | null; now: string }
+): Promise<void> {
+  await env.DB.prepare(
+    "INSERT INTO contact_requests (email, plan, message, created_at) VALUES (?, ?, ?, ?)"
+  )
+    .bind(input.email.trim().toLowerCase(), input.plan, input.message, input.now)
+    .run();
+}
+
 /** Replace an artifact's visibility and its full grant list atomically. */
 export async function setAccess(
   env: Env,

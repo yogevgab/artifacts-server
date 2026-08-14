@@ -36,8 +36,9 @@ describe("canView", () => {
     expect(canView(admin, "restricted", false)).toBe(true);
     expect(canView(admin, "everyone", false)).toBe(true);
   });
-  it("'everyone' is visible to any authenticated viewer", () => {
-    expect(canView(bob, "everyone", false)).toBe(true);
+  it("'everyone' means everyone in the artifact workspace, not every authenticated viewer", () => {
+    expect(canView(bob, "everyone", false)).toBe(false);
+    expect(canView(bob, "everyone", false, false, true)).toBe(true);
   });
   it("'restricted' depends on the grant", () => {
     expect(canView(bob, "restricted", true)).toBe(true);

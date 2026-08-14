@@ -4,7 +4,17 @@ import { cookieNotice, CONSENT_STYLE, CONSENT_SCRIPT } from "./consent";
 import type { Env } from "./env";
 import { SITE, canonicalUrl } from "./seo";
 import { num, bytes } from "./portal";
-import { ALL_PLANS, planFeatures } from "./plan-copy";
+import type { PlanName } from "./quota";
+import {
+  PUBLIC_TIERS,
+  TIER_LABEL,
+  isPlanName,
+  planFeatures,
+  tierCta,
+  tierPath,
+  tierPrice,
+  type PublicTier,
+} from "./plan-copy";
 
 /**
  * The public product page (issue #29, simplified in issue #35).
@@ -103,6 +113,7 @@ section.band{margin:4rem 0}
 .tier-limits li:before{content:"";position:absolute;left:0;top:.5em;width:.5rem;height:.5rem;
   border-radius:50%;background:var(--accent-weak);border:1px solid rgba(10,132,255,.42)}
 .tier .link-button{align-self:flex-start}
+.tier-more{margin:-.3rem 0 0;font-size:.86rem}
 .pricing-note{text-align:center;color:var(--faint);font-size:.88rem;margin:1.2rem 0 0}
 #waitlist{background:var(--card);border:1px solid var(--border);border-radius:32px;padding:2.3rem;text-align:center;margin:2.6rem 0;box-shadow:var(--shadow);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}#waitlist h2{margin:0 0 .45rem;font-size:clamp(1.8rem,4vw,3rem);letter-spacing:-.055em}#waitlist p{color:var(--muted);margin:0 0 1.3rem}#waitlist form{display:flex;gap:.6rem;justify-content:center;flex-wrap:wrap;max-width:31rem;margin:0 auto}#waitlist input{flex:1;min-width:15rem}#msg{max-width:31rem;margin:.85rem auto 0}
 @media(max-width:760px){.hero{padding:3rem 0 1.8rem}.roundtrip{grid-template-columns:1fr;gap:1.6rem;margin-top:2.4rem}section.band{margin:3rem 0}}
@@ -246,33 +257,51 @@ function structuredData(env: Env): unknown[] {
  * quota enforcement (src/api.ts) and Settings (src/admin.ts) actually apply.
  */
 /** Seats are what Team actually sells; a pricing table that omits them hides it. */
-function seatsLine(name: (typeof ALL_PLANS)[number]): string {
+function seatsLine(name: PlanName): string {
   const seats = SEAT_LIMITS[name] ?? DEFAULT_SEAT_LIMIT;
   return seats === 1 ? "1 person" : `Up to ${seats} people`;
 }
 
-function tierCard(name: (typeof ALL_PLANS)[number]): string {
-  const f = planFeatures(name);
-  const versions =
-    f.limits.keepVersions === null
-      ? "Full version history"
-      : `Keeps the last ${f.limits.keepVersions} versions of each artifact`;
-  // Every tier points at /signup, not the waitlist. Signup is self-serve now,
-  // and a pricing button that leads to a queue is the one thing guaranteed to
-  // stop the conversion this section exists to make. Paid tiers still start
-  // free: checkout needs an account to attach the subscription to.
-  return `<div class="tier" data-tier="${name}">
-    <h3>${f.label}</h3>
-    <p class="tier-price">${f.price}</p>
-    <ul class="tier-limits">
-      <li>${num(f.limits.maxArtifacts)} artifacts</li>
+/**
+ * The CTA is read from `tierCta` (src/plan-copy.ts) rather than decided here,
+ * because that table encodes something this file has no business guessing: what
+ * a person can actually finish on their own today. Free and Pro are a real
+ * self-serve path — sign up, then a hosted checkout from Settings. Team and
+ * Enterprise are not, and the button says so instead of sending somebody into a
+ * flow that ends with them waiting on us anyway.
+ */
+function tierCard(name: PublicTier): string {
+  const cta = tierCta(name);
+  const detail = isPlanName(name)
+    ? (() => {
+        const f = planFeatures(name);
+        const versions =
+          f.limits.keepVersions === null
+            ? "Full version history"
+            : `Keeps the last ${f.limits.keepVersions} versions of each artifact`;
+        return `<li>${num(f.limits.maxArtifacts)} artifacts</li>
       <li>${bytes(f.limits.maxStorageBytes)} storage</li>
       <li>${versions}</li>
-      <li>${seatsLine(name)}</li>
+      <li>${seatsLine(name)}</li>`;
+      })()
+    : // Enterprise has no row in PLANS to render, and inventing limits for it
+      // would be the one hand-typed number in this section. What it lists
+      // instead is what the conversation is about — see /enterprise, which is
+      // explicit that none of it is built today.
+      `<li>Everything in Team, plus a conversation</li>
+      <li>SSO, SCIM and contractual SLAs — none built yet</li>
+      <li>Security review, DPA, invoicing</li>
+      <li>Or self-host it: the source is MIT</li>`;
+  const link = tierPath(name);
+  return `<div class="tier" data-tier="${name}">
+    <h3>${TIER_LABEL[name]}</h3>
+    <p class="tier-price">${tierPrice(name)}</p>
+    <ul class="tier-limits">
+      ${detail}
     </ul>
-    <a class="ghost link-button" href="/signup" data-cta="pricing-${name}">${
-      name === "free" ? "Start free" : "Start free, upgrade anytime"
-    }</a>
+    <a class="ghost link-button" href="${cta.href}" data-cta="pricing-${name}"
+      data-cta-kind="${cta.kind}">${cta.label}</a>
+    ${link ? `<p class="tier-more"><a href="${link}" data-tier-page="${name}">What ${TIER_LABEL[name]} is &rarr;</a></p>` : ""}
   </div>`;
 }
 
@@ -281,11 +310,12 @@ function pricingSection(): string {
     <div class="band-head">
       <p class="eyebrow-c">Pricing</p>
       <h2>Free to start. Upgrade only if you outgrow it.</h2>
-      <p>Every workspace starts on Free. Upgrading is a workspace setting, not a signup step —
-        switch plans from Settings once you're in, and it never changes what you can already see or share.</p>
+      <p>Every workspace starts on Free, and Pro is a switch inside it — not a signup step. Team and
+        Enterprise are set up with a person, because the parts that would make them self-serve
+        aren't built yet, and a checkout button would be lying about that.</p>
     </div>
     <div class="pricing-grid">
-      ${ALL_PLANS.map(tierCard).join("")}
+      ${PUBLIC_TIERS.map(tierCard).join("")}
     </div>
     <p class="pricing-note">Limits are per workspace, not per person. Storage counts every version
       you've kept, which is why Free keeps your last 5 and the paid plans keep every one.</p>
@@ -298,7 +328,12 @@ export function landingPage(env: Env): string {
 
     <main id="main">
     <section class="hero">
-      <div class="badge-row"><span class="pill">Agent-native publishing</span><span class="pill">Secure, access-protected sharing</span><span class="pill">Versioned &amp; audited</span><span class="pill">Workspaces &amp; roles</span></div>
+      <div class="badge-row"><span class="pill">Agent-native publishing</span><span class="pill">Secure, access-protected sharing</span><!-- "Versioned & audited" claimed an audit log this product does not have.
+           What exists is a per-artifact view log — who opened it, when, which
+           version — which is a real and specific thing, and not the same
+           promise. "Audited" is the word a buyer reads as "there is a tamper-
+           evident record of every administrative action", and there isn't one. -->
+      <span class="pill">Versioned, with a view log</span><span class="pill">Workspaces &amp; roles</span></div>
       <h1>Claude creates. We share.</h1>
       <!-- "Artifact" carried the whole page and was never defined on it; the
            definition lived a click away on /docs. It costs four words here. -->

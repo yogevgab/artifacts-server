@@ -420,11 +420,11 @@ describe("per-artifact permissions", () => {
     );
   });
 
-  it("'everyone' visibility is visible to any logged-in viewer", async () => {
+  it("'everyone' visibility is scoped to the artifact workspace, not every signed-in viewer", async () => {
     await publish("pub", "PublicOne");
     await setAcc("pub", "everyone", []);
-    expect((await req("/pub/", viewer("anyone@x.com"))).status).toBe(200);
-    expect(await (await req("/admin/gallery", viewer("anyone@x.com"))).text()).toContain("PublicOne");
+    expect((await req("/pub/", viewer("anyone@x.com"))).status).toBe(404);
+    expect(await (await req("/admin/gallery", viewer("anyone@x.com"))).text()).not.toContain("PublicOne");
   });
 
   it("GET access reflects grants; revoke removes a user", async () => {
@@ -558,11 +558,12 @@ describe("views log", () => {
     fd.set("slug", slug);
     fd.set("bundle", new File([zip], "b.zip", { type: "application/zip" }));
     await req("/api/artifacts", { method: "POST", body: fd });
-    // Make it visible to any signed-in user so viewers in these tests can load it.
+    // Grant the specific viewers used below. "everyone" no longer means every
+    // signed-in rtfx.pro user after self-serve signup: it is workspace-scoped.
     await req(`/api/artifacts/${slug}/access`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ visibility: "everyone", emails: [] }),
+      body: JSON.stringify({ visibility: "restricted", emails: ["a@x.com", "b@x.com", "bob@x.com"] }),
     });
   };
   const getViews = async (slug: string) => (await req(`/api/artifacts/${slug}/views`)).json<any>();

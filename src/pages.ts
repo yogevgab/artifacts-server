@@ -213,7 +213,16 @@ export const BRAND_STYLE = `
 // looking like three products.
 
 /** Which public page is being rendered, so its own link can be dropped. */
-export type PublicPage = "home" | "docs" | "login" | "privacy" | "terms";
+export type PublicPage =
+  | "home"
+  | "docs"
+  | "login"
+  | "privacy"
+  | "terms"
+  | "pro"
+  | "team"
+  | "enterprise"
+  | "contact";
 
 /**
  * The link every public page opens with, and the reason each of them wraps its
@@ -238,6 +247,12 @@ export function siteHeader(current: PublicPage = "home"): string {
     current === "home" ? "" : `<a href="/" data-nav="home">Home</a>`,
     current === "docs" ? "" : `<a href="/docs" data-cta="docs">Docs</a>`,
     `<a href="/docs#use-cases" data-nav="use-cases">Use cases</a>`,
+    // Pricing is a destination now that four tiers have pages of their own, and
+    // two of those tiers are a conversation rather than a checkout — somebody
+    // evaluating Team or Enterprise needs a way in that isn't the landing page's
+    // scroll. It sits with the next-step links, not the orientation ones, which
+    // is why the narrow-screen rule below hides Home and Use cases and not this.
+    `<a href="/#pricing" data-nav="pricing">Pricing</a>`,
     `<a href="/signup" class="primary" data-cta="signup">Start free</a>`,
     current === "login" ? "" : `<a href="/login" data-cta="sign-in">Sign in →</a>`,
   ].filter(Boolean);
@@ -262,6 +277,12 @@ export function siteFooter(): string {
         <a href="/docs#use-cases">Use cases</a>
         <a href="/signup" data-cta="signup">Start free</a>
         <a href="/login" data-cta="sign-in">Sign in</a>
+        <!-- Every tier that is not self-serve needs a route a person can take
+             without guessing an address, and somebody with a broken workspace
+             needs the same route. One link, both jobs — and it is in the footer
+             rather than only on a pricing card because "where do I get help?"
+             is a question asked from whichever page went wrong. -->
+        <a href="/contact" data-nav="contact">Talk to us</a>
         <!-- The strongest thing a security product can offer somebody before they
              sign up: read the code and the threat model. The repository is public
              and the product is MIT-licensed, so this costs nothing and answers the
@@ -270,6 +291,15 @@ export function siteFooter(): string {
         <a href="${SOURCE_URL}" data-nav="source" rel="noopener">Source</a>
         <a href="${SOURCE_URL}/blob/main/SECURITY.md" data-nav="security" rel="noopener">Security</a>
         <a href="/llms.txt">llms.txt</a>
+      </nav>
+      <!-- Its own row for the same reason the legal row has one: "which plan?"
+           is a different question from "where do I go?", and each tier now has a
+           page rather than a card on somebody else's page. -->
+      <nav class="legal" aria-label="Plans">
+        <a href="/#pricing" data-plan-nav="pricing">Pricing</a>
+        <a href="/pro" data-plan-nav="pro">Pro</a>
+        <a href="/team" data-plan-nav="team">Team</a>
+        <a href="/enterprise" data-plan-nav="enterprise">Enterprise</a>
       </nav>
       <nav class="legal" aria-label="Legal">
         <a href="/privacy" data-legal="privacy">Privacy</a>

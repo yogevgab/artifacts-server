@@ -210,10 +210,10 @@ describe("ownership: viewing vs managing", () => {
     expect(await (await req("/admin", as(CAROL))).text()).not.toContain('data-artifact="shared-out"');
   });
 
-  it("an 'everyone' artifact is viewable by all but managed only by its owner", async () => {
+  it("an 'everyone' artifact is not viewable by an unrelated signed-in user", async () => {
     await publish(BOB, "open-house");
     await setAccess(BOB, "open-house", "everyone", []);
-    expect((await req("/open-house/", as(CAROL))).status).toBe(200);
+    expect((await req("/open-house/", as(CAROL))).status).toBe(404);
     expect((await req("/api/artifacts/open-house/views", as(CAROL))).status).toBe(404);
   });
 });

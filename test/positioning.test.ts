@@ -272,9 +272,12 @@ describe("llms.txt gives an answer engine the comparison and the gaps", () => {
     // llms.txt lie to every answer engine that reads it.
     const t = txt();
     expect(t).toContain("## Pricing and access");
-    expect(t).toMatch(/free tier, Pro and Team/i);
+    expect(t).toMatch(/free tier, Pro, Team and Enterprise/i);
     expect(t).toMatch(/self-serve/i);
     expect(t).toMatch(/\/signup/);
+    expect(t).toMatch(/Team is NOT self-serve today/i);
+    expect(t).toMatch(/Enterprise is a conversation/i);
+    expect(t).toContain("/contact");
     expect(t).not.toMatch(/no pricing page, no billing system and no paid plan/);
     expect(t).not.toMatch(/no self-serve signup/i);
 

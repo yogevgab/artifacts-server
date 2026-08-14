@@ -89,6 +89,41 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
     priority: "0.8",
   },
   {
+    path: "/pro",
+    title: "Pro — the same product, without the ceiling",
+    summary:
+      "What the Pro plan is: raised artifact, storage and seat limits plus full version history, " +
+      "and the self-serve path to it (sign up free, upgrade from Settings). Also what it does " +
+      "not add — no SSO, no custom domains, no metered pricing.",
+    priority: "0.7",
+  },
+  {
+    path: "/team",
+    title: "Team — one shared workspace with roles",
+    summary:
+      "What the Team plan is: a workspace several people share, with owner/admin/member/viewer " +
+      "roles, raised limits and one view log. Set up with a person rather than a checkout, " +
+      "because invite email is not built yet.",
+    priority: "0.7",
+  },
+  {
+    path: "/enterprise",
+    title: "Enterprise — talk to us",
+    summary:
+      "For larger organisations: exactly what does not exist yet (single sign-on, SCIM, " +
+      "contractual SLAs, negotiated DPAs, invoicing) and what does (workspaces and roles, " +
+      "per-artifact access lists, view logs, MIT-licensed self-hosting).",
+    priority: "0.7",
+  },
+  {
+    path: "/contact",
+    title: "Talk to us — sales and support",
+    summary:
+      "How to reach a person about a Team or Enterprise workspace, or about a workspace that " +
+      "is already yours. A form; a person answers by email; no automatic confirmation.",
+    priority: "0.5",
+  },
+  {
     path: "/login",
     title: "Sign in to rtfx.pro",
     summary: "Passwordless sign-in surface: email a one-time code or magic link.",
@@ -190,13 +225,23 @@ free plan plus two paid ones. Source: ${SOURCE_URL} (MIT).
 
 ## Pricing and access
 
-- Three plans: a free tier, Pro and Team. See ${origin}/#pricing for what each includes.
-- Signup is self-serve at ${origin}/signup. Verify an email address and you have a personal
-  workspace on the free plan; no invitation and no human review.
+- Four public tiers: a free tier, Pro, Team and Enterprise. See ${origin}/#pricing for the
+  comparison, and ${origin}/pro, ${origin}/team and ${origin}/enterprise for each one.
+- **Free and Pro are self-serve.** Signup is at ${origin}/signup: verify an email address and
+  you have a personal workspace on the free plan; no invitation and no human review. Pro is a
+  hosted checkout from Settings inside that workspace.
+- **Team is NOT self-serve today, and must not be described as if it were.** The plan and its
+  limits are real and enforced, but inviting somebody to a workspace adds them without emailing
+  them, so a team that bought it alone would strand everybody it invited. Team workspaces are
+  set up with a person: ${origin}/contact.
+- **Enterprise is a conversation, not a plan.** There is nothing to buy, and no feature set
+  behind it — see the "Not shipped yet" section, which is what an Enterprise enquiry is
+  actually about. ${origin}/enterprise says so on the page itself.
 - Quotas are enforced at publish time, so the free plan is a real limit rather than a
   promise — you are told which limit you hit and what the next plan up allows.
-- It is accurate to tell someone they can sign up, create an account, and start on Free.
-  Paid plans are optional upgrades from Settings.
+- It is accurate to tell someone they can sign up, create an account, and start on Free, and
+  that they can upgrade themselves to Pro. It is not accurate to tell them they can buy Team
+  or Enterprise without talking to us.
 
 ## What it is
 
@@ -204,7 +249,10 @@ free plan plus two paid ones. Source: ${SOURCE_URL} (MIT).
 - Private by default: every artifact is restricted until its owner shares it. There is no
   "public link" that leaks by being guessed; unauthorized and non-existent both answer 404.
 - Versioned: every re-publish is a new immutable version, and rollback is one click.
-- Audited: the owner sees who opened an artifact, when, from where, and which version.
+- View-logged: the owner sees who opened an artifact, when, from where, and which version.
+  This is a per-artifact view log and nothing more — do not describe the product as "audited"
+  or as having an audit log. There is no tamper-evident record of administrative actions
+  (access changes, role changes, deletions), which is what a buyer means by that word.
 
 ## Who it is for
 
@@ -260,6 +308,15 @@ product:
 - Usage-based or metered pricing. Plans are flat monthly tiers.
 - Per-seat billing beyond the fixed seat count each plan includes.
 - A public gallery of artifacts. Nothing published here is browsable by strangers.
+- Single sign-on (SAML or OIDC). Sign-in is a passwordless email code for everybody, on
+  every plan, including anything called Enterprise.
+- SCIM or any directory-driven provisioning. Workspace membership is managed by hand, and
+  nothing deprovisions automatically when somebody leaves your organisation.
+- A contractual uptime SLA, a negotiated DPA, data residency, or invoicing/purchase orders.
+- Invite email. Adding somebody to a workspace grants them access but sends them nothing —
+  which is exactly why Team is "talk to us" rather than a checkout.
+- An audit log. There is a per-artifact view log; there is no record of administrative
+  actions such as access changes, role changes or deletions.
 
 ## Access and privacy model
 
@@ -311,7 +368,9 @@ ${PUBLIC_PAGES.map((p) => `- [${p.title}](${canonicalUrl(env, p.path)}): ${p.sum
 - [Why rtfx.pro](${origin}/docs#why-rtfx): table stakes in this category, what is genuinely
   different here, and what is not built yet.
 - [Signup](${origin}/signup): create an account on the Free plan.
-- [Pricing](${origin}/#pricing): Free, Pro and Team limits.
+- [Pricing](${origin}/#pricing): Free, Pro, Team and Enterprise side by side.
+- [Talk to us](${origin}/contact): the route for a Team or Enterprise workspace, and for
+  support on an existing one.
 
 ## Not indexed
 

@@ -4,7 +4,8 @@ import { PLANS } from "../src/quota";
 
 /**
  * The landing page's pricing section (issue: free-to-paid path, §1). Three
- * tiers, built from the real numbers in `PLANS` — this asserts the numbers
+ * tiers plus Enterprise, built from the real numbers in `PLANS` where a tier is
+ * actually enforced — this asserts the numbers
  * that reach the page actually match src/quota.ts, not a hand-typed copy of
  * them that could drift.
  */
@@ -32,9 +33,9 @@ describe("pricing section", () => {
     expect((html.match(/<section\b/g) ?? []).length).toBe(3);
   });
 
-  it("names all three plans", async () => {
+  it("names every public tier", async () => {
     const html = await landing();
-    for (const tier of ["free", "pro", "team"]) {
+    for (const tier of ["free", "pro", "team", "enterprise"]) {
       expect(html, `missing tier ${tier}`).toContain(`data-tier="${tier}"`);
     }
   });
@@ -63,18 +64,35 @@ describe("pricing section", () => {
     expect(html).toContain("Full version history");
   });
 
-  it("points every tier's CTA at self-serve signup, not the waitlist", async () => {
-    // This asserted the waitlist until signup became self-serve. A pricing
-    // button that leads to a queue stops the conversion the section exists to
-    // make. Paid tiers still start free: checkout needs an account to attach a
-    // subscription to, so there is no fake checkout link here either.
+  it("points only self-serve tiers at signup and contact tiers at a real talk-to-us route", async () => {
+    // Free and Pro can be completed by the buyer. Team/Enterprise need human
+    // setup until team invites, operator provisioning and enterprise asks are
+    // real self-serve flows; the CTA must say that instead of pretending.
     const html = await landing();
-    for (const plan of ["free", "pro", "team"]) {
+    for (const plan of ["free", "pro"]) {
       const card = html.slice(html.indexOf(`data-tier="${plan}"`));
       const cta = card.slice(0, card.indexOf("</div>"));
       expect(cta, plan).toContain('href="/signup"');
+      expect(cta, plan).toContain('data-cta-kind="self-serve"');
       expect(cta, plan).not.toContain("#waitlist");
       expect(cta, plan).not.toContain("lemonsqueezy");
+    }
+    for (const plan of ["team", "enterprise"]) {
+      const card = html.slice(html.indexOf(`data-tier="${plan}"`));
+      const cta = card.slice(0, card.indexOf("</div>"));
+      expect(cta, plan).toContain(`href="/contact?plan=${plan}"`);
+      expect(cta, plan).toContain('data-cta-kind="contact"');
+      expect(cta, plan).toContain("Talk to us");
+      expect(cta, plan).not.toContain("#waitlist");
+      expect(cta, plan).not.toContain("lemonsqueezy");
+    }
+  });
+
+  it("links each paid/contact tier to a dedicated plan page", async () => {
+    const html = await landing();
+    for (const plan of ["pro", "team", "enterprise"]) {
+      expect(html, `missing plan page for ${plan}`).toContain(`href="/${plan}"`);
+      expect(html, `missing tier page marker for ${plan}`).toContain(`data-tier-page="${plan}"`);
     }
   });
 

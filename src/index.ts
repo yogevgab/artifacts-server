@@ -63,6 +63,8 @@ import { recordViewAndMaybeNotify } from "./read-receipts";
 import { membersPage } from "./members";
 import { verifyHandoff, mintSession, SESSION_TTL_SECONDS } from "./session";
 import { landingPage } from "./landing";
+import { proPage, teamPage, enterprisePage } from "./plan-pages";
+import { contactRoutes, contactPage, normalizePlan } from "./contact";
 import { docsPage } from "./docs";
 import { privacyPage, termsPage } from "./legal";
 import { signupPage, loginPage, guestSigninPage } from "./login";
@@ -240,8 +242,8 @@ async function artifactContext(c: PortalContext): Promise<{
  *
  * Deliberately a different question from `artifactContext`, which answers "what
  * may I manage?". A member sees what they own, what their workspaces own, what
- * has been granted to them by name, and anything published to everyone signed
- * in. An admin sees the instance.
+ * has been granted to them by name, and what their workspaces own. An admin
+ * sees the instance.
  */
 async function readableArtifacts(c: PortalContext): Promise<ArtifactRow[]> {
   const identity = c.get("identity");
@@ -259,7 +261,6 @@ async function readableArtifacts(c: PortalContext): Promise<ArtifactRow[]> {
   ]);
   return rows.filter(
     (r) =>
-      r.visibility === "everyone" ||
       granted.has(r.slug) ||
       // Owner by email, or any member of the artifact's workspace — including a
       // `viewer`, whose whole purpose is to see without changing (issue #27).
@@ -449,6 +450,12 @@ app.route("/api", api);
 // Public landing-page waitlist signup (unauthenticated).
 app.route("/waitlist", waitlist);
 
+// POST /contact — the "Talk to us" form behind the Team and Enterprise CTAs.
+// Unauthenticated by necessity: the whole point is that somebody who has no
+// account can reach a person. Rate-limited per address and per IP, exactly like
+// the waitlist. See src/contact.ts.
+app.route("/", contactRoutes);
+
 // App-owned sign-in (/auth/*). Mounted at the root because the module declares
 // its own full paths. App host only — see MANAGEMENT_PREFIXES in host.ts.
 app.route("/", authRoutes);
@@ -472,6 +479,31 @@ app.get("/", (c) =>
 // Hermes), the access-control and privacy model, and the FAQ that backs the
 // FAQPage structured data on the page.
 app.get("/docs", (c) => c.html(docsPage(c.env), 200, { "Cache-Control": PUBLIC_HTML_CACHE }));
+
+// A page per paid tier (src/plan-pages.ts). Public and cached like the rest of
+// the product surface: these are what a "Talk to us" button and a shared link
+// land on, so they must render identically for a crawler and a buyer, with no
+// identity read. `/enterprise` in particular is the page that has to be
+// reachable before anybody signs up — it is mostly a list of what we do NOT do.
+app.get("/pro", (c) => c.html(proPage(c.env), 200, { "Cache-Control": PUBLIC_HTML_CACHE }));
+
+app.get("/team", (c) => c.html(teamPage(c.env), 200, { "Cache-Control": PUBLIC_HTML_CACHE }));
+
+app.get("/enterprise", (c) =>
+  c.html(enterprisePage(c.env), 200, { "Cache-Control": PUBLIC_HTML_CACHE })
+);
+
+/**
+ * The contact/support page. `?plan=team|enterprise` only preselects the
+ * dropdown — an unrecognized value is dropped rather than refused
+ * (`normalizePlan`), because it arrives from a query string anybody can edit
+ * and a mistyped one should still deliver the enquiry.
+ *
+ * Not cached at the edge with the others: the rendered `<option selected>`
+ * varies with the query string, and a shared cache keyed on path alone would
+ * hand the next visitor somebody else's preselected plan.
+ */
+app.get("/contact", (c) => c.html(contactPage(c.env, normalizePlan(c.req.query("plan")))));
 
 // Privacy policy and terms of use (issue #36). Public for the same reason /docs
 // is: they are what somebody reads *before* deciding to sign up, so gating them
@@ -640,6 +672,16 @@ async function manages(
   return atLeast(await memberRole(env, art.account_id, identity.email), MANAGE_ARTIFACTS);
 }
 
+/** True when the caller belongs to the artifact's workspace/account. */
+async function callerIsInWorkspace(
+  env: Env,
+  art: ArtifactRow,
+  identity: Identity | null
+): Promise<boolean> {
+  if (!art.account_id || !identity?.email) return false;
+  return (await memberRole(env, art.account_id, identity.email)) !== null;
+}
+
 // Version preview for people who manage the artifact (admin or owner):
 // /v/<slug>/<n>/<path> serves a specific version. Relative assets resolve within
 // this prefix. Everyone else gets 404 (existence stays hidden).
@@ -710,11 +752,16 @@ app.get("/_chat/:slug", async (c) => {
   }
 
   const owned = isOwner(identity, art);
+  // 'everyone' means everyone in the artifact's workspace, not every identity
+  // on the instance (see canView). The chat room has to answer the same
+  // question the artifact itself does, or somebody who cannot open a page can
+  // still join the conversation attached to it.
+  const inWorkspace = await callerIsInWorkspace(c.env, art, identity);
   let granted = false;
-  if (art.visibility === "restricted" && !identity?.isAdmin && !owned && identity?.email) {
+  if (!identity?.isAdmin && !owned && !inWorkspace && identity?.email) {
     granted = await hasGrant(c.env, slug, identity.email);
   }
-  if (!viaLink && !canView(identity, art.visibility, granted, owned)) {
+  if (!viaLink && !canView(identity, art.visibility, granted, owned, inWorkspace)) {
     return c.json({ error: "not_found" }, 404);
   }
 

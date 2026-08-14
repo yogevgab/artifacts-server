@@ -12,6 +12,13 @@ const MANAGEMENT_PATHS = new Set([
   "/docs",
   "/privacy",
   "/terms",
+  // The per-tier product pages and the "Talk to us" surface. App host only,
+  // like every other public product page: a content host must never serve them,
+  // or the same page is reachable at two origins and competes with itself.
+  "/pro",
+  "/team",
+  "/enterprise",
+  "/contact",
   "/sitemap.xml",
   "/llms.txt",
   "/og.svg",

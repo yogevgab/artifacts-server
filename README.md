@@ -1,12 +1,13 @@
 # artifacts-server
 
 Private, access-gated hosting for landing pages and HTML/[Claude](https://claude.ai) artifacts,
-running entirely on **Cloudflare Workers**. A public product site at `/` (plus `/docs` and
-`/login`) explains the product and collects access requests; invited people sign in (Cloudflare
-Access, email one-time-PIN) to reach one dashboard at `/admin` — publishing, sharing and the
-gallery of everything shared with them. Artifacts — single HTML files
-or multi-file static bundles — are published from a web dashboard, a CLI, or an agent session
-(Claude Code, Hermes). With **per-artifact permissions** and **versioning**.
+running entirely on **Cloudflare Workers**. A public product site at `/` (plus `/docs`, `/signup`
+and `/login`) explains the product and lets people start on the Free plan. Sign-in is app-owned
+and passwordless: rtfx.pro emails a one-time code or magic link, then a host-only `rtfx_session`
+keeps the browser signed in. One dashboard at `/admin` handles publishing, sharing and the gallery
+of everything shared with you. Artifacts — single HTML files or multi-file static bundles — are
+published from a web dashboard, a CLI, or an agent session (Claude Code, Hermes). With
+**per-artifact permissions** and **versioning**.
 
 - 🤖 **Agent-native publishing** — Claude Code, a native MCP server, Hermes, the CLI and the HTTP API all take the same path a human takes; no separate, weaker agent route. See [`plugins/rtfx`](plugins/rtfx) and [`docs/MCP.md`](docs/MCP.md).
 - 👥 **Access by identity, not a secret link** — each artifact is private, shared with named people, or open to all signed-in users. Unauthorized and non-existent both return **404**.
@@ -14,19 +15,18 @@ or multi-file static bundles — are published from a web dashboard, a CLI, or a
   retention window (free keeps the last 5; paid plans keep everything).
 - 📈 **Views log** — see who viewed each artifact, when, which version, and from where — per person, not an aggregate counter.
 - 🏢 **Workspaces & roles** — artifacts belong to an account with `owner`/`admin`/`member`/`viewer` roles; instance privilege is re-derived from config, never read from a table.
-- 🌐 **Public product site** — `/`, `/docs`, `/login`, `/privacy`, `/terms` and `/waitlist` are reachable by anyone, with SEO metadata, `sitemap.xml`, `robots.txt` and `llms.txt`; everything else needs an identity.
-- 🔒 **Access-gated dashboard** — Cloudflare Access handles login for `/admin` and the API; sign-in is passwordless (one-time email code) and the app stores no passwords.
+- 🌐 **Public product site** — `/`, `/docs`, `/signup`, `/login`, `/privacy` and `/terms` are reachable by anyone, with SEO metadata, `sitemap.xml`, `robots.txt` and `llms.txt`; everything else needs an identity.
+- 🔒 **Access-gated dashboard** — app-owned email OTP/magic-link sign-in for `/admin` and the API; the app stores no passwords.
 - 🖼️ **One dashboard** — publish and manage under **Artifacts**; everything shared with you under **Gallery**. Same shell, same nav, same brand.
 - 🔑 **API tokens** — hashed bearer tokens for server-to-server publishing (Hermes Cloud, CI), scoped, owner-bound and revocable.
 - ☁️ **All Cloudflare** — Worker + R2 (files) + D1 (metadata). No servers, no database to run.
 
-> **Stack:** TypeScript · [Hono](https://hono.dev) · Cloudflare Workers / R2 / D1 · Cloudflare Access
+> **Stack:** TypeScript · [Hono](https://hono.dev) · Cloudflare Workers / R2 / D1 / Email Sending · Lemon Squeezy
 
 **Not built yet**, and deliberately not implied anywhere in the copy: per-link passwords or
-shared link secrets, link expiry, custom domains for artifacts, comments/approvals, a public
-gallery of artifacts, and **self-serve signup or billing of any kind** — access is granted by
-invitation, by a person, and nothing is charged for rtfx.pro today. Access is
-by identity only. The competitive reasoning, and the full
+shared link secrets, custom domains for artifacts, comments/approvals, a public gallery of
+artifacts, usage-based billing, and per-seat billing beyond the fixed seats included in each plan.
+Access is by identity only; share links can carry optional expiry. The competitive reasoning, and the full
 table-stakes-vs-differentiators split, is in [`docs/POSITIONING.md`](docs/POSITIONING.md) and
 published at [`/docs#why-rtfx`](https://rtfx.pro/docs#why-rtfx).
 
@@ -35,24 +35,24 @@ published at [`/docs#why-rtfx`](https://rtfx.pro/docs#why-rtfx).
 ## How it works
 
 ```
-                              /  and  /waitlist  (always public)
+                    /, /docs, /signup, /login and legal pages (public)
                                         │
 Browser / CLI ─────────────────────────┼──────────────────────────▶  Worker (Hono)
-                    ┌──────────── Cloudflare Access ────────────┐          │
-                    │  login gate (email OTP) + allow-list      │────▶     │
-                    └───────────────────────────────────────────┘          │
+                    ┌──────── app-owned email OTP / magic link ───────┐    │
+                    │  rtfx_session cookie + users/accounts tables    │────┘
+                    └─────────────────────────────────────────────────┘
                             files · /admin · /api                          │
                         ┌───────────────────────┬────────────────────┐      │
                         ▼                       ▼                    ▼      │
-                  R2  (files at            D1 (metadata:        Cloudflare  │
-                  <slug>/v<N>/…)           artifacts, grants,   Access API ◀┘
-                                           versions, waitlist)  (manage users)
+                  R2  (files at            D1 (metadata:        Email +     │
+                  <slug>/v<N>/…)           artifacts, grants,   billing     │
+                                           versions, sessions)  webhooks    │
 ```
 
-- **`/` and `/waitlist`** are never behind Cloudflare Access — the public landing page and
-  waitlist signup must be reachable by anyone.
-- **Cloudflare Access** authenticates every other request (`/admin`, `/api`, artifact
-  files) and holds the login allow-list.
+- **`/`, `/signup`, `/login`, `/docs`, `/privacy`, `/terms`, `robots.txt`, `sitemap.xml` and
+  `llms.txt`** are public product/crawler pages.
+- **rtfx.pro sessions** authenticate dashboard/API/artifact requests with a signed `rtfx_session`
+  cookie created after email-code or magic-link verification.
 - The **Worker** authorizes per-artifact (who sees what), serves the current version of each
   artifact, renders the public site and the dashboard, and exposes a JSON API.
 - **R2** stores files under `<slug>/v<N>/…`; **D1** stores metadata.

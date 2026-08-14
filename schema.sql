@@ -67,6 +67,18 @@ CREATE TABLE IF NOT EXISTS waitlist (
   created_at TEXT NOT NULL
 );
 
+-- "Talk to us" requests from /contact and the Team/Enterprise pricing buttons.
+-- No UNIQUE on email: the same person may ask twice, about two different things.
+CREATE TABLE IF NOT EXISTS contact_requests (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  email      TEXT NOT NULL,
+  plan       TEXT,
+  message    TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_requests_created ON contact_requests (created_at DESC);
+
 -- Local user directory: product state above the Cloudflare Access allow-list.
 -- Access remains the authentication source of truth; `role` here is a record of
 -- the configured role and never grants privilege (ADMIN_EMAILS /

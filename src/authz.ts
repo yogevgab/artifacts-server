@@ -273,19 +273,51 @@ export function userActionDenial(
  * Can this identity view an artifact?
  * - Unauthenticated → no.
  * - Admin (or service token) → yes.
- * - The owner → yes, regardless of visibility/grants.
- * - visibility 'everyone' → any authenticated identity.
+ * - The owner, or a member of the owning workspace (`owned`) → yes, regardless
+ *   of visibility and grants.
+ * - visibility 'everyone' → anybody in the artifact's workspace (`inWorkspace`).
  * - visibility 'restricted' → only if their email is granted (`granted`).
+ *
+ * ## What 'everyone' means, and what it used to mean
+ *
+ * It used to mean *every authenticated identity on the instance*: this function
+ * returned true for `visibility === "everyone"` before it looked at anything
+ * else. On a single-tenant deployment, where everybody who can sign in is a
+ * colleague, that was defensible. On rtfx.pro — where signup is self-serve and
+ * anybody in the world can hold an identity in thirty seconds — it meant a
+ * setting labelled "Everyone" in the dashboard silently published the artifact
+ * to every stranger who had ever created an account. Not to the open web (the
+ * URL still 404s without a session) but to an unbounded, self-service audience,
+ * which is not a distinction anybody picking that option was making.
+ *
+ * It now means "everyone in this artifact's workspace" — which is what the
+ * word means to the person choosing it, and what the copy on every surface now
+ * says. Sharing *outside* the workspace is what grants and share links are for,
+ * and both still work on an 'everyone' artifact: `granted` is checked here for
+ * both visibilities, so a named guest is unaffected by the narrowing.
+ *
+ * `inWorkspace` defaults to `false`, which is the fail-closed default this
+ * needs: a caller that has not looked up membership must not accidentally get
+ * the old, wider behaviour. The two call sites that matter (src/index.ts) do
+ * look it up.
+ *
+ * **Known consequence:** an artifact whose `account_id` is NULL has no
+ * workspace to be "everyone" within, so nobody reaches it through this branch —
+ * only its owner, its grantees and platform admins. Migration 0010 backfills
+ * `account_id` for every artifact that has an `owner_email`, so the rows this
+ * can affect are the ones that were already owner-less and therefore already
+ * admin-only by the `isOwner` path. See docs/ARCHITECTURE.md § Data model.
  */
 export function canView(
   identity: Identity | null,
   visibility: Visibility,
   granted: boolean,
-  owned = false
+  owned = false,
+  inWorkspace = false
 ): boolean {
   if (!identity) return false;
   if (identity.isAdmin) return true;
   if (owned) return true;
-  if (visibility === "everyone") return true;
+  if (visibility === "everyone" && inWorkspace) return true;
   return granted;
 }

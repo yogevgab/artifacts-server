@@ -60,6 +60,83 @@ export function planFeatures(name: PlanName): PlanFeatures {
 /** All three tiers, in the order they're sold — for the pricing section. */
 export const ALL_PLANS: readonly PlanName[] = PLAN_ORDER;
 
+// --- the public tier ladder --------------------------------------------------
+//
+// `PLANS` (src/quota.ts) is what enforcement reads, and Enterprise is not in it
+// — deliberately. Enterprise is a conversation, not a row: there is no variant
+// to buy, no limit table to enforce, and nothing about it is provisioned
+// automatically. Modelling it as a `PlanName` would put a plan into the type
+// that quota enforcement, billing and the seat table all have to pretend to
+// understand. So the *public* ladder is its own type, and it is the only thing
+// marketing surfaces iterate.
+
+/** A tier as the public site sells it: the three billable plans plus Enterprise. */
+export type PublicTier = PlanName | "enterprise";
+
+/** The ladder, in the order it is sold. */
+export const PUBLIC_TIERS: readonly PublicTier[] = [...PLAN_ORDER, "enterprise"];
+
+export const TIER_LABEL: Record<PublicTier, string> = { ...PLAN_LABEL, enterprise: "Enterprise" };
+
+/** True for a tier that has a limits row in `PLANS` — i.e. anything but Enterprise. */
+export function isPlanName(tier: PublicTier): tier is PlanName {
+  return tier !== "enterprise";
+}
+
+/**
+ * How somebody actually starts on a tier **today** — not how we would like them
+ * to. Two kinds, and the distinction is the whole point of this table:
+ *
+ *  - `self-serve` — they can complete it alone, right now, with no human in the
+ *    loop. Free and Pro qualify: verify an email, and upgrade from Settings
+ *    against a real hosted checkout (`checkoutUrl`, src/billing.ts).
+ *  - `contact` — a person has to be involved. The button says so.
+ *
+ * **Team is `contact`, and that is not a pricing decision — it is an accuracy
+ * one.** The Team *plan* is real and enforced (50 GB, 25 seats, roles), and the
+ * checkout exists; what is missing is the part that makes a team plan usable
+ * without us: `POST /api/workspace/:id/members` writes the membership row and
+ * sends the invitee nothing at all (see src/members-routes.ts — there is no
+ * mail call on that path). Somebody who bought Team alone would invite four
+ * colleagues, none of whom would ever hear about it. So we set Team workspaces
+ * up with the customer until invite mail ships, and the button says "Talk to
+ * us" rather than implying a flow that would strand them.
+ *
+ * Enterprise is `contact` for the ordinary reason: nothing about it is
+ * automated, and the page is careful to frame SSO/SCIM/SLAs as things to talk
+ * to us about rather than things that exist. See `src/plan-pages.ts`.
+ */
+export type TierCta =
+  | { kind: "self-serve"; href: string; label: string }
+  | { kind: "contact"; href: string; label: string };
+
+export function tierCta(tier: PublicTier): TierCta {
+  switch (tier) {
+    case "free":
+      return { kind: "self-serve", href: "/signup", label: "Start free" };
+    case "pro":
+      return { kind: "self-serve", href: "/signup", label: "Start free, upgrade anytime" };
+    case "team":
+      return { kind: "contact", href: "/contact?plan=team", label: "Talk to us" };
+    case "enterprise":
+      return { kind: "contact", href: "/contact?plan=enterprise", label: "Talk to us" };
+  }
+}
+
+/**
+ * The tier's own page, or `null` for Free — which has no page of its own
+ * because `/signup` already is one, and a second surface arguing for the plan
+ * you get by default is a click in the way of the thing it argues for.
+ */
+export function tierPath(tier: PublicTier): string | null {
+  return tier === "free" ? null : `/${tier}`;
+}
+
+/** Price as the pricing table shows it. Enterprise has no number to show. */
+export function tierPrice(tier: PublicTier): string {
+  return tier === "enterprise" ? "Talk to us" : priceLabel(tier);
+}
+
 /** The fraction of a limit usage has to reach before a near-limit warning fires. */
 const WARNING_RATIO = 0.8;
 
