@@ -41,9 +41,9 @@ export interface ShellInput {
 
 const SHELL_STYLE = `
 :root{color-scheme:light dark;--sh-bg:#F2F3F7;--sh-fg:#14182B;--sh-muted:#565D78;
-  --sh-rule:#D3D7E4;--sh-accent:#2438C8;--sh-surface:#FFFFFF}
+  --sh-rule:#D3D7E4;--sh-accent:#2438C8;--sh-surface:#FFFFFF;--sh-danger:#B3261E}
 @media(prefers-color-scheme:dark){:root{--sh-bg:#0D1020;--sh-fg:#E7E9F3;--sh-muted:#9AA1BC;
-  --sh-rule:#2B3252;--sh-accent:#8C9BFF;--sh-surface:#161A2E}}
+  --sh-rule:#2B3252;--sh-accent:#8C9BFF;--sh-surface:#161A2E;--sh-danger:#FF6B6B}}
 *{box-sizing:border-box}
 html,body{height:100%}
 body{margin:0;background:var(--sh-bg);color:var(--sh-fg);
@@ -85,10 +85,15 @@ body{margin:0;background:var(--sh-bg);color:var(--sh-fg);
 .add{display:flex;gap:8px;margin-top:10px}
 .add input{flex:1;padding:6px 9px;border:1px solid var(--sh-rule);border-radius:6px;
   background:transparent;color:var(--sh-fg);font:inherit;font-size:13px}
+.add select{padding:6px 9px;border:1px solid var(--sh-rule);border-radius:6px;
+  background:transparent;color:var(--sh-fg);font:inherit;font-size:13px}
+.add input[type=number]{flex:0 0 64px}
 .sep{border:0;border-top:1px solid var(--sh-rule);margin:14px 0 10px}
 .link-row{display:flex;gap:8px;align-items:center;padding:6px 0;font-size:12px}
 .link-row code{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--sh-muted)}
+.link-row .exp{flex:none;color:var(--sh-muted);white-space:nowrap}
+.link-row .exp.expired{color:var(--sh-danger);font-weight:600}
 .chat{position:fixed;right:14px;bottom:0;width:min(340px,calc(100% - 28px));display:flex;
   flex-direction:column;max-height:60vh;background:var(--sh-surface);border:1px solid var(--sh-rule);
   border-bottom:0;border-radius:10px 10px 0 0;box-shadow:0 -6px 30px rgba(0,0,0,.18);z-index:4}
@@ -133,6 +138,13 @@ function banner(i: ShellInput): string {
       <h2>Or share a link</h2>
       <p class="hint">Anyone with the link can open this — no sign-in. Revoke it any time.</p>
       <div class="add">
+        <select data-link-expiry aria-label="Link expiry">
+          <option value="">Never expires</option>
+          <option value="7">Expires in 7 days</option>
+          <option value="30">Expires in 30 days</option>
+          <option value="custom">Custom…</option>
+        </select>
+        <input type="number" min="1" max="365" data-link-days hidden aria-label="Days until the link expires" placeholder="Days">
         <button type="button" data-make-link>Create share link</button>
       </div>
       <div data-link-list></div>
@@ -358,38 +370,83 @@ const SHELL_SCRIPT = `(function(){
     });
   }
 
+  var mk=panel.querySelector('[data-make-link]');
+  var linkList=panel.querySelector('[data-link-list]');
+  var expirySelect=panel.querySelector('[data-link-expiry]');
+  var daysInput=panel.querySelector('[data-link-days]');
+
+  if(expirySelect&&daysInput) expirySelect.addEventListener('change',function(){
+    daysInput.hidden = expirySelect.value!=='custom';
+    if(!daysInput.hidden) daysInput.focus();
+  });
+
+  function selectedExpiryDays(){
+    if(!expirySelect) return null;
+    var v=expirySelect.value;
+    if(!v) return null;
+    if(v==='custom'){
+      var n=parseInt(daysInput.value,10);
+      return (n>=1&&n<=365) ? n : NaN;
+    }
+    return parseInt(v,10);
+  }
+
+  function describeExpiry(expiresAt){
+    if(!expiresAt) return {text:'Never expires',expired:false};
+    var t=Date.parse(expiresAt);
+    if(isNaN(t)) return {text:'Never expires',expired:false};
+    var ds=new Date(t).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});
+    return t<=Date.now() ? {text:'Expired '+ds,expired:true} : {text:'Expires '+ds,expired:false};
+  }
+
+  function linkRow(id,url,expiresAt){
+    var row=document.createElement('div'); row.className='link-row';
+    var c=document.createElement('code'); c.textContent=url||'Share link';
+    var exp=describeExpiry(expiresAt);
+    var expEl=document.createElement('span'); expEl.className='exp'+(exp.expired?' expired':'');
+    expEl.textContent=exp.text;
+    var rev=document.createElement('button'); rev.type='button'; rev.textContent='Revoke';
+    rev.addEventListener('click',function(){
+      fetch('/api/artifacts/'+encodeURIComponent(slug)+'/links/'+encodeURIComponent(id),
+        {method:'DELETE'}).then(function(){ row.remove(); });
+    });
+    row.appendChild(c); row.appendChild(expEl); row.appendChild(rev);
+    return row;
+  }
+
   open.addEventListener('click',function(){
     panel.hidden=!panel.hidden;
     if(!panel.hidden){
       fetch('/api/artifacts/'+encodeURIComponent(slug)+'/access')
         .then(function(r){return r.ok?r.json():null;})
         .then(function(j){ if(j)render(j.emails||[]); });
+      fetch('/api/artifacts/'+encodeURIComponent(slug)+'/links')
+        .then(function(r){return r.ok?r.json():null;})
+        .then(function(j){
+          linkList.innerHTML='';
+          if(!j||!j.links) return;
+          j.links.filter(function(l){return !l.revokedAt;}).forEach(function(l){
+            linkList.appendChild(linkRow(l.id,null,l.expiresAt));
+          });
+        });
     }
   });
-
-  var mk=panel.querySelector('[data-make-link]');
-  var linkList=panel.querySelector('[data-link-list]');
 
   /* The key comes back exactly once — it is hashed on the server and cannot be
      shown again — so it goes straight to the clipboard and is never re-fetched. */
   if(mk) mk.addEventListener('click',function(){
+    var days=selectedExpiryDays();
+    if(days!==null&&isNaN(days)){ daysInput.focus(); return; }
     mk.disabled=true; mk.textContent='Creating\u2026';
     fetch('/api/artifacts/'+encodeURIComponent(slug)+'/links',{
-      method:'POST',headers:{'Content-Type':'application/json'},body:'{}'
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(days?{expires_in_days:days}:{})
     }).then(function(r){return r.ok?r.json():null;}).then(function(j){
-      mk.disabled=false; mk.textContent='Create share link';
-      if(!j) return;
+      if(!j){ mk.disabled=false; mk.textContent='Create share link'; return; }
       navigator.clipboard.writeText(j.url).catch(function(){});
-      var row=document.createElement('div'); row.className='link-row';
-      var c=document.createElement('code'); c.textContent=j.url;
-      var copied=document.createElement('span'); copied.textContent='Copied';
-      var rev=document.createElement('button'); rev.type='button'; rev.textContent='Revoke';
-      rev.addEventListener('click',function(){
-        fetch('/api/artifacts/'+encodeURIComponent(slug)+'/links/'+encodeURIComponent(j.id),
-          {method:'DELETE'}).then(function(){ row.remove(); });
-      });
-      row.appendChild(c); row.appendChild(copied); row.appendChild(rev);
-      linkList.appendChild(row);
+      linkList.appendChild(linkRow(j.id,j.url,j.expires_at));
+      mk.disabled=false; mk.textContent='Copied!';
+      setTimeout(function(){ mk.textContent='Create share link'; },1400);
     }).catch(function(){ mk.disabled=false; mk.textContent='Create share link'; });
   });
 
