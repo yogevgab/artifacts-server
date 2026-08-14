@@ -188,13 +188,19 @@ export function roleLabel(role: UserRole): string {
 function workspaceChip(v: PortalViewer): string {
   const ws = v.workspace;
   if (!ws) return "";
+  // A personal workspace is named after its owner's email, which the identity
+  // beside it already shows. Repeating it put the same address on screen twice,
+  // so that case is labelled by what it IS rather than by its name.
+  const sameAsEmail =
+    ws.kind === "personal" && ws.name.trim().toLowerCase() === (v.email ?? "").trim().toLowerCase();
+  const label = sameAsEmail ? "Personal" : ws.name;
   const extra = ws.count > 1 ? ` +${ws.count - 1}` : "";
   const title = `${ws.kind === "personal" ? "Personal workspace" : "Team workspace"} · you are ${accountRoleLabel(
     ws.role
   ).toLowerCase()} here${ws.count > 1 ? ` · ${ws.count} workspaces in total` : ""}`;
   return `<span class="badge is-workspace" data-viewer-workspace data-workspace-id="${esc(ws.id)}"
     data-workspace-kind="${esc(ws.kind)}" data-workspace-role="${esc(ws.role)}"
-    title="${esc(title)}">${esc(ws.name)}${esc(extra)}</span>`;
+    title="${esc(title)}">${esc(label)}${esc(extra)}</span>`;
 }
 
 // --- formatting, shared by every section ------------------------------------
@@ -516,7 +522,12 @@ export const PORTAL_STYLE = `
 .danger-zone p{margin:0 0 .85rem;max-width:46rem}
 
 .pcols{display:grid;grid-template-columns:1fr 1fr;gap:1.35rem;align-items:start}
-.pcols > *{margin-bottom:0}
+.pcols > *{margin-bottom:0;
+  /* Grid items default to min-width:auto, so one long unbreakable string — a
+     referrer URL, a slug — refuses to shrink and shoves its column wider than
+     its 1fr share. That is what made two side-by-side panels different widths
+     while a pair with no long content lined up perfectly. */
+  min-width:0}
 
 @media(max-width:900px){
   .pgrid{grid-template-columns:1fr;gap:1.1rem}

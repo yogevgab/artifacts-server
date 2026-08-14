@@ -114,7 +114,7 @@ function usersPanel(info: UsersInfo): string {
   return `<section class="panel" data-panel="users" aria-labelledby="users-h">
     <div class="panel-head"><div>
       <h2 id="users-h">Directory <span class="hint" data-user-summary>${esc(summary)}</span></h2>
-      <p class="hint">Cloudflare Access verifies every sign-in; this is who the product knows
+      <p class="hint">Anyone who verifies an email address can sign in; this is who the product knows
         about. Inviting somebody adds them to the Access allow-list — grant them individual
         artifacts from the artifact's own page.</p>
     </div></div>

@@ -730,11 +730,11 @@ function sourcesPanel(slug: string, sources: ViewSources): string {
         ? `<p class="note">No referrer or country data yet — it fills in as people open the link.</p>`
         : `<div class="pcols">
       <div data-sources="referrers">
-        <h3 class="sources-h3">Referrers</h3>
+        <p class="sources-h3">Referrers</p>
         ${sourceList(sources.referrers, (r) => r.referrer, "Direct / no referrer")}
       </div>
       <div data-sources="countries">
-        <h3 class="sources-h3">Countries</h3>
+        <p class="sources-h3">Countries</p>
         ${sourceList(sources.countries, (r) => r.country, "Unknown")}
       </div>
     </div>`
@@ -828,7 +828,7 @@ export function accessPanel(
   return `<section class="panel sub-panel" data-panel="access" id="acc-${esc(r.slug)}" aria-labelledby="access-h">
     <div class="panel-head"><div>
       <h2 id="access-h">Access</h2>
-      <p class="hint">Cloudflare Access decides who may sign in; this decides who may open
+      <p class="hint">Signing in decides who reaches rtfx.pro at all; this decides who may open
         this artifact once they have.</p>
     </div></div>
     <label for="vis-${esc(r.slug)}">Who can open this artifact</label>
@@ -1053,7 +1053,7 @@ export function settingsPage(viewer: PortalViewer): string {
         their own, and nothing stored in the database can grant one.</p>
     </div></div>
     <div class="row" data-setting="email">
-      <div class="info"><b>Email</b><span class="hint">Verified by Cloudflare Access on every request.</span></div>
+      <div class="info"><b>Email</b><span class="hint">Verified by a one-time code the first time you signed in.</span></div>
       <div class="row-actions"><span class="mono">${esc(viewer.email)}</span></div>
     </div>
     <div class="row" data-setting="role">
@@ -1068,7 +1068,7 @@ export function settingsPage(viewer: PortalViewer): string {
     </div>
     <div class="row" data-setting="sign-in">
       <div class="info"><b>Sign-in</b><span class="hint">Passwordless — a one-time code by email,
-        issued by Cloudflare Access. There is no password to change here.</span></div>
+        sent by rtfx.pro. There is no password to change here.</span></div>
       <div class="row-actions"><a href="/login">Sign-in page →</a></div>
     </div>
   </section>`;
@@ -1079,8 +1079,8 @@ export function settingsPage(viewer: PortalViewer): string {
       <p class="hint">Two independent layers decide every request, and both must say yes.</p>
     </div></div>
     <div class="row" data-setting="access-layer">
-      <div class="info"><b>Who may sign in</b><span class="hint">Cloudflare Access, in front of the
-        whole app. Pausing somebody signs them out everywhere and revokes their API tokens.</span></div>
+      <div class="info"><b>Who may sign in</b><span class="hint">Anyone who verifies an email
+        address. Pausing somebody signs them out everywhere and revokes their API tokens.</span></div>
       <div class="row-actions">${
         viewer.isAdmin ? `<a href="/admin/people">People →</a>` : `<span class="hint">Managed by an admin</span>`
       }</div>
@@ -1188,7 +1188,7 @@ export function platformPage(viewer: PortalViewer, info: PlatformInfo): string {
     )}
     ${configRow(
       "access",
-      "Cloudflare Access (sign-in)",
+      "Sign-in",
       info.accessConfigured,
       info.accessConfigured
         ? `Team domain <span class="mono">${esc(info.accessTeamDomain)}</span>. Every request carries a verified identity.`
@@ -1689,6 +1689,15 @@ form.newver{display:grid;gap:.55rem;margin-top:.9rem;padding-top:.9rem;border-to
 .grant-add-row input{flex:1;min-width:14rem}
 .grant-add-row button{flex:none}
 .panel[data-panel=views] .row{padding:.55rem 0}
+/* A referrer is an arbitrary URL with no break opportunities, so it has to be
+   allowed to wrap and the count beside it must never shrink — otherwise the
+   count is squeezed to zero width and prints on top of the URL. */
+.panel[data-panel=sources] .row{gap:.6rem;align-items:baseline}
+.panel[data-panel=sources] .row .info{min-width:0;overflow-wrap:anywhere}
+.panel[data-panel=sources] .row .hint{flex:none;white-space:nowrap}
+/* A column label, deliberately not a heading: as an <h3> it sat at .72rem
+   beside 15px h3s elsewhere, which is the size mismatch a reader notices
+   without being able to name. */
 .sources-h3{font-size:.72rem;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);margin:0 0 .35rem}
 
 @media(max-width:720px){
