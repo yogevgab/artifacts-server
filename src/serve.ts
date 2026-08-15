@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import type { Env } from "./env";
 import { contentType } from "./util";
 import { notFoundPage } from "./pages";
+import { siteOrigin } from "./seo";
 
 /**
  * Serve a file for an artifact from R2. `path` is the portion after the slug
@@ -46,7 +47,7 @@ export async function serveArtifact<E extends { Bindings: Env }>(
   const key = `${slug}/v${version}/${rel}`;
   const obj = await c.env.FILES.get(key);
   if (!obj) {
-    return c.html(notFoundPage(slug), 404);
+    return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
   }
   const headers = new Headers();
   headers.set("Content-Type", contentType(rel));

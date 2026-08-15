@@ -96,7 +96,7 @@ describe("gallery", () => {
     const body = await (await req("/nope/")).text();
     expect(body).toContain('data-empty="not-found"');
     expect(body.toLowerCase()).toContain("access");
-    expect(body).toContain('href="/admin"');
+    expect(body).toContain('href="https://rtfx.pro/admin"');
   });
 
   // Issue #24: /login, not /, is the right landing spot for someone who tried to

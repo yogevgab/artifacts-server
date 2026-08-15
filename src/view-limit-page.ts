@@ -18,9 +18,13 @@
  */
 import { esc, layout, brandLockup, skipLink, BRAND_STYLE } from "./pages";
 
-export function overViewLimitPage(slug?: string): string {
+function appHref(appBaseUrl: string | undefined, path: string): string {
+  return appBaseUrl ? `${appBaseUrl.replace(/\/+$/, "")}${path}` : path;
+}
+
+export function overViewLimitPage(slug?: string, appBaseUrl?: string): string {
   const body = `${skipLink()}
-    <header class="top">${brandLockup("/")}</header>
+    <header class="top">${brandLockup(appHref(appBaseUrl, "/"))}</header>
     <main class="empty" id="main" data-empty="over-limit">
       <h1>${
         slug
@@ -30,7 +34,7 @@ export function overViewLimitPage(slug?: string): string {
       <p>Its owner's plan has reached its monthly view limit. There is nothing wrong
         with the link — it will work again once the limit resets, or the owner
         upgrades their plan.</p>
-      <p style="margin-top:1rem"><a href="/">← Back to rtfx.pro</a></p>
+      <p style="margin-top:1rem"><a href="${esc(appHref(appBaseUrl, "/"))}">← Back to rtfx.pro</a></p>
     </main>`;
   return layout("Temporarily unavailable", body, BRAND_STYLE);
 }
@@ -47,9 +51,9 @@ export function overViewLimitPage(slug?: string): string {
  * us, and "suspended" published to every visitor would convict them in public
  * on the strength of an operator action they may be contesting.
  */
-export function suspendedContentPage(slug?: string): string {
+export function suspendedContentPage(slug?: string, appBaseUrl?: string): string {
   const body = `${skipLink()}
-    <header class="top">${brandLockup("/")}</header>
+    <header class="top">${brandLockup(appHref(appBaseUrl, "/"))}</header>
     <main class="empty" id="main" data-empty="suspended">
       <h1>${
         slug
@@ -57,9 +61,9 @@ export function suspendedContentPage(slug?: string): string {
           : "This page is unavailable"
       }</h1>
       <p>This page is not being served right now. If it is yours, sign in and
-        check your workspace, or <a href="/contact">contact support</a> and we
+        check your workspace, or <a href="${esc(appHref(appBaseUrl, "/contact"))}">contact support</a> and we
         will review it. Nothing has been deleted.</p>
-      <p style="margin-top:1rem"><a href="/">← Back to rtfx.pro</a></p>
+      <p style="margin-top:1rem"><a href="${esc(appHref(appBaseUrl, "/"))}">← Back to rtfx.pro</a></p>
     </main>`;
   return layout("Unavailable", body, BRAND_STYLE);
 }

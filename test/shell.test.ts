@@ -86,6 +86,14 @@ describe("viewer shell", () => {
     expect(html).toContain("data-share-banner");
   });
 
+  it("links the rtfx.pro mark back to the app origin, not the content origin", async () => {
+    await publish();
+    const html = await (await navigate("/demo/", OWNER)).text();
+    const mark = /<a class="mark"[^>]*>/.exec(html)?.[0] ?? "";
+    expect(mark).toContain('href="https://rtfx.pro/"');
+    expect(mark).not.toContain('href="/"');
+  });
+
   it("shows no banner markup at all to a plain viewer", async () => {
     await publish();
     const html = await (await navigate("/demo/", OTHER)).text();
@@ -101,5 +109,11 @@ describe("viewer shell", () => {
     await req("/api/artifacts", { method: "POST", body, ...as(OWNER) });
     const res = await navigate("/secret/", OTHER);
     expect(res.status).toBe(404);
+  });
+
+  it("links content-host 404s back to the app dashboard, not a.rtfx.pro/admin", async () => {
+    const html = await (await navigate("/missing/", OWNER)).text();
+    expect(html).toContain('href="https://rtfx.pro/admin"');
+    expect(html).not.toContain('href="/admin"');
   });
 });

@@ -485,7 +485,11 @@ const REQUEST_ACCESS_SCRIPT = `<script>(function(){
  * src/access-request-routes.ts for the other half of that guarantee — the
  * form's POST target, which is equally indifferent to what it answers.
  */
-export function notFoundPage(slug?: string): string {
+function appHref(appBaseUrl: string | undefined, path: string): string {
+  return appBaseUrl ? `${appBaseUrl.replace(/\/+$/, "")}${path}` : path;
+}
+
+export function notFoundPage(slug?: string, appBaseUrl?: string): string {
   const askAccess = slug
     ? `<div class="ask-access" data-ask-access>
         <p class="hint">Think you should have access? Ask the owner.</p>
@@ -498,7 +502,7 @@ export function notFoundPage(slug?: string): string {
       </div>${REQUEST_ACCESS_SCRIPT}`
     : "";
   const body = `${skipLink()}
-    <header class="top">${brandLockup("/")}</header>
+    <header class="top">${brandLockup(appHref(appBaseUrl, "/"))}</header>
     <main class="empty" id="main" data-empty="not-found">
       <h1>${slug ? `Nothing here at <span class="mono">/${esc(slug)}/</span>` : "This page does not exist."}</h1>
       <p>${
@@ -506,7 +510,7 @@ export function notFoundPage(slug?: string): string {
           ? "The artifact may have been deleted, renamed, or you may not have access to it. Check the link, or ask the person who shared it to grant you access."
           : "Check the address, or head back to your dashboard."
       }</p>
-      <p style="margin-top:1rem"><a href="/admin">← Back to your dashboard</a></p>
+      <p style="margin-top:1rem"><a href="${esc(appHref(appBaseUrl, "/admin"))}">← Back to your dashboard</a></p>
       ${askAccess}
     </main>`;
   return layout("Not found", body, `${BRAND_STYLE}${NOT_FOUND_STYLE}`);

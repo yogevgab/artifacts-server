@@ -37,6 +37,8 @@ export interface ShellInput {
   entry?: string;
   /** True when this artifact is a single document rather than a site. */
   isDocument?: boolean;
+  /** Canonical app origin. Artifact chrome often renders on a.rtfx.pro. */
+  appBaseUrl?: string;
 }
 
 /**
@@ -305,6 +307,7 @@ export function shellPage(i: ShellInput): string {
   // necessarily index.html.
   const target = i.filePath || (i.entry && i.entry !== "index.html" ? i.entry : "");
   const src = `/${encodeURIComponent(i.slug)}/${target}${target.includes("?") ? "&" : "?"}raw=1`;
+  const appHome = i.appBaseUrl ? `${i.appBaseUrl.replace(/\/+$/, "")}/` : "/";
 
   return `<!doctype html>
 <html lang="en"><head>
@@ -316,7 +319,7 @@ export function shellPage(i: ShellInput): string {
 </head><body>
 <button class="peek" data-show-bar hidden aria-label="Show toolbar">${CHEVRON_DOWN}rtfx.pro</button>
 <header class="bar" data-bar>
-  <a class="mark" href="/" aria-label="rtfx.pro home">rtfx<span class="dot">.</span>pro</a>
+  <a class="mark" href="${esc(appHome)}" aria-label="rtfx.pro home">rtfx<span class="dot">.</span>pro</a>
   <span class="rule" aria-hidden="true"></span>
   <span class="title" title="${esc(i.title)}">${esc(i.title)}</span>
   <span class="ver">v${i.version}</span>

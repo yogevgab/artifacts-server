@@ -670,11 +670,11 @@ app.get("/v/*", async (c) => {
   const slug = decodeURIComponent(parts[0] ?? "");
   const version = Number(parts[1]);
   const filePath = parts.slice(2).map(decodeURIComponent).join("/");
-  if (!slug || !Number.isInteger(version) || version < 1) return c.html(notFoundPage(slug), 404);
+  if (!slug || !Number.isInteger(version) || version < 1) return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
   const art = await getArtifact(c.env, slug);
-  if (!art) return c.html(notFoundPage(slug), 404);
-  if (!(await manages(c.env, identity, art))) return c.html(notFoundPage(slug), 404);
-  if (!(await getVersion(c.env, slug, version))) return c.html(notFoundPage(slug), 404);
+  if (!art) return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
+  if (!(await manages(c.env, identity, art))) return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
+  if (!(await getVersion(c.env, slug, version))) return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
   return serveArtifact(c, slug, version, filePath);
 });
 
@@ -821,12 +821,12 @@ app.get("*", async (c) => {
   const identity = await getIdentity(c);
   const art = await getArtifact(c.env, slug);
   // 404 for both missing and unauthorized, so probing a slug can't reveal it exists.
-  if (!art) return c.html(notFoundPage(slug), 404);
+  if (!art) return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
   // A guest session is minted for one artifact. Holding a grant on another does
   // not widen it: the credential was issued against a specific share, and a
   // person can always re-authenticate for the other one.
   if (identity?.kind === "guest" && identity.slug !== slug) {
-    return c.html(notFoundPage(slug), 404);
+    return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
   }
 
   let owned = isOwner(identity, art);
@@ -860,7 +860,7 @@ app.get("*", async (c) => {
   }
 
   if (!linkGrantsThis && !canView(identity, art.visibility, granted, owned)) {
-    return c.html(notFoundPage(slug), 404);
+    return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
   }
 
   // A top-level navigation gets the viewer shell; everything else — subresources,
@@ -888,10 +888,10 @@ app.get("*", async (c) => {
   // serving to share-link holders after an operator has flipped the account.
   const status = art.account_id ? await viewLimitStatus(c.env, art.account_id, undefined, undefined, true) : null;
   if (blocksOnSuspension(status, !!identity?.isAdmin)) {
-    return c.html(suspendedContentPage(slug), 403);
+    return c.html(suspendedContentPage(slug, siteOrigin(c.env)), 403);
   }
   if (wantsShell(c) && blocksOnViewLimit(status, owned || !!identity?.isAdmin)) {
-    return c.html(overViewLimitPage(slug), 503);
+    return c.html(overViewLimitPage(slug, siteOrigin(c.env)), 503);
   }
 
   if (wantsShell(c)) {
@@ -913,6 +913,7 @@ app.get("*", async (c) => {
         filePath,
         entry: art.entry,
         isDocument: art.entry?.toLowerCase().endsWith(".pdf") ?? false,
+        appBaseUrl: siteOrigin(c.env),
       })
     );
   }
