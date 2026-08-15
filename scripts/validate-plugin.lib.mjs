@@ -138,6 +138,74 @@ export function checkMarketplace(manifest, knownPluginDirs = []) {
   return { errors, ok };
 }
 
+/** Fields a marketplace entry and a plugin manifest both carry, and must agree on. */
+const SHARED_ENTRY_FIELDS = ["version", "description", "homepage", "repository", "license"];
+
+/**
+ * A marketplace entry may restate any field from the plugin manifest, and
+ * Claude Code shows the *entry* before install while the *manifest* is what
+ * gets installed. Two copies of a version string is the drift that matters:
+ * `version` in the entry pins the plugin, so an entry left at 1.1.0 after
+ * plugin.json moved to 1.2.0 silently stops shipping updates to everyone who
+ * already installed it. Nothing about that failure is visible on this machine,
+ * which is exactly why it is checked here.
+ */
+export function checkMarketplaceEntryMatchesManifest(entry, manifest) {
+  const errors = [];
+  const ok = [];
+  if (!entry || !manifest) return { errors, ok };
+  const label = entry.name ?? "(unnamed)";
+
+  if (entry.name && manifest.name && entry.name !== manifest.name) {
+    errors.push(`marketplace entry "${label}" disagrees with its plugin.json name "${manifest.name}"`);
+  }
+
+  for (const field of SHARED_ENTRY_FIELDS) {
+    if (entry[field] === undefined || manifest[field] === undefined) continue;
+    if (entry[field] !== manifest[field]) {
+      errors.push(
+        `marketplace entry "${label}" sets ${field} "${entry[field]}" but plugins/${manifest.name}/.claude-plugin/plugin.json says "${manifest[field]}" — bump both or drop it from the entry`
+      );
+    } else if (field === "version") ok.push(`entry "${label}" pins version ${entry.version}, matching plugin.json`);
+  }
+
+  return { errors, ok };
+}
+
+/**
+ * Every https URL a marketplace entry advertises. A typo'd homepage is a dead
+ * link on the install screen, which is the first thing a stranger to the
+ * project sees.
+ */
+export function checkMarketplaceUrls(manifest) {
+  const errors = [];
+  const ok = [];
+  if (!manifest || typeof manifest !== "object") return { errors, ok };
+
+  const candidates = [
+    ["owner.url", manifest.owner?.url],
+    ...(Array.isArray(manifest.plugins) ? manifest.plugins : []).flatMap((entry) => {
+      const label = entry?.name ?? "(unnamed)";
+      return [
+        [`${label}.homepage`, entry?.homepage],
+        [`${label}.repository`, entry?.repository],
+        [`${label}.author.url`, entry?.author?.url],
+      ];
+    }),
+  ];
+
+  let checked = 0;
+  for (const [where, value] of candidates) {
+    if (value === undefined) continue;
+    if (typeof value !== "string" || !/^https:\/\/[^\s"']+$/.test(value)) {
+      errors.push(`marketplace ${where} must be an https URL, got "${value}"`);
+    } else checked++;
+  }
+  if (checked) ok.push(`${checked} marketplace URL(s) well-formed`);
+
+  return { errors, ok };
+}
+
 export function checkCommand(path, text) {
   const errors = [];
   const parsed = parseFrontmatter(text);

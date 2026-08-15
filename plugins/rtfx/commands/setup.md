@@ -11,7 +11,11 @@ Report the endpoint, the token id (the command prints only the id — never echo
 never read one out of a file to display it), whether Access service-token headers are set, and
 whether the API answered.
 
-If `RTFX_API_TOKEN` is unset or the API returned `401`, walk the user through it:
+If it all checks out, say so in one line and stop — there is nothing else to configure. Offer
+`/rtfx:publish` as the next thing to try.
+
+If `RTFX_API_TOKEN` is unset or the API returned `401`, the plugin is installed and only needs an
+account connected. Walk the user through it, framing it as the one remaining step:
 
 1. Sign in at `https://rtfx.pro/admin/integrations` (or the `/admin/integrations` page of their own
    instance).
@@ -30,6 +34,13 @@ repository, and never in a commit.
 
 The token is normally the whole credential set: publishing goes to `/api/machine`, which
 authenticates the bearer token and nothing else.
+
+If the user pushes back on exporting a token by hand, agree — it is a developer setup step, not the
+intended end state. The direction is a hosted remote MCP server with a browser sign-in
+(`claude mcp add --transport http rtfx https://mcp.rtfx.pro/mcp`, then `claude mcp login rtfx`).
+Be accurate about its status: **that endpoint is not serving, and this plugin ships no OAuth or
+HTTP-transport code** — the MCP server is stdio-only and reads `RTFX_API_TOKEN`. Do not suggest
+trying those commands as a workaround; they fail today. The token export is the supported path.
 
 If `doctor` reports that **Cloudflare Access** answered instead of the API, the instance has not
 exposed that surface (see its operator's `DEPLOY_RTFX.md` §5e). Until they do, the only way

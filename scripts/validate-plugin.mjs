@@ -16,6 +16,8 @@ import { dirname, join, relative } from "node:path";
 import {
   checkPluginManifest,
   checkMarketplace,
+  checkMarketplaceEntryMatchesManifest,
+  checkMarketplaceUrls,
   checkCommand,
   checkSkill,
   checkSkillNameMatchesDir,
@@ -71,7 +73,15 @@ const pluginDirs = existsSync(PLUGINS_DIR)
 const marketplace = existsSync(MARKETPLACE) ? readJson(MARKETPLACE) : null;
 if (marketplace) {
   collect(checkMarketplace(marketplace, pluginDirs.map((n) => `./plugins/${n}`)));
+  collect(checkMarketplaceUrls(marketplace));
 }
+
+/** Marketplace entry by the plugin directory it points at, for the agreement check below. */
+const entryBySource = new Map(
+  (Array.isArray(marketplace?.plugins) ? marketplace.plugins : [])
+    .filter((entry) => typeof entry?.source === "string")
+    .map((entry) => [entry.source, entry])
+);
 
 if (!pluginDirs.length) errors.push("plugins/ contains no plugin with a .claude-plugin/plugin.json");
 
@@ -87,6 +97,7 @@ for (const name of pluginDirs) {
     if (manifest.name && manifest.name !== name) {
       errors.push(`plugins/${name}: manifest name is "${manifest.name}" — it must match the directory name`);
     }
+    collect(checkMarketplaceEntryMatchesManifest(entryBySource.get(`./plugins/${name}`), manifest));
   }
 
   // Components must sit at plugin root, never inside .claude-plugin/.

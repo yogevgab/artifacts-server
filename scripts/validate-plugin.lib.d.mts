@@ -17,6 +17,8 @@ export interface CheckResult {
 
 export function checkPluginManifest(manifest: unknown): CheckResult;
 export function checkMarketplace(manifest: unknown, knownPluginDirs?: string[]): CheckResult;
+export function checkMarketplaceEntryMatchesManifest(entry: unknown, manifest: unknown): CheckResult;
+export function checkMarketplaceUrls(manifest: unknown): CheckResult;
 export function checkCommand(path: string, text: string): CheckResult;
 export function checkSkill(path: string, text: string): CheckResult;
 export function checkSkillNameMatchesDir(dirName: string, text: string): CheckResult;

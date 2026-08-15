@@ -32,6 +32,8 @@ import {
   findSecrets,
   checkPluginManifest,
   checkMarketplace,
+  checkMarketplaceEntryMatchesManifest,
+  checkMarketplaceUrls,
   checkCommand,
   checkSkill,
   checkSkillNameMatchesDir,
@@ -498,6 +500,43 @@ describe("manifest and marketplace rules", () => {
       ],
     };
     expect(checkMarketplace(dup, ["./plugins/rtfx"]).errors[0]).toMatch(/more than once/);
+  });
+
+  // The marketplace entry restates the plugin's own metadata so the install
+  // screen can show it without fetching the plugin. Two copies of a version
+  // string is the pair that can hurt: `version` in the entry *pins* the
+  // plugin, so an entry left behind after plugin.json is bumped quietly stops
+  // shipping updates — and nothing on the author's machine looks wrong.
+  it("catches a marketplace entry whose version has drifted from plugin.json", () => {
+    const entry = { name: "rtfx", version: "1.1.0", description: "d", license: "MIT" };
+    expect(checkMarketplaceEntryMatchesManifest(entry, { name: "rtfx", version: "1.1.0", description: "d" }).errors)
+      .toEqual([]);
+    expect(
+      checkMarketplaceEntryMatchesManifest(entry, { name: "rtfx", version: "1.2.0", description: "d" }).errors[0]
+    ).toMatch(/sets version "1\.1\.0" but .*says "1\.2\.0"/);
+    expect(
+      checkMarketplaceEntryMatchesManifest(entry, { name: "rtfx", version: "1.1.0", description: "other" }).errors[0]
+    ).toMatch(/description/);
+  });
+
+  it("leaves a field alone when only one side declares it", () => {
+    const { errors } = checkMarketplaceEntryMatchesManifest(
+      { name: "rtfx", description: "d" },
+      { name: "rtfx", description: "d", version: "1.1.0", license: "MIT" }
+    );
+    expect(errors).toEqual([]);
+  });
+
+  it("requires every advertised marketplace URL to be https", () => {
+    const good = {
+      owner: { url: "https://rtfx.pro" },
+      plugins: [{ name: "rtfx", homepage: "https://rtfx.pro/docs", repository: "https://github.com/x/y" }],
+    };
+    expect(checkMarketplaceUrls(good).errors).toEqual([]);
+    expect(checkMarketplaceUrls({ ...good, owner: { url: "http://rtfx.pro" } }).errors[0]).toMatch(/owner\.url/);
+    expect(
+      checkMarketplaceUrls({ ...good, plugins: [{ name: "rtfx", homepage: "rtfx.pro/docs" }] }).errors[0]
+    ).toMatch(/homepage must be an https URL/);
   });
 });
 
