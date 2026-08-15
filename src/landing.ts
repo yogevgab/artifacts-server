@@ -105,6 +105,37 @@ section.band{margin:4rem 0}
    allows. Three equal cards: no tier is marked "recommended", since we have
    no usage data to back a claim like that and the copy rule here is "state a
    fact", not "nudge". */
+/* Connectors. The same card surface as .feature and .tier — this is a variant
+   of the product band, not a second design system — with room for the literal
+   command each connector is installed with. The command is the point: an agent
+   surface you cannot see the first line of is indistinguishable from a promise,
+   and every line here is copied from docs/CLAUDE_CODE.md and
+   docs/REMOTE_MCP_OAUTH.md rather than composed for the page.
+   .conn-tag is real markup, never a CSS content: string, for the same
+   reason .stance-flag on /docs is (see test/positioning.test.ts): it is what
+   tells a reader — and a crawler, and a screen reader — that the remote
+   endpoint reports rather than publishes. */
+.connectors{margin:3rem 0 0}
+.conn-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(266px,1fr));gap:1rem}
+.conn{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+  padding:1.35rem 1.3rem;box-shadow:var(--shadow);backdrop-filter:var(--blur);
+  -webkit-backdrop-filter:var(--blur);display:flex;flex-direction:column;gap:.72rem}
+.conn h3{margin:0;font-size:1.05rem;letter-spacing:-.02em}
+.conn p{margin:0;color:var(--muted);font-size:.92rem;line-height:1.55}
+/* pre-wrap, not overflow-x. A card is ~230px of content and the commands here
+   are real ones — claude mcp add --transport http rtfx https://mcp.rtfx.pro/mcp
+   does not fit at any card width worth having. Scrolling it clipped the line
+   mid-word with no visible affordance, which reads as a rendering bug rather
+   than as "there is more to the right". Wrapping keeps the whole command on the
+   page, and overflow-wrap:anywhere is what stops the URL widening the grid. */
+.conn pre.code{background:#05070c;border:1px solid var(--border);border-radius:var(--radius-sm);
+  padding:.85rem .95rem;font-family:var(--mono);font-size:.78rem;line-height:1.72;
+  color:#dfe5f0;margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.conn pre.code b{color:#fff;font-weight:650}
+.conn-tag{align-self:flex-start;border:1px solid var(--border);border-radius:999px;
+  padding:.16rem .62rem;font-size:.7rem;font-weight:600;letter-spacing:.045em;
+  text-transform:uppercase;color:var(--faint);white-space:nowrap}
+.conn-note{color:var(--faint);font-size:.88rem;margin:1.2rem 0 0;text-align:center}
 .pricing{margin:2.6rem 0 0}
 .pricing-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:1rem}
 .tier{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:1.4rem 1.3rem;
@@ -243,6 +274,9 @@ function structuredData(env: Env): unknown[] {
           featureList: [
             "Per-artifact access control by identity, not a secret link",
             "Agent-native publishing from Claude Code, a native MCP server, Hermes, the CLI or the API",
+            "Claude Code plugin with browser OAuth sign-in — no API token to copy or paste",
+            "Local MCP server that publishes build output from the machine it runs on",
+            "Remote MCP endpoint authorized over OAuth for connection and readiness checks",
             "Immutable versions with one-click rollback",
             "View log: who opened an artifact, when, and which version",
             "Workspaces with owner, admin, member and viewer roles",
@@ -308,6 +342,115 @@ function tierCard(name: PublicTier): string {
     <a class="ghost link-button" href="${cta.href}" data-cta="pricing-${name}"
       data-cta-kind="${cta.kind}">${cta.label}</a>
     ${link ? `<p class="tier-more"><a href="${link}" data-tier-page="${name}">What ${TIER_LABEL[name]} is &rarr;</a></p>` : ""}
+  </div>`;
+}
+
+/**
+ * One connector card: what it is, the literal first line, and — in a label a
+ * reader cannot miss — whether it publishes.
+ *
+ * That last field is the reason this is a table of data rather than four hand
+ * written blocks. Three of these four surfaces publish and one does not, and
+ * the one that does not is the newest, the most impressive-sounding, and the
+ * easiest to read as "rtfx over MCP, hosted". `mcp.rtfx.pro` exposes exactly
+ * one read-only tool (`doctor`, src/mcp.ts); publishing takes a path on the
+ * machine running the *client*, so a server-side endpoint could only ever read
+ * our disk. Every card therefore carries its `tag`, and the remote card says in
+ * prose what it does instead — see docs/REMOTE_MCP_OAUTH.md §1.
+ */
+interface Connector {
+  key: string;
+  name: string;
+  /** Publishes / Diagnostics / Automation — the scannable claim. */
+  tag: string;
+  /** The real first line, or the tool list. Never a composed example. */
+  code: string;
+  body: string;
+}
+
+const CONNECTORS: readonly Connector[] = [
+  {
+    key: "claude-code-plugin",
+    name: "The Claude Code plugin",
+    tag: "Publishes",
+    code: `<b>/plugin install rtfx@rtfx</b>
+<b>/rtfx:login</b>
+<b>/rtfx:publish</b> ./out client-demo`,
+    body:
+      "One browser sign-in connects the session, and there is no token to copy, paste or leave " +
+      "sitting in a shell profile. After that <i>publish this</i> is an ordinary sentence: the " +
+      "session picks the build output, versions it under a slug and hands back the link.",
+  },
+  {
+    key: "local-mcp",
+    name: "The local MCP server",
+    tag: "Publishes",
+    code: `tools: <b>publish</b>
+       list_artifacts
+       get_versions
+       rollback · doctor`,
+    body:
+      "Bundled in the same plugin, so a client with no shell — Claude Desktop, or anything else " +
+      "that speaks MCP — publishes as a tool call. It runs beside your files, which is exactly " +
+      "why it can send the build output you point it at.",
+  },
+  {
+    key: "remote-mcp",
+    name: "Remote MCP, authorized by OAuth",
+    tag: "Diagnostics",
+    code: `<b>claude mcp add --transport http rtfx https://mcp.rtfx.pro/mcp</b>
+<b>claude mcp login rtfx</b>`,
+    body:
+      "A hosted endpoint your client authorizes in the browser — authorization code with PKCE, " +
+      "no bearer token to paste. It answers one read-only tool, doctor: how your credential is " +
+      "authenticated, what it may do, and whether the instance is reachable. It does not " +
+      "publish. Publishing reads files on your machine, so it stays with the plugin and the " +
+      "local server above.",
+  },
+  {
+    key: "api-cli-hermes",
+    name: "API, CLI and Hermes",
+    tag: "Automation",
+    code: `POST /api/machine/artifacts
+  Authorization: Bearer rtfx_…`,
+    body:
+      "The advanced paths, for CI and scripted work: a scoped, revocable token against the HTTP " +
+      "API, the CLI out of a checkout of the repository, or a Hermes run. Same endpoints and " +
+      "same rules as every other route — an agent path here is never a weaker one.",
+  },
+];
+
+function connectorCard(c: Connector): string {
+  return `<div class="conn" data-connector="${c.key}">
+      <span class="conn-tag">${c.tag}</span>
+      <h3>${c.name}</h3>
+      <pre class="code"><code>${c.code}</code></pre>
+      <p>${c.body}</p>
+    </div>`;
+}
+
+
+/**
+ * The connector band. It sits inside the product section rather than becoming a
+ * fourth one, because the landing page holds at hero + one band + waitlist
+ * (issue #35, pinned in test/positioning.test.ts) — the same way the pricing
+ * table is a band-head and a grid inside this section, not a section of its own.
+ */
+function connectorSection(): string {
+  return `<div id="connectors" class="connectors" data-landing="connectors">
+    <div class="band-head">
+      <p class="eyebrow-c">Connectors</p>
+      <h2>Connect Claude once. Publish for the rest of the project.</h2>
+      <p>rtfx.pro meets an agent where it already works: a Claude Code plugin you sign into in the
+        browser, an MCP server that runs beside your files, a hosted MCP endpoint authorized over
+        OAuth, and the HTTP API underneath all three.</p>
+    </div>
+    <div class="conn-grid">
+      ${CONNECTORS.map(connectorCard).join("")}
+    </div>
+    <p class="conn-note">Publishing happens where your files are — the plugin and the local MCP
+      server. The hosted endpoint is the authenticated way to check a connection, not a second
+      way to upload. <a href="/docs#agents">Every connector, side by side &rarr;</a></p>
   </div>`;
 }
 
@@ -407,9 +550,9 @@ export function landingPage(env: Env): string {
         <div class="feature"><h3>Private links with an owner</h3><p>Keep an artifact restricted,
           share it with named people, or open it to your workspace. Anyone else gets the same 404
           as a page that never existed.</p></div>
-        <div class="feature"><h3>Built for agent workflows</h3><p>Claude Code, MCP, Hermes, the CLI,
-          API and dashboard all publish through one model. Give a session a scoped, revocable token
-          and “publish this” becomes the last step of the work.</p></div>
+        <div class="feature"><h3>Built for agent workflows</h3><p>Connect Claude Code with one
+          browser sign-in — no token to copy — and “publish this” becomes the last step of the
+          work. The MCP server, Hermes, the CLI and the API all publish through the same model.</p></div>
         <div class="feature"><h3>Versions you can trust</h3><p>Every re-publish creates a new immutable
           version. The link you already sent keeps working, older versions stay inspectable, and
           rollback is one click.</p></div>
@@ -417,6 +560,7 @@ export function landingPage(env: Env): string {
           artifact, when, and which version they saw. Artifacts belong to a workspace with roles,
           billing limits and operator safety controls.</p></div>
       </div>
+      ${connectorSection()}
       <p class="band-more">Going deeper: <a href="/docs#why-rtfx">table stakes vs what's different</a> ·
         <a href="/docs#use-cases">who uses it and for what</a> ·
         <a href="/docs#why">why not a generic static host</a> ·
