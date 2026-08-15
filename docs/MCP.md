@@ -240,25 +240,25 @@ claude mcp add --transport http rtfx https://rtfx.pro/mcp \
   --header "Authorization: Bearer rtfx_…"
 ```
 
-That works. `claude mcp login rtfx` does **not** — there is no OAuth authorization server here, no
-`/.well-known` metadata and no browser sign-in for MCP. The header is still a hand-minted token, so
-this removes no setup step yet; what it removes is the need for a Node process and a filesystem on
-the client side, which is what makes a hosted server possible at all.
+That works. The app also exposes the OAuth discovery/registration/authorization-code + PKCE flow a
+compliant MCP client needs for `claude mcp login`; keep it behind a production smoke gate before
+making it the default onboarding path. The remote tool surface remains intentionally narrow: `doctor`
+only, no publishing.
 
 | | stdio (the plugin) | HTTP (`/mcp`) |
 |---|---|---|
 | Tools | publish, list_artifacts, get_versions, rollback, doctor (+ update_access, gated) | `doctor` only |
-| Credential | `RTFX_API_TOKEN` in the environment | `Authorization: Bearer` header |
-| Sign-in | none — export a token | none yet — export a token |
+| Credential | `RTFX_API_TOKEN` in the environment | `Authorization: Bearer rtfx_…` header, hand-minted or OAuth-issued |
+| Sign-in | none — export a token | OAuth authorization-code + PKCE, plus manual bearer-token header |
 | Runs | on the user's machine | on the instance |
 
 **Why one tool.** `publish` takes a path on the machine running the *client*, and a server-side
 endpoint cannot read that machine's disk — a remote `publish(path)` could only read the **server's**
 filesystem, which is not what the caller means. It is absent rather than stubbed, and the refusal
 says where publishing actually lives so an agent redirects instead of retrying. The read tools have
-no such problem and are held back on a narrower rule: the remote surface stays at "reports on the
-credential you already hold" until OAuth settles how a remote credential is minted. `update_access`,
-user management and token management have no handler at all, the same rule `/api/machine` follows.
+no such problem, but are still held back to avoid widening the remote surface before the login flow
+has live-client smoke coverage and explicit scope UX. `update_access`, user management and token
+management have no handler at all, the same rule `/api/machine` follows.
 
 **What the endpoint enforces.** Bearer token only, through the very same `requireApiToken` that
 guards `/api/machine/*` — so a session cookie, dev impersonation and a Cloudflare Access assertion
@@ -273,7 +273,7 @@ server exposes and this one does not is genuinely unreachable here.
 
 ## 11. Related
 
-- [`REMOTE_MCP_OAUTH.md`](REMOTE_MCP_OAUTH.md) — the remote transport, and the OAuth slice after it
+- [`REMOTE_MCP_OAUTH.md`](REMOTE_MCP_OAUTH.md) — the remote transport and OAuth implementation
 - [`plugins/rtfx/README.md`](../plugins/rtfx/README.md) — user-facing install and usage
 - [`CLAUDE_CODE.md`](CLAUDE_CODE.md) — the plugin this ships alongside
 - [`HERMES_CLOUD.md`](HERMES_CLOUD.md) — token lifecycle, scopes and error semantics

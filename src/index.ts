@@ -2,6 +2,7 @@ import { Hono, type Context } from "hono";
 import type { ArtifactRow, Env, VersionRow } from "./env";
 import { api } from "./api";
 import { mcpRoutes } from "./mcp";
+import { oauthRoutes } from "./oauth-routes";
 import { waitlist } from "./waitlist";
 import { authRoutes } from "./auth-routes";
 import { requireUser, accessEmail, accountsFor, getIdentity, resolveAuth, readCookie, SESSION_COOKIE, type AuthVars } from "./auth";
@@ -428,10 +429,18 @@ app.route("/", accessRequestRoutes);
 app.route("/api", api);
 
 // Remote MCP over Streamable HTTP: POST /mcp, authenticated by the same bearer
-// token `/api/machine/*` takes. A foundation for the hosted-MCP direction, not
-// the finished thing — it exposes one read-only diagnostic tool and no OAuth.
+// token `/api/machine/*` takes. It exposes one read-only diagnostic tool; OAuth
+// discovery/login routes below can mint that same kind of bearer token.
 // See src/mcp.ts and docs/REMOTE_MCP_OAUTH.md.
 app.route("/", mcpRoutes);
+
+// The OAuth 2.1 authorization server that `claude mcp login` drives: the two
+// discovery documents, dynamic client registration, the consent flow, token
+// issuance and revocation. Mounted at the root because the module declares its
+// own full paths, and app-host only (MANAGEMENT_PREFIXES in host.ts). Its
+// discovery documents and /mcp itself must sit OUTSIDE any Cloudflare Access
+// application — see docs/DEPLOY_RTFX.md §5e and docs/REMOTE_MCP_OAUTH.md.
+app.route("/", oauthRoutes);
 
 // Public landing-page waitlist signup (unauthenticated).
 app.route("/waitlist", waitlist);

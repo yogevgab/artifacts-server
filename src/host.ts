@@ -29,7 +29,24 @@ const MANAGEMENT_PATHS = new Set([
 // the reason `/api` does: it authenticates a bearer credential and answers for
 // the product, so the origin that serves untrusted uploaded HTML must never
 // route to it.
-const MANAGEMENT_PREFIXES = ["/admin", "/api", "/v", "/auth", "/shared", "/mcp"];
+//
+// `/oauth` and `/.well-known` join it for the same reason and one more. The
+// OAuth authorization server (src/oauth-routes.ts) mints credentials from a
+// browser session, and its discovery documents name this instance's issuer and
+// resource identifiers. A content host answering either would advertise an
+// authorization server at an origin that serves untrusted uploaded HTML — and
+// the app host must not redirect them to the content host the way it does an
+// unknown path, which is the *other* thing listing them here prevents.
+const MANAGEMENT_PREFIXES = [
+  "/admin",
+  "/api",
+  "/v",
+  "/auth",
+  "/shared",
+  "/mcp",
+  "/oauth",
+  "/.well-known",
+];
 
 /**
  * Paths the CONTENT host serves in addition to artifact files. The chat socket

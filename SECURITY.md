@@ -34,8 +34,8 @@ reporting everything it left out; a prebuilt zip containing such a file is refus
 silently filtered. `npm run validate:plugin` fails if a token-shaped string is ever committed under
 `plugins/`.
 
-Distribution status and the open limitations — notably that authentication is a hand-exported token
-and that no OAuth or remote MCP transport exists — are in
+Distribution status and the open limitations — notably that the plugin itself still authenticates by
+a hand-exported token, while remote MCP/OAuth is server-side and read-only — are in
 [`docs/ANTHROPIC_PLUGIN_SUBMISSION.md`](docs/ANTHROPIC_PLUGIN_SUBMISSION.md).
 
 ## Scope & design notes

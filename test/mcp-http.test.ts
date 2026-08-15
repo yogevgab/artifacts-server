@@ -27,8 +27,9 @@ import { TOOLS, SUPPORTED_PROTOCOL_VERSIONS, LATEST_PROTOCOL_VERSION } from "../
  *  3. **The surface is one read-only tool.** Every other tool the stdio server
  *     exposes — publish above all — is absent, and absent in a way that survives
  *     somebody adding a tool to the stdio list without thinking about this one.
- *  4. **Nothing here claims OAuth exists.** A 401 carries a plain Bearer
- *     challenge with no `resource_metadata`, because we serve no such document.
+ *  4. **What it claims about OAuth is true.** A 401 names an RFC 9728
+ *     protected-resource document, and that document answers 200 on the same
+ *     origin. The authorization server itself is tested in test/oauth.test.ts.
  */
 
 const ADMIN = "admin@test.com"; // matches ADMIN_EMAILS in vitest.config.ts
@@ -304,7 +305,13 @@ describe("doctor", () => {
     expect(facts.token).toBe(`rtfx_${id}_…`);
     expect(facts.scopes).toEqual(["read", "publish"]);
     expect(facts.auth).toBe("bearer_token");
-    expect(facts.oauth).toBe("not_implemented");
+    expect(facts.oauth).toBe("authorization_code");
+    expect(facts.oauth_protected_resource).toContain(
+      "/.well-known/oauth-protected-resource/mcp"
+    );
+    expect(facts.oauth_authorization_server).toContain(
+      "/.well-known/oauth-authorization-server"
+    );
     expect(facts.publish_supported).toBe(false);
     expect(facts.tools).toEqual(["doctor"]);
     expect(facts.reachable).toBe(true);
@@ -356,23 +363,48 @@ describe("the gate is the machine surface's gate", () => {
   });
 
   /**
-   * The honesty check. MCP clients read `resource_metadata` off this header and
-   * go looking for an OAuth protected-resource document. We serve none, so
-   * naming one would send every compliant client into a discovery 404 — and
-   * would be a claim that OAuth exists here. It does not.
+   * The honesty check, now pointing the other way. MCP clients read
+   * `resource_metadata` off this header and go looking for the document it
+   * names; naming one we did not serve would send every compliant client into a
+   * discovery 404. So the assertion is not "the header contains a URL" but "the
+   * URL in the header is fetchable and describes this endpoint".
    */
-  it("does not advertise OAuth metadata it cannot serve", async () => {
+  it("advertises a protected-resource document that it actually serves", async () => {
     const challenge = (await rpc(null, ping)).headers.get("WWW-Authenticate") ?? "";
-    expect(challenge).not.toContain("resource_metadata");
-    expect(challenge).not.toContain("as_uri");
-    for (const path of [
-      "/.well-known/oauth-protected-resource",
-      "/.well-known/oauth-authorization-server",
-      "/.well-known/openid-configuration",
-    ]) {
-      const res = await req(path);
-      expect(res.status, path).not.toBe(200);
-    }
+    expect(challenge).toContain("Bearer");
+
+    const named = /resource_metadata="([^"]+)"/.exec(challenge);
+    expect(named, challenge).not.toBeNull();
+    const url = new URL(named![1]);
+    expect(url.pathname).toBe("/.well-known/oauth-protected-resource/mcp");
+
+    const doc = await req(url.pathname);
+    expect(doc.status).toBe(200);
+    const body = await doc.json<any>();
+    expect(new URL(body.resource).pathname).toBe(MCP_PATH);
+    expect(body.authorization_servers).toEqual([url.origin]);
+  });
+
+  /**
+   * The challenge is built from the origin the request arrived on, not from a
+   * configured base URL: a client talking to a preview host must be sent to that
+   * host's documents, or audience validation compares two different strings.
+   */
+  it("names the origin the request actually arrived on", async () => {
+    const res = await app.request(
+      "https://preview.example.com/mcp",
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(ping) },
+      env as any
+    );
+    expect(res.status).toBe(401);
+    expect(res.headers.get("WWW-Authenticate")).toContain(
+      'resource_metadata="https://preview.example.com/.well-known/oauth-protected-resource/mcp"'
+    );
+  });
+
+  /** Discovery documents we deliberately do not serve stay unserved. */
+  it("serves no OpenID configuration", async () => {
+    expect((await req("/.well-known/openid-configuration")).status).not.toBe(200);
   });
 
   it("refuses an unknown, malformed, revoked or expired token", async () => {

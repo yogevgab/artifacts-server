@@ -116,7 +116,12 @@ CREATE TABLE IF NOT EXISTS api_tokens (
   created_at   TEXT NOT NULL,
   last_used_at TEXT,
   expires_at   TEXT,
-  revoked_at   TEXT
+  revoked_at   TEXT,
+  -- Provenance (migration 0019). NULL means "minted in the dashboard", which is
+  -- what every pre-OAuth token was; 'oauth' means this row is an OAuth access
+  -- token, and is the only kind /oauth/revoke will revoke.
+  issued_via   TEXT,
+  oauth_client_id TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_api_tokens_owner ON api_tokens (owner_email);
@@ -280,3 +285,65 @@ CREATE TABLE IF NOT EXISTS admin_audit (
 CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_admin_audit_target
   ON admin_audit (target_type, target_id, created_at DESC);
+
+-- OAuth 2.1 authorization server for the remote MCP endpoint (migration 0019).
+-- There is deliberately NO access-token table: an OAuth access token is an
+-- ordinary `api_tokens` row with a one-hour expiry and the consented scopes, so
+-- every gate that already guards a bearer credential guards this one too. See
+-- docs/REMOTE_MCP_OAUTH.md and src/oauth.ts.
+--
+-- Public clients only — no `client_secret` column, because none is ever issued.
+-- Registration is unauthenticated by necessity (Claude Code cannot be
+-- pre-registered), so a row here grants nothing on its own.
+CREATE TABLE IF NOT EXISTS oauth_clients (
+  client_id     TEXT PRIMARY KEY,
+  client_name   TEXT NOT NULL,
+  -- JSON array of exact-match redirect URIs. No wildcards, no prefix matching.
+  redirect_uris TEXT NOT NULL,
+  scope         TEXT,
+  created_at    TEXT NOT NULL,
+  last_used_at  TEXT
+);
+
+-- Authorization codes: 60-second lifetime, single use, PKCE (S256) bound.
+CREATE TABLE IF NOT EXISTS oauth_codes (
+  code_hash      TEXT PRIMARY KEY,
+  client_id      TEXT NOT NULL,
+  email          TEXT NOT NULL,
+  account_id     TEXT,
+  scopes         TEXT NOT NULL,
+  -- RFC 8707 audience — the `/mcp` URL this grant was made against.
+  resource       TEXT NOT NULL,
+  redirect_uri   TEXT NOT NULL,
+  code_challenge TEXT NOT NULL,
+  expires_at     TEXT NOT NULL,
+  consumed_at    TEXT,
+  created_at     TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_oauth_codes_expires ON oauth_codes (expires_at);
+
+-- Refresh tokens, rotated on every use: redeeming one revokes it and issues a
+-- replacement, so a stolen refresh token is usable at most once.
+CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
+  id           TEXT PRIMARY KEY,
+  token_hash   TEXT NOT NULL UNIQUE,
+  client_id    TEXT NOT NULL,
+  email        TEXT NOT NULL,
+  account_id   TEXT,
+  scopes       TEXT NOT NULL,
+  resource     TEXT NOT NULL,
+  created_at   TEXT NOT NULL,
+  last_used_at TEXT,
+  expires_at   TEXT,
+  revoked_at   TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_oauth_refresh_email ON oauth_refresh_tokens (email);
+CREATE INDEX IF NOT EXISTS idx_oauth_refresh_client ON oauth_refresh_tokens (client_id);
+
+-- The provenance columns 0019 adds to `api_tokens` are declared inline in that
+-- table above, not repeated here as ALTERs: this file builds a database from
+-- nothing, and an ALTER against a table it just created with those columns would
+-- fail with "duplicate column name". The migration file has the ALTER form,
+-- because it is applied to a database that already has the table.
