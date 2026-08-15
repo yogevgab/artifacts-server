@@ -75,7 +75,7 @@ pre.code code{background:none;border:0;padding:0;font-size:inherit;color:inherit
 
 const TITLE = "Publish from Claude Code or MCP · rtfx.pro docs";
 const DESCRIPTION =
-  "How rtfx.pro works: publish HTML pages and multi-file artifacts from Claude Code, MCP, " +
+  "How rtfx.pro works: publish pages, PDFs and multi-file artifacts from Claude Code, MCP, " +
   "Hermes, the CLI or the API; control who can open each one; keep every version; and " +
   "see exactly who viewed what — plus what is table stakes in this category and what " +
   "actually makes rtfx.pro different.";
@@ -211,7 +211,7 @@ export function docsPage(env: Env): string {
     <div class="doc-hero">
       <p class="eyebrow">Documentation</p>
       <h1>Publish it, control who opens it, keep every version.</h1>
-      <p class="lede">rtfx.pro hosts the HTML pages and multi-file artifacts that come out of an
+      <p class="lede">rtfx.pro hosts the pages, PDFs and multi-file artifacts that come out of an
         AI session — from Claude Code, Hermes, your terminal or your browser — behind real access
         control instead of an unlisted URL.</p>
     </div>
@@ -232,7 +232,7 @@ export function docsPage(env: Env): string {
     <article class="doc">
       <section id="overview">
         <h2>What rtfx.pro is</h2>
-        <p>An artifact is one publishable thing: a single HTML file, or a folder/zip with its own
+        <p>An artifact is one publishable thing: a single HTML page, a PDF, or a folder/zip with its own
           assets. Publishing gives it a slug, a version and an owner. From then on the artifact has
           a stable link, a history, and an access list — the three things an unlisted URL on a
           static host never gives you.</p>
@@ -289,7 +289,7 @@ $ node cli/artifacts.mjs list</code></pre>
           and the view log.</p>
         <h3>Over HTTP</h3>
         <p>The upload field decides how the file is read, not its extension: a zip goes in
-          <code>bundle</code>, a single HTML document in <code>file</code>. A bundle needs
+          <code>bundle</code>, a single HTML or PDF document in <code>file</code>. A bundle needs
           <code>index.html</code> at its root.</p>
         <pre class="code" data-docs="http-publish"><code>$ export RTFX_API_TOKEN=rtfx_…              # dashboard → Integrations
 
@@ -298,10 +298,15 @@ $ curl -X POST https://rtfx.pro/api/machine/artifacts \\
     -H "Authorization: Bearer $RTFX_API_TOKEN" \\
     -F slug=q3-report -F title="Q3 Report" -F bundle=@./dist.zip
 
-# one HTML document → file
-$ curl -X POST https://rtfx.pro/api/machine/artifacts \\
-    -H "Authorization: Bearer $RTFX_API_TOKEN" \\
-    -F slug=q3-report -F title="Q3 Report" -F file=@./index.html</code></pre>
+# one HTML document or PDF → file
+$ curl -X POST https://rtfx.pro/api/machine/artifacts \
+    -H "Authorization: Bearer ***" \
+    -F slug=q3-report -F title="Q3 Report" -F file=@./index.html
+
+# PDF works through the same file= field
+$ curl -X POST https://rtfx.pro/api/machine/artifacts \
+    -H "Authorization: Bearer ***" \
+    -F slug=board-pack -F title="Board Pack" -F file=@./board-pack.pdf</code></pre>
         <p><b>One credential.</b> <code>/api/machine</code> is the machine surface: it
           authenticates the bearer token and nothing else, so the API token you minted in the
           dashboard is all a script, an agent or a CI job needs. It carries the same rules as the
@@ -424,7 +429,7 @@ tools: publish · list_artifacts · get_versions · rollback · doctor</code></p
         <p>Present here, and expected of anything in this category. Nobody should pick a tool for
           these.</p>
         <ul class="stance" data-positioning="table-stakes">
-          <li><b>Publishing with no build step.</b> A single HTML file, a folder or a zip goes up as
+          <li><b>Publishing with no build step.</b> A single HTML file, a PDF, a folder or a zip goes up as
             it is; relative paths keep working.</li>
           <li><b>A stable link.</b> One slug, one URL, for as long as the artifact exists.</li>
           <li><b>Re-publishing to the same address.</b> The link you already sent keeps working

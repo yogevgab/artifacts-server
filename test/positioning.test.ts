@@ -401,7 +401,7 @@ describe("install paths are ones a reader can actually run", () => {
  *     example must therefore point at `/api/machine`, which authenticates the
  *     bearer token and nothing else, so the token the dashboard hands out is
  *     genuinely sufficient.
- *  2. **The wrong upload field.** `file` is one HTML document and `bundle` is a
+ *  2. **The wrong upload field.** `file` is one HTML/PDF document and `bundle` is a
  *     zip; `-F file=@./dist.zip` therefore hands a zip to the single-document
  *     path (`src/api.ts`) rather than publishing a bundle.
  */
@@ -434,6 +434,7 @@ describe("the /docs HTTP publish example is one a machine can run", () => {
     expect(docs).toContain("-F bundle=@./dist.zip");
     expect(docs, "a zip must never be sent as file=").not.toMatch(/file=@\S*\.zip/);
     expect(docs, "the single-document variant is worth showing").toMatch(/file=@\S*\.html/);
+    expect(docs, "PDF support should be visible too").toMatch(/file=@\S*\.pdf/);
   });
 });
 

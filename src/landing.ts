@@ -184,7 +184,7 @@ if ($('#wl')) $('#wl').addEventListener('submit', async (e)=>{
  * Descriptive, nominative use of the name, which is what it has always been on
  * this site.
  */
-const TITLE = "Private hosting for Claude artifacts and AI-built pages · rtfx.pro";
+const TITLE = "Private hosting for Claude artifacts and AI-made deliverables · rtfx.pro";
 
 /** Structured data: what this site is, and what the product is. */
 function structuredData(env: Env): unknown[] {
@@ -340,7 +340,7 @@ export function landingPage(env: Env): string {
       <!-- "Artifact" carried the whole page and was never defined on it; the
            definition lived a click away on /docs. It costs four words here. -->
       <p class="lead">rtfx.pro is the secure, access-protected home for the artifacts Claude just
-        built — a single HTML page, or a whole folder of them. Publish straight from the session
+        built — a page, PDF, report, dashboard, or a whole folder of them. Publish straight from the session
         that made it, hand out a link only the people you name can open, and keep every version.</p>
       <div class="cta">
         <a class="link-button" href="/signup" data-cta="signup">Start free</a>
@@ -390,7 +390,7 @@ export function landingPage(env: Env): string {
         <!-- The h1 is the tagline and stays the tagline (pinned in
              test/positioning.test.ts), so the h2 is the only heading free to
              carry the language people actually search for. -->
-        <h2>Private hosting for Claude artifacts and AI-built pages.</h2>
+        <h2>Private hosting for Claude artifacts and AI-made deliverables.</h2>
         <p>Everyone can host what Claude built. rtfx.pro starts locked, publishes from inside the
           agent session, and makes sharing a deliberate act you can see, version and undo.</p>
       </div>

@@ -52,11 +52,11 @@ function dropzone(idle: string, sub: string, compact = false): string {
     <p class="dz-title" data-pick-label data-idle="${esc(idle)}">${esc(idle)}</p>
     <p class="dz-sub">${esc(sub)}</p>
     <div class="dz-actions">
-      <button type="button" class="ghost small" data-browse="file">Choose .html</button>
+      <button type="button" class="ghost small" data-browse="file">Choose .html or .pdf</button>
       <button type="button" class="ghost small" data-browse="bundle">Choose .zip</button>
       <button type="button" class="ghost small" data-clear-pick hidden>Clear</button>
     </div>
-    <input class="sr-file" type="file" name="file" accept=".html,.htm" aria-label="Single HTML file">
+    <input class="sr-file" type="file" name="file" accept=".html,.htm,.pdf,application/pdf" aria-label="Single HTML or PDF file">
     <input class="sr-file" type="file" name="bundle" accept=".zip" aria-label="Zip bundle">
   </div>`;
 }
@@ -320,7 +320,7 @@ export function overviewPage(o: OverviewInput): string {
     actions.push({
       key: "publish",
       title: "Publish your first artifact",
-      body: "Drop a .html page or a .zip bundle. It stays private to you until you share it.",
+      body: "Drop a .html page, .pdf document or .zip bundle. It stays private to you until you share it.",
       href: "/admin/artifacts",
       cta: "Publish",
     });
@@ -430,7 +430,7 @@ function publishPanel(viewer: PortalViewer): string {
     </div>
 
     <form id="up" data-publish-form>
-      ${dropzone("Drop a .html page or .zip bundle here", `Single-file pages, or a zip with index.html at the root · up to ${cap}`)}
+      ${dropzone("Drop a .html page, .pdf document or .zip bundle here", `Single-file pages/PDFs, or a zip with index.html at the root · up to ${cap}`)}
       <div class="field-grid">
         <div><label for="pub-title">Title *</label>
           <input id="pub-title" name="title" required placeholder="Q3 Landing Page" autocomplete="off"></div>
@@ -518,7 +518,7 @@ export function artifactsPage(o: ArtifactsInput): string {
 
   const emptyState = `<div class="empty" data-empty="artifacts">
     <h3>Nothing published yet</h3>
-    <p>Drop a <span class="mono">.html</span> page or a <span class="mono">.zip</span> bundle into the
+    <p>Drop a <span class="mono">.html</span> page, <span class="mono">.pdf</span> document or a <span class="mono">.zip</span> bundle into the
       panel above to publish your first artifact. It stays private to you until you grant access —
       then you'll get a share link to send.</p>
   </div>`;
@@ -1332,7 +1332,7 @@ function pickOf(form){
 }
 function kindOf(name){
   if(/\\.zip$/i.test(name)) return 'bundle';
-  if(/\\.html?$/i.test(name)) return 'file';
+  if(/\\.(html?|pdf)$/i.test(name)) return 'file';
   return null;
 }
 function renderPick(form){
@@ -1347,7 +1347,7 @@ function renderPick(form){
 }
 function setPick(form, f){
   var kind = kindOf(f.name);
-  if(!kind) return 'Unsupported file "' + f.name + '" — choose a .html page or a .zip bundle.';
+  if(!kind) return 'Unsupported file "' + f.name + '" — choose a .html page, .pdf document or .zip bundle.';
   var p = pickOf(form);
   p.file = null; p.bundle = null; p[kind] = f;
   var target = $('input[type=file][name=' + kind + ']', form);
@@ -1431,7 +1431,7 @@ if(upForm){
   upForm.addEventListener('submit', async function(e){
     e.preventDefault();
     if(!hasPick(upForm)){
-      setStatus(publishMsg, 'Add a .html page or a .zip bundle before publishing.', 'error');
+      setStatus(publishMsg, 'Add a .html page, .pdf document or .zip bundle before publishing.', 'error');
       return;
     }
     var btn = $('button[type=submit]', upForm);
@@ -1516,7 +1516,7 @@ $$('form[data-newver]').forEach(function(form){
   form.addEventListener('submit', async function(e){
     e.preventDefault();
     var status = $('[data-status]', form);
-    if(!hasPick(form)){ setStatus(status, 'Choose a .html page or .zip bundle first.', 'error'); return; }
+    if(!hasPick(form)){ setStatus(status, 'Choose a .html page, .pdf document or .zip bundle first.', 'error'); return; }
     var btn = $('button[type=submit]', form);
     btn.disabled = true;
     setStatus(status, 'Uploading…');
