@@ -85,6 +85,10 @@ const LANDING_STYLE = `${PUBLIC_CHROME_STYLE}${CONSENT_STYLE}
    footnote to the right-hand panel, and keeping it inside that column made the
    two panels stretch to different heights. */
 .rt-foot{grid-column:1/-1;margin:.2rem 0 0;font-size:.88rem;color:var(--faint);line-height:1.55;text-align:center}
+.launch-strip{margin:1.4rem auto 0;max-width:60rem;display:grid;grid-template-columns:repeat(3,1fr);gap:.8rem;text-align:left}
+.launch-strip div{background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:18px;padding:.92rem 1rem}
+.launch-strip b{display:block;color:var(--fg);font-size:.92rem;letter-spacing:-.01em;margin-bottom:.18rem}
+.launch-strip span{display:block;color:var(--muted);font-size:.83rem;line-height:1.45}
 section.band{margin:4rem 0}
 .band-head{text-align:center;max-width:44rem;margin:0 auto 2rem}
 .band-head h2{font-size:clamp(1.9rem,4.2vw,3.1rem);letter-spacing:-.055em;margin:0 0 .6rem;line-height:1.05}
@@ -116,7 +120,7 @@ section.band{margin:4rem 0}
 .tier-more{margin:-.3rem 0 0;font-size:.86rem}
 .pricing-note{text-align:center;color:var(--faint);font-size:.88rem;margin:1.2rem 0 0}
 #waitlist{background:var(--card);border:1px solid var(--border);border-radius:32px;padding:2.3rem;text-align:center;margin:2.6rem 0;box-shadow:var(--shadow);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}#waitlist h2{margin:0 0 .45rem;font-size:clamp(1.8rem,4vw,3rem);letter-spacing:-.055em}#waitlist p{color:var(--muted);margin:0 0 1.3rem}#waitlist form{display:flex;gap:.6rem;justify-content:center;flex-wrap:wrap;max-width:31rem;margin:0 auto}#waitlist input{flex:1;min-width:15rem}#msg{max-width:31rem;margin:.85rem auto 0}
-@media(max-width:760px){.hero{padding:3rem 0 1.8rem}.roundtrip{grid-template-columns:1fr;gap:1.6rem;margin-top:2.4rem}section.band{margin:3rem 0}}
+@media(max-width:760px){.hero{padding:3rem 0 1.8rem}.roundtrip,.launch-strip{grid-template-columns:1fr;gap:1.6rem;margin-top:2.4rem}section.band{margin:3rem 0}}
 `;
 
 const SCRIPT = `
@@ -330,18 +334,19 @@ export function landingPage(env: Env): string {
 
     <main id="main">
     <section class="hero">
-      <div class="badge-row"><span class="pill">Agent-native publishing</span><span class="pill">Secure, access-protected sharing</span><!-- "Versioned & audited" claimed an audit log this product does not have.
+      <div class="badge-row"><span class="pill">Claude creates. We share.</span><span class="pill">Private by default</span><span class="pill">Agent-native publishing</span><span class="pill">PDFs, pages &amp; dashboards</span><!-- "Versioned & audited" claimed an audit log this product does not have.
            What exists is a per-artifact view log — who opened it, when, which
            version — which is a real and specific thing, and not the same
            promise. "Audited" is the word a buyer reads as "there is a tamper-
            evident record of every administrative action", and there isn't one. -->
-      <span class="pill">Versioned, with a view log</span><span class="pill">Workspaces &amp; roles</span></div>
-      <h1>Claude creates. We share.</h1>
+      </div>
+      <h1>Publish AI-made work without putting it on the open web.</h1>
       <!-- "Artifact" carried the whole page and was never defined on it; the
            definition lived a click away on /docs. It costs four words here. -->
-      <p class="lead">rtfx.pro is the secure, access-protected home for the artifacts Claude just
-        built — a page, PDF, report, dashboard, or a whole folder of them. Publish straight from the session
-        that made it, hand out a link only the people you name can open, and keep every version.</p>
+      <p class="lead">rtfx.pro gives Claude Code, Hermes and your browser a secure, professional place to
+        ship artifacts: pages, PDFs, reports, dashboards and small static apps. Every link starts
+        restricted, every re-publish keeps history, and sharing is a deliberate action — not an
+        unlisted URL you hope nobody forwards.</p>
       <div class="cta">
         <a class="link-button" href="/signup" data-cta="signup">Start free</a>
         <a class="ghost link-button" href="/docs" data-cta="docs">See how it works</a>
@@ -368,7 +373,7 @@ export function landingPage(env: Env): string {
 
 <b>/rtfx:publish ./out client-demo</b>
   uploaded 6 files · 214 KB
-  <span class="rt-ok">https://a.rtfx.pro/client-demo/  · v4</span></code></pre>
+  <span class="rt-ok">https://rtfx.pro/client-demo/  · v4</span></code></pre>
         </div>
         <div class="rt-step">
           <p class="rt-label"><span class="rt-num">2</span> What the link is, the moment it exists</p>
@@ -382,30 +387,35 @@ export function landingPage(env: Env): string {
         <p class="rt-foot">Everyone else gets the same 404 as a page that was never published —
           the link never admits the artifact exists.</p>
       </div>
+      <div class="launch-strip" role="group" aria-label="Launch readiness">
+        <div><b>Public product, private content</b><span>The marketing site is crawlable; artifacts and dashboards stay access-controlled.</span></div>
+        <div><b>Real plans, honest limits</b><span>Free and Pro are self-serve; Team and Enterprise are conversation-led until invite automation is complete.</span></div>
+        <div><b>Built to recover</b><span>Version history, rollback, workspace roles and view logs are part of the workflow from day one.</span></div>
+      </div>
     </section>
 
     <section id="features" class="band">
       <div class="band-head">
         <p class="eyebrow-c">The product</p>
-        <!-- The h1 is the tagline and stays the tagline (pinned in
-             test/positioning.test.ts), so the h2 is the only heading free to
-             carry the language people actually search for. -->
-        <h2>Private hosting for Claude artifacts and AI-made deliverables.</h2>
-        <p>Everyone can host what Claude built. rtfx.pro starts locked, publishes from inside the
-          agent session, and makes sharing a deliberate act you can see, version and undo.</p>
+        <!-- The hero h1 explains the job now; this h2 carries the professional
+             SaaS positioning for launch-day buyers who need the category quickly. -->
+        <h2>A launch-ready publishing layer for work that should not be public.</h2>
+        <p>Use it when the output is real enough to send to a client, teammate or stakeholder —
+          but too sensitive, provisional or accountable to throw onto a generic static host.</p>
       </div>
       <div class="features">
-        <div class="feature"><h3>Access by identity, not a secret link</h3><p>Keep a page private,
-          share it with named people, or open it to every signed-in user on the instance. Anyone
-          else gets a 404 — the page never even admits it exists.</p></div>
-        <div class="feature"><h3>Agent-native publishing</h3><p>Claude Code, MCP, Hermes, the CLI
-          and the API all take the same path. Hand a session a scoped, revocable token and "publish
-          this" becomes the last step of the work.</p></div>
-        <div class="feature"><h3>Immutable versions</h3><p>Every re-publish is a new version with
-          its own preview URL. Roll back in one click; nothing you shipped is ever overwritten.</p></div>
-        <div class="feature"><h3>View log &amp; workspace roles</h3><p>See who opened each artifact,
-          when, and which version they saw. Artifacts belong to a workspace with real roles, not to
-          one shared login.</p></div>
+        <div class="feature"><h3>Private links with an owner</h3><p>Keep an artifact restricted,
+          share it with named people, or open it to your workspace. Anyone else gets the same 404
+          as a page that never existed.</p></div>
+        <div class="feature"><h3>Built for agent workflows</h3><p>Claude Code, MCP, Hermes, the CLI,
+          API and dashboard all publish through one model. Give a session a scoped, revocable token
+          and “publish this” becomes the last step of the work.</p></div>
+        <div class="feature"><h3>Versions you can trust</h3><p>Every re-publish creates a new immutable
+          version. The link you already sent keeps working, older versions stay inspectable, and
+          rollback is one click.</p></div>
+        <div class="feature"><h3>Workspace control, not shared logins</h3><p>See who opened each
+          artifact, when, and which version they saw. Artifacts belong to a workspace with roles,
+          billing limits and operator safety controls.</p></div>
       </div>
       <p class="band-more">Going deeper: <a href="/docs#why-rtfx">table stakes vs what's different</a> ·
         <a href="/docs#use-cases">who uses it and for what</a> ·

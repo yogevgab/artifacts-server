@@ -108,9 +108,10 @@ describe("public pages share one header and one footer", () => {
 });
 
 describe("the landing page leads with one idea", () => {
-  it("says 'Claude creates. We share.' above the fold, and says it once", async () => {
+  it("keeps the Claude tagline above the fold while the h1 states the launch promise", async () => {
     const body = await html("/", ANON);
-    expect(body).toContain("<h1>Claude creates. We share.</h1>");
+    expect(body).toContain("<h1>Publish AI-made work without putting it on the open web.</h1>");
+    expect(body).toContain("Claude creates. We share.");
     expect(body.match(/<h1[ >]/g) ?? []).toHaveLength(1);
   });
 

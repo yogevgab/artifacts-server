@@ -190,17 +190,18 @@ describe("/docs#why-rtfx: table stakes vs differentiators", () => {
 });
 
 describe("the wedge is stated on the landing page", () => {
-  it("keeps the tagline as the h1", async () => {
+  it("keeps the Claude wedge above the fold while the h1 says what buyers get", async () => {
     const html = await publicHtml("/");
-    expect(html).toContain(`<h1>${SITE.tagline}</h1>`);
+    expect(html).toContain("<h1>Publish AI-made work without putting it on the open web.</h1>");
+    expect(html).toContain(SITE.tagline);
   });
 
-  it("leads with agent-native publishing, access by identity, versions and workspaces", async () => {
+  it("leads with agent-native publishing, private sharing, versions and workspaces", async () => {
     const html = (await publicHtml("/")).toLowerCase();
     for (const claim of [
       "agent-native publishing",
-      "access by identity",
-      "immutable versions",
+      "named people, by identity",
+      "version history",
       "workspace",
       "access-protected",
     ]) {
