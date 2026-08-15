@@ -1,6 +1,7 @@
 import { Hono, type Context } from "hono";
 import type { ArtifactRow, Env, VersionRow } from "./env";
 import { api } from "./api";
+import { mcpRoutes } from "./mcp";
 import { waitlist } from "./waitlist";
 import { authRoutes } from "./auth-routes";
 import { requireUser, accessEmail, accountsFor, getIdentity, resolveAuth, readCookie, SESSION_COOKIE, type AuthVars } from "./auth";
@@ -425,6 +426,12 @@ app.route("/", receiptsRoutes);
 app.route("/", accessRequestRoutes);
 
 app.route("/api", api);
+
+// Remote MCP over Streamable HTTP: POST /mcp, authenticated by the same bearer
+// token `/api/machine/*` takes. A foundation for the hosted-MCP direction, not
+// the finished thing — it exposes one read-only diagnostic tool and no OAuth.
+// See src/mcp.ts and docs/REMOTE_MCP_OAUTH.md.
+app.route("/", mcpRoutes);
 
 // Public landing-page waitlist signup (unauthenticated).
 app.route("/waitlist", waitlist);

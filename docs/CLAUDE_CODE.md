@@ -65,11 +65,14 @@ export ARTIFACTS_URL=https://rtfx.pro   # only when self-hosting
 
 That third step is the one worth removing. A hand-exported token is a developer setup, and the
 intended replacement is a hosted remote MCP server with a browser sign-in — `claude mcp add
---transport http rtfx https://mcp.rtfx.pro/mcp`, then `claude mcp login rtfx`. **None of it is
-built.** There is no OAuth handler, no `/.well-known` authorization-server metadata, no HTTP
-transport and no `mcp.rtfx.pro` origin in this repository; `scripts/rtfx-mcp.mjs` speaks stdio and
-reads `RTFX_API_TOKEN`. The README, `/rtfx:setup` and the onboarding page all state the target
-shape and label it unavailable, so a reader can recognize it later without being told it works now.
+--transport http rtfx https://mcp.rtfx.pro/mcp`, then `claude mcp login rtfx`. **The transport is
+built; the sign-in is not.** The app serves MCP over HTTP at `POST /mcp` (`src/mcp.ts`) with one
+read-only tool and the same bearer token — see [`REMOTE_MCP_OAUTH.md`](REMOTE_MCP_OAUTH.md). There
+is still no OAuth handler, no `/.well-known` authorization-server metadata and no `mcp.rtfx.pro`
+origin, so `claude mcp login` fails and the token export is unchanged. The **plugin** is unaffected
+either way: `scripts/rtfx-mcp.mjs` speaks stdio and reads `RTFX_API_TOKEN`. The README,
+`/rtfx:setup` and the onboarding page all state the target shape and label the parts that do not
+work, so a reader can recognize the change later without being told it works now.
 
 Anyone can add this marketplace today — a custom marketplace needs no approval, only a valid
 `.claude-plugin/marketplace.json` in a reachable repository. Inclusion in Anthropic's official or

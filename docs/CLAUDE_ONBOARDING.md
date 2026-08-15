@@ -69,10 +69,21 @@ claude mcp add --transport http rtfx https://mcp.rtfx.pro/mcp
 claude mcp login rtfx
 ```
 
-**Not available yet.** `mcp.rtfx.pro` is not serving, and this repository contains no OAuth
-handler, no authorization-server metadata route and no HTTP MCP transport — the shipped server is
-stdio-only and reads `RTFX_API_TOKEN`. The commands above describe the intended shape so it is
-recognizable when it lands; they fail today. Section 2 is the supported path.
+**Half of that is built.** The app now answers MCP over HTTP at `POST /mcp`, so the first command
+has a real shape:
+
+```bash
+claude mcp add --transport http rtfx https://rtfx.pro/mcp \
+  --header "Authorization: Bearer rtfx_…"
+```
+
+**`claude mcp login rtfx` does not work.** There is no OAuth authorization server here, no
+`/.well-known` metadata and no browser sign-in for MCP — that is the next slice, designed in
+[`REMOTE_MCP_OAUTH.md`](REMOTE_MCP_OAUTH.md). And the HTTP endpoint is a *foundation*: it exposes
+one read-only tool, `doctor`, and cannot publish — publishing needs to read files on your machine,
+which a server cannot do. It removes no setup step yet, because you still paste the same token.
+
+Section 2, with the plugin, remains the supported path for actually publishing.
 
 ## Marketplace distribution
 
@@ -137,4 +148,5 @@ setup step; do not imply a sign-in flow that does not exist yet.
 - [`CLAUDE_CODE.md`](CLAUDE_CODE.md) — how the plugin is built, validated and tested
 - [`ANTHROPIC_PLUGIN_SUBMISSION.md`](ANTHROPIC_PLUGIN_SUBMISSION.md) — the marketplace submission packet
 - [`MCP.md`](MCP.md) — MCP tools and client configuration
+- [`REMOTE_MCP_OAUTH.md`](REMOTE_MCP_OAUTH.md) — the remote HTTP endpoint, and the OAuth plan
 - [`HERMES_CLOUD.md`](HERMES_CLOUD.md) — token lifecycle, scopes and error semantics
