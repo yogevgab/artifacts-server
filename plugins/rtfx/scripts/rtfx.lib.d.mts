@@ -21,14 +21,30 @@ export function resolveEndpoint(env?: Record<string, string | undefined>): strin
 export function tokenId(token: unknown): string | null;
 export function redactToken(token: unknown): string;
 
+export const SOURCE_ENV: "env";
+export const SOURCE_OAUTH: "oauth";
+export const SOURCE_NONE: "none";
+
+export interface OAuthCredentialLike {
+  access_token?: string;
+  refresh_token?: string | null;
+  expires_at?: string | null;
+  scopes?: string[];
+}
+
 export interface RtfxConfig {
   endpoint: string;
   token: string;
   access: { id: string; secret: string } | null;
   hasToken: boolean;
+  source: typeof SOURCE_ENV | typeof SOURCE_OAUTH | typeof SOURCE_NONE;
+  credential: OAuthCredentialLike | null;
 }
 
-export function resolveConfig(env?: Record<string, string | undefined>): RtfxConfig;
+export function resolveConfig(
+  env?: Record<string, string | undefined>,
+  options?: { credential?: OAuthCredentialLike | null }
+): RtfxConfig;
 export function authHeaders(config: RtfxConfig): Record<string, string>;
 export function apiUrl(endpoint: string, path: string): string;
 

@@ -1,5 +1,6 @@
 import type { PreparedBundle } from "./rtfx.bundle.d.mts";
 import type { RtfxConfig } from "./rtfx.lib.d.mts";
+import type { OAuthCredential } from "./rtfx.oauth.lib.d.mts";
 
 export interface ToolAnnotations {
   readOnlyHint?: boolean;
@@ -73,6 +74,11 @@ export interface McpContext {
   prepareBundle: (path: string) => PreparedBundle;
   FileImpl?: typeof File;
   node: string | null;
+  credentials?: {
+    read: (issuer: string) => OAuthCredential | null;
+    write: (issuer: string, credential: OAuthCredential) => unknown;
+  } | null;
+  now?: () => number;
 }
 
 export function createContext(options: {
@@ -81,7 +87,14 @@ export function createContext(options: {
   prepareBundle: (path: string) => PreparedBundle;
   File?: typeof File;
   node?: string | null;
+  credentials?: {
+    read: (issuer: string) => OAuthCredential | null;
+    write: (issuer: string, credential: OAuthCredential) => unknown;
+  } | null;
+  now?: () => number;
 }): McpContext;
+
+export function resolveRuntimeConfig(ctx: McpContext): Promise<RtfxConfig>;
 
 export function toolResult(
   summaryLines: string | string[],
@@ -96,6 +109,8 @@ export function describeEnv(ctx: McpContext): {
   endpoint_default: boolean;
   token_set: boolean;
   token: string | null;
+  credential_source: string;
+  oauth: ReturnType<typeof import("./rtfx.oauth.lib.d.mts").describeCredential> | null;
   access_headers: boolean;
   access_tool_enabled: boolean;
   cloudflare_management_token: string;

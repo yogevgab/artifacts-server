@@ -341,20 +341,24 @@ $ node cli/artifacts.mjs publish ./out --slug client-demo --title "Checkout prot
           <a href="#access">Access &amp; privacy</a>. An agent publishes; a person decides who
           may read.</p>
         <h3>The Claude Code plugin</h3>
-        <p>Two commands to install, one token to connect. After that <i>publish this</i> is an
-          ordinary sentence: the session picks the build output, versions it under a slug and hands
-          back the link. The plugin ships a skill, five slash commands and a dependency-free
+        <p>Two commands to install, one browser sign-in to connect. After that <i>publish this</i> is
+          an ordinary sentence: the session picks the build output, versions it under a slug and hands
+          back the link. The plugin ships a skill, seven slash commands and a dependency-free
           publisher — nothing to clone and no package to install, since it brings its own copy.</p>
         <pre class="code" data-docs="claude-code-plugin"><code>/plugin marketplace add yogevgab/artifacts-server
 /plugin install rtfx@rtfx
 
-/rtfx:setup       # confirm your token reaches your instance
+/rtfx:login       # browser OAuth sign-in; stores a local renewing credential
+/rtfx:setup       # confirm your credential reaches your instance
 /rtfx:publish     # publish what the session just built
 /rtfx:versions    # history · /rtfx:rollback to go back</code></pre>
-        <p>Connecting the plugin means the scoped token from Integrations, exported in the shell you
-          start Claude Code in. The server-side remote MCP path now has OAuth discovery and
-          authorization-code + PKCE, but it exposes only the read-only <code>doctor</code> tool; the
-          local plugin remains the supported path for publishing files from your machine.</p>
+        <p>The plugin's browser login stores a local credential with owner-only permissions and prints
+          only a token id, never the token. For CI and advanced scripts, a scoped
+          <code>RTFX_API_TOKEN</code> from Integrations still works and takes priority over the
+          browser sign-in.</p>
+        <p>The server-side remote MCP path also has OAuth discovery and authorization-code + PKCE, but
+          it exposes only the read-only <code>doctor</code> tool. The local plugin remains the
+          supported path for publishing files from your machine.</p>
         <h3>The MCP server</h3>
         <p>The same plugin ships a native MCP server, for a client with no shell to run a command
           in — Claude Desktop, or anything else that speaks MCP. Installing the plugin registers it;

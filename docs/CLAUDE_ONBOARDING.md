@@ -21,28 +21,32 @@ The repository is itself a Claude Code marketplace — `.claude-plugin/marketpla
 lists one plugin, `./plugins/rtfx`. There is nothing to clone and no package to install: the
 plugin carries its own dependency-free publisher and registers its MCP server on install.
 
-You now have a skill, five slash commands (`/rtfx:publish`, `/rtfx:list`, `/rtfx:versions`,
-`/rtfx:rollback`, `/rtfx:setup`) and an MCP server with the same operations.
+You now have a skill, seven slash commands (`/rtfx:login`, `/rtfx:publish`, `/rtfx:list`,
+`/rtfx:versions`, `/rtfx:rollback`, `/rtfx:logout`, `/rtfx:setup`) and an MCP server with the same
+operations.
 
 ## 2. Connect your account
 
-One step, and it is the only configuration the plugin has. Mint a token at
-[rtfx.pro/admin/integrations](https://rtfx.pro/admin/integrations) with the `read` and `publish`
-scopes, and export it in the shell you start Claude Code from:
+One command opens a browser, asks for the `read` and `publish` scopes, and stores a renewing local
+credential with owner-only permissions:
+
+```
+/rtfx:login
+/rtfx:setup
+```
+
+`/rtfx:setup` reports the endpoint, the active credential source, the token's **id** (never the
+token or refresh token) and whether the API answered.
+
+For CI or advanced scripted use, `RTFX_API_TOKEN` still works and takes priority over browser login:
 
 ```bash
 export RTFX_API_TOKEN=rtfx_…
 export ARTIFACTS_URL=https://rtfx.pro   # only when self-hosting
 ```
 
-Then `/rtfx:setup` — it reports the endpoint, the token's **id** (never the token) and whether the
-API answered.
-
-The token is bound to its owner, carries only the scopes you gave it, and is revocable on its own.
-An agent holding one can publish as you; it can never become you, manage other people, or reach
-anyone else's artifacts. No Cloudflare account credential is involved anywhere.
-
-Keep the export in a shell profile or a secret manager — not in a repository, and not in a commit.
+Keep any token export in a shell profile or a secret manager — not in a repository, and not in a
+commit. No Cloudflare account credential is involved anywhere.
 
 ## 3. Publish
 
@@ -58,24 +62,13 @@ shows the history, `/rtfx:rollback` makes an earlier version live again.
 
 ---
 
-## Where token setup is going
+## Remote MCP option
 
-Exporting a token by hand is a developer setup step, and the part of onboarding we most want to
-delete. The target is a hosted remote MCP server with a browser sign-in, so install and authorize
-are symmetrical:
+Claude Code can also connect to the hosted Remote MCP endpoint with OAuth:
 
 ```
 claude mcp add --transport http rtfx https://mcp.rtfx.pro/mcp
 claude mcp login rtfx
-```
-
-**The server-side pieces are now built on the app host.** The app answers MCP over HTTP at
-`POST /mcp`, advertises OAuth discovery metadata, dynamically registers public clients, and can issue
-short-lived scoped `rtfx_…` tokens through authorization-code + PKCE:
-
-```bash
-claude mcp add --transport http rtfx https://rtfx.pro/mcp \
-  --header "Authorization: Bearer rtfx_…"
 ```
 
 The OAuth path has passed a live Claude Code client smoke against the same Worker at
@@ -83,7 +76,7 @@ The OAuth path has passed a live Claude Code client smoke against the same Worke
 endpoint still exposes only one read-only tool, `doctor`. It cannot publish — publishing needs to
 read files on your machine, which a hosted server cannot do.
 
-Section 2, with the plugin, remains the supported path for actually publishing.
+Section 2, with the local plugin, remains the supported path for actually publishing.
 
 ## Marketplace distribution
 
@@ -112,20 +105,35 @@ imply the plugin has one.
 
 ## Screenshot checklist
 
-Six images, in the order a new user meets them. Capture on a clean profile at 1440×900, light
+Eight images, in the order a new user meets them. Capture on a clean profile at 1440×900, light
 theme, no personal artifacts or real email addresses in frame. Every token must be redacted to the
 `rtfx_…` placeholder shape — a screenshot is the easiest way to leak one.
+
+Current draft assets live in `docs/media/rtfx-onboarding/`:
+
+- `01-install.png`
+- `02-login.png`
+- `oauth-consent-redacted.png`
+- `04-setup.png`
+- `05-publish.png`
+- `rtfx-onboarding.gif`
+- `rtfx-onboarding.mp4`
+
+The consent screenshot is from the live OAuth flow and has personal email/workspace text replaced
+with `redacted@example.com` before being committed.
 
 | # | Shot | Frame | Shows |
 |---|---|---|---|
 | 1 | `/plugin marketplace add yogevgab/artifacts-server` in a session | Terminal, the command and its confirmation | Install is one line, no clone |
 | 2 | `/plugin install rtfx@rtfx` with the install confirmation | Terminal | What arrives: skill, commands, MCP server |
-| 3 | Integrations page, token-create dialog with `read` + `publish` ticked | Browser, dialog only | Which scopes, and that you choose them |
-| 4 | The token shown once, **redacted to `rtfx_…`** | Browser, banner only | Copy it now; it is never shown again |
-| 5 | `/rtfx:setup` reporting endpoint + token id + API reachable | Terminal | Connected, with no secret on screen |
-| 6 | "publish this" → the returned `https://a.rtfx.pro/<slug>/` URL | Terminal, then the live page | The payoff, in the user's own words |
+| 3 | `/rtfx:login` starting browser sign-in | Terminal + browser opening | No token copy/paste |
+| 4 | OAuth consent screen showing read + publish scopes | Browser, consent only | The user controls authorization |
+| 5 | Login success page / terminal success, token id redacted | Browser + terminal | Connected, with no secret on screen |
+| 6 | `/rtfx:setup` reporting browser sign-in + API reachable | Terminal | Ready to publish |
+| 7 | "publish this" → the returned `https://a.rtfx.pro/<slug>/` URL | Terminal, then the live page | The payoff, in the user's own words |
+| 8 | Remote MCP `claude mcp login rtfx` + `doctor` | Terminal | Hosted auth works; remote is diagnostics-only |
 
-Optional seventh: `/rtfx:versions` next to `/rtfx:rollback`, for the versioning story.
+Optional ninth: `/rtfx:versions` next to `/rtfx:rollback`, for the versioning story.
 
 ## 60-second video outline
 
@@ -133,13 +141,13 @@ Optional seventh: `/rtfx:versions` next to `/rtfx:rollback`, for the versioning 
 |---|---|---|
 | 0:00–0:07 | The problem: a finished build with nowhere to send it | A local `dist/` and an empty share sheet |
 | 0:07–0:20 | Install — the two commands, uncut, real speed | Shots 1–2 |
-| 0:20–0:35 | Connect — mint the token, export it, `/rtfx:setup` goes green | Shots 3–5, token redacted |
-| 0:35–0:50 | "publish this" → a URL, opened in the browser | Shot 6 |
+| 0:20–0:35 | Connect — `/rtfx:login`, consent, `/rtfx:setup` goes green | Shots 3–6, token id only |
+| 0:35–0:50 | "publish this" → a URL, opened in the browser | Shot 7 |
 | 0:50–1:00 | Re-publish → v2 at the same URL; one line on access control | `/rtfx:versions`, then the sharing panel |
 
-Record the install and the publish in one take at real speed — the point of the video is that the
-whole thing is short, and a cut undercuts the claim. Say plainly that the token export is today's
-setup step; do not imply a sign-in flow that does not exist yet.
+Record the install, login and publish in one take at real speed — the point of the video is that the
+whole thing is short, and a cut undercuts the claim. If Remote MCP appears, say plainly that it is
+for authenticated diagnostics today; publishing stays local so Claude can read the files.
 
 ## Related
 

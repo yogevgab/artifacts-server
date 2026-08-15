@@ -23,10 +23,14 @@ plugins/rtfx/
   commands/list.md                       /rtfx:list
   commands/versions.md                   /rtfx:versions
   commands/rollback.md                   /rtfx:rollback
+  commands/login.md                      /rtfx:login
+  commands/logout.md                     /rtfx:logout
   commands/setup.md                      /rtfx:setup
   skills/publishing-to-rtfx/SKILL.md     loads on its own when someone says "publish this"
   skills/publishing-to-rtfx/references/api.md
   scripts/rtfx.lib.mjs                   pure helpers (config, zip, error mapping)
+  scripts/rtfx.oauth.lib.mjs             pure OAuth/credential helpers
+  scripts/rtfx.oauth.mjs                 browser login, credential store, refresh/revoke
   scripts/rtfx.bundle.mjs                what may be uploaded — pure, shared with the MCP server
   scripts/rtfx.mjs                       the publisher — Node 18+, zero dependencies
   scripts/rtfx-mcp.mjs                   the MCP server (see MCP.md)
@@ -54,22 +58,27 @@ The user-facing walkthrough, with the screenshot checklist and video outline, is
 /plugin install rtfx@rtfx
 ```
 
-Then, in the shell Claude Code runs in:
+Then connect with a browser and verify:
+
+```
+/rtfx:login
+/rtfx:setup
+```
+
+The login command uses OAuth authorization-code + PKCE, stores a credential in
+`~/.config/rtfx/credentials.json` with mode `0600`, and the CLI/MCP server refresh it automatically.
+`/rtfx:setup` reports the credential source and token **id** — never the token or refresh token.
+
+For CI or advanced scripts, `RTFX_API_TOKEN` still works and takes priority over browser login:
 
 ```bash
 export RTFX_API_TOKEN=rtfx_…            # dashboard → Integrations, scopes read + publish
 export ARTIFACTS_URL=https://rtfx.pro   # only when self-hosting
 ```
 
-`/rtfx:setup` verifies both and reports the token's **id** — never the token.
-
-That third step is the one worth removing. A hand-exported token is a developer setup, and the
-server-side remote MCP path now has the browser-login pieces: `POST /mcp`, OAuth discovery, dynamic
-client registration, authorization-code + PKCE, refresh and revoke — see
-[`REMOTE_MCP_OAUTH.md`](REMOTE_MCP_OAUTH.md). The **plugin** is unaffected either way:
-`scripts/rtfx-mcp.mjs` speaks stdio and reads `RTFX_API_TOKEN`. Remote MCP currently exposes only
-`doctor`; `mcp.rtfx.pro` is the dedicated app-side host for live OAuth smoke, but it cannot publish
-local files, so the token export remains the supported publishing path.
+Remote MCP also has OAuth (`claude mcp login rtfx`) and a dedicated app-side host at
+`mcp.rtfx.pro`, but currently exposes only `doctor`. It cannot publish local files, so the browser
+login in the local plugin is the supported no-token-copy publishing path.
 
 Anyone can add this marketplace today — a custom marketplace needs no approval, only a valid
 `.claude-plugin/marketplace.json` in a reachable repository. Inclusion in Anthropic's official or
@@ -96,11 +105,11 @@ want to fetch what you just published over HTTP.
 
 ## 3. Configuration surface
 
-Exactly two variables, and neither is a Cloudflare account credential:
+One stored credential plus optional environment overrides; none is a Cloudflare account credential:
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `RTFX_API_TOKEN` | yes | Scoped API token. Bound to its owner, revocable on its own. |
+| `RTFX_API_TOKEN` | no | Optional scoped API token. Takes priority over browser login; useful for CI. |
 | `ARTIFACTS_URL` | no | Instance URL, default `https://rtfx.pro`. `RTFX_URL` is an accepted alias. |
 | `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` | no | **Advanced / self-host only.** Cloudflare Access service token, for an instance that gates every path at the edge. Not needed on rtfx.pro: publishing goes to `/api/machine`, which authenticates the bearer token alone ([`HERMES_CLOUD.md`](HERMES_CLOUD.md) §2). Pass-through only — it gets a request past Access and grants nothing inside the app. |
 | `RTFX_MCP_ALLOW_ACCESS` / `RTFX_MCP_DEBUG` | no | MCP server only. See [`MCP.md`](MCP.md) §3. |
@@ -124,7 +133,9 @@ default (`http://localhost:8787`) is unchanged.
 | Roll back | `rollback <slug> <n>` | Non-destructive; roll forward the same way. |
 | Print the final URL | every command above | Taken from the API response, never assembled client-side. |
 | Inspect before uploading | `publish … --dry-run` | Lists every file included and skipped, sends nothing. |
-| Check configuration | `doctor` | Endpoint, token id, Access headers, live API reachability. |
+| Browser sign-in | `login` | OAuth + PKCE, stored 0600, auto-refreshes. |
+| Sign out | `logout` | Revoke and delete the stored browser credential. |
+| Check configuration | `doctor` | Endpoint, credential source, token id, Access headers, live API reachability. |
 
 Sharing (`grant`, `visibility`) and user/token management are deliberately **absent** from the
 plugin. They need a `manage` scope or a browser login, and a publishing integration that can also
@@ -205,9 +216,10 @@ disagrees between `plugin.json` and `.mcp.json`, and anything that looks like a 
 
 ## 8. Secrets
 
-The plugin never writes a credential anywhere. `doctor` prints a token's id (`rtfx_<id>_…`), which
-is what `artifacts tokens` lists and what `token-revoke` takes — enough to find or kill a token,
-useless for authenticating.
+Browser login writes one local credential file, `~/.config/rtfx/credentials.json`, with mode `0600`.
+The env token path remains available for CI and still never writes anything. `doctor` prints a
+token's id (`rtfx_<id>_…`), which is what the dashboard lists and what revocation takes — enough to
+find or kill a token, useless for authenticating.
 
 Going the other way, the directory walk refuses to *upload* credentials: `.env`, `.env.*`,
 `.dev.vars`, `.npmrc`, `*.pem`, `*.key`, `*.p12`, `id_rsa` and friends are dropped, along with

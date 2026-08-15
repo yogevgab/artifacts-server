@@ -18,42 +18,45 @@ brings its own dependency-free publisher.
 /plugin install rtfx@rtfx
 ```
 
-That installs the skill, five slash commands and the MCP server. One step is left: telling the
+That installs the skill, seven slash commands and the MCP server. One step is left: telling the
 plugin who you are.
 
 ### Connect your account
 
-Today the plugin authenticates with a scoped API token that you export yourself. Mint one at
-<https://rtfx.pro/admin/integrations> with the `read` and `publish` scopes, then put it in the
-shell you start Claude Code from:
+Use the browser login. It stores a local OAuth credential with mode `0600`, renews it automatically,
+and never prints the token:
+
+```
+/rtfx:login
+/rtfx:setup
+```
+
+For CI or advanced scripted use, `RTFX_API_TOKEN` still works and takes priority over a browser
+sign-in. Mint one at <https://rtfx.pro/admin/integrations> with the `read` and `publish` scopes,
+then put it in the shell you start Claude Code from:
 
 ```bash
 export RTFX_API_TOKEN=rtfx_…
 export ARTIFACTS_URL=https://rtfx.pro   # only if you self-host artifacts-server
 ```
 
-Run `/rtfx:setup` to confirm it reached your instance. It prints the token's **id**, never the
-token.
+Run `/rtfx:setup` to confirm whichever credential is active. It prints the token's **id**, never the
+token or refresh token.
 
-Put the export in your shell profile or a secret manager — not in a file inside a repository, and
-never in a commit.
+Put any token export in your shell profile or a secret manager — not in a file inside a repository,
+and never in a commit.
 
-> **This step is a developer setup, not the destination.** A copy-paste token in a shell profile
-> is the part of onboarding we most want to delete. The plan is a hosted remote MCP server with a
-> browser sign-in, so installing the plugin and authorizing it are the same two commands for
-> everyone:
+> **Remote MCP is also available for connection diagnostics.** Claude Code can add the hosted MCP
+> endpoint and sign in with OAuth:
 >
 > ```
 > claude mcp add --transport http rtfx https://mcp.rtfx.pro/mcp
 > claude mcp login rtfx
 > ```
 >
-> **Server-side OAuth is now in place, but the plugin remains the supported publishing path.**
-> `https://rtfx.pro/mcp` exposes remote MCP discovery and authorization-code + PKCE login for a
-> read-only `doctor` tool. It still cannot publish — publishing needs to read files on *your*
-> machine, which a hosted server cannot do. **This plugin is stdio-only** and reads
-> `RTFX_API_TOKEN`; until the remote flow has live Claude Code smoke coverage and an upload design,
-> the token export above is the supported path for publishing.
+>
+> Remote MCP currently exposes the read-only `doctor` tool. Publishing still belongs to this local
+> plugin, because it can read files on *your* machine.
 
 ## What you get
 
@@ -61,9 +64,11 @@ never in a commit.
 |---|---|
 | **Skill** `publishing-to-rtfx` | Loads on its own when you say "publish this", "ship it", "share this page". Covers single files, folders, zips, versioning and rollback. |
 | `/rtfx:publish [path] [slug]` | Publish or re-publish, then report the URL. |
-| `/rtfx:list` | What this token can reach. |
+| `/rtfx:list` | What this credential can reach. |
 | `/rtfx:versions <slug>` | Version history, newest first. |
 | `/rtfx:rollback <slug> <n>` | Make an earlier version live again. |
+| `/rtfx:login` | Browser OAuth sign-in; stores a renewing local credential. |
+| `/rtfx:logout` | Revoke and delete the stored browser sign-in. |
 | `/rtfx:setup` | Check credentials and connectivity. |
 
 The plugin also works as a plain CLI, with or without Claude Code:
@@ -74,13 +79,15 @@ node scripts/rtfx.mjs publish ./dist --slug q3-report --note "revised charts"  #
 node scripts/rtfx.mjs versions q3-report
 node scripts/rtfx.mjs rollback q3-report 1
 node scripts/rtfx.mjs list --json
+node scripts/rtfx.mjs login
+node scripts/rtfx.mjs logout
 ```
 
 ## MCP server
 
 The same operations are available as **MCP tools**, for a client that has no shell to run a command
-in — Claude Desktop, or anything else that speaks MCP. Installing the plugin registers it, and it
-inherits `RTFX_API_TOKEN` from the environment Claude Code was started in.
+in — Claude Desktop, or anything else that speaks MCP. Installing the plugin registers it. It uses
+the same browser sign-in as the CLI, unless `RTFX_API_TOKEN` is set in the environment.
 
 | Tool | Does |
 |---|---|
@@ -124,14 +131,14 @@ for `--json` and the exit code.
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `RTFX_API_TOKEN` | yes | Scoped API token. Bound to its owner, revocable on its own. |
+| `RTFX_API_TOKEN` | no | Optional scoped API token. Takes priority over browser login; useful for CI. |
 | `ARTIFACTS_URL` | no | Instance URL, default `https://rtfx.pro`. `RTFX_URL` is accepted too. |
 | `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` | no | **Advanced / self-host only.** Cloudflare Access service token, for an instance that gates every path at the edge. Not needed on rtfx.pro — publishing goes to `/api/machine`, which takes the bearer token alone. Not a Cloudflare account credential; grants nothing inside the app. |
 | `RTFX_MCP_ALLOW_ACCESS` | no | MCP only. `1` also exposes `update_access`. |
 | `RTFX_MCP_DEBUG` | no | MCP only. Logs method names to stderr; never arguments. |
 
-No Cloudflare management token is involved anywhere, and the plugin never writes a credential to
-disk. `doctor` prints a token's **id** only.
+No Cloudflare management token is involved anywhere. Browser login writes only
+`~/.config/rtfx/credentials.json` with owner-only permissions; `doctor` prints a token's **id** only.
 
 ## Design notes
 

@@ -14,33 +14,31 @@ whether the API answered.
 If it all checks out, say so in one line and stop — there is nothing else to configure. Offer
 `/rtfx:publish` as the next thing to try.
 
-If `RTFX_API_TOKEN` is unset or the API returned `401`, the plugin is installed and only needs an
-account connected. Walk the user through it, framing it as the one remaining step:
+If no credential is available or the API returned `401`, the plugin is installed and only needs an
+account connected. Prefer the browser login:
 
-1. Sign in at `https://rtfx.pro/admin/integrations` (or the `/admin/integrations` page of their own
-   instance).
-2. Create a token with scopes **read** and **publish** — `manage` only if they also want this
-   session changing who can see an artifact. Set an expiry.
-3. Copy it once; the server keeps only a hash and will never show it again.
-4. Export it in the shell they run Claude Code from:
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs" login
+```
 
-   ```bash
-   export RTFX_API_TOKEN=rtfx_…
-   export ARTIFACTS_URL=https://rtfx.pro   # only if self-hosting
-   ```
+That opens rtfx.pro, asks for the **read** and **publish** scopes, and stores a renewing credential
+under `~/.config/rtfx/credentials.json` with mode `0600`. The command prints only the token id and
+expiry — never the token or refresh token.
 
-Suggest putting the export in their shell profile or a secret manager — never in a file inside the
-repository, and never in a commit.
+If the user is on SSH/headless, use:
 
-The token is normally the whole credential set: publishing goes to `/api/machine`, which
-authenticates the bearer token and nothing else.
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs" login --manual
+```
 
-If the user pushes back on exporting a token by hand, agree — it is a developer setup step, not the
-intended end state. The server-side remote MCP endpoint at `/mcp` now has OAuth discovery and
-authorization-code + PKCE login, but **this plugin ships no HTTP-transport code**. The plugin's MCP
-server is stdio-only and reads `RTFX_API_TOKEN`. Remote MCP currently exposes only a read-only
-`doctor` tool and cannot publish — so it is not a shortcut around this setup step. The token export
-is the supported path for publishing.
+If `RTFX_API_TOKEN` is set, it still takes priority over the browser sign-in. That is intentional for
+CI and advanced users. To use the browser credential, unset the env var. To use an env token instead,
+mint one at `https://rtfx.pro/admin/integrations` with scopes **read** and **publish** and export it
+in the shell that starts Claude Code — never in a repository file or commit.
+
+Remote HTTP MCP at `/mcp` also supports Claude's OAuth login, but it currently exposes only the
+read-only `doctor` tool. Publishing remains the local plugin's job because it has to read files from
+the user's machine.
 
 If `doctor` reports that **Cloudflare Access** answered instead of the API, the instance has not
 exposed that surface (see its operator's `DEPLOY_RTFX.md` §5e). Until they do, the only way

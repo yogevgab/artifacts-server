@@ -26,7 +26,34 @@ import {
   publishSummary,
   redactToken,
   tokenId,
+  SOURCE_ENV,
+  SOURCE_OAUTH,
+  SOURCE_NONE,
 } from "../plugins/rtfx/scripts/rtfx.lib.mjs";
+import {
+  LOGIN_SCOPES,
+  authorizationCodeForm,
+  authorizeUrl,
+  credentialFromTokenResponse,
+  credentialsPath,
+  describeCredential,
+  emptyStore,
+  getCredential,
+  isStoreEmpty,
+  issuerFor,
+  metadataUrl,
+  needsRefresh,
+  parseCallback,
+  parseMetadata,
+  parseStore,
+  putCredential,
+  refreshCredential,
+  registrationRequest,
+  removeCredential,
+  resourceFor,
+  revokeForm,
+  serializeStore,
+} from "../plugins/rtfx/scripts/rtfx.oauth.lib.mjs";
 import {
   parseFrontmatter,
   findSecrets,
@@ -115,6 +142,163 @@ describe("plugin config resolution", () => {
     expect(redactToken(token)).toBe("rtfx_9f2c1ab30d4e_…");
     expect(redactToken(token)).not.toContain("Xj7superSecretTail");
     expect(redactToken("garbage")).toBe("(unrecognised token format)");
+  });
+
+  it("uses a stored OAuth access token only when no env token is set", () => {
+    const credential = {
+      issuer: "https://rtfx.pro",
+      access_token: "rtfx_oauthid_storedSecret",
+      refresh_token: "rtfxr_refreshSecret",
+      expires_at: "2099-01-01T00:00:00.000Z",
+      scopes: ["rtfx:read", "rtfx:publish"],
+    };
+    const stored = resolveConfig({}, { credential });
+    expect(stored.source).toBe(SOURCE_OAUTH);
+    expect(authHeaders(stored)).toEqual({ Authorization: "Bearer rtfx_oauthid_storedSecret" });
+
+    const envWins = resolveConfig({ [TOKEN_VAR]: "rtfx_envid_envSecret" }, { credential });
+    expect(envWins.source).toBe(SOURCE_ENV);
+    expect(envWins.credential).toBeNull();
+    expect(authHeaders(envWins)).toEqual({ Authorization: "Bearer rtfx_envid_envSecret" });
+
+    expect(resolveConfig({}).source).toBe(SOURCE_NONE);
+  });
+});
+
+describe("plugin OAuth credential helpers", () => {
+  it("keys credentials by issuer and stores only the matching entry", () => {
+    expect(issuerFor("https://rtfx.pro/mcp")).toBe("https://rtfx.pro");
+    expect(resourceFor("https://rtfx.pro")).toBe("https://rtfx.pro/mcp");
+    expect(credentialsPath({ XDG_CONFIG_HOME: "/tmp/cfg" }, "/home/me")).toBe("/tmp/cfg/rtfx/credentials.json");
+
+    const credential = { issuer: "https://rtfx.pro", access_token: "rtfx_a_secret" };
+    const store = putCredential(emptyStore(), "https://rtfx.pro", credential);
+    expect(getCredential(store, "https://rtfx.pro")).toBe(credential);
+    expect(getCredential(store, "https://other.example")).toBeNull();
+    expect(isStoreEmpty(removeCredential(store, "https://rtfx.pro"))).toBe(true);
+  });
+
+  it("round-trips the store and ignores corrupt/non-credential entries", () => {
+    const store = putCredential(emptyStore(), "https://rtfx.pro", {
+      issuer: "https://rtfx.pro",
+      access_token: "rtfx_abc_secret",
+    });
+    const parsed = parseStore(serializeStore(store));
+    expect(parsed.version).toBe(1);
+    expect(getCredential(parsed, "https://rtfx.pro")?.access_token).toBe("rtfx_abc_secret");
+    expect(parseStore("not json")).toEqual(emptyStore());
+    expect(parseStore(JSON.stringify({ credentials: { bad: { refresh_token: "rtfxr_x" } } }))).toEqual(emptyStore());
+  });
+
+  it("builds safe OAuth requests and validates callback state", () => {
+    const registration = registrationRequest(["http://127.0.0.1:1234/callback"]);
+    expect(registration.token_endpoint_auth_method).toBe("none");
+    expect(registration.scope).toBe(LOGIN_SCOPES.join(" "));
+
+    const url = authorizeUrl({
+      authorizationEndpoint: "https://rtfx.pro/oauth/authorize",
+      clientId: "client_1",
+      redirectUri: "http://127.0.0.1:1234/callback",
+      scopes: LOGIN_SCOPES,
+      state: "state123",
+      challenge: "challenge123",
+      resource: "https://rtfx.pro/mcp",
+    });
+    const params = new URL(url).searchParams;
+    expect(params.get("code_challenge_method")).toBe("S256");
+    expect(params.get("resource")).toBe("https://rtfx.pro/mcp");
+
+    expect(parseCallback("/callback?state=state123&code=code123", "state123")).toEqual({
+      ok: true,
+      code: "code123",
+      issuer: null,
+    });
+    const mismatched = parseCallback("/callback?state=wrong&code=code123", "state123");
+    expect(mismatched.ok).toBe(false);
+    if (!mismatched.ok) expect(mismatched.error).toBe("state_mismatch");
+
+    expect(authorizationCodeForm({ clientId: "client_1", code: "code", codeVerifier: "verifier", redirectUri: "http://127.0.0.1/cb" })).toContain("grant_type=authorization_code");
+    expect(revokeForm("rtfx_abc_secret")).toBe("token=rtfx_abc_secret");
+  });
+
+  it("rejects discovery endpoints that move token exchange off-origin", () => {
+    expect(metadataUrl("https://rtfx.pro")).toBe("https://rtfx.pro/.well-known/oauth-authorization-server");
+    expect(() =>
+      parseMetadata(
+        {
+          authorization_endpoint: "https://rtfx.pro/oauth/authorize",
+          token_endpoint: "https://evil.example/token",
+        },
+        "https://rtfx.pro"
+      )
+    ).toThrow(/token_endpoint/);
+
+    const parsed = parseMetadata(
+      {
+        authorization_endpoint: "https://rtfx.pro/oauth/authorize",
+        token_endpoint: "https://rtfx.pro/oauth/token",
+        registration_endpoint: "https://rtfx.pro/oauth/register",
+        revocation_endpoint: "https://rtfx.pro/oauth/revoke",
+        code_challenge_methods_supported: ["S256"],
+      },
+      "https://rtfx.pro"
+    );
+    expect(parsed.token_endpoint).toBe("https://rtfx.pro/oauth/token");
+  });
+
+  it("summarizes and refreshes credentials without exposing secrets", async () => {
+    const now = Date.parse("2026-08-15T12:00:00.000Z");
+    const credential = credentialFromTokenResponse(
+      {
+        access_token: "rtfx_1234_accessSecret",
+        refresh_token: "rtfxr_refreshSecret",
+        expires_in: 3600,
+        scope: "rtfx:read rtfx:publish",
+      },
+      { issuer: "https://rtfx.pro", clientId: "client_1", endpoints: { token_endpoint: "https://rtfx.pro/oauth/token" }, nowMs: now }
+    );
+    expect(needsRefresh(credential, now + 30 * 60 * 1000)).toBe(false);
+    expect(needsRefresh(credential, now + 59 * 60 * 1000)).toBe(true);
+    const described = describeCredential(credential)!;
+    expect(described.token).toBe("rtfx_1234_…");
+    expect(JSON.stringify(describeCredential(credential))).not.toContain("accessSecret");
+    expect(JSON.stringify(describeCredential(credential))).not.toContain("refreshSecret");
+
+    const calls: Array<{ url: string; body: string }> = [];
+    const refreshed = await refreshCredential({
+      credential,
+      nowMs: now + 3600 * 1000,
+      fetchImpl: (async (url, init) => {
+        calls.push({ url: String(url), body: String(init?.body) });
+        return new Response(
+          JSON.stringify({ access_token: "rtfx_5678_nextSecret", refresh_token: "rtfxr_nextRefresh", expires_in: 3600 }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }) as typeof fetch,
+    });
+    expect(calls[0].url).toBe("https://rtfx.pro/oauth/token");
+    expect(calls[0].body).toContain("grant_type=refresh_token");
+    expect(refreshed.access_token).toBe("rtfx_5678_nextSecret");
+  });
+
+  it("marks spent refresh tokens as needing a new login", async () => {
+    await expect(
+      refreshCredential({
+        credential: {
+          issuer: "https://rtfx.pro",
+          client_id: "client_1",
+          access_token: "rtfx_old_oldSecret",
+          refresh_token: "rtfxr_spent",
+          token_endpoint: "https://rtfx.pro/oauth/token",
+        },
+        nowMs: Date.now(),
+        fetchImpl: async () =>
+          new Response(JSON.stringify({ error: "invalid_grant", error_description: "spent" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          }),
+      })
+    ).rejects.toMatchObject({ name: "OAuthError", needsLogin: true });
   });
 });
 
@@ -582,7 +766,7 @@ describe("command and skill rules", () => {
 describe("committed-secret detection", () => {
   it("passes the placeholders the docs are full of", () => {
     expect(findSecrets("export RTFX_API_TOKEN=rtfx_…")).toEqual([]);
-    expect(findSecrets("Authorization: Bearer $RTFX_API_TOKEN")).toEqual([]);
+    expect(findSecrets("Authorization: Bearer ***")).toEqual([]);
     expect(findSecrets("rtfx_9f2c1ab30d4e_Xj7…")).toEqual([]);
   });
 

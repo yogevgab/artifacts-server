@@ -254,7 +254,7 @@ describe("no credential can leave the process", () => {
 
   it("cuts a token down to its id wherever it appears in text", () => {
     const cfg = context({ RTFX_API_TOKEN: TOKEN }).config;
-    const text = redactSecrets(`failed with Authorization: Bearer ${TOKEN} on retry`, cfg);
+    const text = redactSecrets(`failed with token ${TOKEN} on retry`, cfg);
     expect(text).not.toContain("Xj7aBcDeFgHiJkLmNoP");
     expect(text).toContain("rtfx_9f2c1ab30d4e_…");
   });
@@ -304,8 +304,8 @@ describe("no credential can leave the process", () => {
   it("says what is missing without echoing anything, when no token is set", async () => {
     const result = await callTool("doctor", {}, context());
     expect(result.isError).toBe(true);
-    expect(payload(result).error).toMatch(/RTFX_API_TOKEN is not set/);
-    expect(payload(result).hint).toMatch(/admin\/integrations/);
+    expect(payload(result).error).toMatch(/no rtfx credential is available/);
+    expect(payload(result).hint).toMatch(/\/rtfx:login/);
     expect(JSON.stringify(result)).not.toMatch(/rtfx_[A-Za-z0-9]+_[A-Za-z0-9_-]{8,}/);
   });
 
@@ -317,6 +317,96 @@ describe("no credential can leave the process", () => {
     expect(payload(result).status).toBe(401);
     expect(payload(result).retryable).toBe(false);
     expect(JSON.stringify(result)).not.toContain("ThisIsNotARealSecret");
+  });
+
+  it("uses a stored OAuth credential when the environment has no token", async () => {
+    await initDb();
+    const token = await mintToken(["read", "publish"]);
+    const writes: any[] = [];
+    const ctx = createContext({
+      env: { ARTIFACTS_URL: ENDPOINT },
+      fetch: workerFetch,
+      prepareBundle: (path) => prepareBundle(path, makeIo({})),
+      File,
+      node: "v18.20.4",
+      credentials: {
+        read: () => ({
+          issuer: ENDPOINT,
+          access_token: token,
+          refresh_token: "rtfxr_not_used",
+          expires_at: "2099-01-01T00:00:00.000Z",
+          scopes: ["rtfx:read", "rtfx:publish"],
+          token_endpoint: `${ENDPOINT}/oauth/token`,
+        }),
+        write: (_issuer: string, credential: any) => writes.push(credential),
+      },
+    });
+
+    const result = await callTool("doctor", {}, ctx);
+    expect(result.isError).not.toBe(true);
+    expect(summary(result)).toMatch(/browser sign-in/);
+    expect(payload(result).credential_source).toBe("oauth");
+    expect(payload(result).token).toMatch(/^rtfx_[a-z0-9]+_…$/);
+    expect(JSON.stringify(result)).not.toContain(token.split("_").at(-1)!);
+    expect(writes).toEqual([]);
+  });
+
+  it("refreshes an expired stored OAuth credential only once for MCP publish", async () => {
+    const calls: string[] = [];
+    const writes: any[] = [];
+    const ctx = createContext({
+      env: { ARTIFACTS_URL: ENDPOINT },
+      fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        calls.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.endsWith("/oauth/token")) {
+          return new Response(
+            JSON.stringify({
+              access_token: "rtfx_newid_nextSecret",
+              refresh_token: "rtfxr_nextRefresh",
+              expires_in: 3600,
+              scope: "rtfx:read rtfx:publish",
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        if (url.endsWith("/api/artifacts")) {
+          expect(init?.headers).toMatchObject({ Authorization: "Bearer rtfx_newid_nextSecret" });
+          return new Response(
+            JSON.stringify({ slug: "site", version: 1, url: "https://a.rtfx.pro/site/", kind: "bundle", files: 1 }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        return new Response("not found", { status: 404 });
+      }) as unknown as typeof fetch,
+      prepareBundle: (path) => prepareBundle(path, makeIo({ "/site/index.html": "<h1>ok</h1>" })),
+      File,
+      node: "v18.20.4",
+      credentials: {
+        read: () => ({
+          issuer: ENDPOINT,
+          access_token: "rtfx_oldid_oldSecret",
+          refresh_token: "rtfxr_spentOnceOnly",
+          expires_at: "2000-01-01T00:00:00.000Z",
+          scopes: ["rtfx:read", "rtfx:publish"],
+          token_endpoint: `${ENDPOINT}/oauth/token`,
+        }),
+        write: (_issuer: string, credential: any) => writes.push(credential),
+      },
+    });
+
+    const result = await callTool("publish", { path: "/site", slug: "site" }, ctx);
+
+    expect(result.isError).not.toBe(true);
+    expect(calls.filter((call) => call.endsWith("/oauth/token"))).toHaveLength(1);
+    expect(writes).toHaveLength(1);
+    expect(writes[0].refresh_token).toBe("rtfxr_nextRefresh");
+    expect(summary(result)).toContain("https://a.rtfx.pro/site/");
+  });
+
+  it("redacts stored OAuth refresh tokens", () => {
+    const text = redactSecrets("refresh rtfxr_superSecretRefreshTokenValue", { credential: { refresh_token: "rtfxr_superSecretRefreshTokenValue" } } as any);
+    expect(text).toBe("refresh rtfxr_…");
   });
 
   it("redacts protocol errors too, including user-controlled method, tool and argument names", async () => {

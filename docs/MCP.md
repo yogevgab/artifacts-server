@@ -33,13 +33,13 @@ test suite can drive them inside the Workers pool — which has no filesystem an
 `fetch` pointed at the real Worker and the filesystem replaced by a virtual one. The safety filters
 and the publish path are therefore covered by tests rather than by hand.
 
-`rtfx-mcp.mjs` is the only file that touches the outside world: stdin/stdout, `node:fs`,
-`node:zlib`, `fetch`.
+`rtfx-mcp.mjs` is the file that touches the outside world: stdin/stdout, `node:fs`, `node:zlib`,
+`fetch`, and the local OAuth credential store created by `rtfx.mjs login`.
 
 ## 2. Configure a client
 
-The server needs one credential in its environment. It reads nothing from disk and writes nothing
-to disk.
+The server can use the browser sign-in created by the plugin CLI, or an explicit env token. The env
+token wins when both exist.
 
 ### Claude Code
 
@@ -51,7 +51,7 @@ That is the by-hand route, and it needs the real path to the script — either t
 wherever `/plugin` reports the plugin was installed. Installing the plugin is usually enough on its
 own — the plugin declares the server (in both
 `plugin.json` and `.mcp.json`, which is the convention Claude Code's own MCP plugins follow), and it
-inherits `RTFX_API_TOKEN` from the shell Claude Code was started in:
+uses the same local browser sign-in as the CLI, unless `RTFX_API_TOKEN` is set:
 
 ```
 /plugin marketplace add yogevgab/artifacts-server
@@ -74,8 +74,9 @@ Or, per project, in the repo's own `.mcp.json`:
 ### Claude Desktop
 
 `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS,
-`%APPDATA%\Claude\claude_desktop_config.json` on Windows. Claude Desktop does **not** inherit your
-shell environment, so the token goes in the `env` block here:
+`%APPDATA%\Claude\claude_desktop_config.json` on Windows. Claude Desktop can use the stored browser
+credential too, as long as it runs as the same OS user and sees the same config directory. If you do
+prefer an explicit token, put it in the `env` block here:
 
 ```json
 {
@@ -91,8 +92,8 @@ shell environment, so the token goes in the `env` block here:
 }
 ```
 
-Use an absolute path (double the backslashes on Windows), and give that token an expiry — it is
-sitting in a plaintext config file, which is exactly the case scoped, revocable tokens exist for.
+Use an absolute path (double the backslashes on Windows), and give any token in a config file an
+expiry — it is sitting in plaintext, which is exactly the case scoped, revocable tokens exist for.
 
 ### Anything else
 
@@ -104,7 +105,7 @@ needs, plus how the current environment resolves.
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `RTFX_API_TOKEN` | yes | Scoped API token from the dashboard → Integrations. Bound to its owner, revocable on its own. |
+| `RTFX_API_TOKEN` | no | Optional scoped API token from the dashboard → Integrations. Takes priority over browser login; useful for CI. |
 | `ARTIFACTS_URL` | no | Instance URL, default `https://rtfx.pro`. `RTFX_URL` is an accepted alias. |
 | `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` | no | **Advanced / self-host only.** Cloudflare Access service token, for an instance that gates every path at the edge. Not needed on rtfx.pro: the tools call `/api/machine`, which authenticates the bearer token alone ([`HERMES_CLOUD.md`](HERMES_CLOUD.md) §2). Pass-through only: it gets a request past Access and grants nothing inside the app. |
 | `RTFX_MCP_ALLOW_ACCESS` | no | Set to `1` to also expose `update_access`. Off by default — see §5. |
@@ -153,10 +154,12 @@ routes by design (`denyApiToken` in `src/api.ts`) — issuing a credential takes
 
 ## 6. Secrets
 
-The token goes into an `Authorization` header and nowhere else.
+The active token goes into an `Authorization` header and nowhere else.
 
 - `doctor` reports the token's **id** (`rtfx_<id>_…`), which is what the dashboard lists and what
   revoking it takes, and is useless for authenticating.
+- Browser login stores access/refresh credentials in `~/.config/rtfx/credentials.json` with mode
+  `0600`; refresh-token rotations are written before the new access token is used.
 - `redactSecrets` runs over every line the server emits — stdout and stderr — replacing the
   configured token, the Access client id and the Access client secret. It also cuts down *any*
   `rtfx_…`-shaped string, so a token for a different instance echoed back in an error body is

@@ -31,16 +31,23 @@ Run the check once. It never prints the token itself — only its id.
 node "${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs" doctor
 ```
 
-If it reports `RTFX_API_TOKEN is not set`, stop and ask the user to mint one at
-`https://rtfx.pro/admin/integrations` (scopes `read` and `publish`) and export it. **Never invent,
-guess, or write a token into a file, a commit, or the transcript.** Two variables, that's all:
+If it reports that no credential is available, run the browser login and then check again:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs" login
+node "${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs" doctor
+```
+
+The login stores a renewing OAuth credential at `~/.config/rtfx/credentials.json` with mode `0600`.
+The command prints only the token id and expiry, never the token or refresh token. If `RTFX_API_TOKEN`
+is set, it takes priority over the browser sign-in; that is intentional for CI and advanced scripts.
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `RTFX_API_TOKEN` | yes | Scoped token, `rtfx_…`. Bound to its owner; revocable on its own. |
+| `RTFX_API_TOKEN` | no | Optional scoped token, `rtfx_…`; wins over browser login. |
 | `ARTIFACTS_URL` | no | The instance. Defaults to `https://rtfx.pro`. `RTFX_URL` also works. |
 
-The token really is the whole credential set: publishing goes to `/api/machine`, which
+The active credential is a bearer token on the wire: publishing goes to `/api/machine`, which
 authenticates the bearer token and nothing else. `CF_ACCESS_CLIENT_ID` /
 `CF_ACCESS_CLIENT_SECRET` are optional pass-through for a self-hosted instance that gates every
 path at the edge with Cloudflare Access. They are not a Cloudflare account credential, grant
