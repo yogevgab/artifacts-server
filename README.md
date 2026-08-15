@@ -270,7 +270,13 @@ The publisher (`plugins/rtfx/scripts/rtfx.mjs`) is dependency-free Node 18+, so 
 plain CLI on a machine that has never checked this repo out. It refuses to upload `.env`, `*.pem`,
 `*.key` and similar, and skips `.git`/`node_modules`, printing everything it left out.
 
-Details, testing and design notes: [`docs/CLAUDE_CODE.md`](docs/CLAUDE_CODE.md).
+This works today and needs nobody's approval — any repository with a valid
+`.claude-plugin/marketplace.json` is a Claude Code marketplace. The plugin is **not** listed in
+Anthropic's community or official marketplace; what a submission to the first would need is written
+down in [`docs/ANTHROPIC_PLUGIN_SUBMISSION.md`](docs/ANTHROPIC_PLUGIN_SUBMISSION.md).
+
+Details, testing and design notes: [`docs/CLAUDE_CODE.md`](docs/CLAUDE_CODE.md). Release notes:
+[`plugins/rtfx/CHANGELOG.md`](plugins/rtfx/CHANGELOG.md).
 
 ### MCP server
 

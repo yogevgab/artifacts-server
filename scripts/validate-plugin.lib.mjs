@@ -138,6 +138,74 @@ export function checkMarketplace(manifest, knownPluginDirs = []) {
   return { errors, ok };
 }
 
+/** Fields a marketplace entry and a plugin manifest both carry, and must agree on. */
+const SHARED_ENTRY_FIELDS = ["version", "description", "homepage", "repository", "license"];
+
+/**
+ * A marketplace entry may restate any field from the plugin manifest, and
+ * Claude Code shows the *entry* before install while the *manifest* is what
+ * gets installed. Two copies of a version string is the drift that matters:
+ * `version` in the entry pins the plugin, so an entry left at 1.1.0 after
+ * plugin.json moved to 1.2.0 silently stops shipping updates to everyone who
+ * already installed it. Nothing about that failure is visible on this machine,
+ * which is exactly why it is checked here.
+ */
+export function checkMarketplaceEntryMatchesManifest(entry, manifest) {
+  const errors = [];
+  const ok = [];
+  if (!entry || !manifest) return { errors, ok };
+  const label = entry.name ?? "(unnamed)";
+
+  if (entry.name && manifest.name && entry.name !== manifest.name) {
+    errors.push(`marketplace entry "${label}" disagrees with its plugin.json name "${manifest.name}"`);
+  }
+
+  for (const field of SHARED_ENTRY_FIELDS) {
+    if (entry[field] === undefined || manifest[field] === undefined) continue;
+    if (entry[field] !== manifest[field]) {
+      errors.push(
+        `marketplace entry "${label}" sets ${field} "${entry[field]}" but plugins/${manifest.name}/.claude-plugin/plugin.json says "${manifest[field]}" — bump both or drop it from the entry`
+      );
+    } else if (field === "version") ok.push(`entry "${label}" pins version ${entry.version}, matching plugin.json`);
+  }
+
+  return { errors, ok };
+}
+
+/**
+ * Every https URL a marketplace entry advertises. A typo'd homepage is a dead
+ * link on the install screen, which is the first thing a stranger to the
+ * project sees.
+ */
+export function checkMarketplaceUrls(manifest) {
+  const errors = [];
+  const ok = [];
+  if (!manifest || typeof manifest !== "object") return { errors, ok };
+
+  const candidates = [
+    ["owner.url", manifest.owner?.url],
+    ...(Array.isArray(manifest.plugins) ? manifest.plugins : []).flatMap((entry) => {
+      const label = entry?.name ?? "(unnamed)";
+      return [
+        [`${label}.homepage`, entry?.homepage],
+        [`${label}.repository`, entry?.repository],
+        [`${label}.author.url`, entry?.author?.url],
+      ];
+    }),
+  ];
+
+  let checked = 0;
+  for (const [where, value] of candidates) {
+    if (value === undefined) continue;
+    if (typeof value !== "string" || !/^https:\/\/[^\s"']+$/.test(value)) {
+      errors.push(`marketplace ${where} must be an https URL, got "${value}"`);
+    } else checked++;
+  }
+  if (checked) ok.push(`${checked} marketplace URL(s) well-formed`);
+
+  return { errors, ok };
+}
+
 export function checkCommand(path, text) {
   const errors = [];
   const parsed = parseFrontmatter(text);
@@ -305,6 +373,101 @@ export function checkMcpAgreement(manifestServers, fileServers) {
     ],
     ok: [],
   };
+}
+
+/**
+ * The plugin's changelog against the version its manifest declares. A submission
+ * is pinned to a commit, so "what is in 1.1.0" is a question a reviewer answers
+ * from this file and nowhere else — a bump that lands without an entry leaves
+ * them reading the previous release's notes as if they were current.
+ *
+ * Newest first is required rather than merely conventional: it is what makes the
+ * topmost heading checkable at all.
+ */
+export function checkChangelog(path, text, version) {
+  if (typeof version !== "string" || !version) return { errors: [], ok: [] };
+  const headings = [...text.matchAll(/^#{2,3}\s*\[?(\d+\.\d+\.\d+[0-9A-Za-z.+-]*)\]?/gm)].map((m) => m[1]);
+
+  if (!headings.length) {
+    return { errors: [`${path}: no version headings found — it needs a \`## ${version}\` section`], ok: [] };
+  }
+  if (headings[0] !== version) {
+    const where = headings.includes(version) ? "but not as the newest entry" : "not at all";
+    return {
+      errors: [
+        `${path}: newest entry is ${headings[0]}, but the manifest declares ${version} (which appears ${where}) — add the section, newest first`,
+      ],
+      ok: [],
+    };
+  }
+  return { errors: [], ok: [`${path}: newest entry is ${version}, matching plugin.json`] };
+}
+
+/**
+ * The community marketplace (`anthropics/claude-plugins-community`) hands out an
+ * install string — `<plugin>@claude-community` — that only resolves once
+ * Anthropic has approved a submission. Writing it down unqualified is the easy
+ * documentation mistake: it reads as a working command, nobody notices it never
+ * worked, and the project has quietly claimed a listing it does not hold.
+ *
+ * So the string is allowed, and the qualifier next to it is what is mandatory.
+ * Checked per passage — a blank-line-separated block, with table rows taken one
+ * at a time — so a bare fenced code block cannot pass by borrowing a caveat from
+ * a paragraph three lines up.
+ */
+const COMMUNITY_MARKETPLACE = /anthropics\/claude-plugins-community|@claude-community/;
+const APPROVAL_QUALIFIER =
+  /after approval|once approved|if approved|when approved|only after|has not been|not submitted|not (yet )?approved|pending|would (be|become)/i;
+
+export function checkCommunityMarketplaceClaims(path, text) {
+  const errors = [];
+  const passages = [];
+  for (const block of text.split(/\n\s*\n/)) {
+    // A markdown table is one block but many independent claims; a stray row
+    // must not inherit the caveat from the row above it.
+    if (/^\s*\|/m.test(block)) passages.push(...block.split("\n"));
+    else passages.push(block);
+  }
+
+  let claims = 0;
+  for (const passage of passages) {
+    if (!COMMUNITY_MARKETPLACE.test(passage)) continue;
+    claims++;
+    if (APPROVAL_QUALIFIER.test(passage)) continue;
+    // Quote the offending line, not the top of the passage — for a fenced block
+    // that would be the ``` fence, which tells the author nothing.
+    const line = (passage.split("\n").find((l) => COMMUNITY_MARKETPLACE.test(l)) ?? passage).trim().slice(0, 80);
+    errors.push(
+      `${path}: names the community marketplace with no approval qualifier near it ("${line}") — the plugin is not listed there, so say "after approval" in the same passage or drop the string`
+    );
+  }
+
+  return { errors, ok: claims && !errors.length ? [`${path}: ${claims} community-marketplace mention(s) qualified`] : [] };
+}
+
+/**
+ * The submission packet is transcribed into a form by hand, months after it was
+ * written, by someone who will not cross-check it. Everything in it that also
+ * lives in a manifest is therefore drift waiting to happen — a version bump is
+ * the obvious one, a repository rename the quiet one. Pin the three fields that
+ * would be wrong on the form rather than merely stale in the file.
+ */
+export function checkSubmissionPacket(path, text, { version, repository, pluginPath } = {}) {
+  const errors = [];
+  const ok = [];
+  const required = [
+    [version && `\`${version}\``, `the declared version ${version}`],
+    [repository, `the repository URL ${repository}`],
+    [pluginPath && `\`${pluginPath}\``, `the plugin path ${pluginPath}`],
+  ];
+
+  for (const [needle, label] of required) {
+    if (!needle) continue;
+    if (text.includes(needle)) ok.push(`${path}: names ${label}`);
+    else errors.push(`${path}: does not name ${label} — the packet is transcribed into the submission form, so it cannot lag the manifest`);
+  }
+
+  return { errors, ok };
 }
 
 /** Merge several check results into one. */

@@ -341,16 +341,20 @@ $ node cli/artifacts.mjs publish ./out --slug client-demo --title "Checkout prot
           <a href="#access">Access &amp; privacy</a>. An agent publishes; a person decides who
           may read.</p>
         <h3>The Claude Code plugin</h3>
-        <p>Installing the plugin turns that into ordinary conversation: say <i>publish this</i> and
-          the session picks the build output, versions it under a slug and hands back the link.
-          It ships a skill, five slash commands, and a dependency-free publisher — no checkout and
-          no package install, since the plugin brings its own copy of the publisher.</p>
+        <p>Two commands to install, one token to connect. After that <i>publish this</i> is an
+          ordinary sentence: the session picks the build output, versions it under a slug and hands
+          back the link. The plugin ships a skill, five slash commands and a dependency-free
+          publisher — nothing to clone and no package to install, since it brings its own copy.</p>
         <pre class="code" data-docs="claude-code-plugin"><code>/plugin marketplace add yogevgab/artifacts-server
 /plugin install rtfx@rtfx
 
-/rtfx:setup       # check the token reaches your instance
+/rtfx:setup       # confirm your token reaches your instance
 /rtfx:publish     # publish what the session just built
 /rtfx:versions    # history · /rtfx:rollback to go back</code></pre>
+        <p>Connecting means the scoped token from Integrations, exported in the shell you start
+          Claude Code in. That is today's step and the one we intend to remove — a hosted sign-in
+          for the MCP server is on the roadmap and <b>not available yet</b>, so the scoped token
+          remains the supported way to connect.</p>
         <h3>The MCP server</h3>
         <p>The same plugin ships a native MCP server, for a client with no shell to run a command
           in — Claude Desktop, or anything else that speaks MCP. Installing the plugin registers it;

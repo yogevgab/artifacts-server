@@ -10,20 +10,48 @@ you: publish this dashboard and share the link
 
 ## Install
 
+Two commands in any Claude Code session. Nothing to clone, no package to install — the plugin
+brings its own dependency-free publisher.
+
 ```
 /plugin marketplace add yogevgab/artifacts-server
 /plugin install rtfx@rtfx
 ```
 
-Then mint a token at <https://rtfx.pro/admin/integrations> (scopes `read` and `publish`) and
-export it in the shell you run Claude Code from:
+That installs the skill, five slash commands and the MCP server. One step is left: telling the
+plugin who you are.
+
+### Connect your account
+
+Today the plugin authenticates with a scoped API token that you export yourself. Mint one at
+<https://rtfx.pro/admin/integrations> with the `read` and `publish` scopes, then put it in the
+shell you start Claude Code from:
 
 ```bash
 export RTFX_API_TOKEN=rtfx_…
 export ARTIFACTS_URL=https://rtfx.pro   # only if you self-host artifacts-server
 ```
 
-Verify with `/rtfx:setup`.
+Run `/rtfx:setup` to confirm it reached your instance. It prints the token's **id**, never the
+token.
+
+Put the export in your shell profile or a secret manager — not in a file inside a repository, and
+never in a commit.
+
+> **This step is a developer setup, not the destination.** A copy-paste token in a shell profile
+> is the part of onboarding we most want to delete. The plan is a hosted remote MCP server with a
+> browser sign-in, so installing the plugin and authorizing it are the same two commands for
+> everyone:
+>
+> ```
+> claude mcp add --transport http rtfx https://mcp.rtfx.pro/mcp
+> claude mcp login rtfx
+> ```
+>
+> **Not available yet.** `mcp.rtfx.pro` is not serving, and this repository ships no OAuth or
+> remote-transport code — the MCP server here is stdio-only and reads `RTFX_API_TOKEN`. Those two
+> commands are the target shape, printed so you can recognize the change when it lands; they will
+> fail today. Until then, the token export above is the supported path.
 
 ## What you get
 
@@ -132,3 +160,12 @@ slug without deleting anything.
 Full HTTP contract: `skills/publishing-to-rtfx/references/api.md`.
 MCP surface: [docs/MCP.md](../../docs/MCP.md).
 Operator-side reference: [docs/HERMES_CLOUD.md](../../docs/HERMES_CLOUD.md).
+Release notes: [CHANGELOG.md](CHANGELOG.md).
+
+## Where this plugin comes from
+
+Install it the way the top of this page describes: this repository is itself a Claude Code
+marketplace, which needs no approval from anyone. The plugin is **not** listed in Anthropic's
+community or official marketplace, and no command on this page depends on one —
+[docs/ANTHROPIC_PLUGIN_SUBMISSION.md](../../docs/ANTHROPIC_PLUGIN_SUBMISSION.md) covers what a
+submission to the community marketplace would involve and what would change after approval.

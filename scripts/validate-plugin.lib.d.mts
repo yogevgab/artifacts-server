@@ -17,6 +17,8 @@ export interface CheckResult {
 
 export function checkPluginManifest(manifest: unknown): CheckResult;
 export function checkMarketplace(manifest: unknown, knownPluginDirs?: string[]): CheckResult;
+export function checkMarketplaceEntryMatchesManifest(entry: unknown, manifest: unknown): CheckResult;
+export function checkMarketplaceUrls(manifest: unknown): CheckResult;
 export function checkCommand(path: string, text: string): CheckResult;
 export function checkSkill(path: string, text: string): CheckResult;
 export function checkSkillNameMatchesDir(dirName: string, text: string): CheckResult;
@@ -31,4 +33,20 @@ export function checkMcpConfig(
   exists: (ref: string) => boolean
 ): CheckResult;
 export function checkMcpAgreement(manifestServers: unknown, fileServers: unknown): CheckResult;
+
+export function checkChangelog(path: string, text: string, version: string | undefined): CheckResult;
+export function checkCommunityMarketplaceClaims(path: string, text: string): CheckResult;
+
+export interface SubmissionPacketExpectations {
+  version?: string;
+  repository?: string;
+  pluginPath?: string;
+}
+
+export function checkSubmissionPacket(
+  path: string,
+  text: string,
+  expected?: SubmissionPacketExpectations
+): CheckResult;
+
 export function mergeResults(results: CheckResult[]): CheckResult;
