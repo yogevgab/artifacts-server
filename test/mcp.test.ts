@@ -630,7 +630,12 @@ describe("publish, list, versions and rollback against the real API", () => {
     expect(data.token).toMatch(/^rtfx_[a-z0-9]+_…$/);
     expect(data.node).toBe("v18.20.4");
     expect(data.tools).not.toContain("update_access");
-    expect(JSON.stringify(result)).not.toContain(token.split("_")[2]);
+    // Everything after `rtfx_<id>_` is the secret. Split on "_" would not do:
+    // the secret is base64url, so it may itself begin with an underscore, and
+    // then `[2]` is "" — which every string contains, failing this ~1 run in 64.
+    const secret = token.slice(token.indexOf("_", token.indexOf("_") + 1) + 1);
+    expect(secret.length).toBeGreaterThan(16);
+    expect(JSON.stringify(result)).not.toContain(secret);
   });
 
   it("turns an unknown slug into a 404 with a hint, not a crash", async () => {

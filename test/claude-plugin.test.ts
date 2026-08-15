@@ -38,6 +38,9 @@ import {
   checkSkill,
   checkSkillNameMatchesDir,
   checkPluginRootRefs,
+  checkChangelog,
+  checkCommunityMarketplaceClaims,
+  checkSubmissionPacket,
 } from "../scripts/validate-plugin.lib.mjs";
 
 /**
@@ -590,6 +593,111 @@ describe("committed-secret detection", () => {
     );
     expect(findSecrets("-----BEGIN PRIVATE KEY-----")).toContain("private key block");
     expect(findSecrets('CF_API_TOKEN="abcdefghijklmnopqrstuvwxyz012345"')).toContain("Cloudflare API token");
+  });
+});
+
+/**
+ * Rules that exist for the marketplace submission (docs/ANTHROPIC_PLUGIN_SUBMISSION.md).
+ * All three guard the same failure: a claim in a markdown file that was true when
+ * it was written and is not true now, in a place no test would otherwise reach.
+ */
+describe("submission-readiness rules", () => {
+  describe("changelog against the declared version", () => {
+    const log = "# Changelog\n\n## 1.1.0\n\n- MCP server\n\n## 1.0.0\n\n- First release\n";
+
+    it("accepts a changelog whose newest entry is the manifest version", () => {
+      expect(checkChangelog("CHANGELOG.md", log, "1.1.0").errors).toEqual([]);
+    });
+
+    it("catches a version bump that shipped without release notes", () => {
+      expect(checkChangelog("CHANGELOG.md", log, "1.2.0").errors[0]).toMatch(/newest entry is 1\.1\.0.*not at all/);
+    });
+
+    // Newest-first is the whole reason the topmost heading is checkable, so an
+    // entry appended to the bottom is a failure, not a style preference.
+    it("catches an entry added in the wrong place", () => {
+      const appended = `${log}\n## 1.2.0\n\n- Added late\n`;
+      expect(checkChangelog("CHANGELOG.md", appended, "1.2.0").errors[0]).toMatch(/but not as the newest entry/);
+    });
+
+    it("accepts the `## [1.1.0]` link-reference form too", () => {
+      expect(checkChangelog("CHANGELOG.md", "## [1.1.0] - 2026-08-15\n\n- x\n", "1.1.0").errors).toEqual([]);
+    });
+
+    it("says so when there are no version headings at all", () => {
+      expect(checkChangelog("CHANGELOG.md", "# Changelog\n\nNothing yet.\n", "1.1.0").errors[0]).toMatch(
+        /no version headings/
+      );
+    });
+  });
+
+  describe("community-marketplace claims", () => {
+    it("passes a mention that carries its qualifier", () => {
+      const text = "Only after approval do users install `rtfx@claude-community`.\n";
+      expect(checkCommunityMarketplaceClaims("d.md", text).errors).toEqual([]);
+    });
+
+    it("passes a page that never mentions it, without inventing an ok line", () => {
+      const result = checkCommunityMarketplaceClaims("d.md", "Install with `/plugin install rtfx@rtfx`.\n");
+      expect(result.errors).toEqual([]);
+      expect(result.ok).toEqual([]);
+    });
+
+    it("catches the install string presented as if it worked today", () => {
+      const text = "Install it:\n\n```\n/plugin install rtfx@claude-community\n```\n";
+      const [error] = checkCommunityMarketplaceClaims("d.md", text).errors;
+      expect(error).toMatch(/no approval qualifier/);
+      // The quoted context must be the offending line, not the ``` fence above it.
+      expect(error).toContain("/plugin install rtfx@claude-community");
+    });
+
+    // The point of checking per passage rather than per file: a caveat in the
+    // intro must not license an unqualified command further down the page.
+    it("will not let a code block borrow a caveat from a distant paragraph", () => {
+      const text =
+        "The plugin is not yet approved for the community marketplace.\n\n" +
+        "```\n/plugin marketplace add anthropics/claude-plugins-community\n```\n";
+      expect(checkCommunityMarketplaceClaims("d.md", text).errors).toHaveLength(1);
+    });
+
+    it("checks table rows one at a time, so a stray row cannot inherit one either", () => {
+      const table =
+        "| What | How |\n|---|---|\n" +
+        "| Community | Real only after approval |\n" +
+        "| Install | `/plugin install rtfx@claude-community` |\n";
+      expect(checkCommunityMarketplaceClaims("d.md", table).errors).toHaveLength(1);
+    });
+  });
+
+  describe("the submission packet against the manifest", () => {
+    const packet =
+      "Version `1.1.0`, path `./plugins/rtfx`, repo https://github.com/yogevgab/artifacts-server\n";
+    const expected = {
+      version: "1.1.0",
+      repository: "https://github.com/yogevgab/artifacts-server",
+      pluginPath: "./plugins/rtfx",
+    };
+
+    it("accepts a packet that names all three", () => {
+      expect(checkSubmissionPacket("s.md", packet, expected).errors).toEqual([]);
+    });
+
+    it("catches a packet left behind by a version bump or a repository rename", () => {
+      expect(checkSubmissionPacket("s.md", packet, { ...expected, version: "1.2.0" }).errors[0]).toMatch(
+        /the declared version 1\.2\.0/
+      );
+      expect(
+        checkSubmissionPacket("s.md", packet, { ...expected, repository: "https://github.com/yogevgab/rtfx" }).errors[0]
+      ).toMatch(/the repository URL/);
+      expect(checkSubmissionPacket("s.md", packet, { ...expected, pluginPath: "./plugins/rtfx-cli" }).errors[0]).toMatch(
+        /the plugin path/
+      );
+    });
+
+    it("checks only the fields it was given", () => {
+      expect(checkSubmissionPacket("s.md", packet, {}).errors).toEqual([]);
+      expect(checkSubmissionPacket("s.md", packet, {}).ok).toEqual([]);
+    });
   });
 });
 

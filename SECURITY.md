@@ -4,26 +4,59 @@
 
 Please **do not** open a public issue for security vulnerabilities.
 
-Instead, report privately via [GitHub Security Advisories](https://github.com/yogevgab/artifacts-server/security/advisories/new)
-(Security → Report a vulnerability), or email the maintainer.
+Report privately through [GitHub Security Advisories](https://github.com/yogevgab/artifacts-server/security/advisories/new)
+(Security → Report a vulnerability). That is the private channel — there is no separate security
+mailbox, so a report sent anywhere else may simply not be seen.
 
 Include: a description, affected version/commit, reproduction steps, and impact. You'll get an
-acknowledgement as soon as possible, and we'll coordinate a fix and disclosure.
+acknowledgement as soon as one can be written, and we'll coordinate a fix and disclosure with you.
+
+**What this is not.** This is a small open-source project maintained by one person in their own
+time. There is no response-time commitment, no bug-bounty programme, no legal entity behind these
+words, and no safe-harbour promise anyone here is in a position to make. Best effort, in public, is
+what is on offer — please size your expectations to that, and test only against your own instance.
+
+## The Claude Code plugin
+
+`plugins/rtfx` is published as a Claude Code plugin, so it is worth stating its blast radius
+separately from the server's. It runs two plain Node files from this repository, has no
+dependencies and installs nothing. It talks to exactly one host — the instance in `ARTIFACTS_URL`,
+default `rtfx.pro` — with no telemetry and no third-party calls, and it sends only the files a user
+names for a specific publish.
+
+Its whole credential surface is one scoped API token in `RTFX_API_TOKEN`, which the user mints and
+revokes themselves. The token is read from the environment and never written to disk; `doctor`
+reports a token's **id**, and the commands instruct the model never to echo a token or read one out
+of a file to display it. No Cloudflare account or management credential is involved — a test pins
+that the plugin's config resolution ignores one. The directory walk refuses to upload anything
+shaped like a credential (`.env`, `*.pem`, `*.key`, `id_rsa` …) and skips `.git`/`node_modules`,
+reporting everything it left out; a prebuilt zip containing such a file is refused rather than
+silently filtered. `npm run validate:plugin` fails if a token-shaped string is ever committed under
+`plugins/`.
+
+Distribution status and the open limitations — notably that authentication is a hand-exported token
+and that no OAuth or remote MCP transport exists — are in
+[`docs/ANTHROPIC_PLUGIN_SUBMISSION.md`](docs/ANTHROPIC_PLUGIN_SUBMISSION.md).
 
 ## Scope & design notes
 
 This project is an authorization layer in front of static content. The most sensitive areas:
 
-- `src/auth.ts` — Cloudflare Access JWT verification (issuer, audience, JWKS) and the admin gate.
+- `src/auth.ts` — app-owned session verification, API-token auth, optional Cloudflare Access JWT
+  verification (issuer, audience, JWKS), and the admin gate.
 - `src/authz.ts` + serving/gallery in `src/index.ts` — per-artifact authorization.
-- `src/access-api.ts` — manages the Cloudflare Access login allow-list via the CF API.
+- `src/access-api.ts` — legacy/operator Cloudflare Access allow-list management for deployments
+  that still use Access at the edge.
 - `src/host.ts` + `src/serve.ts` — the content-origin split and the headers artifact files ship with.
 
 Design invariants worth knowing when reviewing:
 
-- The app stores **no passwords**; authentication is Cloudflare Access's job.
+- The app stores **no passwords**. Primary interactive sign-in is app-owned email OTP / magic link
+  into a signed `rtfx_session` cookie; API tokens authenticate machine publishing. Older/self-hosted
+  deployments may still put Cloudflare Access in front as an additional edge gate.
 - Admin rights require an allow-listed email (`ADMIN_EMAILS`) or an allow-listed service-token
-  `common_name` (`ADMIN_SERVICE_TOKENS`) — a valid Access token is **not** admin by itself.
+  `common_name` (`ADMIN_SERVICE_TOKENS`) — a valid session or Access token is **not** admin by
+  itself.
 - The dev bypass (`DEV_LOGIN` / `X-Dev-Email`) is only active when `DEV_LOGIN=true`, which is set
   by `npm run dev` and the test config — never in a normal `wrangler deploy`.
 - A viewer requesting an artifact they can't see gets `404` (existence is not revealed).

@@ -221,6 +221,8 @@ are tuned to match a plausible secret and not the `rtfx_…` placeholder the doc
 
 - [`MCP.md`](MCP.md) — the MCP server: tools, client configuration, plugin-vs-MCP
 - [`plugins/rtfx/README.md`](../plugins/rtfx/README.md) — user-facing install and usage
+- [`plugins/rtfx/CHANGELOG.md`](../plugins/rtfx/CHANGELOG.md) — what each plugin version contains
+- [`ANTHROPIC_PLUGIN_SUBMISSION.md`](ANTHROPIC_PLUGIN_SUBMISSION.md) — the marketplace submission packet, and which marketplace is which
 - [`plugins/rtfx/skills/publishing-to-rtfx/references/api.md`](../plugins/rtfx/skills/publishing-to-rtfx/references/api.md) — HTTP contract as the agent sees it
 - [`HERMES_CLOUD.md`](HERMES_CLOUD.md) — full token lifecycle, scopes and error semantics
 - [`DEPLOY_RTFX.md`](DEPLOY_RTFX.md) — the Access posture that decides whether service-token headers are needed

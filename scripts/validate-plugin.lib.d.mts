@@ -33,4 +33,20 @@ export function checkMcpConfig(
   exists: (ref: string) => boolean
 ): CheckResult;
 export function checkMcpAgreement(manifestServers: unknown, fileServers: unknown): CheckResult;
+
+export function checkChangelog(path: string, text: string, version: string | undefined): CheckResult;
+export function checkCommunityMarketplaceClaims(path: string, text: string): CheckResult;
+
+export interface SubmissionPacketExpectations {
+  version?: string;
+  repository?: string;
+  pluginPath?: string;
+}
+
+export function checkSubmissionPacket(
+  path: string,
+  text: string,
+  expected?: SubmissionPacketExpectations
+): CheckResult;
+
 export function mergeResults(results: CheckResult[]): CheckResult;

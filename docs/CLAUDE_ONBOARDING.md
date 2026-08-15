@@ -76,13 +76,26 @@ recognizable when it lands; they fail today. Section 2 is the supported path.
 
 ## Marketplace distribution
 
-`/plugin marketplace add yogevgab/artifacts-server` works for anyone, today — a custom marketplace
-needs no approval from anyone, only a repository with a valid
-`.claude-plugin/marketplace.json`. `npm run validate:plugin` checks that file on every CI run.
+Three different things get called "the marketplace", and only the first is how you install this
+plugin today.
 
-Listing in Anthropic's **official or community** marketplace is a separate thing: it requires an
-external submission and review that has not been made. Nothing in this repository can grant it, and
-no page here should imply the plugin is listed there.
+**This repository, as a custom marketplace — live.** `/plugin marketplace add
+yogevgab/artifacts-server` works for anyone, right now. A custom marketplace needs no approval from
+anyone, only a repository with a valid `.claude-plugin/marketplace.json`; `npm run validate:plugin`
+checks that file on every CI run. This is not a lesser path — it is the same install flow, from a
+repository you choose to trust.
+
+**Anthropic's community marketplace — not submitted.** `anthropics/claude-plugins-community` is a
+separate listing that requires an external submission and review, which has not been made. Its
+`@claude-community` install string would only resolve after approval, so you will not find one on
+any page here. The packet a submission needs is written down in
+[`ANTHROPIC_PLUGIN_SUBMISSION.md`](ANTHROPIC_PLUGIN_SUBMISSION.md).
+
+**Anthropic's official marketplace — nothing to apply for.** It is curated by Anthropic at their
+own discretion; there is no application process, so there is no step here that moves it along.
+
+Nothing in this repository can grant a listing in either of the last two, and no page here should
+imply the plugin has one.
 
 ---
 
@@ -120,6 +133,8 @@ setup step; do not imply a sign-in flow that does not exist yet.
 ## Related
 
 - [`../plugins/rtfx/README.md`](../plugins/rtfx/README.md) — the plugin's own README
+- [`../plugins/rtfx/CHANGELOG.md`](../plugins/rtfx/CHANGELOG.md) — what each plugin version contains
 - [`CLAUDE_CODE.md`](CLAUDE_CODE.md) — how the plugin is built, validated and tested
+- [`ANTHROPIC_PLUGIN_SUBMISSION.md`](ANTHROPIC_PLUGIN_SUBMISSION.md) — the marketplace submission packet
 - [`MCP.md`](MCP.md) — MCP tools and client configuration
 - [`HERMES_CLOUD.md`](HERMES_CLOUD.md) — token lifecycle, scopes and error semantics

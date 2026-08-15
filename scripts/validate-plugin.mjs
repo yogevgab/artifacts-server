@@ -24,6 +24,9 @@ import {
   checkPluginRootRefs,
   checkMcpConfig,
   checkMcpAgreement,
+  checkChangelog,
+  checkCommunityMarketplaceClaims,
+  checkSubmissionPacket,
   findSecrets,
   mergeResults,
 } from "./validate-plugin.lib.mjs";
@@ -31,6 +34,8 @@ import {
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const MARKETPLACE = join(ROOT, ".claude-plugin", "marketplace.json");
 const PLUGINS_DIR = join(ROOT, "plugins");
+const DOCS_DIR = join(ROOT, "docs");
+const SUBMISSION_DOC = join(DOCS_DIR, "ANTHROPIC_PLUGIN_SUBMISSION.md");
 
 const errors = [];
 const ok = [];
@@ -155,6 +160,15 @@ for (const name of pluginDirs) {
 
   if (!existsSync(join(pluginRoot, "README.md"))) errors.push(`plugins/${name}: no README.md`);
 
+  // A published plugin is pinned to a commit, so its changelog is the only place
+  // a reviewer or user can read what the declared version actually contains.
+  const changelogPath = join(pluginRoot, "CHANGELOG.md");
+  if (!existsSync(changelogPath)) {
+    errors.push(`plugins/${name}: no CHANGELOG.md — a version a user can install needs release notes they can read`);
+  } else if (manifest?.version) {
+    collect(checkChangelog(`plugins/${name}/CHANGELOG.md`, readFileSync(changelogPath, "utf8"), manifest.version));
+  }
+
   // --- Secrets ---------------------------------------------------------------
   for (const file of walk(pluginRoot)) {
     const found = findSecrets(readFileSync(join(pluginRoot, file), "utf8"));
@@ -167,6 +181,39 @@ for (const name of pluginDirs) {
 if (marketplace) {
   const found = findSecrets(readFileSync(MARKETPLACE, "utf8"));
   for (const kind of found) errors.push(`.claude-plugin/marketplace.json: looks like a committed ${kind}`);
+}
+
+// --- What the docs claim ------------------------------------------------------
+
+// Every markdown page a stranger might read, checked for the one claim this repo
+// cannot make: that the plugin is listed in Anthropic's community marketplace.
+const markdownPages = [
+  ...readdirSync(ROOT).filter((f) => f.endsWith(".md")),
+  ...walk(DOCS_DIR).filter((f) => f.endsWith(".md")).map((f) => `docs/${f}`),
+  ...walk(PLUGINS_DIR).filter((f) => f.endsWith(".md")).map((f) => `plugins/${f}`),
+];
+for (const page of markdownPages) {
+  collect(checkCommunityMarketplaceClaims(page, readFileSync(join(ROOT, page), "utf8")));
+}
+
+// The submission packet restates manifest fields for a human to type into a
+// form. It is checked against the manifest for the same reason the marketplace
+// entry is: nothing about the drift is visible where it does damage.
+if (!existsSync(SUBMISSION_DOC)) {
+  errors.push("docs/ANTHROPIC_PLUGIN_SUBMISSION.md is missing — the submission packet is what a human transcribes into the form");
+} else {
+  const submissionPlugin = "rtfx";
+  const manifestPath = join(PLUGINS_DIR, submissionPlugin, ".claude-plugin", "plugin.json");
+  const manifest = existsSync(manifestPath) ? readJson(manifestPath) : null;
+  if (manifest) {
+    collect(
+      checkSubmissionPacket("docs/ANTHROPIC_PLUGIN_SUBMISSION.md", readFileSync(SUBMISSION_DOC, "utf8"), {
+        version: manifest.version,
+        repository: manifest.repository,
+        pluginPath: `./plugins/${submissionPlugin}`,
+      })
+    );
+  }
 }
 
 // --- Report ------------------------------------------------------------------

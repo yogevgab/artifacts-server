@@ -160,3 +160,12 @@ slug without deleting anything.
 Full HTTP contract: `skills/publishing-to-rtfx/references/api.md`.
 MCP surface: [docs/MCP.md](../../docs/MCP.md).
 Operator-side reference: [docs/HERMES_CLOUD.md](../../docs/HERMES_CLOUD.md).
+Release notes: [CHANGELOG.md](CHANGELOG.md).
+
+## Where this plugin comes from
+
+Install it the way the top of this page describes: this repository is itself a Claude Code
+marketplace, which needs no approval from anyone. The plugin is **not** listed in Anthropic's
+community or official marketplace, and no command on this page depends on one —
+[docs/ANTHROPIC_PLUGIN_SUBMISSION.md](../../docs/ANTHROPIC_PLUGIN_SUBMISSION.md) covers what a
+submission to the community marketplace would involve and what would change after approval.
