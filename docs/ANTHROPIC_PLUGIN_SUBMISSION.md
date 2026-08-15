@@ -120,8 +120,9 @@ is the supported path today.
 **Server-side remote MCP/OAuth is separate from this plugin.** The artifacts-server app answers MCP
 over HTTP at `POST /mcp` (`src/mcp.ts`) and now serves OAuth discovery, dynamic client registration,
 authorization-code + PKCE, token refresh and revocation. That remote endpoint exposes one read-only
-tool (`doctor`) and no publishing. There is still no `mcp.rtfx.pro` origin and no remote upload or
-publish tool; the plan and status are in [`REMOTE_MCP_OAUTH.md`](REMOTE_MCP_OAUTH.md).
+tool (`doctor`) and no publishing. `mcp.rtfx.pro` is the dedicated remote-MCP origin for live smoke;
+there is still no remote upload or publish tool. The plan and status are in
+[`REMOTE_MCP_OAUTH.md`](REMOTE_MCP_OAUTH.md).
 
 None of that changes what is being submitted here. **The plugin itself is stdio-only** and reads
 `RTFX_API_TOKEN` — the HTTP/OAuth endpoint is server-side code in this repository, not something the

@@ -212,6 +212,31 @@ describe("protected-resource metadata (RFC 9728)", () => {
   });
 
   /**
+   * The dedicated host, stated as a fact rather than left to the general rule.
+   * `mcp.rtfx.pro` is routed to this same Worker (wrangler.jsonc) as an *app*
+   * host, and a client that discovers rtfx there must be told the resource is
+   * `https://mcp.rtfx.pro/mcp` — not the canonical `rtfx.pro`, which would fail
+   * the client's audience check on every token it was subsequently issued.
+   */
+  it("names the dedicated MCP host when the request arrives there", async () => {
+    const e = { ...(env as any), PUBLIC_BASE_URL: "https://rtfx.pro", CONTENT_HOSTNAMES: "a.rtfx.pro" };
+    const resource = await app.request(`https://mcp.rtfx.pro${PROTECTED_RESOURCE_PATH}`, {}, e);
+    expect(resource.status).toBe(200);
+    expect(await resource.json<any>()).toMatchObject({
+      resource: "https://mcp.rtfx.pro/mcp",
+      authorization_servers: ["https://mcp.rtfx.pro"],
+    });
+
+    const as_ = await app.request(`https://mcp.rtfx.pro${AS_METADATA_PATH}`, {}, e);
+    expect(as_.status).toBe(200);
+    expect(await as_.json<any>()).toMatchObject({
+      issuer: "https://mcp.rtfx.pro",
+      authorization_endpoint: "https://mcp.rtfx.pro/oauth/authorize",
+      token_endpoint: "https://mcp.rtfx.pro/oauth/token",
+    });
+  });
+
+  /**
    * Host isolation. The content host serves untrusted uploaded HTML; a document
    * served there would advertise an authorization server at that origin.
    */
@@ -508,13 +533,11 @@ describe("the authorization endpoint", () => {
   });
 
   /**
-   * ⚠️ This pins the redirect the authorization endpoint emits, and nothing
-   * further. `/login` does not yet consume `next` (see `safeNextPath` in
-   * src/util.ts, which exists for that wiring and is not yet called), so a
-   * person who has to sign in here does not currently land back on this request.
-   * The assertion is deliberately about the shape of the bounce — including that
-   * `next` is a path on this origin and never an absolute URL — because that is
-   * what has to be right *before* the round trip is wired up.
+   * The bounce a signed-out `claude mcp login` takes. `next` must be a path on
+   * this origin and never an absolute URL: what waits on the other side of the
+   * sign-in is a minted session, so an open redirect here would be the one bug
+   * that matters. `/login` consumes it — see "?next= round trip" in
+   * test/auth-routes.test.ts for the other half.
    */
   it("bounces a signed-out visitor to /login, carrying the request as a local path", async () => {
     const clientId = await registerClient();
@@ -530,6 +553,26 @@ describe("the authorization endpoint", () => {
     expect(next).toBe(query);
     expect(next.startsWith("/oauth/authorize?")).toBe(true);
     expect(next.startsWith("//")).toBe(false);
+  });
+
+  /**
+   * The round trip completes: `/login` hands a signed-in visitor back to the
+   * authorization request rather than dropping them on the dashboard while the
+   * MCP client waits for a callback that is never coming.
+   */
+  it("lands a signed-in visitor back on the consent screen", async () => {
+    const clientId = await registerClient();
+    const query = authorizeQuery(clientId);
+    const bounce = await req(query, { headers: { "X-Dev-Anonymous": "true" } });
+    const login = bounce.headers.get("Location")!;
+
+    const back = await req(login, as(BOB));
+    expect(back.status).toBe(302);
+    expect(back.headers.get("Location")).toBe(query);
+
+    const consent = await req(back.headers.get("Location")!, as(BOB));
+    expect(consent.status).toBe(200);
+    expect(await consent.text()).toContain("Claude Code");
   });
 
   /**

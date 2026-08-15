@@ -8,10 +8,29 @@
   "workers_dev": false,
   "observability": { "enabled": true },
 
-  // rtfx.pro = app/dashboard/API; a.rtfx.pro = artifact content only (must be a
-  // zone on your account). See CONTENT_HOSTNAMES below for the isolation this pairs with.
+  // Three hosts, two roles. `rtfx.pro` and `mcp.rtfx.pro` are both **app** hosts:
+  // one Worker, one code path, everything under MANAGEMENT_PREFIXES (src/host.ts)
+  // — /admin, /api, /mcp, /oauth, /.well-known — answers on either. `a.rtfx.pro`
+  // is the **content** host and serves uploaded artifact files only.
+  //
+  // `mcp.rtfx.pro` exists so `claude mcp add --transport http rtfx
+  // https://mcp.rtfx.pro/mcp` has a hostname that says what it is. It is NOT in
+  // CONTENT_HOSTNAMES and must never be: it terminates bearer credentials and
+  // serves the OAuth authorization server, which is the exact thing the origin
+  // split keeps away from untrusted uploaded HTML.
+  //
+  // The OAuth metadata is built from the origin each request arrived on
+  // (src/oauth-routes.ts), so a client that discovers rtfx at mcp.rtfx.pro is
+  // issued `issuer: https://mcp.rtfx.pro` and `resource:
+  // https://mcp.rtfx.pro/mcp`, and RFC 8707 audience validation agrees with
+  // itself. That is why the dedicated host is a route rather than a CNAME onto
+  // the app host — see docs/REMOTE_MCP_OAUTH.md §3.
+  //
+  // Each pattern must be a zone on your account; `wrangler deploy` creates the
+  // custom domain and its DNS record.
   "routes": [
     { "pattern": "rtfx.pro", "custom_domain": true },
+    { "pattern": "mcp.rtfx.pro", "custom_domain": true },
     { "pattern": "a.rtfx.pro", "custom_domain": true }
   ],
 
@@ -54,6 +73,10 @@
     // Comma-separated hostnames that serve artifact content ONLY (no admin/API/
     // dashboard). Each hostname listed here must also have a `routes` entry above.
     // Leave empty to keep a single origin.
+    //
+    // `mcp.rtfx.pro` is deliberately absent: it is an app host. Adding it here
+    // would 404 the very endpoints it exists to serve, and would strike it from
+    // `appOrigins` (src/cors.ts) so its own consent form could not POST to itself.
     "CONTENT_HOSTNAMES": "a.rtfx.pro",
     // --- Lemon Squeezy billing. The signing secret is NOT here: it is set with
     //     `wrangler secret put LEMONSQUEEZY_WEBHOOK_SECRET`. ---
@@ -71,6 +94,11 @@
     // sitemap.xml and llms.txt are absolute against it, and any host that isn't
     // this one serves a disallow-everything robots.txt — so a preview deploy
     // (*.workers.dev) can never compete with production in a search index.
+    //
+    // It stays `rtfx.pro` with mcp.rtfx.pro routed: the MCP host is a machine
+    // surface, and being non-canonical is what keeps its copy of the marketing
+    // pages out of the index. It does not restrict OAuth, whose documents name
+    // the origin each request arrived on rather than this value.
     "PUBLIC_BASE_URL": "https://rtfx.pro"
   }
 

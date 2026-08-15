@@ -3,6 +3,13 @@
 
 export const EXPECTED_APP_HOSTNAME = "rtfx.pro";
 export const EXPECTED_CONTENT_HOSTNAME = "a.rtfx.pro";
+/**
+ * The dedicated remote-MCP hostname. An *app* host, like `rtfx.pro` — it serves
+ * `/mcp`, `/oauth` and `/.well-known`, so listing it as a content host would 404
+ * the endpoints it exists for. The route is optional (an instance can serve MCP
+ * on its app host and nothing breaks); the content-host mistake is not.
+ */
+export const EXPECTED_MCP_HOSTNAME = "mcp.rtfx.pro";
 export const DEFAULT_ADMIN_EMAIL_PLACEHOLDER = "you@example.com";
 export const DEFAULT_DATABASE_ID_PLACEHOLDER = "REPLACE_WITH_D1_DATABASE_ID";
 
@@ -102,7 +109,29 @@ export function checkWranglerConfig(config) {
       errors.push(`CONTENT_HOSTNAMES must not include the app hostname "${EXPECTED_APP_HOSTNAME}"`);
       contentHostsOk = false;
     }
+    // The MCP host terminates bearer credentials and serves the OAuth
+    // authorization server. Listing it as content would both break it and undo
+    // the isolation the split exists for, so it is an error, not a warning.
+    if (contentHosts.includes(EXPECTED_MCP_HOSTNAME)) {
+      errors.push(
+        `CONTENT_HOSTNAMES must not include the remote-MCP hostname "${EXPECTED_MCP_HOSTNAME}" — ` +
+          "it is an app host (serves /mcp, /oauth, /.well-known)"
+      );
+      contentHostsOk = false;
+    }
     if (contentHostsOk) ok.push(`CONTENT_HOSTNAMES: ${contentHosts.join(", ")}`);
+  }
+
+  // Optional, and reported either way: without the route, `claude mcp add
+  // --transport http rtfx https://mcp.rtfx.pro/mcp` resolves nowhere, and the
+  // documented onboarding command is the one thing a reader cannot check.
+  if (routes.includes(EXPECTED_MCP_HOSTNAME)) {
+    ok.push(`routes include ${EXPECTED_MCP_HOSTNAME} (remote MCP / OAuth host)`);
+  } else {
+    pending.push(
+      `routes have no "${EXPECTED_MCP_HOSTNAME}" entry — remote MCP answers on ` +
+        `${EXPECTED_APP_HOSTNAME} only, so docs must not advertise the dedicated host`
+    );
   }
 
   const r2 = (config.r2_buckets ?? []).find((b) => b.binding === "FILES");

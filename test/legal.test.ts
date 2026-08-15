@@ -240,7 +240,14 @@ describe("no non-essential anything runs before consent", () => {
   it("sets no cookie on any public page", async () => {
     for (const path of PUBLIC) {
       const res = await req(path, ANON);
-      expect(res.headers.get("Set-Cookie"), path).toBeNull();
+      const setCookie = res.headers.get("Set-Cookie");
+      if (path === "/login") {
+        // `/login` may clear a stale OAuth continuation cookie. That is a
+        // deletion (`Max-Age=0`), not pre-consent storage.
+        expect(setCookie, path).toMatch(/^rtfx_next=; .*Max-Age=0/);
+      } else {
+        expect(setCookie, path).toBeNull();
+      }
     }
   });
 
