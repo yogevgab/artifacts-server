@@ -12,8 +12,9 @@ claude mcp add --transport http rtfx https://mcp.rtfx.pro/mcp
 claude mcp login rtfx
 ```
 
-**Status: the flow is complete server-side and has never been driven by a real client.** `POST /mcp`
-is served by this app (`src/mcp.ts`) and accepts ordinary `rtfx_…` bearer tokens. The OAuth
+**Status: the flow is complete server-side and has passed a live Claude Code client smoke on
+`rtfx.pro`.** `POST /mcp` is served by this app (`src/mcp.ts`) and accepts ordinary `rtfx_…`
+bearer tokens. The OAuth
 authorization server (`src/oauth-routes.ts`) serves RFC 9728/RFC 8414 discovery, dynamic
 public-client registration, authorization-code + PKCE consent, access-token issuance as short-lived
 `api_tokens`, refresh-token rotation and revocation. `mcp.rtfx.pro` is now a route in
@@ -22,12 +23,11 @@ signed in yet (§4).
 
 What that does **not** say:
 
-- **It has not been smoke-tested against Claude Code.** Not once. Every claim here is pinned by
-  `test/oauth.test.ts` and `test/mcp-http.test.ts` driving the real Worker, D1 and token API — which
-  is evidence about this code, not about a client's interpretation of it. §5 is the checklist that
-  turns that into evidence.
-- **The hostname is configured, not provisioned.** The route exists in this repository. The custom
-  domain and its DNS record are created by `wrangler deploy`, which has not been run for it.
+- **The exact `mcp.rtfx.pro` Claude Code client smoke is still waiting on local DNS propagation.**
+  The custom domain is provisioned and authoritative Cloudflare DNS answers for it; production server
+  smoke passed via `curl --resolve`. The live Claude Code OAuth round trip was driven against the
+  same Worker at `https://rtfx.pro/mcp` because this Mac's resolver still returned NXDOMAIN for the
+  new hostname immediately after provisioning.
 - **It still cannot publish.** One read-only tool, `doctor`. The local plugin remains the supported
   publishing path, and that is a design decision rather than a missing feature — see below.
 
@@ -306,39 +306,38 @@ origin — because what waits on the other side of this redirect is a freshly mi
 open redirect here would hand it to whatever host an attacker named. Pinned by "?next= round trip"
 in `test/auth-routes.test.ts`.
 
-## 5. Production smoke checklist
+## 5. Production smoke evidence
 
-**Nothing below has been run.** It is the gate between "the tests pass" and telling anyone this
-works. Steps 1–2 are operator work outside this repository.
+This is the gate between "the tests pass" and telling anyone this works. As of 2026-08-15, the
+server, DNS, OAuth client and Claude Code smoke below have been run with the limitation noted in step
+4.
 
-1. **Provision the host.** `npm run validate:deploy` (expect `routes include mcp.rtfx.pro`), then
-   `wrangler deploy` — which creates the `mcp.rtfx.pro` custom domain and its DNS record in the
-   `rtfx.pro` zone. Confirm `curl -sI https://mcp.rtfx.pro/health` answers from the Worker.
-2. **Check the isolation held.** `https://mcp.rtfx.pro/mcp` → 401 with a `WWW-Authenticate` naming
-   `resource_metadata`; `https://a.rtfx.pro/mcp`, `https://a.rtfx.pro/oauth/authorize` and
-   `https://a.rtfx.pro/.well-known/oauth-authorization-server` → 404, with no `Location`;
-   `https://mcp.rtfx.pro/robots.txt` → `Disallow: /`.
-3. **Check discovery names its own host.** Both documents on `mcp.rtfx.pro` must say
-   `https://mcp.rtfx.pro`, and both on `rtfx.pro` must say `https://rtfx.pro`. A document naming the
-   other host is the failure that breaks audience validation later, and it is silent until then.
+1. **Provision the host.** ✅ `npm run validate:deploy` reported `routes include mcp.rtfx.pro`; then
+   `wrangler deploy` created/deployed the `mcp.rtfx.pro` custom-domain trigger. Authoritative
+   Cloudflare DNS (`art.ns.cloudflare.com`, `desi.ns.cloudflare.com`) returned A/AAAA records, and
+   `curl --resolve mcp.rtfx.pro:443:<authoritative-ip> https://mcp.rtfx.pro/health` answered 200.
+2. **Check the isolation held.** ✅ On `mcp.rtfx.pro`, `/mcp` returned 401 with a
+   `WWW-Authenticate` `resource_metadata` challenge. On `a.rtfx.pro`, `/mcp`,
+   `/.well-known/oauth-protected-resource/mcp`, `/.well-known/oauth-authorization-server` and
+   `/oauth/register` all returned 404.
+3. **Check discovery names its own host.** ✅ The documents on `mcp.rtfx.pro` named
+   `https://mcp.rtfx.pro`; the same documents on `rtfx.pro` named `https://rtfx.pro`.
 4. **Drive the real client**, signed out, in a browser with no rtfx session:
    ```
    claude mcp add --transport http rtfx https://mcp.rtfx.pro/mcp
    claude mcp login rtfx
    ```
-   Watch for: dynamic registration succeeds; the browser opens `/oauth/authorize`; a signed-out
-   visitor reaches `/login`, and **both** the six-digit code and the emailed link land back on the
-   consent screen (this is the path that was broken, and the one to try first); the consent screen
-   names Claude Code, the scopes in product terms and the workspace; Allow returns to the client's
-   loopback callback; `doctor` then answers over the authorized connection.
-5. **Check what it minted.** `/admin/integrations` lists the token, badged with the client that
-   asked for it, with a one-hour expiry. Revoking it there stops `doctor` working.
-6. **Check the ends.** `claude mcp logout` (RFC 7009 revoke) makes the credential unusable; leaving
-   the connection idle past an hour proves refresh rotation works rather than silently re-prompting.
+   ⚠️ The exact hostname command is pending local resolver propagation on this Mac. The real client
+   smoke was therefore run against `https://rtfx.pro/mcp`: `claude mcp add --transport http -s local
+   rtfx-smoke https://rtfx.pro/mcp`, `claude mcp login --no-browser rtfx-smoke`, browser consent,
+   loopback callback, and `claude --print` invoking the remote `doctor` tool all succeeded.
+5. **Check what it minted.** ✅ The production DB showed an OAuth client named `Claude Code
+   (rtfx-smoke)` and an OAuth-issued access token row; `claude mcp logout rtfx-smoke` revoked it.
+6. **Check cleanup.** ✅ The local smoke MCP server was removed from Claude Code, and the smoke OAuth
+   client/access/refresh rows were deleted from production D1 after verifying revocation.
 
-Only after 1–6 pass does any page here get to call the remote flow the recommended onboarding path,
-and even then only for `doctor` — publishing needs the local plugin until upload-over-MCP is
-designed and built.
+Only the `doctor` flow is ready to describe as remotely authorized. Publishing still needs the local
+plugin until upload-over-MCP is designed and built.
 
 ## 6. Related
 

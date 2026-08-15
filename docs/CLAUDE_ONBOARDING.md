@@ -78,10 +78,10 @@ claude mcp add --transport http rtfx https://rtfx.pro/mcp \
   --header "Authorization: Bearer rtfx_…"
 ```
 
-The OAuth path still needs production smoke with a real Claude Code client before it becomes the
-main onboarding recommendation, and the HTTP endpoint still exposes only one read-only tool,
-`doctor`. It cannot publish — publishing needs to read files on your machine, which a hosted server
-cannot do.
+The OAuth path has passed a live Claude Code client smoke against the same Worker at
+`https://rtfx.pro/mcp`, and the dedicated `mcp.rtfx.pro` host has passed server/DNS smoke. The HTTP
+endpoint still exposes only one read-only tool, `doctor`. It cannot publish — publishing needs to
+read files on your machine, which a hosted server cannot do.
 
 Section 2, with the plugin, remains the supported path for actually publishing.
 
