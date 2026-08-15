@@ -75,10 +75,10 @@ pre.code code{background:none;border:0;padding:0;font-size:inherit;color:inherit
 
 const TITLE = "Publish from Claude Code or MCP · rtfx.pro docs";
 const DESCRIPTION =
-  "How rtfx.pro works: publish pages, PDFs and multi-file artifacts from Claude Code, MCP, " +
-  "Hermes, the CLI or the API; control who can open each one; keep every version; and " +
-  "see exactly who viewed what — plus what is table stakes in this category and what " +
-  "actually makes rtfx.pro different.";
+  "How rtfx.pro works: connect Claude Code with a browser sign-in, publish pages, PDFs and " +
+  "multi-file artifacts from the plugin, the MCP server, Hermes, the CLI or the API; control " +
+  "who can open each one; keep every version; and see exactly who viewed what — plus what is " +
+  "table stakes in this category and what actually makes rtfx.pro different.";
 
 /** One question, one answer — rendered as prose *and* as FAQPage structured data. */
 interface Faq {
@@ -108,6 +108,27 @@ const FAQS: readonly Faq[] = [
       "a folder or a zip. There is no npm package to install yet, and nothing here pretends " +
       "there is. A token is bound to its owner and can be revoked at any time, so the agent " +
       "never gains your account.",
+  },
+  {
+    q: "Can the remote MCP endpoint at mcp.rtfx.pro publish for me?",
+    a:
+      "No, and it is not a switch waiting to be turned on. The hosted endpoint is authorized in " +
+      "the browser over OAuth and exposes one read-only tool, doctor, which reports how your " +
+      "credential is authenticated, what it may do and whether the instance answers. Publishing " +
+      "takes a path on the machine running the client, so a server-side endpoint handed one could " +
+      "only ever read the server's own disk. Publishing therefore stays with the Claude Code " +
+      "plugin and the local MCP server that ships inside it, both of which run beside your files. " +
+      "Publishing over the hosted endpoint would be an upload rather than a path, and that is not " +
+      "built.",
+  },
+  {
+    q: "Do I still have to copy an API token to use Claude Code?",
+    a:
+      "Not for ordinary use. Install the plugin and run /rtfx:login: it opens a browser sign-in " +
+      "and stores a renewing local credential with owner-only permissions, printing only a token " +
+      "id and never the token itself. A scoped RTFX_API_TOKEN from Integrations still works and " +
+      "takes priority over the browser sign-in, which is what CI and scripted automation should " +
+      "use.",
   },
   {
     q: "What happens when I publish the same slug twice?",
@@ -220,7 +241,7 @@ export function docsPage(env: Env): string {
       <a href="#overview">Overview</a>
       <a href="#use-cases">Use cases</a>
       <a href="#publishing">Publishing</a>
-      <a href="#agents">Claude Code, MCP &amp; Hermes</a>
+      <a href="#agents">Connectors</a>
       <a href="#access">Access &amp; privacy</a>
       <a href="#versions">Versions &amp; views</a>
       <a href="#why-rtfx">Why rtfx.pro</a>
@@ -322,10 +343,40 @@ $ curl -X POST https://rtfx.pro/api/machine/artifacts \
       </section>
 
       <section id="agents">
-        <h2>Claude Code, MCP &amp; Hermes</h2>
+        <h2>Connectors: Claude Code, MCP &amp; Hermes</h2>
+        <p>Four ways to connect an agent, and they are not interchangeable — three of them publish,
+          and the hosted one deliberately does not. This is the whole table before the detail:</p>
+        <!-- The "Publishes?" column is the load-bearing one. mcp.rtfx.pro is the
+             newest surface and the most impressive-sounding, which makes it the
+             one a reader is most likely to assume can do everything. It exposes
+             a single read-only tool (src/mcp.ts), because publish takes a path
+             on the machine running the *client* and a server-side endpoint could
+             only ever read our disk. Stated as a row rather than a footnote. -->
+        <div class="table-wrap"><table class="compare" data-docs="connectors">
+          <thead><tr><th scope="col">Connector</th><th scope="col">How you connect</th><th scope="col">Publishes?</th><th scope="col">Best for</th></tr></thead>
+          <tbody>
+            <tr data-connector="claude-code-plugin"><th scope="row">Claude Code plugin</th>
+              <td><code>/rtfx:login</code> — a browser sign-in, no token to copy</td>
+              <td>Yes</td>
+              <td>Publishing what the session just built.</td></tr>
+            <tr data-connector="local-mcp"><th scope="row">Local MCP server</th>
+              <td>Ships inside the plugin; installing the plugin registers it</td>
+              <td>Yes — it runs beside your files</td>
+              <td>An MCP client with no shell, such as Claude Desktop.</td></tr>
+            <tr data-connector="remote-mcp"><th scope="row">Remote MCP — <code>mcp.rtfx.pro</code></th>
+              <td><code>claude mcp login rtfx</code> — OAuth, authorization code with PKCE</td>
+              <td>No — one read-only tool, <code>doctor</code></td>
+              <td>Checking a connection, a credential and instance readiness.</td></tr>
+            <tr data-connector="api-cli-hermes"><th scope="row">API, CLI and Hermes</th>
+              <td>A scoped <code>RTFX_API_TOKEN</code> minted in the dashboard</td>
+              <td>Yes</td>
+              <td>CI, scripts and automation you own.</td></tr>
+          </tbody>
+        </table></div>
         <p>Agents publish through exactly the same CLI and API a human uses — there is no separate,
-          weaker agent path. Mint an API token in the dashboard with the <code>read</code> and
-          <code>publish</code> scopes, and hand it to the session:</p>
+          weaker agent path. The plugin's browser sign-in is the short path; for CI, mint an API
+          token in the dashboard with the <code>read</code> and <code>publish</code> scopes and hand
+          it to the session:</p>
         <!-- read *and* publish, not publish alone. /rtfx:publish looks the slug
              up before it writes, so that it can tell a new artifact from a new
              version of an existing one — and that lookup is GET /api/artifacts,
@@ -356,10 +407,7 @@ $ node cli/artifacts.mjs publish ./out --slug client-demo --title "Checkout prot
           only a token id, never the token. For CI and advanced scripts, a scoped
           <code>RTFX_API_TOKEN</code> from Integrations still works and takes priority over the
           browser sign-in.</p>
-        <p>The server-side remote MCP path also has OAuth discovery and authorization-code + PKCE, but
-          it exposes only the read-only <code>doctor</code> tool. The local plugin remains the
-          supported path for publishing files from your machine.</p>
-        <h3>The MCP server</h3>
+        <h3>The local MCP server</h3>
         <p>The same plugin ships a native MCP server, for a client with no shell to run a command
           in — Claude Desktop, or anything else that speaks MCP. Installing the plugin registers it;
           it publishes, lists versions and rolls back as tool calls, holding the same scoped token
@@ -372,6 +420,24 @@ $ node cli/artifacts.mjs publish ./out --slug client-demo --title "Checkout prot
     "env": { "RTFX_API_TOKEN": "rtfx_…" } } } }
 
 tools: publish · list_artifacts · get_versions · rollback · doctor</code></pre>
+        <h3>Remote MCP, authorized in the browser</h3>
+        <p>rtfx.pro also runs a hosted MCP endpoint at <code>https://mcp.rtfx.pro/mcp</code>. A
+          compliant client discovers the authorization server from the endpoint's own challenge and
+          takes you through an ordinary browser sign-in and consent screen — authorization code with
+          PKCE, refresh and revocation, and no bearer token to paste anywhere:</p>
+        <pre class="code" data-docs="remote-mcp"><code>$ claude mcp add --transport http rtfx https://mcp.rtfx.pro/mcp
+$ claude mcp login rtfx
+
+tools: doctor</code></pre>
+        <p><b>It reports; it does not publish.</b> The endpoint exposes one read-only tool,
+          <code>doctor</code>, which tells you how the calling credential is authenticated, which
+          scopes it holds, where artifacts are served from and whether the instance answers — the
+          first thing to run when a connection misbehaves. Publishing stays with the plugin and the
+          local MCP server, and that is a design decision rather than a missing switch:
+          <code>publish</code> takes a path on the machine running the <i>client</i>, so a
+          server-side endpoint asked for one could only ever read the server's disk. Publishing over
+          the hosted endpoint would be an upload — bytes travelling up in the request — and that is
+          not built.</p>
         <div class="callout">
           <p><b>Why a token, not your login.</b> An API token is bound to its owner, carries only the
             scopes you give it (<code>read</code>, <code>publish</code>, <code>manage</code>), and can
@@ -452,8 +518,10 @@ tools: publish · list_artifacts · get_versions · rollback · doctor</code></p
         <ul class="stance" data-positioning="differentiators">
           <li><b>Agent-native publishing, not an upload form with an API bolted on.</b> Claude Code,
             a native MCP server, a Hermes run, the CLI and the HTTP API all take the same path a
-            human takes — there is no separate, weaker agent route. An agent holds a scoped,
-            owner-bound, revocable token, so it can publish as you and can never become you.</li>
+            human takes — there is no separate, weaker agent route. Connecting Claude Code is a
+            browser sign-in rather than a token you copy between two windows, and what it leaves
+            behind is still a scoped, owner-bound, revocable credential: an agent can publish as
+            you and can never become you.</li>
           <li><b>Access is an identity, not a secret URL.</b> Every artifact is restricted until you
             name someone. An unauthorized request and a request for something that doesn't exist
             return the identical 404, so a leaked link can't even confirm the page is real. Sharing
