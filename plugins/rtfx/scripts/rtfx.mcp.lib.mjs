@@ -38,6 +38,14 @@ import {
   shouldRetryOnLegacyApi,
 } from "./rtfx.lib.mjs";
 import { BundleError, describeSkips } from "./rtfx.bundle.mjs";
+import {
+  OAuthError,
+  describeCredential,
+  issuerFor,
+  needsRefresh,
+  redactRefreshToken,
+  refreshCredential,
+} from "./rtfx.oauth.lib.mjs";
 
 /** Reported in `initialize`; bumped with the plugin manifest. */
 export const SERVER_INFO = {
@@ -303,13 +311,22 @@ export function redactSecrets(text, config = null) {
   if (config?.token) secrets.push([config.token, redactToken(config.token)]);
   if (config?.access?.secret) secrets.push([config.access.secret, "[redacted]"]);
   if (config?.access?.id) secrets.push([config.access.id, "[redacted]"]);
+  // A refresh token mints access tokens, so it is at least as sensitive as one —
+  // and it does not match the `rtfx_<id>_<secret>` shape below, which is exactly
+  // why it has to be named here rather than left to the pattern.
+  if (config?.credential?.refresh_token) {
+    secrets.push([config.credential.refresh_token, redactRefreshToken(config.credential.refresh_token)]);
+  }
   for (const [secret, replacement] of secrets) {
     if (secret.length < 4) continue;
     out = out.split(secret).join(replacement);
   }
   // Anything else token-shaped — a token for a *different* instance, say — is
-  // cut down to its id too, on the same reasoning.
-  return out.replace(/\brtfx_([A-Za-z0-9]{4,})_[A-Za-z0-9_-]{8,}/g, "rtfx_$1_…");
+  // cut down to its id too, on the same reasoning. Refresh tokens carry no id
+  // worth showing, so they go to a constant.
+  return out
+    .replace(/\brtfxr_[A-Za-z0-9_-]{16,}/g, "rtfxr_…")
+    .replace(/\brtfx_([A-Za-z0-9]{4,})_[A-Za-z0-9_-]{8,}/g, "rtfx_$1_…");
 }
 
 // --- Calling the API ---------------------------------------------------------
@@ -330,18 +347,109 @@ export class ToolError extends Error {
  * The execution context. `fetchImpl` and `prepareBundle` are injected so this
  * module never touches the network or the filesystem itself — which is what lets
  * the test suite point `fetchImpl` at the real Worker.
+ *
+ * `credentials` is the same idea applied to the OAuth store: an optional
+ * `{ read(issuer), write(issuer, credential) }` pair, supplied by `rtfx-mcp.mjs`
+ * from a 0600 file and by the test suite from an object. Absent, the server
+ * behaves exactly as it did before browser login existed — `RTFX_API_TOKEN` or
+ * nothing.
  */
-export function createContext({ env = {}, fetch: fetchImpl, prepareBundle, File: FileImpl, node = null } = {}) {
-  return { env, config: resolveConfig(env), fetchImpl, prepareBundle, FileImpl, node };
+export function createContext({
+  env = {},
+  fetch: fetchImpl,
+  prepareBundle,
+  File: FileImpl,
+  node = null,
+  credentials = null,
+  now = () => Date.now(),
+} = {}) {
+  const ctx = { env, fetchImpl, prepareBundle, FileImpl, node, credentials, now };
+  // Resolved eagerly so `--help` and `describeEnv` have something to report
+  // without awaiting. `resolveRuntimeConfig` re-derives it, with a refresh, on
+  // the way into every call that actually needs a live credential.
+  ctx.config = resolveConfig(env, { credential: readStoredCredential(ctx) });
+  return ctx;
 }
 
-function requireToken(ctx) {
-  if (!ctx.config.hasToken) {
-    throw new ToolError(`${TOKEN_VAR} is not set`, {
-      hint: `Mint a token at ${ctx.config.endpoint}/admin/integrations (scopes: read, publish) and set ${TOKEN_VAR} in the MCP server's env block.`,
+/** The stored credential for this context's endpoint, if a store was supplied. */
+function readStoredCredential(ctx) {
+  if (!ctx.credentials?.read) return null;
+  const issuer = issuerFor(resolveConfig(ctx.env).endpoint);
+  if (!issuer) return null;
+  try {
+    return ctx.credentials.read(issuer);
+  } catch {
+    // An unreadable store is the same as no store: `login` rewrites it, and a
+    // crash here would take down a server that might not have needed it anyway.
+    return null;
+  }
+}
+
+/**
+ * The config a call should run on, renewed if need be.
+ *
+ * This is the whole of the MCP server's OAuth integration, and it deliberately
+ * sits on the *call* path rather than at startup. An MCP server started by a
+ * client stays alive for the length of a session — far longer than the one-hour
+ * access token — so a credential resolved once at boot would be stale for most
+ * of its life. Checking here costs one file read per call and means a session
+ * that was signed in when it started is still signed in hours later.
+ *
+ * `RTFX_API_TOKEN` short-circuits it entirely, including the file read.
+ */
+export async function resolveRuntimeConfig(ctx) {
+  if (resolveConfig(ctx.env).hasToken) {
+    ctx.config = resolveConfig(ctx.env);
+    return ctx.config;
+  }
+  const credential = readStoredCredential(ctx);
+  if (!credential) {
+    ctx.config = resolveConfig(ctx.env);
+    return ctx.config;
+  }
+
+  const nowMs = ctx.now();
+  if (!needsRefresh(credential, nowMs)) {
+    ctx.config = resolveConfig(ctx.env, { credential });
+    return ctx.config;
+  }
+
+  let next;
+  try {
+    next = await refreshCredential({ credential, fetchImpl: ctx.fetchImpl, nowMs });
+  } catch (e) {
+    const oauth = e instanceof OAuthError ? e : null;
+    throw new ToolError("the stored rtfx sign-in could not be renewed", {
+      detail: oauth?.detail ?? e?.message ?? String(e),
+      hint: oauth?.needsLogin
+        ? "Run `/rtfx:login` (or `node scripts/rtfx.mjs login`) to sign in again."
+        : (oauth?.hint ?? "Retry; if it persists the server is refusing the refresh."),
     });
   }
+  // Written down before it is used: the server spends the presented refresh
+  // token on the way to issuing this one, so a rotation this process fails to
+  // persist would strand the credential on disk pointing at a spent token.
+  try {
+    ctx.credentials.write(credential.issuer ?? issuerFor(ctx.config.endpoint), next);
+  } catch (e) {
+    throw new ToolError("the renewed rtfx sign-in could not be saved", {
+      detail: e?.message ?? String(e),
+      hint: "Check that the credentials file is writable, then run `/rtfx:login` again.",
+    });
+  }
+  ctx.config = resolveConfig(ctx.env, { credential: next });
   return ctx.config;
+}
+
+/** The live config, or a refusal naming both ways to fix it. */
+async function requireToken(ctx) {
+  const config = await resolveRuntimeConfig(ctx);
+  if (!config.hasToken) {
+    throw new ToolError("no rtfx credential is available", {
+      hint: `Run \`/rtfx:login\` to sign in with a browser, or set ${TOKEN_VAR} in the MCP server's env block (a token from ${config.endpoint}/admin/integrations, scopes: read, publish).`,
+    });
+  }
+  return config;
 }
 
 /** One HTTP attempt, with the transport failure already turned into a ToolError. */
@@ -376,7 +484,7 @@ async function attempt(ctx, cfg, path, init) {
  * `error`, so a real "not yours" is never retried.
  */
 async function api(ctx, path, init = {}) {
-  const cfg = requireToken(ctx);
+  const cfg = await requireToken(ctx);
   const machine = machineApiPath(path);
   let out = await attempt(ctx, cfg, machine, init);
   if (machine !== path && shouldRetryOnLegacyApi(out.res.status, out.body)) {
@@ -464,8 +572,6 @@ async function publish(ctx, args) {
       ctx.config
     );
   }
-
-  requireToken(ctx);
 
   const form = new FormData();
   // Only send a title when we have one to send: omitting it on a republish is
@@ -567,6 +673,10 @@ export function describeEnv(ctx) {
     endpoint_default: ctx.config.endpoint === DEFAULT_ENDPOINT,
     token_set: ctx.config.hasToken,
     token: ctx.config.hasToken ? redactToken(ctx.config.token) : null,
+    credential_source: ctx.config.source ?? "none",
+    // `describeCredential` reports the token *id*, never the token, and omits the
+    // refresh token entirely — this object is rendered into a tool result.
+    oauth: ctx.config.credential ? describeCredential(ctx.config.credential) : null,
     access_headers: Boolean(ctx.config.access),
     access_tool_enabled: truthy(ctx.env[ACCESS_TOOL_VAR]),
     cloudflare_management_token: "ignored",
@@ -576,22 +686,36 @@ export function describeEnv(ctx) {
   };
 }
 
+/** How `doctor` names the credential it is running on. */
+function sourceLine(facts) {
+  if (facts.credential_source === "env") return `${TOKEN_VAR} (environment)`;
+  if (facts.credential_source === "oauth") {
+    const scopes = facts.oauth?.scopes?.length ? ` · ${facts.oauth.scopes.join(", ")}` : "";
+    return `browser sign-in${scopes} · renews automatically`;
+  }
+  return "none";
+}
+
 async function doctor(ctx) {
+  // Resolved (and renewed) first, so what this reports is the credential a
+  // publish would actually use rather than whatever was true at startup.
+  await resolveRuntimeConfig(ctx);
   const facts = { command: "doctor", ...describeEnv(ctx) };
   if (!ctx.config.hasToken) {
-    throw new ToolError(`${TOKEN_VAR} is not set`, {
+    throw new ToolError("no rtfx credential is available", {
       detail: `endpoint ${facts.endpoint}; tools ${facts.tools.join(", ")}`,
-      hint: `Mint a token at ${facts.endpoint}/admin/integrations (scopes: read, publish) and set ${TOKEN_VAR} in the MCP server's env block.`,
+      hint: `Run \`/rtfx:login\` to sign in with a browser, or set ${TOKEN_VAR} in the MCP server's env block (a token from ${facts.endpoint}/admin/integrations, scopes: read, publish).`,
     });
   }
   const data = await api(ctx, "/api/artifacts");
   return toolResult(
     [
       `endpoint  ${facts.endpoint}`,
+      `auth      ${sourceLine(facts)}`,
       `token     ${facts.token}`,
       `access    ${facts.access_headers ? "service-token headers set" : "not set (fine unless /api is Access-gated)"}`,
       `tools     ${facts.tools.join(", ")}`,
-      `api       ok — ${(data.artifacts ?? []).length} artifact(s) visible to this token`,
+      `api       ok — ${(data.artifacts ?? []).length} artifact(s) visible to this credential`,
     ],
     { ...facts, reachable: true, artifact_count: (data.artifacts ?? []).length },
     ctx.config

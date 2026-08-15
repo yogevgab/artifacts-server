@@ -126,23 +126,49 @@ export function redactToken(token) {
   return id ? `rtfx_${id}_…` : "(unrecognised token format)";
 }
 
+/** Where the bearer token on a resolved config came from. */
+export const SOURCE_ENV = "env";
+export const SOURCE_OAUTH = "oauth";
+export const SOURCE_NONE = "none";
+
 /**
  * Full credential/endpoint resolution.
  *
- * `RTFX_API_TOKEN` is the only credential this needs: publishing goes to the
- * machine API (`MACHINE_API_PREFIX`), which authenticates the bearer token and
- * nothing else. Cloudflare Access service-token headers remain an optional
- * pass-through for self-hosted instances that gate every path at the edge — they
- * are *not* a Cloudflare management token and grant nothing inside the app; the
- * bearer token alone decides identity and scope.
+ * Publishing goes to the machine API (`MACHINE_API_PREFIX`), which authenticates
+ * a bearer token and nothing else. Two things can supply that token, and the
+ * order between them is deliberate:
+ *
+ *  1. `RTFX_API_TOKEN`. Always wins. CI and scripted use set it on purpose, often
+ *     with different scopes than an interactive login would grant, so a stored
+ *     browser credential quietly overriding it would be a surprise in exactly the
+ *     setting where surprises cost the most.
+ *  2. `options.credential` — an OAuth credential from `rtfx.mjs login`, read out
+ *     of the on-disk store by the caller (this module never touches a filesystem).
+ *     Its `access_token` is an ordinary `rtfx_…` token row, so it needs no special
+ *     handling past this point.
+ *
+ * Cloudflare Access service-token headers remain an optional pass-through for
+ * self-hosted instances that gate every path at the edge — they are *not* a
+ * Cloudflare management token and grant nothing inside the app; the bearer token
+ * alone decides identity and scope.
  */
-export function resolveConfig(env = {}) {
+export function resolveConfig(env = {}, options = {}) {
   const endpoint = resolveEndpoint(env);
-  const token = typeof env[TOKEN_VAR] === "string" ? env[TOKEN_VAR].trim() : "";
+  const envToken = typeof env[TOKEN_VAR] === "string" ? env[TOKEN_VAR].trim() : "";
+  const credential = envToken ? null : (options.credential ?? null);
+  const stored = typeof credential?.access_token === "string" ? credential.access_token.trim() : "";
+  const token = envToken || stored;
   const accessId = (env.CF_ACCESS_CLIENT_ID ?? "").trim();
   const accessSecret = (env.CF_ACCESS_CLIENT_SECRET ?? "").trim();
   const access = accessId && accessSecret ? { id: accessId, secret: accessSecret } : null;
-  return { endpoint, token, access, hasToken: Boolean(token) };
+  return {
+    endpoint,
+    token,
+    access,
+    hasToken: Boolean(token),
+    source: envToken ? SOURCE_ENV : stored ? SOURCE_OAUTH : SOURCE_NONE,
+    credential: stored ? credential : null,
+  };
 }
 
 /** Request headers for a resolved config. Never logged. */
@@ -237,7 +263,7 @@ export function describeNonJsonResponse(requestedUrl, finalUrl) {
  * Argument parsing, matching cli/artifacts.mjs so a person moving between the
  * two is never surprised: `--flag value`, plus a fixed set of valueless flags.
  */
-export const BOOLEAN_FLAGS = new Set(["json", "help", "dry-run", "overwrite"]);
+export const BOOLEAN_FLAGS = new Set(["json", "help", "dry-run", "overwrite", "manual"]);
 
 export function parseArgs(argv) {
   const flags = {};
@@ -403,9 +429,9 @@ export function describeApiError(status, body = {}) {
   const base = { status, error, detail, retryable: false };
   switch (true) {
     case status === 401 && error === "unauthorized":
-      return { ...base, hint: `No bearer token reached the server. Set ${TOKEN_VAR} to a token minted at /admin/integrations.` };
+      return { ...base, hint: `No bearer token reached the server. Run \`rtfx.mjs login\` (or /rtfx:login), or set ${TOKEN_VAR} to a token minted at /admin/integrations.` };
     case status === 401:
-      return { ...base, hint: `${TOKEN_VAR} is unknown, revoked or expired — mint a new token; retrying will not help.` };
+      return { ...base, hint: `That credential is unknown, revoked or expired — run \`rtfx.mjs login\` again, or mint a new ${TOKEN_VAR}. Retrying will not help.` };
     case status === 403 && error === "insufficient_scope":
       return { ...base, hint: "The token lacks the scope for this call. Publishing needs `publish`; access changes need `manage`." };
     case status === 403 && error === "account_disabled":

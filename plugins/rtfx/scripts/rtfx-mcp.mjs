@@ -36,6 +36,8 @@ import { join } from "node:path";
 import { deflateRawSync } from "node:zlib";
 import { DEFAULT_ENDPOINT, TOKEN_VAR } from "./rtfx.lib.mjs";
 import { prepareBundle } from "./rtfx.bundle.mjs";
+import { getCredential, putCredential } from "./rtfx.oauth.lib.mjs";
+import { credentialsPath, loadStore, saveStore } from "./rtfx.oauth.mjs";
 import {
   ACCESS_TOOL_VAR,
   SERVER_INFO,
@@ -73,12 +75,26 @@ const IO = {
   deflate: (bytes) => new Uint8Array(deflateRawSync(bytes)),
 };
 
+// --- The OAuth credential store, injected ------------------------------------
+//
+// Same shape as IO above and for the same reason: rtfx.mcp.lib.mjs must not
+// import `node:fs`, so it takes the store as two functions. `read` runs on the
+// way into every call — one small file read — because an MCP server outlives the
+// one-hour access token it started with, and a credential resolved only at boot
+// would be stale for most of the session.
+
+const CREDENTIALS = {
+  read: (issuer) => getCredential(loadStore(process.env), issuer),
+  write: (issuer, credential) => saveStore(putCredential(loadStore(process.env), issuer, credential), process.env),
+};
+
 const ctx = createContext({
   env: process.env,
   fetch: (...args) => fetch(...args),
   prepareBundle: (path) => prepareBundle(path, IO),
   File,
   node: process.version,
+  credentials: CREDENTIALS,
 });
 
 const DEBUG = ["1", "true", "yes", "on"].includes(String(process.env.RTFX_MCP_DEBUG ?? "").toLowerCase());
@@ -89,6 +105,16 @@ function log(message) {
 }
 
 // --- --help ------------------------------------------------------------------
+
+/** Which of the two credentials `--help` is looking at. Never prints either. */
+function describeSource(facts) {
+  if (facts.credential_source === "env") return `${TOKEN_VAR} (environment)`;
+  if (facts.credential_source === "oauth") {
+    const scopes = facts.oauth?.scopes?.length ? ` · ${facts.oauth.scopes.join(", ")}` : "";
+    return `browser sign-in${scopes} · expires ${facts.oauth?.expires_at ?? "unknown"}, renews automatically`;
+  }
+  return "none";
+}
 
 if (process.argv.slice(2).some((a) => a === "--help" || a === "-h" || a === "help")) {
   const facts = describeEnv(ctx);
@@ -106,8 +132,13 @@ if (process.argv.slice(2).some((a) => a === "--help" || a === "-h" || a === "hel
       `      "command": "node", "args": ["${process.argv[1]}"],`,
       `      "env": { "${TOKEN_VAR}": "rtfx_…" } } } }`,
       "",
+      "Credentials — either one works, and the environment variable wins:",
+      `  node ${process.argv[1].replace(/rtfx-mcp\.mjs$/, "rtfx.mjs")} login`,
+      "                            a browser sign-in, stored 0600 and renewed automatically",
+      `  ${TOKEN_VAR}            a scoped token from the dashboard → Integrations`,
+      "",
       "Environment:",
-      `  ${TOKEN_VAR}            required — a scoped token from the dashboard → Integrations`,
+      `  ${TOKEN_VAR}            optional — takes priority over a stored sign-in`,
       `  ARTIFACTS_URL             optional — default ${DEFAULT_ENDPOINT} (RTFX_URL is an alias)`,
       "  CF_ACCESS_CLIENT_ID/…     optional — Cloudflare Access service token, edge gating only",
       `  ${ACCESS_TOOL_VAR}     optional — set to 1 to also expose update_access`,
@@ -115,7 +146,9 @@ if (process.argv.slice(2).some((a) => a === "--help" || a === "-h" || a === "hel
       "",
       "As configured right now:",
       `  endpoint  ${facts.endpoint}`,
-      `  token     ${facts.token ?? `not set — export ${TOKEN_VAR}`}`,
+      `  auth      ${describeSource(facts)}`,
+      `  token     ${facts.token ?? "none — run login, or export " + TOKEN_VAR}`,
+      `  store     ${credentialsPath()}`,
       `  tools     ${facts.tools.join(", ")}`,
       "",
     ].join("\n")
