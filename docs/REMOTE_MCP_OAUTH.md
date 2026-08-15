@@ -12,30 +12,32 @@ claude mcp add --transport http rtfx https://mcp.rtfx.pro/mcp
 claude mcp login rtfx
 ```
 
-**Status: the transport exists; the login does not.** `POST /mcp` is served by this app
-(`src/mcp.ts`) and authenticates a bearer `rtfx_…` token. `claude mcp login` needs an OAuth
-authorization server, and there is none — no `/.well-known` metadata, no authorization endpoint, no
-token endpoint, no client registration. `mcp.rtfx.pro` is not a hostname; the route answers on the
-app host of whatever instance is deployed.
+**Status: the transport and server-side OAuth flow exist; production login still needs live-client
+smoke.** `POST /mcp` is served by this app (`src/mcp.ts`) and accepts ordinary `rtfx_…` bearer
+tokens. The OAuth authorization server (`src/oauth-routes.ts`) now serves RFC 9728/RFC 8414
+discovery, dynamic public-client registration, authorization-code + PKCE consent, access-token
+issuance as short-lived `api_tokens`, refresh-token rotation and revocation. `mcp.rtfx.pro` is not a
+hostname; the route answers on the app host of whatever instance is deployed.
 
 ---
 
-## 1. What shipped: the bearer-token bridge
+## 1. What ships: bearer-token bridge plus OAuth authorization server
 
 | | |
 |---|---|
 | Route | `POST /mcp` on the **app** host. A content host answers 404 (`MANAGEMENT_PREFIXES`, src/host.ts). |
 | Transport | MCP Streamable HTTP. One JSON-RPC message per POST, one JSON response. No SSE stream, no session id. |
-| Auth | `Authorization: Bearer rtfx_…`, gated by `requireApiToken` — the *same* middleware as `/api/machine/*`. |
+| Auth | `Authorization: Bearer rtfx_…`, gated by `requireApiToken` — the *same* middleware as `/api/machine/*`. A token may be hand-minted in `/admin/integrations` or issued by the OAuth flow below. |
 | Tools | `doctor`, and nothing else. |
-| Tests | [`test/mcp-http.test.ts`](../test/mcp-http.test.ts), driving the real Worker, D1 and the real token API. |
+| OAuth | Discovery + dynamic registration + authorization-code/PKCE + refresh/revoke. |
+| Tests | [`test/mcp-http.test.ts`](../test/mcp-http.test.ts) and [`test/oauth.test.ts`](../test/oauth.test.ts), driving the real Worker, D1 and token API. |
 
-It is a bridge in the literal sense: it is the half of the destination that does not need an
-authorization server, built so the half that does can be dropped in behind it without moving the
-route, the transport or the tool surface. A client configured with
-`claude mcp add --transport http rtfx https://<instance>/mcp --header "Authorization: Bearer rtfx_…"`
-connects today. `claude mcp login rtfx` still fails, and this document is not permission to say
-otherwise anywhere.
+It is still a bridge in one important sense: the remote endpoint can be authorized by browser login,
+but it exposes only `doctor`. Publishing still belongs to the local plugin because publishing needs
+the user's local files. A client configured with
+`claude mcp add --transport http rtfx https://<instance>/mcp --header "Authorization: Bearer ***"`
+connects today; a compliant OAuth client can also discover the authorization server from `/mcp`'s
+401 challenge.
 
 ### What it deliberately does not do
 
@@ -55,10 +57,9 @@ one after clients depend on it is not.
 **No `update_access`, and nothing that manages users, tokens or workspaces.** Same rule the rest of
 the machine surface follows (`denyApiToken`, src/api.ts). Not merely unlisted — there is no handler.
 
-**No OAuth metadata.** A 401 from `/mcp` carries a plain `WWW-Authenticate: Bearer` challenge with
-**no** `resource_metadata` parameter. MCP clients read that parameter and go looking for an
-RFC 9728 document; advertising one we do not serve would send every compliant client into a
-discovery 404 and would amount to claiming OAuth exists here. A test pins the absence.
+**OAuth metadata is real.** A 401 from `/mcp` carries `resource_metadata` pointing to
+`/.well-known/oauth-protected-resource/mcp`, and that document names the authorization server on the
+same origin. Tests fetch the named document; advertising a missing one would be a blocker.
 
 ### Security decisions, and why
 
@@ -80,9 +81,10 @@ discovery 404 and would amount to claiming OAuth exists here. A test pins the ab
 - **The allow-list is a literal.** `REMOTE_TOOLS` is written out, not filtered from the stdio
   server's `TOOLS` — a derived allow-list grows silently when its source grows.
 
-## 2. The next slice: OAuth
+## 2. OAuth implementation
 
-What follows is a **design, not an implementation**. Nothing in it exists in this repository.
+This section is now the implementation contract for `src/oauth-routes.ts`, `src/oauth.ts`,
+`src/oauth-consent.ts` and `migrations/0019_oauth.sql`.
 
 MCP's authorization spec (revision 2025-06-18) makes the MCP server an OAuth 2.1 *resource server*.
 It does not have to be the authorization server, but for rtfx it should be: we already own sign-in
@@ -108,7 +110,7 @@ client                     rtfx (RS + AS)
   │  POST /mcp  Bearer …     ──►  200
 ```
 
-### 2.2 Routes to add
+### 2.2 Routes
 
 | Route | Spec | Notes |
 |---|---|---|
@@ -120,13 +122,14 @@ client                     rtfx (RS + AS)
 | `POST /oauth/token` | OAuth 2.1 | `authorization_code` + PKCE, and `refresh_token`. No implicit grant, no password grant. |
 | `POST /oauth/revoke` | RFC 7009 | So `claude mcp logout` is real. |
 
-`/mcp`'s 401 gains the `resource_metadata` parameter **in the same change** that adds the document —
-never before it.
+`/mcp`'s 401 names the protected-resource document. The challenge and the document are shipped and
+tested together.
 
 ### 2.3 Storage
 
 Three new tables, plus two columns on the one that exists. Only hashes are stored, exactly as
-`api_tokens` does today (src/tokens.ts).
+`api_tokens` does today (src/tokens.ts). Fresh installs get the columns from `schema.sql`; existing
+instances apply `migrations/0019_oauth.sql` once.
 
 ```sql
 CREATE TABLE oauth_clients (
@@ -169,7 +172,7 @@ ALTER TABLE api_tokens ADD COLUMN oauth_client_id TEXT;
 
 ### 2.4 The load-bearing decision: the access token is an `api_tokens` row
 
-An OAuth access token should be minted by `createApiToken` with a short expiry (an hour), the scopes
+An OAuth access token is minted by `createApiToken` with a short expiry (an hour), the scopes
 consented to, the workspace the person was acting in, and `issued_via = 'oauth'`. It is then an
 ordinary `rtfx_…` bearer credential.
 

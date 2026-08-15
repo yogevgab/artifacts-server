@@ -69,19 +69,19 @@ claude mcp add --transport http rtfx https://mcp.rtfx.pro/mcp
 claude mcp login rtfx
 ```
 
-**Half of that is built.** The app now answers MCP over HTTP at `POST /mcp`, so the first command
-has a real shape:
+**The server-side pieces are now built on the app host.** The app answers MCP over HTTP at
+`POST /mcp`, advertises OAuth discovery metadata, dynamically registers public clients, and can issue
+short-lived scoped `rtfx_…` tokens through authorization-code + PKCE:
 
 ```bash
 claude mcp add --transport http rtfx https://rtfx.pro/mcp \
   --header "Authorization: Bearer rtfx_…"
 ```
 
-**`claude mcp login rtfx` does not work.** There is no OAuth authorization server here, no
-`/.well-known` metadata and no browser sign-in for MCP — that is the next slice, designed in
-[`REMOTE_MCP_OAUTH.md`](REMOTE_MCP_OAUTH.md). And the HTTP endpoint is a *foundation*: it exposes
-one read-only tool, `doctor`, and cannot publish — publishing needs to read files on your machine,
-which a server cannot do. It removes no setup step yet, because you still paste the same token.
+The OAuth path still needs production smoke with a real Claude Code client before it becomes the
+main onboarding recommendation, and the HTTP endpoint still exposes only one read-only tool,
+`doctor`. It cannot publish — publishing needs to read files on your machine, which a hosted server
+cannot do.
 
 Section 2, with the plugin, remains the supported path for actually publishing.
 

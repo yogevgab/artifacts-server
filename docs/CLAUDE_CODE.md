@@ -64,15 +64,12 @@ export ARTIFACTS_URL=https://rtfx.pro   # only when self-hosting
 `/rtfx:setup` verifies both and reports the token's **id** — never the token.
 
 That third step is the one worth removing. A hand-exported token is a developer setup, and the
-intended replacement is a hosted remote MCP server with a browser sign-in — `claude mcp add
---transport http rtfx https://mcp.rtfx.pro/mcp`, then `claude mcp login rtfx`. **The transport is
-built; the sign-in is not.** The app serves MCP over HTTP at `POST /mcp` (`src/mcp.ts`) with one
-read-only tool and the same bearer token — see [`REMOTE_MCP_OAUTH.md`](REMOTE_MCP_OAUTH.md). There
-is still no OAuth handler, no `/.well-known` authorization-server metadata and no `mcp.rtfx.pro`
-origin, so `claude mcp login` fails and the token export is unchanged. The **plugin** is unaffected
-either way: `scripts/rtfx-mcp.mjs` speaks stdio and reads `RTFX_API_TOKEN`. The README,
-`/rtfx:setup` and the onboarding page all state the target shape and label the parts that do not
-work, so a reader can recognize the change later without being told it works now.
+server-side remote MCP path now has the browser-login pieces: `POST /mcp`, OAuth discovery, dynamic
+client registration, authorization-code + PKCE, refresh and revoke — see
+[`REMOTE_MCP_OAUTH.md`](REMOTE_MCP_OAUTH.md). The **plugin** is unaffected either way:
+`scripts/rtfx-mcp.mjs` speaks stdio and reads `RTFX_API_TOKEN`. Remote MCP currently exposes only
+`doctor`, has no `mcp.rtfx.pro` hostname and cannot publish local files, so the token export remains
+the supported publishing path.
 
 Anyone can add this marketplace today — a custom marketplace needs no approval, only a valid
 `.claude-plugin/marketplace.json` in a reachable repository. Inclusion in Anthropic's official or

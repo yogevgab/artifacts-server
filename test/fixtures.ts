@@ -24,6 +24,9 @@ export async function initDb() {
     "billing_events",
     "contact_requests",
     "admin_audit",
+    "oauth_clients",
+    "oauth_codes",
+    "oauth_refresh_tokens",
   ]) {
     await env.DB.prepare(`DROP TABLE IF EXISTS ${table}`).run();
   }
@@ -57,12 +60,17 @@ export async function initDb() {
     `CREATE TABLE waitlist (
       id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL)`
   ).run();
+  // `issued_via` and `oauth_client_id` (migration 0019) are part of this table
+  // now. Without them here the whole suite would exercise the pre-0019 fallback
+  // in `markTokenIssuedViaOAuth` instead of the shipped path, and
+  // `/oauth/revoke` would never find an OAuth-issued token to revoke.
   await env.DB.prepare(
     `CREATE TABLE api_tokens (
       id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
       owner_email TEXT, account_id TEXT, is_admin INTEGER NOT NULL DEFAULT 0,
       scopes TEXT NOT NULL DEFAULT 'read,publish', created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL, last_used_at TEXT, expires_at TEXT, revoked_at TEXT)`
+      created_at TEXT NOT NULL, last_used_at TEXT, expires_at TEXT, revoked_at TEXT,
+      issued_via TEXT, oauth_client_id TEXT)`
   ).run();
   await env.DB.prepare(
     `CREATE TABLE users (
@@ -126,6 +134,38 @@ export async function initDb() {
       action TEXT NOT NULL, target_type TEXT NOT NULL, target_id TEXT,
       summary TEXT, detail TEXT, created_at TEXT NOT NULL)`
   ).run();
+  // The OAuth authorization server (migration 0019). Mirrors schema.sql.
+  await env.DB.prepare(
+    `CREATE TABLE oauth_clients (
+      client_id TEXT PRIMARY KEY, client_name TEXT NOT NULL,
+      redirect_uris TEXT NOT NULL, scope TEXT,
+      created_at TEXT NOT NULL, last_used_at TEXT)`
+  ).run();
+  await env.DB.prepare(
+    `CREATE TABLE oauth_codes (
+      code_hash TEXT PRIMARY KEY, client_id TEXT NOT NULL, email TEXT NOT NULL,
+      account_id TEXT, scopes TEXT NOT NULL, resource TEXT NOT NULL,
+      redirect_uri TEXT NOT NULL, code_challenge TEXT NOT NULL,
+      expires_at TEXT NOT NULL, consumed_at TEXT, created_at TEXT NOT NULL)`
+  ).run();
+  await env.DB.prepare(
+    `CREATE TABLE oauth_refresh_tokens (
+      id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, client_id TEXT NOT NULL,
+      email TEXT NOT NULL, account_id TEXT, scopes TEXT NOT NULL, resource TEXT NOT NULL,
+      created_at TEXT NOT NULL, last_used_at TEXT, expires_at TEXT, revoked_at TEXT)`
+  ).run();
+}
+
+/**
+ * Drop the OAuth tables, to exercise the "Worker ahead of migration 0019" path:
+ * every OAuth route must degrade to a clean `temporarily_unavailable` rather
+ * than a 500, and the bearer-token path that has always served `/mcp` must be
+ * untouched.
+ */
+export async function dropOAuthTables() {
+  for (const table of ["oauth_codes", "oauth_refresh_tokens", "oauth_clients"]) {
+    await env.DB.prepare(`DROP TABLE IF EXISTS ${table}`).run();
+  }
 }
 
 /**

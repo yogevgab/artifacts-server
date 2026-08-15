@@ -12,11 +12,13 @@
  *     header instead. It is gated by `requireApiToken`, the identical middleware
  *     that guards `/api/machine/*`, so this endpoint can never be a looser door
  *     into the product than the one that already exists.
- *   • **OAuth is NOT implemented.** There is no authorization server here, no
- *     `/.well-known` metadata, and `claude mcp login rtfx` does not work. A 401
- *     from here carries a plain `WWW-Authenticate: Bearer` challenge and
- *     deliberately no `resource_metadata` parameter, because advertising a
- *     metadata document we do not serve would send every compliant client into a
+ *   • **OAuth discovery is real.** A 401 from here names an RFC 9728
+ *     protected-resource document that this app actually serves
+ *     (`PROTECTED_RESOURCE_PATH`, src/oauth-routes.ts), so a compliant client
+ *     can discover the authorization server, register itself and run the
+ *     authorization-code + PKCE flow. The challenge and the document were added
+ *     in the same change, and a test pins that the document answers 200 —
+ *     advertising one we did not serve would send every compliant client into a
  *     discovery loop that ends in a 404.
  *
  * ## Why the tool surface is one read-only tool
@@ -51,6 +53,7 @@ import { accountIdsWithAtLeast, MANAGE_ARTIFACTS } from "./accounts";
 import { listArtifacts, listArtifactsForCaller } from "./db";
 import { firstContentHostname } from "./host";
 import { siteOrigin } from "./seo";
+import { AS_METADATA_PATH, PROTECTED_RESOURCE_PATH } from "./oauth";
 import {
   SERVER_INFO,
   SUPPORTED_PROTOCOL_VERSIONS,
@@ -114,8 +117,10 @@ takes a path on the machine running the client, and this server cannot read that
 publish, use the local rtfx plugin (/plugin marketplace add yogevgab/artifacts-server, then
 /plugin install rtfx@rtfx), which runs beside your files and speaks the same protocol over stdio.
 
-Authentication is an "Authorization: Bearer <rtfx token>" header, using a token minted at
-/admin/integrations. OAuth browser sign-in ("claude mcp login") is not implemented yet.`;
+Authentication is an "Authorization: Bearer <rtfx token>" header. The token can be minted by hand at
+/admin/integrations, or obtained by OAuth: this server is its own authorization server, advertises
+RFC 9728 / RFC 8414 discovery metadata, and supports dynamic client registration with
+authorization-code + PKCE. Either way the credential is the same kind of scoped, revocable token.`;
 
 // --- Cross-origin policy -----------------------------------------------------
 
@@ -291,8 +296,14 @@ async function doctor(c: Context<Vars>): Promise<ToolCallResult> {
     is_admin: identity.isAdmin,
     account_id: identity.accountId ?? null,
     auth: "bearer_token",
-    /** Stated as a fact rather than omitted, so a client stops looking for it. */
-    oauth: "not_implemented",
+    /**
+     * Stated as a fact rather than omitted, so a client knows what it may do.
+     * `authorization_code` means the discovery documents below are real and the
+     * browser flow works; it does not mean this particular token came from it.
+     */
+    oauth: "authorization_code",
+    oauth_protected_resource: `${endpoint}${PROTECTED_RESOURCE_PATH}`,
+    oauth_authorization_server: `${endpoint}${AS_METADATA_PATH}`,
     tools: REMOTE_TOOLS.map((t) => t.name),
     publish_supported: false,
     local_only_tools: LOCAL_ONLY_TOOLS,
@@ -305,7 +316,7 @@ async function doctor(c: Context<Vars>): Promise<ToolCallResult> {
       `endpoint  ${facts.endpoint}`,
       `content   ${facts.content_base}`,
       `token     ${facts.token}  (scopes: ${facts.scopes.join(", ") || "none"})`,
-      `transport http (remote) — bearer token; OAuth sign-in is not implemented`,
+      `transport http (remote) — bearer token; OAuth sign-in is available (authorization_code + PKCE)`,
       `tools     ${facts.tools.join(", ")}`,
       `publish   not available over HTTP — use the local rtfx plugin, which can read your files`,
       artifactCount === null
@@ -389,9 +400,33 @@ export const mcpRoutes = new Hono<Vars>();
 
 // Order is load-bearing, and each of these runs before the one after it:
 //   1. CORS/preflight and Origin validation — must precede authentication.
-//   2. Method check — a GET must answer 405, not the gate's 401.
-//   3. The bearer gate, shared verbatim with /api/machine/*.
+//   2. The RFC 9728 challenge decoration, which has to wrap the gate below it.
+//   3. Method check — a GET must answer 405, not the gate's 401.
+//   4. The bearer gate, shared verbatim with /api/machine/*.
 mcpRoutes.use(MCP_PATH, mcpCors);
+
+/**
+ * RFC 9728 §5.1 / MCP authorization: every 401 from this endpoint names the
+ * protected-resource document that describes it, so a client with no credential
+ * can discover the authorization server instead of simply failing.
+ *
+ * Done by decorating the gate's response rather than by widening
+ * `requireApiToken`, because that middleware is shared verbatim with
+ * `/api/machine/*` — a surface with no authorization server in front of it,
+ * whose 401 must not start a discovery flow.
+ *
+ * The URL is built from the origin the request actually arrived on, matching
+ * what the documents themselves advertise (see the header of
+ * src/oauth-routes.ts): a challenge naming a different host than the one the
+ * client is talking to is a challenge it cannot act on.
+ */
+mcpRoutes.use(MCP_PATH, async (c, next) => {
+  await next();
+  if (c.res.status !== 401) return;
+  const existing = c.res.headers.get("WWW-Authenticate") ?? "Bearer";
+  const metadata = `${new URL(c.req.url).origin}${PROTECTED_RESOURCE_PATH}`;
+  c.header("WWW-Authenticate", `${existing}, resource_metadata="${metadata}"`);
+});
 
 mcpRoutes.use(MCP_PATH, async (c, next) => {
   if (c.req.method === "POST") return next();

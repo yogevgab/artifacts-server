@@ -36,14 +36,11 @@ The token is normally the whole credential set: publishing goes to `/api/machine
 authenticates the bearer token and nothing else.
 
 If the user pushes back on exporting a token by hand, agree — it is a developer setup step, not the
-intended end state. The direction is a hosted remote MCP server with a browser sign-in
-(`claude mcp add --transport http rtfx https://mcp.rtfx.pro/mcp`, then `claude mcp login rtfx`).
-Be accurate about its status: **`claude mcp login` does not work — there is no OAuth sign-in yet,
-and this plugin ships no HTTP-transport code.** The plugin's MCP server is stdio-only and reads
-`RTFX_API_TOKEN`. An rtfx instance may serve a remote HTTP MCP endpoint at `/mcp`, but it takes the
-same token by hand, exposes only a read-only `doctor` tool and cannot publish — so it is not a
-shortcut around this step. Do not suggest those commands as a workaround. The token export is the
-supported path.
+intended end state. The server-side remote MCP endpoint at `/mcp` now has OAuth discovery and
+authorization-code + PKCE login, but **this plugin ships no HTTP-transport code**. The plugin's MCP
+server is stdio-only and reads `RTFX_API_TOKEN`. Remote MCP currently exposes only a read-only
+`doctor` tool and cannot publish — so it is not a shortcut around this setup step. The token export
+is the supported path for publishing.
 
 If `doctor` reports that **Cloudflare Access** answered instead of the API, the instance has not
 exposed that surface (see its operator's `DEPLOY_RTFX.md` §5e). Until they do, the only way

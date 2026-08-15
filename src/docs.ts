@@ -351,10 +351,10 @@ $ node cli/artifacts.mjs publish ./out --slug client-demo --title "Checkout prot
 /rtfx:setup       # confirm your token reaches your instance
 /rtfx:publish     # publish what the session just built
 /rtfx:versions    # history · /rtfx:rollback to go back</code></pre>
-        <p>Connecting means the scoped token from Integrations, exported in the shell you start
-          Claude Code in. That is today's step and the one we intend to remove — a hosted sign-in
-          for the MCP server is on the roadmap and <b>not available yet</b>, so the scoped token
-          remains the supported way to connect.</p>
+        <p>Connecting the plugin means the scoped token from Integrations, exported in the shell you
+          start Claude Code in. The server-side remote MCP path now has OAuth discovery and
+          authorization-code + PKCE, but it exposes only the read-only <code>doctor</code> tool; the
+          local plugin remains the supported path for publishing files from your machine.</p>
         <h3>The MCP server</h3>
         <p>The same plugin ships a native MCP server, for a client with no shell to run a command
           in — Claude Desktop, or anything else that speaks MCP. Installing the plugin registers it;
