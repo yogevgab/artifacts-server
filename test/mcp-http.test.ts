@@ -541,6 +541,40 @@ describe("origins and hosts", () => {
    * to an endpoint that authenticates a product credential, or a published page
    * could reach the API that manages it from its own origin.
    */
+  /**
+   * The other half of the same rule, and the one the onboarding command depends
+   * on: `mcp.rtfx.pro` is an *app* host (wrangler.jsonc), so it answers `/mcp`
+   * fully — and its own origin is a recognized one, which is what lets the OAuth
+   * consent screen served there POST back to itself.
+   */
+  it("is served by the dedicated MCP host, whose origin it recognizes", async () => {
+    const { token } = await tokenFor(BOB);
+    const e = { ...env, CONTENT_HOSTNAMES: "a.rtfx.pro", PUBLIC_BASE_URL: "https://rtfx.pro" } as any;
+    const send = (headers: Record<string, string> = {}) =>
+      app.request(
+        `https://mcp.rtfx.pro${MCP_PATH}`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...headers },
+          body: JSON.stringify(ping),
+        },
+        e
+      );
+
+    const res = await send();
+    expect(res.status).toBe(200);
+    expect((await res.json<any>()).result).toEqual({});
+
+    const own = await send({ Origin: "https://mcp.rtfx.pro" });
+    expect(own.status).toBe(200);
+    expect(own.headers.get("Access-Control-Allow-Origin")).toBe("https://mcp.rtfx.pro");
+
+    // The content host is still not an origin it will answer for, from here or
+    // anywhere else.
+    const fromContent = await send({ Origin: "https://a.rtfx.pro" });
+    expect(fromContent.status).toBe(403);
+  });
+
   it("is not served by the content host", async () => {
     const { token } = await tokenFor(BOB);
     const contentEnv = { ...env, CONTENT_HOSTNAMES: "a.test.local" } as any;

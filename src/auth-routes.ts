@@ -21,10 +21,11 @@ import { incrementRateLimitBucket, clientAddress } from "./rate-limit";
 import { touchLastSeen, effectiveRole } from "./users";
 import { ensurePersonalAccount } from "./accounts";
 import { siteOrigin } from "./seo";
-import { parseHostnames, firstContentHostname } from "./host";
-import { getIdentity } from "./auth";
+import { parseHostnames, firstContentHostname, isContentHost, requestHostname } from "./host";
+import { getIdentity, readCookie } from "./auth";
 import { hasGrant, getArtifact } from "./db";
 import { magicLinkConfirmPage } from "./login";
+import { safeNextPath } from "./util";
 
 export const authRoutes = new Hono<AppBindings>();
 
@@ -52,6 +53,87 @@ function sessionCookie(token: string, maxAge: number): string {
   ].join("; ");
 }
 
+/**
+ * Where `?next=` is parked between "email me a code" and the code arriving.
+ *
+ * It cannot ride the challenge: the person may finish on the emailed link
+ * instead of the typed code, and the link is a bare token with nowhere to carry
+ * a destination. A short-lived host-only cookie covers both endings, and covers
+ * them on the host the sign-in *started* on — which is the whole problem on a
+ * multi-host instance, where the session cookie for `mcp.rtfx.pro` is not the
+ * one for `rtfx.pro`.
+ *
+ * `SameSite=Lax` is deliberate and load-bearing: the emailed link is a top-level
+ * GET navigation, which Lax permits, so the confirm page's POST still finds it.
+ */
+const NEXT_COOKIE = "rtfx_next";
+const NEXT_TTL_SECONDS = 600;
+
+/**
+ * The `Set-Cookie` that parks a post-sign-in destination — or, for `null`,
+ * clears a stale one. `/login` with no `next` clears on purpose: an abandoned
+ * OAuth attempt must not silently redirect an ordinary sign-in ten minutes later.
+ */
+export function pendingNextCookie(next: string | null): string {
+  const value = next ? encodeURIComponent(next) : "";
+  return [
+    `${NEXT_COOKIE}=${value}`,
+    "Path=/",
+    "HttpOnly",
+    "Secure",
+    "SameSite=Lax",
+    `Max-Age=${next ? NEXT_TTL_SECONDS : 0}`,
+  ].join("; ");
+}
+
+/**
+ * The parked destination, re-validated on the way out. `safeNextPath` already
+ * ran when the cookie was set; running it again means a tampered cookie is worth
+ * no more than an absent one, and a redirect after sign-in can only ever be a
+ * path on this origin.
+ */
+function pendingNext(c: Context<AppBindings>): string | null {
+  const raw = readCookie(c.req.header("Cookie") ?? c.req.header("cookie"), NEXT_COOKIE);
+  if (!raw) return null;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+  return safeNextPath(decoded);
+}
+
+/**
+ * The origin a sign-in email should point back at.
+ *
+ * Normally `PUBLIC_BASE_URL`. But a sign-in that *started* on another app host of
+ * this same instance — `mcp.rtfx.pro`, mid `claude mcp login` — has to finish
+ * there: the session cookie is host-only, so a link to `rtfx.pro` signs the
+ * person in somewhere their consent screen cannot see.
+ *
+ * Three guards, so the address in an outgoing email is never a surprise: https
+ * only, never a content host (that origin serves uploaded HTML), and the host
+ * must be the canonical site host or a subdomain of it.
+ */
+function signinOrigin(c: Context<AppBindings>): string {
+  const canonical = c.env.PUBLIC_BASE_URL || siteOrigin(c.env);
+  let url: URL;
+  try {
+    url = new URL(c.req.url);
+  } catch {
+    return canonical;
+  }
+  if (url.protocol !== "https:") return canonical;
+  if (isContentHost(c.env, c.req.url)) return canonical;
+
+  const canonicalHost = requestHostname(canonical);
+  const host = url.hostname.toLowerCase();
+  if (!canonicalHost) return canonical;
+  if (host !== canonicalHost && !host.endsWith(`.${canonicalHost}`)) return canonical;
+  return url.origin;
+}
+
 async function startChallenge(
   c: Context<AppBindings>,
   email: string,
@@ -61,7 +143,7 @@ async function startChallenge(
   const now = new Date().toISOString();
   const issued = await createChallenge(c.env, { email, purpose, slug, now });
 
-  const origin = c.env.PUBLIC_BASE_URL || siteOrigin(c.env);
+  const origin = signinOrigin(c);
   const message = signinMail({
     code: issued.code,
     magicUrl: `${origin}/auth/m/${issued.token}`,
@@ -118,7 +200,16 @@ authRoutes.post("/auth/verify", async (c) => {
   const cookie = await establishSession(c.env, challenge.email);
   if (!cookie) return c.json({ error: "not_configured" }, 503);
 
-  return c.json({ ok: true, redirect: "/admin" }, 200, { "Set-Cookie": cookie });
+  // Two Set-Cookie headers, so the response is built by hand: `c.json`'s header
+  // record holds one value per name, and dropping either the session or the
+  // clear-down would be a silent bug rather than a visible one.
+  const headers = new Headers({ "Content-Type": "application/json; charset=UTF-8" });
+  headers.append("Set-Cookie", cookie);
+  headers.append("Set-Cookie", pendingNextCookie(null));
+  return new Response(JSON.stringify({ ok: true, redirect: pendingNext(c) ?? "/admin" }), {
+    status: 200,
+    headers,
+  });
 });
 
 /**
@@ -164,10 +255,10 @@ authRoutes.post("/auth/m/:token", async (c) => {
   // Built by hand rather than with c.redirect(): that helper takes no headers,
   // and a redirect without the Set-Cookie would sign nobody in while looking
   // exactly like success.
-  return new Response(null, {
-    status: 302,
-    headers: { Location: "/admin", "Set-Cookie": cookie },
-  });
+  const headers = new Headers({ Location: pendingNext(c) ?? "/admin" });
+  headers.append("Set-Cookie", cookie);
+  headers.append("Set-Cookie", pendingNextCookie(null));
+  return new Response(null, { status: 302, headers });
 });
 
 /**

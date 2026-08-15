@@ -213,6 +213,177 @@ describe("GET /auth/m/:token", () => {
   });
 });
 
+/**
+ * The sign-in detour that `claude mcp login` depends on.
+ *
+ * `/oauth/authorize` bounces a signed-out visitor to `/login?next=…`. Until this
+ * wiring existed the bounce was one-way: the person signed in and landed on
+ * `/admin` while the MCP client waited for a callback that never came. These
+ * tests pin the round trip *and* the open-redirect refusals, because the thing
+ * on the other side of it is a freshly minted session.
+ */
+describe("?next= round trip", () => {
+  const AUTHZ = "/oauth/authorize?client_id=abc&response_type=code&state=xyz";
+  const parked = (res: Response) =>
+    (res.headers.getSetCookie?.() ?? []).find((c) => c.startsWith("rtfx_next=")) ?? "";
+
+  async function signedIn() {
+    const token = await mintSession(SECRET, { email: "dana@acme.com", kind: "member" }, NOW());
+    return { Cookie: `${SESSION_COOKIE}=${token}` };
+  }
+
+  it("parks a local next in a short-lived host-only cookie", async () => {
+    const res = await app.request(`/login?next=${encodeURIComponent(AUTHZ)}`, {}, testEnv());
+    expect(res.status).toBe(200);
+    const cookie = parked(res);
+    expect(cookie).toContain(encodeURIComponent(AUTHZ));
+    expect(cookie).toContain("HttpOnly");
+    expect(cookie).toContain("Secure");
+    expect(cookie).toContain("SameSite=Lax");
+    // No Domain attribute: it must not reach the content host, and on a
+    // multi-host instance it belongs to the host the sign-in started on.
+    expect(cookie.toLowerCase()).not.toContain("domain=");
+  });
+
+  /** An abandoned authorization must not hijack an ordinary sign-in later. */
+  it("clears a stale parked destination when /login is opened without one", async () => {
+    const res = await app.request("/login", {}, testEnv());
+    expect(parked(res)).toContain("Max-Age=0");
+  });
+
+  it("refuses to park anything that could name another host", async () => {
+    for (const hostile of ["https://evil.example.com/", "//evil.example.com", "/\\evil.example.com"]) {
+      const res = await app.request(`/login?next=${encodeURIComponent(hostile)}`, {}, testEnv());
+      expect(res.status, hostile).toBe(200);
+      expect(parked(res), hostile).toContain("Max-Age=0");
+    }
+  });
+
+  it("sends an already-signed-in visitor straight on, rather than to a dead-end sheet", async () => {
+    const res = await app.request(
+      `/login?next=${encodeURIComponent(AUTHZ)}`,
+      { headers: await signedIn() },
+      testEnv()
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(AUTHZ);
+  });
+
+  it("will not redirect a signed-in visitor off-origin", async () => {
+    const res = await app.request(
+      `/login?next=${encodeURIComponent("https://evil.example.com/")}`,
+      { headers: await signedIn() },
+      testEnv()
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("location")).toBeNull();
+  });
+
+  it("returns the parked destination from the typed-code sign-in, and clears it", async () => {
+    await post("/auth/start", { email: "dana@acme.com" });
+    const res = await app.request(
+      "/auth/verify",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: `rtfx_next=${encodeURIComponent(AUTHZ)}`,
+        },
+        body: JSON.stringify({ email: "dana@acme.com", code: mailedCode() }),
+      },
+      testEnv()
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, redirect: AUTHZ });
+
+    const cookies = res.headers.getSetCookie?.() ?? [];
+    expect(cookies.some((c) => c.startsWith(`${SESSION_COOKIE}=`))).toBe(true);
+    expect(cookies.some((c) => c.startsWith("rtfx_next=") && c.includes("Max-Age=0"))).toBe(true);
+  });
+
+  /**
+   * The emailed link has nowhere to carry a destination — it is a bare token —
+   * which is the whole reason the cookie exists rather than a challenge column.
+   */
+  it("returns the parked destination from the magic link too", async () => {
+    await post("/auth/start", { email: "dana@acme.com" });
+    const res = await app.request(
+      `/auth/m/${mailedToken()}`,
+      { method: "POST", headers: { Cookie: `rtfx_next=${encodeURIComponent(AUTHZ)}` } },
+      testEnv()
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(AUTHZ);
+  });
+
+  /** Re-validated on the way out: a tampered cookie is worth no more than none. */
+  it("ignores a parked destination that names another host", async () => {
+    await post("/auth/start", { email: "dana@acme.com" });
+    const res = await app.request(
+      "/auth/verify",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: `rtfx_next=${encodeURIComponent("https://evil.example.com/")}`,
+        },
+        body: JSON.stringify({ email: "dana@acme.com", code: mailedCode() }),
+      },
+      testEnv()
+    );
+    expect(await res.json()).toMatchObject({ redirect: "/admin" });
+  });
+});
+
+/**
+ * Which origin a sign-in email points back at.
+ *
+ * The session cookie is host-only, so a sign-in started on `mcp.rtfx.pro` — mid
+ * `claude mcp login` — has to finish there. A link to `rtfx.pro` would sign the
+ * person in somewhere their consent screen cannot see.
+ */
+describe("sign-in email origin", () => {
+  const mailedOrigin = () =>
+    new URL(/https?:\/\/\S+\/auth\/m\/[A-Za-z0-9_-]+/.exec(sent[0]?.text ?? "")![0]).origin;
+
+  const startOn = (url: string) =>
+    app.request(
+      url,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "dana@acme.com" }) },
+      testEnv({ PUBLIC_BASE_URL: "https://rtfx.pro" })
+    );
+
+  it("points back at the app host the sign-in started on", async () => {
+    await startOn("https://mcp.rtfx.pro/auth/start");
+    expect(mailedOrigin()).toBe("https://mcp.rtfx.pro");
+  });
+
+  it("uses the canonical origin for the canonical host", async () => {
+    await startOn("https://rtfx.pro/auth/start");
+    expect(mailedOrigin()).toBe("https://rtfx.pro");
+  });
+
+  /**
+   * The guard that keeps an outgoing email boring: a host outside the canonical
+   * site's domain never gets its own address into a message we send.
+   */
+  it("falls back to the canonical origin for a host outside the site's domain", async () => {
+    await startOn("https://preview.example.com/auth/start");
+    expect(mailedOrigin()).toBe("https://rtfx.pro");
+  });
+
+  it("never mails a link to the content host", async () => {
+    await app.request(
+      "https://a.rtfx.pro/auth/start",
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "dana@acme.com" }) },
+      testEnv({ PUBLIC_BASE_URL: "https://rtfx.pro", CONTENT_HOSTNAMES: "a.rtfx.pro" })
+    );
+    // The content host does not serve /auth at all, so nothing is sent — the
+    // origin guard in `signinOrigin` is the second line, not the first.
+    expect(sent).toHaveLength(0);
+  });
+});
+
 describe("POST /auth/signout", () => {
   it("clears the cookie", async () => {
     const res = await post("/auth/signout", {});

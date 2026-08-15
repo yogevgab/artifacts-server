@@ -4,12 +4,14 @@ import {
   stripJsonComments,
   EXPECTED_APP_HOSTNAME,
   EXPECTED_CONTENT_HOSTNAME,
+  EXPECTED_MCP_HOSTNAME,
 } from "../scripts/validate-deploy-config.lib.mjs";
 
 function baseConfig(overrides: Record<string, unknown> = {}) {
   return {
     routes: [
       { pattern: "rtfx.pro", custom_domain: true },
+      { pattern: "mcp.rtfx.pro", custom_domain: true },
       { pattern: "a.rtfx.pro", custom_domain: true },
     ],
     r2_buckets: [{ binding: "FILES", bucket_name: "artifacts-files" }],
@@ -72,6 +74,43 @@ describe("checkWranglerConfig", () => {
     (cfg.vars as Record<string, string>).CONTENT_HOSTNAMES = "rtfx.pro,a.rtfx.pro";
     const { errors } = checkWranglerConfig(cfg);
     expect(errors.some((e: string) => e.includes("must not include the app hostname"))).toBe(true);
+  });
+
+  /**
+   * The remote-MCP host is an *app* host. Naming it as content would 404 `/mcp`,
+   * `/oauth` and `/.well-known` — the three prefixes it exists to serve — and
+   * strike it from `appOrigins`, so its own consent form could not POST to
+   * itself. That is a misconfiguration with no plausible intent behind it.
+   */
+  it("errors when CONTENT_HOSTNAMES includes the remote-MCP hostname", () => {
+    const cfg = baseConfig();
+    (cfg.vars as Record<string, string>).CONTENT_HOSTNAMES = `a.rtfx.pro,${EXPECTED_MCP_HOSTNAME}`;
+    const { errors } = checkWranglerConfig(cfg);
+    expect(errors.some((e: string) => e.includes("must not include the remote-MCP hostname"))).toBe(
+      true
+    );
+  });
+
+  it("reports the remote-MCP route as configured when it is present", () => {
+    const { ok } = checkWranglerConfig(baseConfig());
+    expect(ok.some((m: string) => m.includes(EXPECTED_MCP_HOSTNAME))).toBe(true);
+  });
+
+  /**
+   * Pending, not an error: an instance may serve remote MCP on its app host and
+   * work perfectly. What it may not do is document the dedicated host it does
+   * not have — which is what this message says, in those words.
+   */
+  it("flags a missing remote-MCP route as pending, not an error", () => {
+    const cfg = baseConfig({
+      routes: [
+        { pattern: "rtfx.pro", custom_domain: true },
+        { pattern: "a.rtfx.pro", custom_domain: true },
+      ],
+    });
+    const { errors, pending } = checkWranglerConfig(cfg);
+    expect(errors).toEqual([]);
+    expect(pending.some((p: string) => p.includes(EXPECTED_MCP_HOSTNAME))).toBe(true);
   });
 
   it("errors when CONTENT_HOSTNAMES is empty", () => {

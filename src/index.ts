@@ -4,9 +4,10 @@ import { api } from "./api";
 import { mcpRoutes } from "./mcp";
 import { oauthRoutes } from "./oauth-routes";
 import { waitlist } from "./waitlist";
-import { authRoutes } from "./auth-routes";
+import { authRoutes, pendingNextCookie } from "./auth-routes";
 import { requireUser, accessEmail, accountsFor, getIdentity, resolveAuth, readCookie, SESSION_COOKIE, type AuthVars } from "./auth";
 import { serveArtifact } from "./serve";
+import { safeNextPath } from "./util";
 import {
   listArtifacts,
   listArtifactsForCaller,
@@ -593,11 +594,32 @@ app.get("/shared/:slug", async (c) => {
   return c.html(guestSigninPage(c.env, slug));
 });
 
+/**
+ * `?next=` is what makes `claude mcp login` finish.
+ *
+ * `/oauth/authorize` bounces a signed-out visitor here carrying the authorization
+ * request as a local path (src/oauth-routes.ts). Without this, sign-in succeeded
+ * and then dropped the person on `/admin`, while the client sat waiting on a
+ * callback that was never going to come.
+ *
+ * Already signed in, it is a redirect rather than a "you're already in" sheet:
+ * the destination is the thing they were trying to do, and the sheet is a dead
+ * end in front of it. `safeNextPath` keeps it a path on this origin, so this can
+ * never become an open redirect — the one bug that would matter here, since the
+ * next thing to happen is a session being minted.
+ */
 app.get("/login", async (c) => {
   const { identity, disabled, disabledEmail } = await resolveAuth(c);
   if (disabled) return c.html(loginPage(c.env, { kind: "paused", email: disabledEmail }), 403);
-  if (identity?.email) return c.html(loginPage(c.env, { kind: "signed-in", email: identity.email }));
-  return c.html(loginPage(c.env, { kind: "signed-out" }));
+  const next = safeNextPath(c.req.query("next"));
+  if (identity?.email) {
+    return next
+      ? c.redirect(next, 302)
+      : c.html(loginPage(c.env, { kind: "signed-in", email: identity.email }));
+  }
+  return c.html(loginPage(c.env, { kind: "signed-out" }), 200, {
+    "Set-Cookie": pendingNextCookie(next),
+  });
 });
 
 // Cloudflare's built-in /cdn-cgi/access/logout is edge-owned and can be awkward
