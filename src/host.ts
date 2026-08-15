@@ -25,7 +25,11 @@ const MANAGEMENT_PATHS = new Set([
   "/og.png",
   "/logo.png",
 ]);
-const MANAGEMENT_PREFIXES = ["/admin", "/api", "/v", "/auth", "/shared"];
+// `/mcp` is the remote MCP endpoint (src/mcp.ts). It belongs here for exactly
+// the reason `/api` does: it authenticates a bearer credential and answers for
+// the product, so the origin that serves untrusted uploaded HTML must never
+// route to it.
+const MANAGEMENT_PREFIXES = ["/admin", "/api", "/v", "/auth", "/shared", "/mcp"];
 
 /**
  * Paths the CONTENT host serves in addition to artifact files. The chat socket

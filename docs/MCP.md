@@ -10,6 +10,10 @@ HTTP contract are the same modules the CLI uses, so the two cannot drift apart.
 The user-facing quickstart is in [`plugins/rtfx/README.md`](../plugins/rtfx/README.md); this is the
 operator's view.
 
+There is now a **second** transport: the app itself answers MCP over HTTP at `POST /mcp`, with one
+read-only tool and a bearer token. It is a foundation for hosted MCP, not a replacement for the
+plugin — §10, and [`REMOTE_MCP_OAUTH.md`](REMOTE_MCP_OAUTH.md) for where it is going.
+
 ---
 
 ## 1. What ships
@@ -226,8 +230,50 @@ answers the same way through either.
 The pattern is the one the repo already uses: pure rules unit-tested inside the Workers pool, the
 filesystem walk applied to the real tree by a script.
 
-## 10. Related
+## 10. The remote HTTP transport — a foundation, not the finished thing
 
+Everything above describes the **stdio** server that ships in the plugin. The app also serves MCP
+over HTTP, from `src/mcp.ts`:
+
+```bash
+claude mcp add --transport http rtfx https://rtfx.pro/mcp \
+  --header "Authorization: Bearer rtfx_…"
+```
+
+That works. `claude mcp login rtfx` does **not** — there is no OAuth authorization server here, no
+`/.well-known` metadata and no browser sign-in for MCP. The header is still a hand-minted token, so
+this removes no setup step yet; what it removes is the need for a Node process and a filesystem on
+the client side, which is what makes a hosted server possible at all.
+
+| | stdio (the plugin) | HTTP (`/mcp`) |
+|---|---|---|
+| Tools | publish, list_artifacts, get_versions, rollback, doctor (+ update_access, gated) | `doctor` only |
+| Credential | `RTFX_API_TOKEN` in the environment | `Authorization: Bearer` header |
+| Sign-in | none — export a token | none yet — export a token |
+| Runs | on the user's machine | on the instance |
+
+**Why one tool.** `publish` takes a path on the machine running the *client*, and a server-side
+endpoint cannot read that machine's disk — a remote `publish(path)` could only read the **server's**
+filesystem, which is not what the caller means. It is absent rather than stubbed, and the refusal
+says where publishing actually lives so an agent redirects instead of retrying. The read tools have
+no such problem and are held back on a narrower rule: the remote surface stays at "reports on the
+credential you already hold" until OAuth settles how a remote credential is minted. `update_access`,
+user management and token management have no handler at all, the same rule `/api/machine` follows.
+
+**What the endpoint enforces.** Bearer token only, through the very same `requireApiToken` that
+guards `/api/machine/*` — so a session cookie, dev impersonation and a Cloudflare Access assertion
+are all refused, which is what keeps a surface meant to sit outside Access immune to CSRF. `Origin`
+is validated and an unrecognized one is refused outright (DNS-rebinding protection, per the MCP
+spec); a content host can never be an allowed origin, and `*` is never emitted. Messages are capped
+at 256 KiB, batches are refused, and a content host answers 404 for `/mcp` entirely. `doctor`
+reports the token's **id**, never its secret.
+
+`test/mcp-http.test.ts` pins all of it against the real Worker, including that every tool the stdio
+server exposes and this one does not is genuinely unreachable here.
+
+## 11. Related
+
+- [`REMOTE_MCP_OAUTH.md`](REMOTE_MCP_OAUTH.md) — the remote transport, and the OAuth slice after it
 - [`plugins/rtfx/README.md`](../plugins/rtfx/README.md) — user-facing install and usage
 - [`CLAUDE_CODE.md`](CLAUDE_CODE.md) — the plugin this ships alongside
 - [`HERMES_CLOUD.md`](HERMES_CLOUD.md) — token lifecycle, scopes and error semantics

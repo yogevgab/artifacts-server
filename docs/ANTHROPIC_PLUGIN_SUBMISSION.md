@@ -117,13 +117,16 @@ Two things a reviewer will notice. Both are already documented for users in
 `RTFX_API_TOKEN` in the shell they start Claude Code from. That is a developer setup step, and it
 is the supported path today.
 
-**There is no OAuth and no remote MCP transport.** The intended direction is a hosted HTTP MCP
-server with a browser sign-in — `claude mcp add --transport http` followed by `claude mcp login`.
-**It is not shipped.** `mcp.rtfx.pro` is not serving; this repository contains no OAuth handler, no
-authorization-server metadata route and no HTTP transport. The MCP server here is stdio-only and
-reads `RTFX_API_TOKEN`. The docs print the intended shape only so the change is recognizable when
-it lands, and say in the same breath that those commands fail today. Do not describe the plugin to
-reviewers as having a sign-in flow.
+**There is no OAuth.** The intended direction is a hosted HTTP MCP server with a browser sign-in —
+`claude mcp add --transport http` followed by `claude mcp login`. The **transport** now exists: the
+artifacts-server app answers MCP over HTTP at `POST /mcp` (`src/mcp.ts`), authenticated by the same
+bearer `rtfx_…` token, exposing one read-only tool (`doctor`) and no publishing. The **sign-in does
+not**: there is no OAuth handler, no authorization-server metadata and no `mcp.rtfx.pro` origin, so
+`claude mcp login rtfx` fails. The plan is [`REMOTE_MCP_OAUTH.md`](REMOTE_MCP_OAUTH.md).
+
+None of that changes what is being submitted here. **The plugin itself is stdio-only** and reads
+`RTFX_API_TOKEN` — the HTTP endpoint is server-side code in this repository, not something the
+plugin ships or calls. Do not describe the plugin to reviewers as having a sign-in flow.
 
 **Artifacts share one content origin.** The origin split isolates published content from the
 dashboard, not artifacts from each other. `SECURITY.md` §"Content-origin isolation" covers exactly

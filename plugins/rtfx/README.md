@@ -48,10 +48,13 @@ never in a commit.
 > claude mcp login rtfx
 > ```
 >
-> **Not available yet.** `mcp.rtfx.pro` is not serving, and this repository ships no OAuth or
-> remote-transport code — the MCP server here is stdio-only and reads `RTFX_API_TOKEN`. Those two
-> commands are the target shape, printed so you can recognize the change when it lands; they will
-> fail today. Until then, the token export above is the supported path.
+> **Not available yet.** `claude mcp login rtfx` fails: there is no OAuth sign-in for rtfx yet.
+> A remote HTTP MCP endpoint does now exist on the server side (`https://rtfx.pro/mcp`), but it
+> takes the same bearer token by hand, exposes only a read-only `doctor` tool and cannot publish —
+> publishing needs to read the files on *your* machine, which a hosted server cannot do. **This
+> plugin is stdio-only** and reads `RTFX_API_TOKEN`. The two commands above are the target shape,
+> printed so you can recognize the change when it lands. Until then, the token export above is the
+> supported path.
 
 ## What you get
 
