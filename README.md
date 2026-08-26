@@ -280,7 +280,11 @@ Details, testing and design notes: [`docs/CLAUDE_CODE.md`](docs/CLAUDE_CODE.md).
 
 ### Claude Desktop Extension
 
-For Claude Desktop, the easy install path is a Desktop Extension package:
+Download it from the current release or build it locally:
+
+```text
+https://github.com/yogevgab/artifacts-server/releases/download/v1.1.0/rtfx.dxt
+```
 
 ```bash
 npm run dxt:pack

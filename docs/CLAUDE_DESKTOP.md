@@ -15,6 +15,14 @@ Remote MCP must never be documented as `publish(path)`. The Desktop Extension ca
 
 ## Build the extension
 
+Download/open the current release asset:
+
+```text
+https://github.com/yogevgab/artifacts-server/releases/download/v1.1.0/rtfx.dxt
+```
+
+Or build from the repository root:
+
 ```bash
 npm run dxt:pack
 ```

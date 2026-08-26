@@ -404,7 +404,7 @@ $ node cli/artifacts.mjs publish ./out --slug client-demo --title "Checkout prot
           <code>RTFX_API_TOKEN</code> from Integrations still works and takes priority over the
           browser sign-in.</p>
         <h3>The Claude Desktop extension and local MCP server</h3>
-        <p>For Claude Desktop, the easiest local install is <code>rtfx.dxt</code>: open the Desktop
+        <p>For Claude Desktop, the easiest local install is <a href="https://github.com/yogevgab/artifacts-server/releases/download/v1.1.0/rtfx.dxt"><code>rtfx.dxt</code></a>: open the Desktop
           Extension package and Claude Desktop registers the rtfx MCP server for you. The same plugin
           also ships the native MCP server directly, for manual setup or any other client that speaks
           MCP. This local server publishes, lists versions and rolls back as tool calls, holding the
