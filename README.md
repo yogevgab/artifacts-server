@@ -278,12 +278,26 @@ down in [`docs/ANTHROPIC_PLUGIN_SUBMISSION.md`](docs/ANTHROPIC_PLUGIN_SUBMISSION
 Details, testing and design notes: [`docs/CLAUDE_CODE.md`](docs/CLAUDE_CODE.md). Release notes:
 [`plugins/rtfx/CHANGELOG.md`](plugins/rtfx/CHANGELOG.md).
 
+### Claude Desktop Extension
+
+For Claude Desktop, the easy install path is a Desktop Extension package:
+
+```bash
+npm run dxt:pack
+open dist/rtfx.dxt
+```
+
+That installs the same local MCP server without hand-editing `claude_desktop_config.json`. Because it
+runs on the user's machine, it can publish local paths/folders. Leave the optional API token blank
+when using the browser OAuth credential store; expose access management only when explicitly needed.
+Full details: [`docs/CLAUDE_DESKTOP.md`](docs/CLAUDE_DESKTOP.md).
+
 ### MCP server
 
 The plugin also ships a native **MCP server** (`plugins/rtfx/scripts/rtfx-mcp.mjs`), so a client
 with no shell to run a command in — Claude Desktop, or anything else that speaks MCP — publishes
-through tool calls instead. Installing the plugin registers it; for Claude Desktop, point
-`claude_desktop_config.json` at the script:
+through tool calls instead. Installing the plugin registers it; for a manual Claude Desktop setup,
+point `claude_desktop_config.json` at the script:
 
 ```json
 {

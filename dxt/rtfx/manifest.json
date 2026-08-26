@@ -1,0 +1,88 @@
+{
+  "$schema": "https://raw.githubusercontent.com/anthropics/dxt/main/src/schemas/manifest.schema.json",
+  "dxt_version": "0.1",
+  "name": "rtfx",
+  "display_name": "rtfx.pro",
+  "version": "1.1.0",
+  "description": "Publish local HTML, PDF, and multi-file artifacts from Claude Desktop to rtfx.pro with versioned, access-controlled stable URLs.",
+  "long_description": "rtfx.pro is private, access-controlled hosting for artifacts Claude builds. This Desktop Extension installs a local MCP server inside Claude Desktop, so Claude can publish a local file or folder by path, list artifacts, inspect versions, roll back, and check the connection. It uses browser OAuth credentials stored locally, or an optional scoped RTFX_API_TOKEN for advanced users. It never needs Cloudflare account credentials.",
+  "author": {
+    "name": "rtfx.pro",
+    "url": "https://rtfx.pro"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yogevgab/artifacts-server"
+  },
+  "homepage": "https://rtfx.pro",
+  "documentation": "https://rtfx.pro/docs",
+  "support": "https://rtfx.pro/contact",
+  "server": {
+    "type": "node",
+    "entry_point": "server/rtfx-mcp.mjs",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/rtfx-mcp.mjs"],
+      "env": {
+        "ARTIFACTS_URL": "${user_config.artifacts_url}",
+        "RTFX_API_TOKEN": "${user_config.rtfx_api_token}",
+        "RTFX_MCP_ALLOW_ACCESS": "${user_config.allow_access_management}"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "publish",
+      "description": "Publish a local HTML/PDF file, zip, or folder to rtfx.pro and return the stable URL. The server runs locally inside Claude Desktop, so paths refer to files on this machine."
+    },
+    {
+      "name": "list_artifacts",
+      "description": "List artifacts visible to the configured rtfx credential."
+    },
+    {
+      "name": "get_versions",
+      "description": "Show immutable versions for one artifact slug."
+    },
+    {
+      "name": "rollback",
+      "description": "Move an artifact's current pointer back to an earlier immutable version."
+    },
+    {
+      "name": "doctor",
+      "description": "Check credential source, endpoint, scopes, local Node runtime, and available tools."
+    }
+  ],
+  "keywords": ["claude", "mcp", "publishing", "artifacts", "hosting", "rtfx", "pdf", "html"],
+  "license": "MIT",
+  "compatibility": {
+    "claude_desktop": ">=0.12.0",
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  },
+  "user_config": {
+    "artifacts_url": {
+      "type": "string",
+      "title": "rtfx endpoint",
+      "description": "rtfx.pro instance URL. Leave as https://rtfx.pro unless you self-host.",
+      "default": "https://rtfx.pro",
+      "required": true
+    },
+    "rtfx_api_token": {
+      "type": "string",
+      "title": "API token (optional)",
+      "description": "Optional scoped rtfx API token. Leave blank to use browser sign-in stored by the rtfx CLI/plugin.",
+      "default": "",
+      "required": false,
+      "sensitive": true
+    },
+    "allow_access_management": {
+      "type": "boolean",
+      "title": "Expose access-management tool",
+      "description": "Expose update_access in Claude Desktop. Requires a token with manage scope. Leave off unless you intentionally want Claude to change who can open artifacts.",
+      "default": false,
+      "required": false
+    }
+  }
+}

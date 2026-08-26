@@ -403,11 +403,13 @@ $ node cli/artifacts.mjs publish ./out --slug client-demo --title "Checkout prot
           only a token id, never the token. For CI and advanced scripts, a scoped
           <code>RTFX_API_TOKEN</code> from Integrations still works and takes priority over the
           browser sign-in.</p>
-        <h3>The local MCP server</h3>
-        <p>The same plugin ships a native MCP server, for a client with no shell to run a command
-          in — Claude Desktop, or anything else that speaks MCP. Installing the plugin registers it;
-          it publishes, lists versions and rolls back as tool calls, holding the same scoped token
-          and applying the same credential filters as the CLI. To wire it up by hand instead, point
+        <h3>The Claude Desktop extension and local MCP server</h3>
+        <p>For Claude Desktop, the easiest local install is <code>rtfx.dxt</code>: open the Desktop
+          Extension package and Claude Desktop registers the rtfx MCP server for you. The same plugin
+          also ships the native MCP server directly, for manual setup or any other client that speaks
+          MCP. This local server publishes, lists versions and rolls back as tool calls, holding the
+          same scoped token and applying the same credential filters as the CLI. Because it runs on
+          your machine, it can publish local paths and folders. To wire it up by hand instead, point
           a client at the server file inside the installed plugin (or inside a checkout) — it needs
           Node and nothing else:</p>
         <pre class="code" data-docs="mcp-server"><code>{ "mcpServers": { "rtfx": {

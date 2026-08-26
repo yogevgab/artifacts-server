@@ -28,6 +28,8 @@
     "setup": "node scripts/setup.mjs",
     "validate:deploy": "node scripts/validate-deploy-config.mjs",
     "validate:plugin": "node scripts/validate-plugin.mjs",
+    "dxt:pack": "node scripts/build-dxt.mjs",
+    "dxt:validate": "node scripts/build-dxt.mjs && npx @anthropic-ai/dxt clean dist/rtfx.dxt && npx @anthropic-ai/dxt info dist/rtfx.dxt",
     "generate:rasters": "node scripts/generate-brand-rasters.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
