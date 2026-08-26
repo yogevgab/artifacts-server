@@ -32,8 +32,8 @@ for (const file of [
 mkdirSync(dist, { recursive: true });
 rmSync(out, { force: true });
 
-run('npx', ['@anthropic-ai/dxt', 'validate', join(dxt, 'manifest.json')]);
-run('npx', ['@anthropic-ai/dxt', 'pack', dxt, out]);
+run('npx', ['@anthropic-ai/mcpb', 'validate', join(dxt, 'manifest.json')]);
+run('npx', ['@anthropic-ai/mcpb', 'pack', dxt, out]);
 if (!existsSync(out)) throw new Error(`expected ${out}`);
-run('npx', ['@anthropic-ai/dxt', 'info', out]);
+run('npx', ['@anthropic-ai/mcpb', 'info', out]);
 console.log(`Packed ${out}`);
