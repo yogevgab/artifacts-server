@@ -337,8 +337,6 @@ async function fetchCimdClient(clientId: string, now: string): Promise<OAuthClie
   if (!metadataUrl) return null;
   const res = await fetch(metadataUrl, { headers: { Accept: "application/json" } });
   if (!res.ok) return null;
-  const type = (res.headers.get("Content-Type") ?? "").toLowerCase();
-  if (type && !type.includes("json")) return null;
   const body = await res.json().catch(() => null);
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
   const input = body as Record<string, unknown>;

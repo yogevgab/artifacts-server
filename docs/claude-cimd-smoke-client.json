@@ -1,0 +1,16 @@
+{
+  "client_id": "https://raw.githubusercontent.com/yogevgab/artifacts-server/main/docs/claude-cimd-smoke-client.json",
+  "client_name": "rtfx CIMD smoke client",
+  "redirect_uris": [
+    "http://127.0.0.1/callback"
+  ],
+  "grant_types": [
+    "authorization_code",
+    "refresh_token"
+  ],
+  "response_types": [
+    "code"
+  ],
+  "token_endpoint_auth_method": "none",
+  "scope": "rtfx:read rtfx:publish"
+}
