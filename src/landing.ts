@@ -276,7 +276,7 @@ function structuredData(env: Env): unknown[] {
             "Agent-native publishing from Claude Code, a native MCP server, Hermes, the CLI or the API",
             "Claude Code plugin with browser OAuth sign-in — no API token to copy or paste",
             "Local MCP server that publishes build output from the machine it runs on",
-            "Remote MCP endpoint authorized over OAuth for publishing content supplied in tool calls and for readiness checks",
+            "Remote MCP endpoint authorized over OAuth for publishing content supplied in tool calls, listing artifacts, details, statistics, sharing, rollback and deletion",
             "Immutable versions with one-click rollback",
             "View log: who opened an artifact, when, and which version",
             "Workspaces with owner, admin, member and viewer roles",

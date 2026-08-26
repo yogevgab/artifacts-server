@@ -113,7 +113,7 @@ const FAQS: readonly Faq[] = [
     q: "Can the remote MCP endpoint at mcp.rtfx.pro publish for me?",
     a:
       "Yes, when the content is sent inside the tool call. The hosted endpoint is authorized in " +
-      "the browser over OAuth and exposes publish plus doctor. Remote publish accepts an HTML page " +
+      "the browser over OAuth and exposes publish, read tools and manage-scoped artifact lifecycle tools. Remote publish accepts an HTML page " +
       "as text, a PDF as base64, or a small explicit file list; it rejects path, folder and zip-path " +
       "arguments because a server-side endpoint cannot read the client's local filesystem. Use the " +
       "Claude Code plugin or local MCP server for large folders and build outputs that already exist " +
@@ -426,11 +426,12 @@ tools: publish · list_artifacts · get_versions · rollback · doctor</code></p
         <pre class="code" data-docs="remote-mcp"><code>$ claude mcp add --transport http rtfx https://mcp.rtfx.pro/mcp
 $ claude mcp login rtfx
 
-tools: publish · doctor</code></pre>
+tools: publish · list_artifacts · artifact_details · artifact_statistics · share_artifact · rollback_artifact · delete_artifact · doctor</code></pre>
         <p><b>It publishes content; it does not read paths.</b> The hosted endpoint exposes
           <code>publish</code> for bytes sent inside the MCP call — an HTML page as text, a PDF as
-          base64, or a small explicit file list — plus <code>doctor</code> for connection checks. It
-          deliberately refuses <code>path</code>, <code>folder</code> and similar arguments: a
+          base64, or a small explicit file list — plus read tools for listing/details/statistics and
+          manage-scoped tools for sharing, rollback and deletion. It deliberately refuses
+          <code>path</code>, <code>folder</code> and similar arguments: a
           server-side endpoint asked for a path could only ever read the server's disk, not the
           client's. Large build outputs and local directories still belong to the plugin and the
           local MCP server.</p>

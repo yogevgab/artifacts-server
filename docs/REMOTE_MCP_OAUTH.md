@@ -19,7 +19,8 @@ authorization server (`src/oauth-routes.ts`) serves RFC 9728/RFC 8414 discovery,
 public-client registration, authorization-code + PKCE consent, access-token issuance as short-lived
 `api_tokens`, refresh-token rotation and revocation. `mcp.rtfx.pro` is now a route in
 `wrangler.jsonc` (§3), and `/login` completes the sign-in detour the flow takes when nobody is
-signed in yet (§4). The hosted tool surface now includes `doctor` and `publish` by content.
+signed in yet (§4). The hosted tool surface now includes `doctor`, content-based `publish`, artifact
+read tools, and manage-scoped sharing/rollback/delete tools.
 
 What that does **not** say:
 
@@ -41,7 +42,7 @@ What that does **not** say:
 | Route | `POST /mcp` on **either app host** — `rtfx.pro` or `mcp.rtfx.pro` (§3). A content host answers 404 (`MANAGEMENT_PREFIXES`, src/host.ts). |
 | Transport | MCP Streamable HTTP. One JSON-RPC message per POST, one JSON response. No SSE stream, no session id. |
 | Auth | `Authorization: Bearer rtfx_…`, gated by `requireApiToken` — the *same* middleware as `/api/machine/*`. A token may be hand-minted in `/admin/integrations` or issued by the OAuth flow below. |
-| Tools | `doctor` plus `publish` for content bytes supplied in the MCP request. |
+| Tools | `doctor`, content-based `publish`, read tools (`list_artifacts`, `artifact_details`, `artifact_statistics`) and manage tools (`share_artifact`, `rollback_artifact`, `delete_artifact`). |
 | OAuth | Discovery + Anthropic-recommended CIMD + dynamic registration fallback + authorization-code/PKCE + refresh/revoke. |
 | Tests | [`test/mcp-http.test.ts`](../test/mcp-http.test.ts) and [`test/oauth.test.ts`](../test/oauth.test.ts), driving the real Worker, D1 and token API. |
 
@@ -358,9 +359,9 @@ server, DNS, OAuth client and Claude Code smoke below have been run with the lim
 6. **Check cleanup.** ✅ The local smoke MCP server was removed from Claude Code, and the smoke OAuth
    client/access/refresh rows were deleted from production D1 after verifying revocation.
 
-Remote `doctor` and publish-by-content are ready to describe as remotely authorized. Publishing local
-paths/folders still needs the local plugin/Desktop extension, because only local stdio MCP can read
-the user's filesystem.
+Remote MCP is ready to describe as remotely authorized for content publishing and artifact lifecycle
+management. Publishing local paths/folders still needs the local plugin/Desktop extension, because
+only local stdio MCP can read the user's filesystem.
 
 ## 6. Related
 

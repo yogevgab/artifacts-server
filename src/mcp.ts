@@ -43,27 +43,70 @@
  * a JSON-RPC message is an expensive way to move a build output, and the local
  * plugin already does that well. This is for what a model just wrote.
  *
- * `list_artifacts`, `get_versions` and `rollback` have no filesystem problem
- * either — they are pure API calls — but they are still held back, on a
- * narrower principle: this endpoint's blast radius should grow one deliberate
- * step at a time. Adding a read tool later is a one-line change to REMOTE_TOOLS
- * plus a scope check; removing one after clients depend on it is not.
+ * ## Managing what has been published
  *
- * `update_access` and anything that manages users, tokens or workspaces are
- * absent on the same rule the rest of the machine surface follows — see
- * `denyApiToken` in src/api.ts. They are not merely unlisted here: there is no
- * handler for them at all.
+ * Publishing is only half of what an agent holding a remote credential needs;
+ * the other half is finding, inspecting, re-sharing, rolling back and removing
+ * what it published. Those tools have no filesystem problem — they are ordinary
+ * API calls — and they are now here: `list_artifacts`, `artifact_details`,
+ * `artifact_statistics`, `share_artifact`, `rollback_artifact` and
+ * `delete_artifact`.
+ *
+ * Three rules hold the surface together, and every one of them is pinned by a
+ * test in test/mcp-http.test.ts:
+ *
+ *   • **The allow-list is a literal.** `REMOTE_TOOLS` is written out below, not
+ *     filtered from the stdio server's `TOOLS`. A derived allow-list grows
+ *     silently when its source grows.
+ *   • **Scope is enforced by the handler, never by the advertised list.**
+ *     `tools/list` is filtered for the caller's convenience, but a client may
+ *     have cached an older list or simply call a name it read in a transcript,
+ *     `TOOL_SCOPE` is checked again in `route` before any handler runs. Read
+ *     tools take `read`, `publish` takes `publish`, and anything that changes
+ *     existing access/live state — rollback included — or removes content takes
+ *     `manage`.
+ *   • **Reach is the REST surface's reach.** Every tool resolves the artifact
+ *     through `manageableArtifact` or `visibleArtifacts` from src/api.ts, so an
+ *     artifact the caller cannot manage is indistinguishable from one that does
+ *     not exist, and there is no second implementation of that rule to drift.
+ *
+ * `delete_artifact` additionally takes `confirm_slug`, which must equal `slug`.
+ * It is the one irreversible call here, and a model that has confused two slugs
+ * gets one more chance to notice before the bytes go.
+ *
+ * Anything that manages users, tokens or workspaces is still absent, on the
+ * same rule the rest of the machine surface follows — see `denyApiToken` in
+ * src/api.ts. Those are not merely unlisted here: there is no handler at all.
  */
 
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import type { Env } from "./env";
-import { requireApiToken, accountsFor, type AuthVars, type Identity } from "./auth";
+import { requireApiToken, type AuthVars, type Identity } from "./auth";
 import type { Scope } from "./tokens";
 import { isAllowedOrigin } from "./cors";
-import { hasScope, isPlatformAdmin } from "./authz";
-import { accountIdsWithAtLeast, MANAGE_ARTIFACTS } from "./accounts";
-import { listArtifacts, listArtifactsForCaller } from "./db";
-import { resolvePublishTarget, storeUpload } from "./api";
+import { hasScope } from "./authz";
+import type { ArtifactRow, VersionRow } from "./env";
+import {
+  getViews,
+  listGrants,
+  listVersions,
+  setAccess,
+  versionCounts,
+  viewCounts,
+  viewsByVersion,
+} from "./db";
+import {
+  artifactUrl,
+  contentBase,
+  manageableArtifact,
+  normalizeAccessInput,
+  purgeArtifact,
+  resolvePublishTarget,
+  rollbackArtifact,
+  storeUpload,
+  suspendedDenial,
+  visibleArtifacts,
+} from "./api";
 import {
   processFiles,
   singleHtml,
@@ -75,7 +118,6 @@ import {
   type ProcessedUpload,
   type UploadFile,
 } from "./upload";
-import { firstContentHostname } from "./host";
 import { siteOrigin } from "./seo";
 import { AS_METADATA_PATH, PROTECTED_RESOURCE_PATH } from "./oauth";
 import {
@@ -224,6 +266,171 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   },
+  {
+    name: "list_artifacts",
+    title: "List the artifacts this credential can reach",
+    description:
+      "List the artifacts this credential can manage — slug, title, URL, type, visibility, live " +
+      "version, file count, size and when each was last updated. Use it to find the slug of " +
+      "something already published before publishing a new version to it, instead of inventing a " +
+      "new slug. Results are newest-first and paginated; pass `offset` from `next_offset` to page. " +
+      "It never shows an artifact belonging to somebody else.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: 100,
+          description: "How many artifacts to return (1-100). Defaults to 25. Anything larger is clamped to 100.",
+        },
+        offset: {
+          type: "integer",
+          minimum: 0,
+          description: "How many artifacts to skip, for paging. Defaults to 0; use `next_offset` from the previous call.",
+        },
+        query: {
+          type: "string",
+          maxLength: 100,
+          description: "Case-insensitive substring matched against slug, title and description. Omit to list everything.",
+        },
+        visibility: {
+          type: "string",
+          enum: ["restricted", "everyone"],
+          description: "Only artifacts with this visibility. Omit for both.",
+        },
+        type: {
+          type: "string",
+          enum: ["single", "bundle", "pdf"],
+          description: "Only artifacts of this kind: a single HTML page, a multi-file site, or a PDF. Omit for all three.",
+        },
+      },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  },
+  {
+    name: "artifact_details",
+    title: "Inspect one artifact",
+    description:
+      "Everything known about one artifact you can manage: its row, its URL, its full version " +
+      "history (marking which version is live and which have expired out of the plan's retention " +
+      "window), who it is shared with, and how often it has been opened. Call this before " +
+      "rolling back or re-sharing, so the version numbers and the email list you send are the ones " +
+      "that actually exist. A slug you cannot manage answers not_found, exactly as if it did not exist.",
+    inputSchema: {
+      type: "object",
+      properties: { slug: REMOTE_SLUG },
+      required: ["slug"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  },
+  {
+    name: "artifact_statistics",
+    title: "Counts and totals",
+    description:
+      "Aggregate numbers. With `slug`, the totals for that one artifact: versions, files, bytes, " +
+      "views and how many people it is shared with. Without `slug`, the totals across every " +
+      "artifact this credential can reach: how many there are, broken down by visibility and by " +
+      "type, plus total versions, files, bytes and views. Use it to answer \"how much have I " +
+      "published?\" without paging through list_artifacts.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: {
+          ...REMOTE_SLUG,
+          description:
+            "Optional. Statistics for this one artifact. Omit for totals across everything this credential can reach.",
+        },
+      },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  },
+  {
+    name: "share_artifact",
+    title: "Set who can open an artifact",
+    description:
+      "Replace who may open an artifact: 'restricted' (its owner plus exactly the emails you " +
+      "list) or 'everyone' (any signed-in user of this instance). THE EMAIL LIST IS A REPLACEMENT, " +
+      "NOT AN ADDITION — send the full list every time, and send [] to revoke everybody. Call " +
+      "artifact_details first to read the current list if you mean to add somebody to it. This " +
+      "grants access; it does not invite anyone or create an account, so a recipient who cannot " +
+      "already sign in to this instance still needs an administrator to invite them. Needs a token " +
+      "with the 'manage' scope.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: REMOTE_SLUG,
+        visibility: {
+          type: "string",
+          enum: ["restricted", "everyone"],
+          description:
+            "'restricted' = the owner plus the named emails only. 'everyone' = any signed-in user of this instance.",
+        },
+        emails: {
+          type: "array",
+          items: { type: "string" },
+          maxItems: 200,
+          description:
+            "Full replacement list of emails granted access, each containing '@'. Lower-cased and de-duplicated. Ignored when visibility is 'everyone'; pass [] to revoke everyone.",
+        },
+      },
+      required: ["slug", "visibility"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+  },
+  {
+    name: "rollback_artifact",
+    title: "Make an earlier version live again",
+    description:
+      "Point an artifact's URL back at one of its earlier versions. Non-destructive: no version " +
+      "is deleted, and rolling forward again is the same call with a higher number. Call " +
+      "artifact_details first to see which versions exist and which have expired — an expired " +
+      "version's files are gone and cannot be made live. Needs a token with the 'manage' scope, " +
+      "because changing the live version is artifact management over an existing URL.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: REMOTE_SLUG,
+        version: {
+          type: "integer",
+          minimum: 1,
+          description: "Version number to make live, as reported by artifact_details.",
+        },
+      },
+      required: ["slug", "version"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  },
+  {
+    name: "delete_artifact",
+    title: "Delete an artifact permanently",
+    description:
+      "PERMANENTLY delete an artifact: every version, every stored file, every access grant and " +
+      "every share link. This cannot be undone and there is no trash — the URL stops working and " +
+      "the bytes are gone. To guard against a confused slug, `confirm_slug` must be given and must " +
+      "be exactly equal to `slug`; a mismatch deletes nothing. Ask the person you are working for " +
+      "before calling this. Needs a token with the 'manage' scope.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: REMOTE_SLUG,
+        confirm_slug: {
+          type: "string",
+          minLength: 1,
+          maxLength: 64,
+          description: "Must be character-for-character identical to `slug`. Anything else refuses the call and deletes nothing.",
+        },
+      },
+      required: ["slug", "confirm_slug"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  },
 ];
 
 /**
@@ -233,7 +440,15 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
  * ambiguous signal — it reads as "this instance is broken" as easily as "this
  * credential is read-only".
  */
-const TOOL_SCOPE: Record<string, Scope> = { publish: "publish" };
+const TOOL_SCOPE: Record<string, Scope> = {
+  publish: "publish",
+  list_artifacts: "read",
+  artifact_details: "read",
+  artifact_statistics: "read",
+  share_artifact: "manage",
+  rollback_artifact: "manage",
+  delete_artifact: "manage",
+};
 
 /**
  * The tools this particular caller may see. A read-only token is shown `doctor`
@@ -258,7 +473,7 @@ export const LOCAL_ONLY_TOOLS = TOOLS.map((t) => t.name).filter(
  * tell an agent that reached for a remote `publish` where publishing actually
  * lives, so it redirects instead of retrying.
  */
-export const HTTP_INSTRUCTIONS = `Publish to rtfx.pro, and check this connection, over HTTP.
+export const HTTP_INSTRUCTIONS = `Publish and manage rtfx.pro artifacts over HTTP.
 
 PUBLISHING HERE MEANS SENDING CONTENT. The "publish" tool takes the bytes as arguments — an HTML
 page in "content_text", a PDF in "content_base64", or a small multi-file site in "files" — and
@@ -277,8 +492,14 @@ content host differs per instance.
 
 Inline content is capped (a few MB, a few dozen files) because every byte travels as base64 inside
 a JSON-RPC message. Credential-looking files, dotfiles and build directories are refused outright
-rather than silently dropped. "doctor" reports how this connection is authenticated, what it may
-do, and the exact limits.
+rather than silently dropped.
+
+Artifact management is also available here: use "list_artifacts" to find existing work,
+"artifact_details" before sharing or rollback, "artifact_statistics" for counts, and — with a
+"manage" scoped credential — "share_artifact", "rollback_artifact" and "delete_artifact". Delete is
+permanent and requires confirm_slug to equal slug.
+
+"doctor" reports how this connection is authenticated, what it may do, and the exact limits.
 
 Authentication is an "Authorization: Bearer <token>" header, and the token needs the "publish"
 scope to publish. The token can be minted by hand at /admin/integrations, or obtained by OAuth:
@@ -286,11 +507,11 @@ this server is its own authorization server, advertises RFC 9728 / RFC 8414 disc
 supports dynamic client registration with authorization-code + PKCE. Either way the credential is
 the same kind of scoped, revocable token.`;
 
-export const HTTP_READ_ONLY_INSTRUCTIONS = `Check this rtfx.pro remote MCP connection over HTTP.
+export const HTTP_READ_ONLY_INSTRUCTIONS = `Read rtfx.pro artifact metadata over HTTP.
 
-This credential does not have the "publish" scope, so this connection exposes "doctor" only.
-"doctor" reports how this connection is authenticated, what scopes it has, what tools are visible,
-and the exact limits if you sign in with a publishing credential.
+This credential does not have the "publish" or "manage" scope, so this connection cannot publish,
+share, roll back or delete. It can still run "doctor", "list_artifacts", "artifact_details" and
+"artifact_statistics" for artifacts this credential can reach.
 
 Remote HTTP publishing is available only to a token with the "publish" scope and only by sending
 content in the tool call ("content_text", "content_base64", or "files"). It never takes a filesystem
@@ -449,26 +670,18 @@ async function doctor(c: Context<Vars>): Promise<ToolCallResult> {
   const identity = c.get("identity");
   const token = identity.token!;
   const endpoint = siteOrigin(c.env);
-  const url = new URL(c.req.url);
-  const contentBase = `${url.protocol}//${firstContentHostname(c.env) ?? url.host}`;
+  const contentOrigin = contentBase(c);
 
   let artifactCount: number | null = null;
   if (token.scopes.includes("read")) {
-    const rows = isPlatformAdmin(identity)
-      ? await listArtifacts(c.env)
-      : await listArtifactsForCaller(
-          c.env,
-          identity.email,
-          accountIdsWithAtLeast((await accountsFor(c)).roles, MANAGE_ARTIFACTS)
-        );
-    artifactCount = rows.length;
+    artifactCount = (await visibleArtifacts(c)).length;
   }
 
   const facts = {
     command: "doctor",
     transport: "http",
     endpoint,
-    content_base: contentBase,
+    content_base: contentOrigin,
     /** Presentation only — the id, never the secret. */
     token: `rtfx_${token.id}_…`,
     token_id: token.id,
@@ -776,6 +989,263 @@ async function publish(c: Context<Vars>, args: any): Promise<ToolCallResult> {
   }
 }
 
+function pageArgs(args: any): { limit: number; offset: number } {
+  const rawLimit = Number(args?.limit ?? 25);
+  const rawOffset = Number(args?.offset ?? 0);
+  const limit = Number.isInteger(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 100) : 25;
+  const offset = Number.isInteger(rawOffset) && rawOffset > 0 ? rawOffset : 0;
+  return { limit, offset };
+}
+
+function artifactSummary(c: Context<Vars>, row: ArtifactRow): Record<string, unknown> {
+  return {
+    slug: row.slug,
+    title: row.title,
+    description: row.description,
+    url: artifactUrl(c, row.slug),
+    type: row.type,
+    visibility: row.visibility,
+    current_version: row.current_version,
+    file_count: row.file_count,
+    size_bytes: row.size_bytes,
+    created_by: row.created_by,
+    owner_email: row.owner_email,
+    account_id: row.account_id ?? null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+function versionSummary(v: VersionRow, current: number): Record<string, unknown> {
+  return {
+    version: v.version,
+    current: v.version === current,
+    type: v.type,
+    entry: v.entry,
+    file_count: v.file_count,
+    size_bytes: v.size_bytes,
+    note: v.note,
+    created_by: v.created_by,
+    created_at: v.created_at,
+    expired: !!v.expired_at,
+    expired_at: v.expired_at,
+  };
+}
+
+async function listArtifactsTool(c: Context<Vars>, args: any): Promise<ToolCallResult> {
+  const { limit, offset } = pageArgs(args);
+  const q = typeof args?.query === "string" ? args.query.trim().toLowerCase() : "";
+  let rows = await visibleArtifacts(c);
+  if (args?.visibility) rows = rows.filter((r) => r.visibility === args.visibility);
+  if (args?.type) rows = rows.filter((r) => r.type === args.type);
+  if (q) {
+    rows = rows.filter((r) =>
+      [r.slug, r.title, r.description ?? ""].some((value) => value.toLowerCase().includes(q))
+    );
+  }
+  const total = rows.length;
+  const page = rows.slice(offset, offset + limit);
+  const views = await viewCounts(c.env);
+  const versions = await versionCounts(c.env);
+  const artifacts = page.map((row) => ({
+    ...artifactSummary(c, row),
+    versions: versions.get(row.slug)?.versions ?? 0,
+    expired_versions: versions.get(row.slug)?.expired ?? 0,
+    views: views.get(row.slug)?.total ?? 0,
+    unique_viewers: views.get(row.slug)?.unique ?? 0,
+  }));
+  const nextOffset = offset + page.length < total ? offset + page.length : null;
+  return result(
+    [
+      `listed ${page.length} of ${total} artifact(s) visible to this token`,
+      nextOffset === null ? "end of list" : `next_offset ${nextOffset}`,
+    ],
+    { command: "list_artifacts", transport: "http", content_base: contentBase(c), limit, offset, next_offset: nextOffset, total, artifacts }
+  );
+}
+
+async function artifactDetailsTool(c: Context<Vars>, args: any): Promise<ToolCallResult> {
+  const slug = String(args?.slug ?? "");
+  const art = await manageableArtifact(c, slug);
+  if (!art) return failure(new ToolError("artifact not found", { error: "not_found", status: 404 }));
+  const [versions, grants, views, perVersion] = await Promise.all([
+    listVersions(c.env, slug),
+    listGrants(c.env, slug),
+    getViews(c.env, slug, 20),
+    viewsByVersion(c.env, slug),
+  ]);
+  return result(
+    [
+      `${art.slug} — ${art.title}`,
+      artifactUrl(c, slug),
+      `${versions.length} version(s); current v${art.current_version}; ${views.total} view(s); ${grants.length} explicit grant(s)`,
+    ],
+    {
+      command: "artifact_details",
+      transport: "http",
+      artifact: artifactSummary(c, art),
+      versions: versions.map((v) => versionSummary(v, art.current_version)),
+      access: { visibility: art.visibility, emails: grants },
+      views: { ...views, by_version: perVersion },
+    }
+  );
+}
+
+function addTotals(totals: Record<string, number>, key: string | null | undefined): void {
+  const k = key || "unknown";
+  totals[k] = (totals[k] ?? 0) + 1;
+}
+
+async function artifactStatisticsTool(c: Context<Vars>, args: any): Promise<ToolCallResult> {
+  if (typeof args?.slug === "string" && args.slug.trim()) {
+    const slug = args.slug.trim();
+    const art = await manageableArtifact(c, slug);
+    if (!art) return failure(new ToolError("artifact not found", { error: "not_found", status: 404 }));
+    const [versions, grants, views] = await Promise.all([listVersions(c.env, slug), listGrants(c.env, slug), getViews(c.env, slug, 0)]);
+    const totals = {
+      slug,
+      url: artifactUrl(c, slug),
+      versions: versions.length,
+      expired_versions: versions.filter((v) => v.expired_at).length,
+      files: versions.reduce((n, v) => n + v.file_count, 0),
+      bytes: versions.reduce((n, v) => n + v.size_bytes, 0),
+      live_files: art.file_count,
+      live_bytes: art.size_bytes,
+      views: views.total,
+      unique_viewers: views.unique,
+      explicit_grants: grants.length,
+      visibility: art.visibility,
+      type: art.type,
+      updated_at: art.updated_at,
+    };
+    return result([`${slug}: ${totals.versions} version(s), ${totals.views} view(s), ${totals.bytes} stored byte(s)`], {
+      command: "artifact_statistics",
+      transport: "http",
+      scope: "artifact",
+      totals,
+    });
+  }
+
+  const rows = await visibleArtifacts(c);
+  const views = await viewCounts(c.env);
+  const versions = await versionCounts(c.env);
+  const byVisibility: Record<string, number> = {};
+  const byType: Record<string, number> = {};
+  let totalVersions = 0;
+  let expiredVersions = 0;
+  let totalViews = 0;
+  let uniqueViewers = 0;
+  for (const row of rows) {
+    addTotals(byVisibility, row.visibility);
+    addTotals(byType, row.type);
+    totalVersions += versions.get(row.slug)?.versions ?? 0;
+    expiredVersions += versions.get(row.slug)?.expired ?? 0;
+    totalViews += views.get(row.slug)?.total ?? 0;
+    uniqueViewers += views.get(row.slug)?.unique ?? 0;
+  }
+  const totals = {
+    artifacts: rows.length,
+    versions: totalVersions,
+    expired_versions: expiredVersions,
+    live_files: rows.reduce((n, r) => n + r.file_count, 0),
+    live_bytes: rows.reduce((n, r) => n + r.size_bytes, 0),
+    views: totalViews,
+    unique_viewers: uniqueViewers,
+    by_visibility: byVisibility,
+    by_type: byType,
+    most_recent_update: rows[0]?.updated_at ?? null,
+  };
+  return result([`${totals.artifacts} artifact(s), ${totals.versions} version(s), ${totals.views} view(s)`], {
+    command: "artifact_statistics",
+    transport: "http",
+    scope: "all_visible",
+    totals,
+  });
+}
+
+async function shareArtifactTool(c: Context<Vars>, args: any): Promise<ToolCallResult> {
+  const slug = String(args?.slug ?? "");
+  const art = await manageableArtifact(c, slug);
+  if (!art) return failure(new ToolError("artifact not found", { error: "not_found", status: 404 }));
+  const parsed = normalizeAccessInput({ visibility: args?.visibility, emails: args?.emails });
+  if ("error" in parsed) return failure(new ToolError(parsed.error, { error: "bad_request", status: 400 }));
+  const emails = parsed.visibility === "everyone" ? [] : parsed.emails;
+  await setAccess(c.env, slug, parsed.visibility, emails, new Date().toISOString());
+  const grants = await listGrants(c.env, slug);
+  return result([`${slug} access set to ${parsed.visibility}`, `${grants.length} explicit grant(s)`], {
+    command: "share_artifact",
+    transport: "http",
+    slug,
+    url: artifactUrl(c, slug),
+    visibility: parsed.visibility,
+    emails: grants,
+  });
+}
+
+async function rollbackArtifactTool(c: Context<Vars>, args: any): Promise<ToolCallResult> {
+  const slug = String(args?.slug ?? "");
+  const art = await manageableArtifact(c, slug);
+  if (!art) return failure(new ToolError("artifact not found", { error: "not_found", status: 404 }));
+  const suspended = await suspendedDenial(c, art.account_id ?? null);
+  if (suspended) return failure(await responseError(suspended));
+  const version = Number(args?.version);
+  if (!Number.isInteger(version) || version < 1) {
+    return failure(new ToolError("version must be a positive integer", { error: "bad_request", status: 400 }));
+  }
+  const rolled = await rollbackArtifact(c.env, slug, version);
+  if (!rolled.ok) return failure(new ToolError(rolled.detail, { error: rolled.error, status: rolled.status }));
+  return result([`${slug} is now serving v${version}`, artifactUrl(c, slug)], {
+    command: "rollback_artifact",
+    transport: "http",
+    slug,
+    current: version,
+    url: artifactUrl(c, slug),
+  });
+}
+
+async function deleteArtifactTool(c: Context<Vars>, args: any): Promise<ToolCallResult> {
+  const slug = String(args?.slug ?? "");
+  const confirm = String(args?.confirm_slug ?? "");
+  if (confirm !== slug) {
+    return failure(new ToolError("confirm_slug must exactly match slug; nothing was deleted", {
+      error: "confirmation_required",
+      status: 400,
+    }));
+  }
+  const art = await manageableArtifact(c, slug);
+  if (!art) return failure(new ToolError("artifact not found", { error: "not_found", status: 404 }));
+  const removed = await purgeArtifact(c.env, slug);
+  return result([`deleted ${slug}`, `${removed.versions} version(s), ${removed.files} file(s), ${removed.bytes} byte(s) removed`], {
+    command: "delete_artifact",
+    transport: "http",
+    deleted: slug,
+    ...removed,
+  });
+}
+
+async function callTool(c: Context<Vars>, name: string, args: any): Promise<ToolCallResult> {
+  switch (name) {
+    case "doctor":
+      return doctor(c);
+    case "publish":
+      return publish(c, args ?? {});
+    case "list_artifacts":
+      return listArtifactsTool(c, args ?? {});
+    case "artifact_details":
+      return artifactDetailsTool(c, args ?? {});
+    case "artifact_statistics":
+      return artifactStatisticsTool(c, args ?? {});
+    case "share_artifact":
+      return shareArtifactTool(c, args ?? {});
+    case "rollback_artifact":
+      return rollbackArtifactTool(c, args ?? {});
+    case "delete_artifact":
+      return deleteArtifactTool(c, args ?? {});
+    default:
+      throw new RpcError(-32602, unknownToolMessage(name));
+  }
+}
+
 /** Turn an API refusal (already shaped by src/api.ts) into a tool-level error. */
 async function responseError(res: Response): Promise<ToolError> {
   let body: any = {};
@@ -846,15 +1316,25 @@ async function route(c: Context<Vars>, method: unknown, params: any): Promise<un
       // Before the schema, because the schema's answer ("unknown argument") is
       // true but useless: a `path` here is a misunderstanding about what this
       // transport is, and it gets told so in those terms.
-      const refusal = pathRefusal(params?.arguments);
+      const args = params?.arguments ?? {};
+      const refusal = pathRefusal(args);
       if (refusal) throw new RpcError(-32602, refusal);
       // Closed schema: an unknown argument is refused before the handler runs,
       // so a hallucinated argument on `doctor` is an error rather than an
       // ignored field that makes the call look like it did something with a file.
-      const { ok, errors } = validateToolInput(tool, params?.arguments);
+      const { ok, errors } = validateToolInput(tool, args);
       if (!ok) throw new RpcError(-32602, `invalid arguments for "${name}": ${errors.join("; ")}`);
-      // Scope, not the advertised list, decides what may run — see `publish`.
-      return name === "publish" ? publish(c, params?.arguments ?? {}) : doctor(c);
+      const requiredScope = TOOL_SCOPE[name];
+      if (requiredScope && !hasScope(c.get("identity"), requiredScope)) {
+        return failure(
+          new ToolError(`this token lacks the "${requiredScope}" scope`, {
+            error: "insufficient_scope",
+            status: 403,
+            hint: `mint a token with the ${requiredScope} scope at /admin/integrations, or sign in again and grant it`,
+          })
+        );
+      }
+      return callTool(c, name, args);
     }
     default:
       throw new RpcError(-32601, `method not found: ${method}`);

@@ -158,11 +158,39 @@ api.use("/accounts/*", async (c, next) =>
  * when the slug does not exist and when it belongs to somebody else, so every
  * caller answers 404 either way and a member can't probe for the existence
  * of another user's artifacts.
+ *
+ * Exported because the remote MCP tools (src/mcp.ts) have to answer exactly the
+ * same question, and a second implementation of "may this caller touch that
+ * slug?" is the kind of drift that only ever gets discovered from the wrong
+ * side.
  */
-async function manageable(c: Context<Vars>, slug: string): Promise<ArtifactRow | null> {
+export async function manageableArtifact(c: Context<Vars>, slug: string): Promise<ArtifactRow | null> {
   const art = await getArtifact(c.env, slug);
   if (!art) return null;
   return canManage(c.get("identity"), art, (await accountsFor(c)).roles) ? art : null;
+}
+
+/**
+ * Every artifact this caller may manage — the visibility rule `GET /artifacts`
+ * has always applied, in one place.
+ *
+ * A platform admin sees the instance; everybody else sees what they own by
+ * email plus what their workspaces own (issue #27). For the personal account
+ * every identity gets, those are the same rows as before.
+ *
+ * Exported for the same reason as `manageableArtifact`: the remote MCP
+ * `doctor`, `list_artifacts` and `artifact_statistics` tools all need this
+ * exact set, and it used to be restated in src/mcp.ts.
+ */
+export async function visibleArtifacts(c: Context<Vars>): Promise<ArtifactRow[]> {
+  const identity = c.get("identity");
+  return isPlatformAdmin(identity)
+    ? listArtifacts(c.env)
+    : listArtifactsForCaller(
+        c.env,
+        identity.email,
+        accountIdsWithAtLeast((await accountsFor(c)).roles, MANAGE_ARTIFACTS)
+      );
 }
 
 /**
@@ -188,7 +216,7 @@ const SUSPENDED_DETAIL =
 const suspendedResponse = (c: Context<Vars>) =>
   c.json({ error: "account_suspended", detail: SUSPENDED_DETAIL }, 403);
 
-async function suspendedDenial(c: Context<Vars>, accountId: string | null): Promise<Response | null> {
+export async function suspendedDenial(c: Context<Vars>, accountId: string | null): Promise<Response | null> {
   if (!accountId) return null;
   const account = await getAccount(c.env, accountId);
   if (!account || !isSuspended(account)) return null;
@@ -202,12 +230,12 @@ async function suspendedDenial(c: Context<Vars>, accountId: string | null): Prom
  * an agent that guesses `https://a.rtfx.pro/<slug>/` is right on rtfx.pro and
  * wrong on every self-hosted instance, and a wrong link is worse than none.
  */
-function contentBase(c: Context<Vars>): string {
+export function contentBase(c: Context<Vars>): string {
   const url = new URL(c.req.url);
   return `${url.protocol}//${firstContentHostname(c.env) ?? url.host}`;
 }
 
-const artifactUrl = (c: Context<Vars>, slug: string): string => `${contentBase(c)}/${slug}/`;
+export const artifactUrl = (c: Context<Vars>, slug: string): string => `${contentBase(c)}/${slug}/`;
 
 // Multipart overhead (boundaries/headers) is small, so a modest margin over
 // the file-size cap is enough headroom for the request body as a whole.
@@ -239,17 +267,7 @@ function limitBodyBytes(body: ReadableStream<Uint8Array>, maxBytes: number): Rea
 }
 
 artifactRoutes.get("/artifacts", requireScope("read"), async (c) => {
-  const identity = c.get("identity");
-  // A platform admin sees the instance; everybody else sees what they own by
-  // email plus what their workspaces own (issue #27). For the personal account
-  // every identity gets, those are the same rows as before.
-  const artifacts = isPlatformAdmin(identity)
-    ? await listArtifacts(c.env)
-    : await listArtifactsForCaller(
-        c.env,
-        identity.email,
-        accountIdsWithAtLeast((await accountsFor(c)).roles, MANAGE_ARTIFACTS)
-      );
+  const artifacts = await visibleArtifacts(c);
   // `content_base` is additive: rows keep their exact shape, and a machine
   // client gets the one piece it cannot derive — where artifacts are served.
   return c.json({ artifacts, content_base: contentBase(c) });
@@ -1062,7 +1080,7 @@ api.delete("/accounts/:id/members/:email", async (c) => {
 
 artifactRoutes.get("/artifacts/:slug/versions", requireScope("read"), async (c) => {
   const slug = c.req.param("slug");
-  const art = await manageable(c, slug);
+  const art = await manageableArtifact(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
   const rows = await listVersions(c.env, slug);
   return c.json({
@@ -1077,7 +1095,7 @@ artifactRoutes.get("/artifacts/:slug/versions", requireScope("read"), async (c) 
 
 artifactRoutes.get("/artifacts/:slug/views", requireScope("read"), async (c) => {
   const slug = c.req.param("slug");
-  const art = await manageable(c, slug);
+  const art = await manageableArtifact(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
   const raw = Number(c.req.query("limit"));
   const limit = Number.isInteger(raw) && raw > 0 ? Math.min(raw, 200) : 50;
@@ -1088,7 +1106,7 @@ artifactRoutes.get("/artifacts/:slug/views", requireScope("read"), async (c) => 
 // it changes what the world sees — so it rides on the `publish` scope.
 artifactRoutes.post("/artifacts/:slug/current", requireScope("publish"), async (c) => {
   const slug = c.req.param("slug");
-  const art = await manageable(c, slug);
+  const art = await manageableArtifact(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
   // Rollback changes what the world sees, so it is a publish for the purposes
   // of suspension too. Delete and access changes deliberately still work: a
@@ -1101,51 +1119,27 @@ artifactRoutes.post("/artifacts/:slug/current", requireScope("publish"), async (
   if (!Number.isInteger(version) || version < 1) {
     return c.json({ error: "bad_request", detail: "version must be a positive integer" }, 400);
   }
-  // An expired version still has a history row but no bytes, so rolling back to
-  // it would leave the artifact serving nothing. Refused explicitly rather than
-  // 404 — "that version has expired" is actionable, "not found" is confusing
-  // when the version list plainly shows it.
-  const target = await getVersion(c.env, slug, version);
-  if (target?.expired_at) {
-    return c.json(
-      {
-        error: "version_expired",
-        detail: `version ${version} is outside this plan's retention window and its files are gone`,
-      },
-      409
-    );
-  }
-
-  const ok = await setCurrentVersion(c.env, slug, version, new Date().toISOString());
-  if (!ok) return c.json({ error: "not_found", detail: `version ${version} does not exist` }, 404);
+  const rolled = await rollbackArtifact(c.env, slug, version);
+  if (!rolled.ok) return c.json({ error: rolled.error, detail: rolled.detail }, rolled.status as 404 | 409);
   return c.json({ slug, current: version, url: artifactUrl(c, slug) });
 });
 
 artifactRoutes.get("/artifacts/:slug/access", requireScope("read"), async (c) => {
   const slug = c.req.param("slug");
-  const art = await manageable(c, slug);
+  const art = await manageableArtifact(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
   return c.json({ visibility: art.visibility, emails: await listGrants(c.env, slug) });
 });
 
 artifactRoutes.put("/artifacts/:slug/access", requireScope("manage"), async (c) => {
   const slug = c.req.param("slug");
-  const art = await manageable(c, slug);
+  const art = await manageableArtifact(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
 
   const body = await c.req.json().catch(() => null);
-  const visibility = body?.visibility;
-  if (visibility !== "restricted" && visibility !== "everyone") {
-    return c.json({ error: "bad_request", detail: "visibility must be 'restricted' or 'everyone'" }, 400);
-  }
-  const rawEmails: unknown = body?.emails ?? [];
-  if (!Array.isArray(rawEmails) || rawEmails.some((e) => typeof e !== "string")) {
-    return c.json({ error: "bad_request", detail: "emails must be an array of strings" }, 400);
-  }
-  const emails = (rawEmails as string[]).map((e) => e.trim().toLowerCase()).filter(Boolean);
-  if (emails.some((e) => !e.includes("@"))) {
-    return c.json({ error: "bad_request", detail: "each email must contain '@'" }, 400);
-  }
+  const parsed = normalizeAccessInput({ visibility: body?.visibility, emails: body?.emails });
+  if ("error" in parsed) return c.json({ error: "bad_request", detail: parsed.error }, 400);
+  const { visibility, emails } = parsed;
 
   await setAccess(c.env, slug, visibility, emails, new Date().toISOString());
 
@@ -1159,11 +1153,13 @@ artifactRoutes.put("/artifacts/:slug/access", requireScope("manage"), async (c) 
 
 artifactRoutes.delete("/artifacts/:slug", requireScope("manage"), async (c) => {
   const slug = c.req.param("slug");
-  const existing = await manageable(c, slug);
+  const existing = await manageableArtifact(c, slug);
   if (!existing) return c.json({ error: "not_found" }, 404);
-  await deletePrefix(c.env, slug);
-  await deleteArtifactRow(c.env, slug);
-  return c.json({ deleted: slug });
+  // The counts are additive on this route (it has always answered `deleted`),
+  // and load-bearing on the MCP `delete_artifact` tool, which has to be able to
+  // say what actually went.
+  const removed = await purgeArtifact(c.env, slug);
+  return c.json({ deleted: slug, ...removed });
 });
 
 // --- Where the artifact routes are mounted ----------------------------------
@@ -1202,15 +1198,113 @@ const noMachineRoute = (c: Context<Vars>) =>
 api.all("/machine", noMachineRoute);
 api.all("/machine/*", noMachineRoute);
 
-/** Delete every R2 object under `<slug>/`. */
-async function deletePrefix(env: Env, slug: string): Promise<void> {
+/** Delete every R2 object under `<slug>/`, reporting how many bytes went. */
+async function deletePrefix(env: Env, slug: string): Promise<{ files: number; bytes: number }> {
   const prefix = `${slug}/`;
   let cursor: string | undefined;
+  let files = 0;
+  let bytes = 0;
   do {
     const listed = await env.FILES.list({ prefix, cursor });
     if (listed.objects.length > 0) {
+      files += listed.objects.length;
+      for (const o of listed.objects) bytes += o.size ?? 0;
       await env.FILES.delete(listed.objects.map((o) => o.key));
     }
     cursor = listed.truncated ? listed.cursor : undefined;
   } while (cursor);
+  return { files, bytes };
+}
+
+/**
+ * Delete one artifact completely: its stored bytes, then every row that
+ * referenced it (`deleteArtifactRow` covers grants, versions, views and share
+ * links in one batch).
+ *
+ * The order matters and is the order the REST route has always used — bytes
+ * first, rows second. A failure between the two leaves rows pointing at objects
+ * that are gone, which serves 404s; the reverse leaves orphaned bytes that
+ * nothing can ever reach or bill correctly.
+ *
+ * Returns what went, because the MCP `delete_artifact` tool has to report a
+ * cleanup summary and counting it a second time after the fact is impossible.
+ */
+export async function purgeArtifact(
+  env: Env,
+  slug: string
+): Promise<{ versions: number; files: number; bytes: number }> {
+  const versions = (await listVersions(env, slug)).length;
+  const removed = await deletePrefix(env, slug);
+  await deleteArtifactRow(env, slug);
+  return { versions, ...removed };
+}
+
+/**
+ * Point a slug at an existing version, or say why not.
+ *
+ * Shared by `POST /artifacts/:slug/current` and the remote MCP
+ * `rollback_artifact` tool. Authorization and suspension are the caller's job —
+ * this is only the "does that version exist, and is it still serviceable?"
+ * half, which is the part that would otherwise be restated.
+ */
+export async function rollbackArtifact(
+  env: Env,
+  slug: string,
+  version: number
+): Promise<
+  | { ok: true; current: number }
+  | { ok: false; error: "version_expired" | "not_found"; detail: string; status: 409 | 404 }
+> {
+  // An expired version still has a history row but no bytes, so rolling back to
+  // it would leave the artifact serving nothing. Refused explicitly rather than
+  // 404 — "that version has expired" is actionable, "not found" is confusing
+  // when the version list plainly shows it.
+  const target = await getVersion(env, slug, version);
+  if (target?.expired_at) {
+    return {
+      ok: false,
+      error: "version_expired",
+      detail: `version ${version} is outside this plan's retention window and its files are gone`,
+      status: 409,
+    };
+  }
+  const ok = await setCurrentVersion(env, slug, version, new Date().toISOString());
+  if (!ok) {
+    return { ok: false, error: "not_found", detail: `version ${version} does not exist`, status: 404 };
+  }
+  return { ok: true, current: version };
+}
+
+/**
+ * Validate and normalize an access change, in one place.
+ *
+ * `PUT /artifacts/:slug/access` and the remote MCP `share_artifact` tool both
+ * run this, so "what counts as an email" and "what visibility values exist"
+ * cannot come to mean two different things on two transports. Deliberately
+ * pure: no database, no context, so it is directly testable and cannot be the
+ * thing that decides *whether* the caller may do it.
+ *
+ * Emails are lowercased and de-duplicated. Nobody is invited and no directory
+ * entry is created — a grant is a grant, and widening who may sign in stays an
+ * admin action (see the note on the route).
+ */
+export function normalizeAccessInput(input: {
+  visibility: unknown;
+  emails?: unknown;
+}): { visibility: "restricted" | "everyone"; emails: string[] } | { error: string } {
+  const { visibility } = input;
+  if (visibility !== "restricted" && visibility !== "everyone") {
+    return { error: "visibility must be 'restricted' or 'everyone'" };
+  }
+  const rawEmails: unknown = input.emails ?? [];
+  if (!Array.isArray(rawEmails) || rawEmails.some((e) => typeof e !== "string")) {
+    return { error: "emails must be an array of strings" };
+  }
+  const emails = [
+    ...new Set((rawEmails as string[]).map((e) => e.trim().toLowerCase()).filter(Boolean)),
+  ];
+  if (emails.some((e) => !e.includes("@"))) {
+    return { error: "each email must contain '@'" };
+  }
+  return { visibility, emails };
 }

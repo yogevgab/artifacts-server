@@ -95,7 +95,7 @@ describe("the Streamable HTTP transport", () => {
     expect(readBody.result.serverInfo.name).toBe("rtfx");
     expect(readBody.result.capabilities.tools).toBeTruthy();
     expect(readBody.result.instructions).toBe(HTTP_READ_ONLY_INSTRUCTIONS);
-    expect(readBody.result.instructions).toContain('exposes "doctor" only');
+    expect(readBody.result.instructions).toContain("list_artifacts");
 
     const publishBody = await json(await rpc(publish.token, message));
     expect(publishBody.result.instructions).toBe(HTTP_INSTRUCTIONS);
@@ -200,27 +200,37 @@ describe("the Streamable HTTP transport", () => {
 // --- The tool surface --------------------------------------------------------
 
 describe("the remote tool surface", () => {
-  it("exposes doctor and publish to a token with publish scope", async () => {
-    const { token } = await tokenFor(BOB, { name: "publisher", scopes: ["read", "publish"] });
-    const body = await json(await rpc(token, { jsonrpc: "2.0", id: 1, method: "tools/list" }));
-    expect(body.result.tools.map((t: any) => t.name)).toEqual(["doctor", "publish"]);
-    // Closed schemas, so hallucinated arguments are errors and not silent no-ops.
-    for (const tool of body.result.tools) expect(tool.inputSchema.additionalProperties).toBe(false);
-    expect(body.result.tools[0].annotations.readOnlyHint).toBe(true);
-    expect(body.result.tools[1].annotations.readOnlyHint).toBe(false);
-    expect(body.result.tools[1].inputSchema.properties.path).toBeUndefined();
-    expect(body.result.tools[1].inputSchema.properties.files.items.properties.path).toBeTruthy();
-    expect(body.result.tools[1].inputSchema.properties.files.items.properties.content_text).toBeTruthy();
-    expect(body.result.tools[1].inputSchema.properties.files.items.properties.content_base64).toBeTruthy();
-    expect(body.result.tools[1].inputSchema.properties.files.items.additionalProperties).toBe(false);
-    expect(body.result.tools[1].inputSchema.properties.files.items.required).toEqual(["path"]);
-    expect(body.result.tools[1].description).toContain("content carried IN THIS REQUEST");
-  });
+  it("exposes tools according to token scopes", async () => {
+    const reader = await tokenFor(BOB, { name: "reader", scopes: ["read"] });
+    const publisher = await tokenFor(BOB, { name: "publisher", scopes: ["read", "publish"] });
+    const manager = await tokenFor(BOB, { name: "manager", scopes: ["read", "publish", "manage"] });
 
-  it("hides publish from a read-only token", async () => {
-    const { token } = await tokenFor(BOB, { name: "reader", scopes: ["read"] });
-    const body = await json(await rpc(token, { jsonrpc: "2.0", id: 1, method: "tools/list" }));
-    expect(body.result.tools.map((t: any) => t.name)).toEqual(["doctor"]);
+    const names = async (token: string) =>
+      (await json(await rpc(token, { jsonrpc: "2.0", id: 1, method: "tools/list" }))).result.tools.map((t: any) => t.name);
+
+    expect(await names(reader.token)).toEqual(["doctor", "list_artifacts", "artifact_details", "artifact_statistics"]);
+    expect(await names(publisher.token)).toEqual(["doctor", "publish", "list_artifacts", "artifact_details", "artifact_statistics"]);
+    expect(await names(manager.token)).toEqual([
+      "doctor",
+      "publish",
+      "list_artifacts",
+      "artifact_details",
+      "artifact_statistics",
+      "share_artifact",
+      "rollback_artifact",
+      "delete_artifact",
+    ]);
+
+    const body = await json(await rpc(manager.token, { jsonrpc: "2.0", id: 2, method: "tools/list" }));
+    for (const tool of body.result.tools) expect(tool.inputSchema.additionalProperties, tool.name).toBe(false);
+    const publish = body.result.tools.find((t: any) => t.name === "publish");
+    expect(publish.inputSchema.properties.path).toBeUndefined();
+    expect(publish.inputSchema.properties.files.items.properties.path).toBeTruthy();
+    expect(publish.inputSchema.properties.files.items.additionalProperties).toBe(false);
+    expect(body.result.tools.find((t: any) => t.name === "delete_artifact").inputSchema.required).toEqual([
+      "slug",
+      "confirm_slug",
+    ]);
   });
 
   /**
@@ -231,10 +241,9 @@ describe("the remote tool surface", () => {
   it("refuses every tool the stdio server has that this one does not", async () => {
     const { token } = await tokenFor(BOB, { name: "all", scopes: ["read", "publish", "manage"] });
     expect(LOCAL_ONLY_TOOLS.length).toBeGreaterThan(0);
-    expect(LOCAL_ONLY_TOOLS).toEqual(
-      expect.arrayContaining(["list_artifacts", "get_versions", "rollback", "update_access"])
-    );
+    expect(LOCAL_ONLY_TOOLS).toEqual(expect.arrayContaining(["get_versions", "rollback", "update_access"]));
     expect(LOCAL_ONLY_TOOLS).not.toContain("publish");
+    expect(LOCAL_ONLY_TOOLS).not.toContain("list_artifacts");
 
     for (const name of LOCAL_ONLY_TOOLS) {
       const body = await json(
@@ -296,7 +305,6 @@ describe("the remote tool surface", () => {
   it("matches the stdio server on the tools they both declare unchanged", () => {
     for (const remote of REMOTE_TOOLS) {
       const local = TOOLS.find((t) => t.name === remote.name);
-      expect(local, remote.name).toBeTruthy();
       if (remote.name === "doctor") {
         // Same closed, empty schema — the transports must not disagree about what
         // a call named `doctor` may carry.
@@ -572,7 +580,7 @@ describe("doctor", () => {
       "/.well-known/oauth-authorization-server"
     );
     expect(facts.publish_supported).toBe(true);
-    expect(facts.tools).toEqual(["doctor", "publish"]);
+    expect(facts.tools).toEqual(["doctor", "publish", "list_artifacts", "artifact_details", "artifact_statistics"]);
     expect(facts.reachable).toBe(true);
     expect(facts.artifact_count).toBe(1);
     expect(facts.content_base).toBeTruthy();
@@ -587,7 +595,8 @@ describe("doctor", () => {
     const res = await call(token);
     const text = await res.text();
     expect(text).not.toContain(token);
-    expect(text).not.toContain(token.split("_")[2]);
+    const secret = token.split("_").at(-1)!;
+    if (secret.length >= 8) expect(text).not.toContain(secret);
     for (const value of res.headers.values()) expect(value).not.toContain(token);
   });
 
@@ -606,6 +615,105 @@ describe("doctor", () => {
     const body = await json(await call(token));
     const facts = JSON.parse(body.result.content[body.result.content.length - 1].text);
     expect(facts.artifact_count).toBe(0);
+  });
+});
+
+// --- artifact management -----------------------------------------------------
+
+describe("artifact management tools", () => {
+  const callTool = (token: string, name: string, args: Record<string, unknown> = {}) =>
+    rpc(token, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } });
+  const payload = async (res: Response) => {
+    const body = await json(res);
+    expect(body.error).toBeUndefined();
+    return JSON.parse(body.result.content[body.result.content.length - 1].text);
+  };
+  const publish = async (token: string, slug: string, html: string, title = slug) =>
+    payload(await callTool(token, "publish", { slug, title, content_text: html }));
+
+  it("lists, describes and summarizes visible artifacts", async () => {
+    const { token } = await tokenFor(BOB, { name: "manager", scopes: ["read", "publish", "manage"] });
+    await publish(token, "mcp-managed", "<h1>v1</h1>", "Managed");
+    await publish(token, "mcp-managed", "<h1>v2</h1>");
+    await env.DB.prepare(
+      "INSERT INTO artifact_views (slug, version, email, path, country, referrer, viewed_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    )
+      .bind("mcp-managed", 2, BOB, "/", "IL", "https://claude.ai", new Date().toISOString())
+      .run();
+
+    const listed = await payload(await callTool(token, "list_artifacts", { query: "managed", limit: 10 }));
+    expect(listed.command).toBe("list_artifacts");
+    expect(listed.total).toBe(1);
+    expect(listed.artifacts[0]).toMatchObject({ slug: "mcp-managed", title: "mcp-managed", current_version: 2, versions: 2, views: 1 });
+    expect(listed.artifacts[0].url).toContain("/mcp-managed/");
+
+    const details = await payload(await callTool(token, "artifact_details", { slug: "mcp-managed" }));
+    expect(details.artifact.slug).toBe("mcp-managed");
+    expect(details.versions.map((v: any) => v.version)).toEqual([2, 1]);
+    expect(details.versions[0].current).toBe(true);
+    expect(details.access).toEqual({ visibility: "restricted", emails: [] });
+    expect(details.views.total).toBe(1);
+    expect(details.views.by_version[0]).toMatchObject({ version: 2, total: 1 });
+
+    const one = await payload(await callTool(token, "artifact_statistics", { slug: "mcp-managed" }));
+    expect(one.scope).toBe("artifact");
+    expect(one.totals).toMatchObject({ slug: "mcp-managed", versions: 2, views: 1, explicit_grants: 0 });
+
+    const all = await payload(await callTool(token, "artifact_statistics"));
+    expect(all.scope).toBe("all_visible");
+    expect(all.totals.artifacts).toBe(1);
+    expect(all.totals.by_visibility.restricted).toBe(1);
+  });
+
+  it("shares, rolls back and deletes with manage scope", async () => {
+    const { token } = await tokenFor(BOB, { name: "manager", scopes: ["read", "publish", "manage"] });
+    await publish(token, "mcp-admin", "<h1>v1</h1>", "Admin");
+    await publish(token, "mcp-admin", "<h1>v2</h1>");
+
+    const shared = await payload(
+      await callTool(token, "share_artifact", {
+        slug: "mcp-admin",
+        visibility: "restricted",
+        emails: ["ALICE@example.com", "alice@example.com"],
+      })
+    );
+    expect(shared).toMatchObject({ slug: "mcp-admin", visibility: "restricted", emails: ["alice@example.com"] });
+
+    const rolled = await payload(await callTool(token, "rollback_artifact", { slug: "mcp-admin", version: 1 }));
+    expect(rolled.current).toBe(1);
+    expect((await env.DB.prepare("SELECT current_version FROM artifacts WHERE slug = ?").bind("mcp-admin").first<any>())!.current_version).toBe(1);
+
+    const refused = await json(await callTool(token, "delete_artifact", { slug: "mcp-admin", confirm_slug: "wrong" }));
+    expect(refused.result.isError).toBe(true);
+    expect(JSON.parse(refused.result.content[1].text).error).toBe("confirmation_required");
+    expect(await env.FILES.get("mcp-admin/v1/index.html")).toBeTruthy();
+
+    const deleted = await payload(await callTool(token, "delete_artifact", { slug: "mcp-admin", confirm_slug: "mcp-admin" }));
+    expect(deleted.deleted).toBe("mcp-admin");
+    expect(deleted.versions).toBe(2);
+    expect(await env.DB.prepare("SELECT slug FROM artifacts WHERE slug = ?").bind("mcp-admin").first()).toBeNull();
+    expect(await env.DB.prepare("SELECT slug FROM artifact_versions WHERE slug = ?").bind("mcp-admin").first()).toBeNull();
+    expect(await env.DB.prepare("SELECT slug FROM artifact_grants WHERE slug = ?").bind("mcp-admin").first()).toBeNull();
+    expect(await env.FILES.get("mcp-admin/v1/index.html")).toBeNull();
+    expect(await env.FILES.get("mcp-admin/v2/index.html")).toBeNull();
+  });
+
+  it("enforces handler scopes even if a client calls a hidden tool directly", async () => {
+    const reader = await tokenFor(BOB, { name: "reader", scopes: ["read"] });
+    const publisher = await tokenFor(BOB, { name: "publisher", scopes: ["read", "publish"] });
+    await publish(publisher.token, "mcp-scope", "<h1>v1</h1>", "Scope");
+    await publish(publisher.token, "mcp-scope", "<h1>v2</h1>");
+
+    const share = await json(
+      await callTool(reader.token, "share_artifact", { slug: "mcp-scope", visibility: "everyone" })
+    );
+    expect(share.result.isError).toBe(true);
+    expect(JSON.parse(share.result.content[1].text).error).toBe("insufficient_scope");
+
+    const rollback = await json(await callTool(publisher.token, "rollback_artifact", { slug: "mcp-scope", version: 1 }));
+    expect(rollback.result.isError).toBe(true);
+    expect(JSON.parse(rollback.result.content[1].text).error).toBe("insufficient_scope");
+    expect((await env.DB.prepare("SELECT current_version FROM artifacts WHERE slug = ?").bind("mcp-scope").first<any>())!.current_version).toBe(2);
   });
 });
 

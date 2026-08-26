@@ -11,9 +11,10 @@ The user-facing quickstart is in [`plugins/rtfx/README.md`](../plugins/rtfx/READ
 operator's view.
 
 There is now a **second** transport: the app itself answers MCP over HTTP at `POST /mcp`, with
-`doctor` and publish-by-content over bearer/OAuth auth. It is a hosted complement to the plugin, not
-a replacement for path-based local publishing — §10, and [`REMOTE_MCP_OAUTH.md`](REMOTE_MCP_OAUTH.md)
-for the OAuth details.
+OAuth/bearer auth, content-based `publish`, read tools (`list_artifacts`, `artifact_details`,
+`artifact_statistics`) and manage tools (`share_artifact`, `rollback_artifact`, `delete_artifact`).
+It is a hosted complement to the plugin, not a replacement for path-based local publishing — §10,
+and [`REMOTE_MCP_OAUTH.md`](REMOTE_MCP_OAUTH.md) for the OAuth details.
 
 ---
 
@@ -246,12 +247,13 @@ claude mcp add --transport http rtfx https://rtfx.pro/mcp \
 
 The app also exposes the OAuth discovery/registration/authorization-code + PKCE flow a compliant MCP
 client needs for `claude mcp login`; keep a production client smoke gate before making it the default
-onboarding path. The remote tool surface is intentionally narrow but useful: `doctor` plus `publish`
-for content supplied inside the JSON-RPC request.
+onboarding path. The remote tool surface is now useful for both creation and lifecycle management:
+`doctor`, content-based `publish`, `list_artifacts`, `artifact_details`, `artifact_statistics`,
+`share_artifact`, `rollback_artifact` and `delete_artifact`.
 
 | | stdio (the plugin) | HTTP (`/mcp`) |
 |---|---|---|
-| Tools | publish, list_artifacts, get_versions, rollback, doctor (+ update_access, gated) | publish-by-content, doctor |
+| Tools | publish, list_artifacts, get_versions, rollback, doctor (+ update_access, gated) | doctor, publish-by-content, list_artifacts, artifact_details, artifact_statistics, share_artifact, rollback_artifact, delete_artifact |
 | Credential | `RTFX_API_TOKEN` or local browser sign-in | `Authorization: Bearer rtfx_…`, hand-minted or OAuth-issued |
 | Sign-in | local browser sign-in via `rtfx.mjs login` | OAuth authorization-code + PKCE, plus manual bearer-token header |
 | Runs | on the user's machine | on the instance |
@@ -268,7 +270,10 @@ are all refused, which is what keeps a surface meant to sit outside Access immun
 is validated and an unrecognized one is refused outright (DNS-rebinding protection, per the MCP
 spec); a content host can never be an allowed origin, and `*` is never emitted. Messages are capped
 from the inline upload size, batches are refused, and a content host answers 404 for `/mcp` entirely.
-`doctor` reports the token's **id**, never its secret.
+`doctor` reports the token's **id**, never its secret. `list_artifacts`, `artifact_details` and
+`artifact_statistics` require `read`; `publish` requires `publish`; `share_artifact`,
+`rollback_artifact` and `delete_artifact` require `manage`. Delete additionally requires
+`confirm_slug` to match `slug` exactly.
 
 `test/mcp-http.test.ts` pins all of it against the real Worker, including publish success, path
 refusal, scope checks, inline bundle path filtering and body-size limits.

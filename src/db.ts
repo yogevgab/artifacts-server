@@ -252,6 +252,26 @@ export async function getViews(env: Env, slug: string, limit = 50): Promise<View
   return { total: counts?.total ?? 0, unique: counts?.uniq ?? 0, recent: results ?? [] };
 }
 
+/**
+ * Per-slug version counts, in one query — how many versions exist for each
+ * slug and how many of them have had their bytes expired by retention.
+ *
+ * Shaped like {@link viewCounts} on purpose: an instance-wide aggregate the
+ * caller filters down to the slugs it may actually see. The alternative — an
+ * `IN (…)` list of the caller's slugs — binds one variable per artifact, which
+ * a large workspace can push past SQLite's parameter ceiling.
+ */
+export async function versionCounts(env: Env): Promise<Map<string, { versions: number; expired: number }>> {
+  const { results } = await env.DB.prepare(
+    `SELECT slug, COUNT(*) AS versions,
+            SUM(CASE WHEN expired_at IS NULL THEN 0 ELSE 1 END) AS expired
+       FROM artifact_versions GROUP BY slug`
+  ).all<{ slug: string; versions: number; expired: number }>();
+  const map = new Map<string, { versions: number; expired: number }>();
+  for (const r of results ?? []) map.set(r.slug, { versions: r.versions, expired: r.expired ?? 0 });
+  return map;
+}
+
 /** Per-slug view counts (total + unique) for the dashboard, in one query. */
 export async function viewCounts(env: Env): Promise<Map<string, { total: number; unique: number }>> {
   const { results } = await env.DB.prepare(
