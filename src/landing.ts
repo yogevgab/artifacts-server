@@ -276,7 +276,7 @@ function structuredData(env: Env): unknown[] {
             "Agent-native publishing from Claude Code, a native MCP server, Hermes, the CLI or the API",
             "Claude Code plugin with browser OAuth sign-in — no API token to copy or paste",
             "Local MCP server that publishes build output from the machine it runs on",
-            "Remote MCP endpoint authorized over OAuth for connection and readiness checks",
+            "Remote MCP endpoint authorized over OAuth for publishing content supplied in tool calls and for readiness checks",
             "Immutable versions with one-click rollback",
             "View log: who opened an artifact, when, and which version",
             "Workspaces with owner, admin, member and viewer roles",
@@ -350,18 +350,15 @@ function tierCard(name: PublicTier): string {
  * reader cannot miss — whether it publishes.
  *
  * That last field is the reason this is a table of data rather than four hand
- * written blocks. Three of these four surfaces publish and one does not, and
- * the one that does not is the newest, the most impressive-sounding, and the
- * easiest to read as "rtfx over MCP, hosted". `mcp.rtfx.pro` exposes exactly
- * one read-only tool (`doctor`, src/mcp.ts); publishing takes a path on the
- * machine running the *client*, so a server-side endpoint could only ever read
- * our disk. Every card therefore carries its `tag`, and the remote card says in
- * prose what it does instead — see docs/REMOTE_MCP_OAUTH.md §1.
+ * written blocks. The hosted endpoint publishes content bytes supplied inside
+ * the MCP call, but never reads a local path from the cloud. Every card
+ * therefore carries its `tag`, and the remote card says in prose what it does
+ * instead — see docs/REMOTE_MCP_OAUTH.md §1.
  */
 interface Connector {
   key: string;
   name: string;
-  /** Publishes / Diagnostics / Automation — the scannable claim. */
+  /** Publishes / Publishes content / Automation — the scannable claim. */
   tag: string;
   /** The real first line, or the tool list. Never a composed example. */
   code: string;
@@ -397,15 +394,16 @@ const CONNECTORS: readonly Connector[] = [
   {
     key: "remote-mcp",
     name: "Remote MCP, authorized by OAuth",
-    tag: "Diagnostics",
+    tag: "Publishes content",
     code: `<b>claude mcp add --transport http rtfx https://mcp.rtfx.pro/mcp</b>
-<b>claude mcp login rtfx</b>`,
+<b>claude mcp login rtfx</b>
+
+tools: <b>publish</b> · doctor`,
     body:
       "A hosted endpoint your client authorizes in the browser — authorization code with PKCE, " +
-      "no bearer token to paste. It answers one read-only tool, doctor: how your credential is " +
-      "authenticated, what it may do, and whether the instance is reachable. It does not " +
-      "publish. Publishing reads files on your machine, so it stays with the plugin and the " +
-      "local server above.",
+      "no bearer token to paste. It publishes content sent inside the tool call — an HTML page, " +
+      "a PDF, or a small explicit file list — and runs doctor for connection checks. It never " +
+      "reads a filesystem path; larger folders still belong to the plugin and local server above.",
   },
   {
     key: "api-cli-hermes",
@@ -448,9 +446,9 @@ function connectorSection(): string {
     <div class="conn-grid">
       ${CONNECTORS.map(connectorCard).join("")}
     </div>
-    <p class="conn-note">Publishing happens where your files are — the plugin and the local MCP
-      server. The hosted endpoint is the authenticated way to check a connection, not a second
-      way to upload. <a href="/docs#agents">Every connector, side by side &rarr;</a></p>
+    <p class="conn-note">Publishing happens in two ways: local connectors read files beside the
+      client, while the hosted MCP endpoint publishes content bytes sent inside the tool call. It
+      never reads a path on the server. <a href="/docs#agents">Every connector, side by side &rarr;</a></p>
   </div>`;
 }
 

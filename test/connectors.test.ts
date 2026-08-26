@@ -17,14 +17,11 @@ import type { Env } from "../src/env";
  *     during a redesign, because each card looks like a detail rather than the
  *     headline. Structure is asserted on `data-*` hooks (docs/DESIGN.md) so the
  *     wording can keep improving while the surface cannot quietly vanish.
- *  2. **Overclaiming the hosted endpoint.** `mcp.rtfx.pro` is the newest and
- *     most impressive-sounding surface, and it exposes exactly one read-only
- *     tool (`doctor`, src/mcp.ts). `publish` takes a path on the machine running
- *     the *client*, so a server-side endpoint handed one could only read our own
- *     disk — remote publishing is an upload design that is not built. Copy that
- *     implies otherwise is the single most expensive false claim available here,
- *     because it would be discovered by a customer mid-session. The forbidden
- *     phrasings below are banned from every public surface.
+ *  2. **Overclaiming the hosted endpoint.** `mcp.rtfx.pro` can publish content
+ *     supplied inside the MCP call, but not a local filesystem path. Copy that
+ *     implies the cloud endpoint can read a user's folder is the expensive false
+ *     claim here, because it would be discovered by a customer mid-session. The
+ *     tests below pin the distinction everywhere public copy names the endpoint.
  */
 
 const LOCAL = "http://localhost";
@@ -97,8 +94,10 @@ describe("the homepage leads with the connectors", () => {
       );
     }
     const remote = cards.find((c) => c.startsWith('"remote-mcp"'))!;
-    expect(remote).toContain('<span class="conn-tag">Diagnostics</span>');
-    expect(remote.toLowerCase()).toContain("it does not publish");
+    expect(remote).toContain('<span class="conn-tag">Publishes content</span>');
+    expect(remote.toLowerCase()).toContain("content sent inside the tool call");
+    expect(remote.toLowerCase()).toContain("never");
+    expect(remote.toLowerCase()).toContain("filesystem path");
   });
 
   it("adds the band without restacking the page into more sections", async () => {
@@ -138,14 +137,14 @@ describe("/docs compares the connectors honestly", () => {
     expect(wrapped).toBe(tables);
   });
 
-  it("documents the remote endpoint's setup and its one tool", async () => {
+  it("documents the remote endpoint's setup and content-publish tool", async () => {
     const html = await publicHtml("/docs");
     expect(html).toContain('data-docs="remote-mcp"');
     const example = html.split('data-docs="remote-mcp"')[1].split("</pre>")[0];
     expect(example).toContain("claude mcp add --transport http rtfx https://mcp.rtfx.pro/mcp");
     expect(example).toContain("claude mcp login rtfx");
+    expect(example).toContain("publish");
     expect(example).toContain("doctor");
-    expect(example, "the endpoint has no publish tool").not.toContain("publish");
   });
 
   it("answers the remote-publishing question in the FAQ, and in the rich result", async () => {
@@ -155,31 +154,23 @@ describe("/docs compares the connectors honestly", () => {
       .find((b) => b["@type"] === "FAQPage");
     const entry = faq.mainEntity.find((q: { name: string }) => /mcp\.rtfx\.pro/i.test(q.name));
     expect(entry, "no FAQ entry about the remote endpoint").toBeDefined();
-    expect(entry.acceptedAnswer.text).toMatch(/^No,/);
-    expect(entry.acceptedAnswer.text).toMatch(/read-only/i);
+    expect(entry.acceptedAnswer.text).toMatch(/^Yes,/);
+    expect(entry.acceptedAnswer.text).toMatch(/content/i);
+    expect(entry.acceptedAnswer.text).toMatch(/path/i);
     // The answer must be on the page, not only in the structured data.
     expect(html).toContain(entry.name);
   });
 });
 
 /**
- * The one claim that must never appear anywhere.
- *
- * A blanket "mcp near publish" ban was tried first and does not work: the copy
- * that *denies* remote publishing has to put those two words in one sentence to
- * deny anything at all ("Remote MCP over OAuth — diagnostics, NOT publishing").
- * A guard that fires on the denial punishes exactly the sentence it wants. So
- * the ban is on affirmative capability phrasings only, and it is paired with a
- * positive requirement: every surface that names the hosted endpoint must also
- * carry the denial. Together those catch the realistic regression — somebody
- * adds `mcp.rtfx.pro` to a feature list and drops the caveat.
+ * The one claim that must never appear anywhere: hosted MCP as a cloud-side
+ * path reader. Remote publishing is real only when the content bytes are in the
+ * request.
  */
-describe("nothing claims the hosted endpoint can publish", () => {
+describe("nothing claims the hosted endpoint can read local paths", () => {
   const FORBIDDEN = [
-    /\b(can|will|may) publish\b(?![^.]{0,90}\b(not|never|no)\b)/i,
-    /\bpublish (from|with|using|straight from) (the )?(remote|hosted) mcp\b/i,
-    /\bremote (mcp|publish)[^.]{0,50}\bsupported\b/i,
-    /publish_supported["\s:]+true/i,
+    /remote (mcp|server)[^.]{0,80}read[^.]{0,80}(local )?(path|folder|directory|filesystem)/i,
+    /mcp\.rtfx\.pro[^.]{0,80}read[^.]{0,80}(\.\/|filesystem path|folder|directory)/i,
   ];
 
   it("appears on no public page", async () => {
@@ -195,7 +186,7 @@ describe("nothing claims the hosted endpoint can publish", () => {
     for (const pattern of FORBIDDEN) expect(txt()).not.toMatch(pattern);
   });
 
-  it("never names the hosted endpoint without saying what it cannot do", async () => {
+  it("never names the hosted endpoint without saying content-not-path", async () => {
     const surfaces: [string, string][] = [
       ["/", await publicHtml("/")],
       ["/docs", await publicHtml("/docs")],
@@ -203,11 +194,9 @@ describe("nothing claims the hosted endpoint can publish", () => {
     ];
     for (const [name, body] of surfaces) {
       expect(body, `${name} should name the endpoint`).toContain("mcp.rtfx.pro");
-      expect(body.toLowerCase(), `${name} names mcp.rtfx.pro with no caveat`).toMatch(
-        /does not\s+publish|not publishing|cannot publish/
-      );
-      expect(body.toLowerCase(), `${name} should say where publishing happens instead`).toMatch(
-        /local (plugin|mcp server)|the plugin and the local/
+      expect(body.toLowerCase(), `${name} names mcp.rtfx.pro with no content caveat`).toContain("content");
+      expect(body.toLowerCase(), `${name} should reject path-shaped remote publish`).toMatch(
+        /not paths|not a path|never reads? .*path|cannot read .*filesystem/
       );
     }
   });
@@ -228,11 +217,11 @@ describe("llms.txt routes an agent to the right connector", () => {
     }
   });
 
-  it("says in quotable words that the hosted endpoint does not publish", () => {
+  it("says in quotable words that the hosted endpoint publishes content, not paths", () => {
     const lower = txt().toLowerCase();
-    expect(lower).toContain("diagnostics, not publishing");
-    expect(lower).toMatch(/never describe this endpoint as able to publish/);
-    expect(lower).toMatch(/publishing\s+is the local plugin and the local mcp server/);
+    expect(lower).toContain("publishes content, not paths");
+    expect(lower).toContain("bytes sent inside the tool call");
+    expect(lower).toMatch(/cannot read the client's filesystem/);
   });
 
   it("routes someone who wants remote upload away, rather than into a dead end", () => {

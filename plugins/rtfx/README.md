@@ -46,7 +46,7 @@ token or refresh token.
 Put any token export in your shell profile or a secret manager — not in a file inside a repository,
 and never in a commit.
 
-> **Remote MCP is also available for connection diagnostics.** Claude Code can add the hosted MCP
+> **Remote MCP is also available for content publishing and connection checks.** Claude Code can add the hosted MCP
 > endpoint and sign in with OAuth:
 >
 > ```
@@ -55,8 +55,8 @@ and never in a commit.
 > ```
 >
 >
-> Remote MCP currently exposes the read-only `doctor` tool. Publishing still belongs to this local
-> plugin, because it can read files on *your* machine.
+> Remote MCP exposes `publish` for content sent inside the MCP call, plus `doctor`. The local plugin
+> still remains best for publishing folders by path, because it runs on *your* machine.
 
 ## What you get
 

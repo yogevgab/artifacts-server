@@ -430,7 +430,7 @@ app.route("/", accessRequestRoutes);
 app.route("/api", api);
 
 // Remote MCP over Streamable HTTP: POST /mcp, authenticated by the same bearer
-// token `/api/machine/*` takes. It exposes one read-only diagnostic tool; OAuth
+// token `/api/machine/*` takes. It exposes doctor plus publish-by-content; OAuth
 // discovery/login routes below can mint that same kind of bearer token.
 // See src/mcp.ts and docs/REMOTE_MCP_OAUTH.md.
 app.route("/", mcpRoutes);

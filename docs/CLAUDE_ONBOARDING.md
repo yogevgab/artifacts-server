@@ -73,10 +73,11 @@ claude mcp login rtfx
 
 The OAuth path has passed a live Claude Code client smoke against the same Worker at
 `https://rtfx.pro/mcp`, and the dedicated `mcp.rtfx.pro` host has passed server/DNS smoke. The HTTP
-endpoint still exposes only one read-only tool, `doctor`. It cannot publish — publishing needs to
-read files on your machine, which a hosted server cannot do.
+endpoint exposes `publish` for content sent inside the MCP tool call, plus `doctor`. It still cannot
+publish by local filesystem path — folders/build outputs should use the local plugin/server.
 
-Section 2, with the local plugin, remains the supported path for actually publishing.
+Section 2, with the local plugin, remains the supported path for publishing local directories or
+large build outputs by path.
 
 ## Marketplace distribution
 
@@ -131,7 +132,7 @@ with `redacted@example.com` before being committed.
 | 5 | Login success page / terminal success, token id redacted | Browser + terminal | Connected, with no secret on screen |
 | 6 | `/rtfx:setup` reporting browser sign-in + API reachable | Terminal | Ready to publish |
 | 7 | "publish this" → the returned `https://a.rtfx.pro/<slug>/` URL | Terminal, then the live page | The payoff, in the user's own words |
-| 8 | Remote MCP `claude mcp login rtfx` + `doctor` | Terminal | Hosted auth works; remote is diagnostics-only |
+| 8 | Remote MCP `claude mcp login rtfx` + `publish`/`doctor` | Terminal | Hosted auth works; remote publishes inline content, not paths |
 
 Optional ninth: `/rtfx:versions` next to `/rtfx:rollback`, for the versioning story.
 
@@ -146,8 +147,9 @@ Optional ninth: `/rtfx:versions` next to `/rtfx:rollback`, for the versioning st
 | 0:50–1:00 | Re-publish → v2 at the same URL; one line on access control | `/rtfx:versions`, then the sharing panel |
 
 Record the install, login and publish in one take at real speed — the point of the video is that the
-whole thing is short, and a cut undercuts the claim. If Remote MCP appears, say plainly that it is
-for authenticated diagnostics today; publishing stays local so Claude can read the files.
+whole thing is short, and a cut undercuts the claim. If Remote MCP appears, say plainly that it
+publishes inline content over OAuth; publishing a local folder path still stays local so Claude can
+read the files.
 
 ## Related
 

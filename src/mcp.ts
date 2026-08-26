@@ -21,22 +21,33 @@
  *     advertising one we did not serve would send every compliant client into a
  *     discovery loop that ends in a 404.
  *
- * ## Why the tool surface is one read-only tool
+ * ## Why the tool surface is `doctor` and `publish`, and nothing else
  *
- * `publish` takes a path on the machine running the *client*. A server-side MCP
- * endpoint has no access to that machine's filesystem — the only disk it could
- * read is its own, which is emphatically not what the caller means. Exposing a
- * remote `publish(path)` would therefore be either a no-op or a server-side file
- * disclosure primitive, so it is absent rather than stubbed. The same reasoning
- * rules out anything that would need to *stream files upward* before the upload
- * semantics for that are designed.
+ * `publish` was absent from the first slice of this endpoint for a real reason,
+ * not caution: the stdio tool takes a *path* on the machine running the client,
+ * and a server-side MCP endpoint has no access to that machine's filesystem —
+ * the only disk it could read is its own, which is emphatically not what the
+ * caller means. A remote `publish(path)` would therefore be either a no-op or a
+ * server-side file-disclosure primitive.
  *
- * `list_artifacts`, `get_versions` and `rollback` have no such problem — they are
- * pure API calls — but they are held back too, on a narrower principle: this
- * endpoint's blast radius should stay at "reports on the credential you already
- * hold" until OAuth decides how a remote credential is minted and scoped. Adding
- * a read tool later is a one-line change to REMOTE_TOOLS plus a scope check;
- * removing one after clients depend on it is not.
+ * What changed is the argument, not the appetite. The remote tool takes the
+ * *content*: an HTML page as text, a PDF as base64, or a small multi-file site
+ * as an explicit list of `{path, content}`. Those bytes came from the caller, so
+ * there is nothing to disclose, and `path` (and its synonyms) are refused with
+ * an explanation rather than merely being unknown arguments. Everything past
+ * decoding is the multipart route's own code — `resolvePublishTarget` and
+ * `storeUpload` in src/api.ts — so the two transports cannot drift on quotas,
+ * ownership, suspension, versioning or retention.
+ *
+ * The inline path is deliberately small (see `MAX_INLINE_BYTES`): base64 inside
+ * a JSON-RPC message is an expensive way to move a build output, and the local
+ * plugin already does that well. This is for what a model just wrote.
+ *
+ * `list_artifacts`, `get_versions` and `rollback` have no filesystem problem
+ * either — they are pure API calls — but they are still held back, on a
+ * narrower principle: this endpoint's blast radius should grow one deliberate
+ * step at a time. Adding a read tool later is a one-line change to REMOTE_TOOLS
+ * plus a scope check; removing one after clients depend on it is not.
  *
  * `update_access` and anything that manages users, tokens or workspaces are
  * absent on the same rule the rest of the machine surface follows — see
@@ -46,11 +57,24 @@
 
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import type { Env } from "./env";
-import { requireApiToken, accountsFor, type AuthVars } from "./auth";
+import { requireApiToken, accountsFor, type AuthVars, type Identity } from "./auth";
+import type { Scope } from "./tokens";
 import { isAllowedOrigin } from "./cors";
-import { isPlatformAdmin } from "./authz";
+import { hasScope, isPlatformAdmin } from "./authz";
 import { accountIdsWithAtLeast, MANAGE_ARTIFACTS } from "./accounts";
 import { listArtifacts, listArtifactsForCaller } from "./db";
+import { resolvePublishTarget, storeUpload } from "./api";
+import {
+  processFiles,
+  singleHtml,
+  singlePdf,
+  sniffKind,
+  UploadError,
+  MAX_INLINE_BYTES,
+  MAX_INLINE_FILES,
+  type ProcessedUpload,
+  type UploadFile,
+} from "./upload";
 import { firstContentHostname } from "./host";
 import { siteOrigin } from "./seo";
 import { AS_METADATA_PATH, PROTECTED_RESOURCE_PATH } from "./oauth";
@@ -74,8 +98,23 @@ type Vars = { Bindings: Env; Variables: AuthVars };
  */
 export const MCP_PATH = "/mcp";
 
-/** JSON-RPC bodies here are a few hundred bytes; this is a guard, not a budget. */
-export const MAX_MCP_BODY_BYTES = 256 * 1024;
+/**
+ * The transport's message cap.
+ *
+ * It used to be 256 KiB, on the reasoning that every message here was a few
+ * hundred bytes. `publish` changed that: its content arrives *inside* the
+ * JSON-RPC message, and base64 costs a third on top. The cap is therefore sized
+ * from the content limit it has to carry — {@link MAX_INLINE_BYTES} decoded,
+ * plus base64 expansion, plus room for JSON escaping and the metadata around it
+ * — and not a byte more. It is still a guard rather than a budget: the real
+ * limit on what may be published this way is enforced against *decoded* bytes
+ * in src/upload.ts, where a lying `Content-Length` cannot reach it.
+ *
+ * Note what this is not: a raise of the 50 MiB multipart upload limit. Sending
+ * megabytes as base64 inside a tool call is expensive for the model and the
+ * runtime alike, which is the honest reason the inline path stays small.
+ */
+export const MAX_MCP_BODY_BYTES = Math.ceil(MAX_INLINE_BYTES * (4 / 3)) + 512 * 1024;
 
 // --- The remote tool surface -------------------------------------------------
 
@@ -85,6 +124,16 @@ export const MAX_MCP_BODY_BYTES = 256 * 1024;
  * cannot gain a tool without somebody editing this array. `test/mcp-http.test.ts`
  * pins that every other tool the stdio server exposes is absent here.
  */
+/** Same shape the stdio server enforces, so a slug valid there is valid here. */
+const REMOTE_SLUG = {
+  type: "string",
+  minLength: 1,
+  maxLength: 64,
+  pattern: "^[a-z0-9]+(-[a-z0-9]+)*$",
+  description:
+    'Artifact slug: lowercase letters, digits and single hyphens. This is the address — slug "q3-report" is served at /q3-report/. Omit it on a brand-new artifact to have one derived from the title; pass the existing slug to publish a new version of something you already own.',
+} as const;
+
 export const REMOTE_TOOLS: ToolDefinition[] = [
   {
     name: "doctor",
@@ -94,7 +143,88 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   },
+  {
+    name: "publish",
+    title: "Publish content you send with the call",
+    description:
+      "Publish an artifact from content carried IN THIS REQUEST, and return its stable URL. " +
+      "The bytes travel as arguments to this call — this server runs in Cloudflare's network and " +
+      "cannot read the machine your client is running on, so there is deliberately no `path` " +
+      "argument and passing one is an error. To publish a folder that exists on disk, install the " +
+      "local rtfx plugin, whose stdio server runs beside your files. " +
+      "Send EITHER `content_text` or `content_base64` for a single HTML page or PDF, OR `files` for " +
+      "a small multi-file site (which must contain a file whose path is exactly \"index.html\"). " +
+      "A new slug creates the artifact at v1, private to its owner; publishing again to a slug you " +
+      "own appends an immutable version, live at the same URL — so updating something means calling " +
+      "this with the SAME slug, never a new one. Read the returned `url`; never assemble it yourself, " +
+      "because the content host differs per instance.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: REMOTE_SLUG,
+        title: {
+          type: "string",
+          minLength: 1,
+          maxLength: 200,
+          description:
+            "Human-readable title. Required for a brand-new artifact. Omit when adding a version to an existing slug — that keeps the current title.",
+        },
+        description: { type: "string", maxLength: 500, description: "Optional one-line description shown in the dashboard." },
+        note: { type: "string", maxLength: 200, description: "Optional note attached to this version only, e.g. what changed." },
+        content_text: {
+          type: "string",
+          minLength: 1,
+          description:
+            "The document itself, as text — normally a complete HTML page. Stored as index.html. Use this for anything textual; base64 buys nothing and costs a third more.",
+        },
+        content_base64: {
+          type: "string",
+          minLength: 1,
+          description:
+            "The document itself, base64-encoded. Use for a PDF, or any bytes that are not text. A single HTML page should go in content_text instead.",
+        },
+        content_type: {
+          type: "string",
+          enum: ["text/html", "application/pdf"],
+          description:
+            "Optional declaration of what the bytes are. The bytes themselves decide how they are stored; if this disagrees with them the call is refused rather than guessed at.",
+        },
+        files: {
+          type: "array",
+          maxItems: MAX_INLINE_FILES,
+          items: { type: "object" },
+          description:
+            "A multi-file site, as [{path, content_text | content_base64}]. Paths are artifact-relative and must use \"/\" — one of them must be exactly \"index.html\". Credential-looking files, dotfiles and build directories are refused outright, not silently dropped. At most " +
+            `${MAX_INLINE_FILES} files and ${Math.round(MAX_INLINE_BYTES / (1024 * 1024))}MB decoded in total; publish a larger build with the local rtfx plugin.`,
+        },
+      },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  },
 ];
+
+/**
+ * The scope each remote tool needs. `publish` is listed as well as checked
+ * (see `publish` below) because a tool a token can never call is worse than
+ * absent: the model spends a turn discovering the refusal, and a refusal is an
+ * ambiguous signal — it reads as "this instance is broken" as easily as "this
+ * credential is read-only".
+ */
+const TOOL_SCOPE: Record<string, Scope> = { publish: "publish" };
+
+/**
+ * The tools this particular caller may see. A read-only token is shown `doctor`
+ * alone, which is exactly the surface this endpoint had before publishing
+ * existed. `tools/list` runs after the bearer gate, so the scopes are known by
+ * the time it is answered.
+ */
+export function remoteToolsFor(identity: Identity | null): ToolDefinition[] {
+  return REMOTE_TOOLS.filter((tool) => {
+    const scope = TOOL_SCOPE[tool.name];
+    return !scope || hasScope(identity, scope);
+  });
+}
 
 /** Tool names the stdio server has and this transport deliberately does not. */
 export const LOCAL_ONLY_TOOLS = TOOLS.map((t) => t.name).filter(
@@ -106,21 +236,49 @@ export const LOCAL_ONLY_TOOLS = TOOLS.map((t) => t.name).filter(
  * tell an agent that reached for a remote `publish` where publishing actually
  * lives, so it redirects instead of retrying.
  */
-export const HTTP_INSTRUCTIONS = `Remote diagnostics for rtfx.pro, over HTTP.
+export const HTTP_INSTRUCTIONS = `Publish to rtfx.pro, and check this connection, over HTTP.
 
-This endpoint is the FOUNDATION of rtfx's hosted MCP server, not its publishing surface. It exposes
-one tool, "doctor", which reports how the calling credential is configured and whether this instance
-answers.
+PUBLISHING HERE MEANS SENDING CONTENT. The "publish" tool takes the bytes as arguments — an HTML
+page in "content_text", a PDF in "content_base64", or a small multi-file site in "files" — and
+returns the artifact's stable URL. It does NOT take a path: this server runs in Cloudflare's
+network and cannot read the machine your client runs on, so a path here would name the server's
+disk rather than yours, and is refused. To publish a directory that exists on disk (a build output,
+a site you did not author in this conversation), install the local rtfx plugin
+(/plugin marketplace add yogevgab/artifacts-server, then /plugin install rtfx@rtfx): its stdio MCP
+server runs beside your files and takes a path.
 
-Publishing is deliberately absent here, and adding it is not a matter of enabling a flag: "publish"
-takes a path on the machine running the client, and this server cannot read that machine's disk. To
-publish, use the local rtfx plugin (/plugin marketplace add yogevgab/artifacts-server, then
-/plugin install rtfx@rtfx), which runs beside your files and speaks the same protocol over stdio.
+Publishing to a NEW slug creates the artifact at v1, private to its owner. Publishing again to a
+slug you own appends an immutable version, live at the same URL — so updating something means
+calling publish with the SAME slug, never inventing a new one. Publishing to someone else's slug is
+refused with 409. Read the returned URL from the result; never assemble it yourself, because the
+content host differs per instance.
 
-Authentication is an "Authorization: Bearer <rtfx token>" header. The token can be minted by hand at
-/admin/integrations, or obtained by OAuth: this server is its own authorization server, advertises
-RFC 9728 / RFC 8414 discovery metadata, and supports dynamic client registration with
-authorization-code + PKCE. Either way the credential is the same kind of scoped, revocable token.`;
+Inline content is capped (a few MB, a few dozen files) because every byte travels as base64 inside
+a JSON-RPC message. Credential-looking files, dotfiles and build directories are refused outright
+rather than silently dropped. "doctor" reports how this connection is authenticated, what it may
+do, and the exact limits.
+
+Authentication is an "Authorization: Bearer <token>" header, and the token needs the "publish"
+scope to publish. The token can be minted by hand at /admin/integrations, or obtained by OAuth:
+this server is its own authorization server, advertises RFC 9728 / RFC 8414 discovery metadata, and
+supports dynamic client registration with authorization-code + PKCE. Either way the credential is
+the same kind of scoped, revocable token.`;
+
+export const HTTP_READ_ONLY_INSTRUCTIONS = `Check this rtfx.pro remote MCP connection over HTTP.
+
+This credential does not have the "publish" scope, so this connection exposes "doctor" only.
+"doctor" reports how this connection is authenticated, what scopes it has, what tools are visible,
+and the exact limits if you sign in with a publishing credential.
+
+Remote HTTP publishing is available only to a token with the "publish" scope and only by sending
+content in the tool call ("content_text", "content_base64", or "files"). It never takes a filesystem
+path: this server runs in Cloudflare's network and cannot read the machine your client runs on. To
+publish a directory that exists on disk, install the local rtfx plugin, whose stdio MCP server runs
+beside your files.`;
+
+function httpInstructionsFor(identity: Identity | null): string {
+  return hasScope(identity, "publish") ? HTTP_INSTRUCTIONS : HTTP_READ_ONLY_INSTRUCTIONS;
+}
 
 // --- Cross-origin policy -----------------------------------------------------
 
@@ -304,8 +462,17 @@ async function doctor(c: Context<Vars>): Promise<ToolCallResult> {
     oauth: "authorization_code",
     oauth_protected_resource: `${endpoint}${PROTECTED_RESOURCE_PATH}`,
     oauth_authorization_server: `${endpoint}${AS_METADATA_PATH}`,
-    tools: REMOTE_TOOLS.map((t) => t.name),
-    publish_supported: false,
+    tools: remoteToolsFor(identity).map((t) => t.name),
+    /** The transport can publish. Whether *this* credential may is the next line. */
+    publish_supported: true,
+    can_publish: token.scopes.includes("publish"),
+    /**
+     * Stated so a model does not have to infer it from the schema: over HTTP,
+     * publishing means sending content. There is no path argument.
+     */
+    publish_mode: "content",
+    max_inline_bytes: MAX_INLINE_BYTES,
+    max_inline_files: MAX_INLINE_FILES,
     local_only_tools: LOCAL_ONLY_TOOLS,
     reachable: true,
     artifact_count: artifactCount,
@@ -318,13 +485,287 @@ async function doctor(c: Context<Vars>): Promise<ToolCallResult> {
       `token     ${facts.token}  (scopes: ${facts.scopes.join(", ") || "none"})`,
       `transport http (remote) — bearer token; OAuth sign-in is available (authorization_code + PKCE)`,
       `tools     ${facts.tools.join(", ")}`,
-      `publish   not available over HTTP — use the local rtfx plugin, which can read your files`,
+      facts.can_publish
+        ? `publish   available — send content (content_text, content_base64 or files), never a path; ` +
+          `up to ${Math.round(MAX_INLINE_BYTES / (1024 * 1024))}MB and ${MAX_INLINE_FILES} files inline. ` +
+          `Publish a large build directory with the local rtfx plugin instead.`
+        : `publish   this token lacks the "publish" scope, so the publish tool is not offered`,
       artifactCount === null
         ? `api       ok — this token has no "read" scope, so nothing was listed`
         : `api       ok — ${artifactCount} artifact(s) visible to this token`,
     ],
     facts
   );
+}
+
+// --- The remote publish tool -------------------------------------------------
+
+/**
+ * A refusal the model can act on, returned as an `isError` tool result rather
+ * than a JSON-RPC error. The distinction matters: a JSON-RPC error says "this
+ * call was malformed", which is a statement about the client, while "your
+ * workspace is full" is a statement about the world that the model should read
+ * and respond to. MCP asks for the second to come back as a result.
+ */
+class ToolError extends Error {
+  constructor(
+    message: string,
+    readonly extra: { detail?: string; hint?: string; status?: number; error?: string } = {}
+  ) {
+    super(message);
+  }
+}
+
+function failure(e: ToolError): ToolCallResult {
+  const payload = {
+    ok: false,
+    error: e.extra.error ?? e.message,
+    ...(e.extra.detail ? { detail: e.extra.detail } : {}),
+    ...(e.extra.hint ? { hint: e.extra.hint } : {}),
+    ...(e.extra.status ? { status: e.extra.status } : {}),
+  };
+  const lines = [`error: ${e.message}`];
+  if (e.extra.detail && e.extra.detail !== e.message) lines.push(`detail: ${e.extra.detail}`);
+  if (e.extra.hint) lines.push(`hint: ${e.extra.hint}`);
+  return {
+    isError: true,
+    content: [
+      { type: "text", text: lines.join("\n") },
+      { type: "text", text: JSON.stringify(payload, null, 2) },
+    ],
+  };
+}
+
+/**
+ * Arguments that only make sense if the server could read the caller's disk.
+ * The schema is closed, so any of these would already be refused as an unknown
+ * argument — but "unknown argument" is the wrong lesson. A model that sent
+ * `path` does not need to be told it misspelled something; it needs to be told
+ * that this transport publishes bytes and where the path-shaped tool lives.
+ */
+const PATH_SHAPED_ARGS = ["path", "file", "file_path", "filepath", "directory", "dir", "folder", "zip"];
+
+function pathRefusal(args: any): string | null {
+  if (!args || typeof args !== "object") return null;
+  const offending = PATH_SHAPED_ARGS.filter((key) => key in args);
+  if (offending.length === 0) return null;
+  return (
+    `remote publish does not take a filesystem path (${offending.map((k) => `"${k}"`).join(", ")}). ` +
+    `This server runs in Cloudflare's network and cannot read the machine your client is running on — ` +
+    `a path here would name the SERVER's disk, not yours. Send the content instead, as "content_text", ` +
+    `"content_base64" or "files". To publish a directory that exists on disk, install the local rtfx ` +
+    `plugin, whose stdio MCP server runs beside your files.`
+  );
+}
+
+/** Decode base64 (standard or URL alphabet) with an explicit size guard. */
+function decodeBase64(value: string, label: string): Uint8Array {
+  const normalized = value.replace(/\s+/g, "").replace(/-/g, "+").replace(/_/g, "/");
+  if (!normalized) throw new ToolError(`${label} is empty`, { error: "empty_content" });
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(normalized) || /=[^=]/.test(normalized)) {
+    throw new ToolError(`${label} is not valid base64`, {
+      error: "invalid_base64",
+      hint: "send plain text as content_text instead, or base64-encode the bytes properly",
+    });
+  }
+  const remainder = normalized.length % 4;
+  if (remainder === 1) {
+    throw new ToolError(`${label} is not valid base64`, {
+      error: "invalid_base64",
+      hint: "base64 length cannot be 1 modulo 4; send padded or unpadded standard/base64url bytes",
+    });
+  }
+  const compact = normalized + (remainder ? "=".repeat(4 - remainder) : "");
+  // Checked before `atob` allocates: the decoded length is derivable from the
+  // encoded length, so there is no reason to materialize an oversized buffer
+  // first and measure it afterwards. Subtract padding for an exact upper bound.
+  const padding = compact.endsWith("==") ? 2 : compact.endsWith("=") ? 1 : 0;
+  const decodedLength = (compact.length / 4) * 3 - padding;
+  if (decodedLength > MAX_INLINE_BYTES) {
+    throw new ToolError(`${label} exceeds the max inline size of ${MAX_INLINE_BYTES} bytes`, {
+      error: "payload_too_large",
+    });
+  }
+  let binary: string;
+  try {
+    binary = atob(compact);
+  } catch {
+    throw new ToolError(`${label} is not valid base64`, { error: "invalid_base64" });
+  }
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+  return out;
+}
+
+function encodeText(value: string, label: string): Uint8Array {
+  const bytes = new TextEncoder().encode(value);
+  if (bytes.byteLength > MAX_INLINE_BYTES) {
+    throw new ToolError(`${label} exceeds the max inline size of ${MAX_INLINE_BYTES} bytes`);
+  }
+  return bytes;
+}
+
+/**
+ * The bytes of one content-carrying object: exactly one of `content_text` or
+ * `content_base64`. Both is an error rather than a precedence rule — a model
+ * that sent both does not know which one it meant, and picking for it publishes
+ * something nobody chose.
+ */
+function contentBytes(source: any, label: string): Uint8Array {
+  const hasText = typeof source?.content_text === "string";
+  const hasBase64 = typeof source?.content_base64 === "string";
+  if (hasText && hasBase64) {
+    throw new ToolError(`${label} has both content_text and content_base64 — send exactly one`);
+  }
+  if (hasText) return encodeText(source.content_text, `${label} content_text`);
+  if (hasBase64) return decodeBase64(source.content_base64, `${label} content_base64`);
+  throw new ToolError(`${label} must have either content_text or content_base64`);
+}
+
+const FILE_KEYS = new Set(["path", "content_text", "content_base64"]);
+
+/** Validate the `files` array by hand — the schema layer only checks it is an array of objects. */
+function inlineFiles(raw: unknown): UploadFile[] {
+  const list = raw as any[];
+  return list.map((entry, i) => {
+    const label = `files[${i}]`;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new ToolError(`${label} must be an object with a "path" and content`);
+    }
+    for (const key of Object.keys(entry)) {
+      if (!FILE_KEYS.has(key)) throw new ToolError(`${label} has an unknown key "${key}"`);
+    }
+    if (typeof entry.path !== "string" || !entry.path.trim()) {
+      throw new ToolError(`${label} must have a non-empty "path"`);
+    }
+    return { path: entry.path, bytes: contentBytes(entry, label) };
+  });
+}
+
+/** Map the declared `content_type`, when there is one, onto what the bytes say. */
+function checkDeclaredType(declared: string | undefined, kind: string): void {
+  if (!declared) return;
+  if (declared === "application/pdf" && kind === "pdf") return;
+  // Plain text/HTML-like content without a leading "<" sniffs as unknown, but
+  // the publish pipeline intentionally stores unknown single documents as HTML.
+  // A truthful `text/html` declaration should therefore reject only bytes that
+  // positively identify as a different kind.
+  if (declared === "text/html" && (kind === "html" || kind === "unknown")) return;
+  throw new ToolError(
+    `content_type says ${declared}, but the bytes are ${kind === "pdf" ? "a PDF" : kind === "zip" ? "a zip archive" : kind === "html" ? "HTML" : "neither HTML nor a PDF"}`,
+    { error: "content_type_mismatch", hint: "omit content_type and let the bytes decide, or send the bytes you meant" }
+  );
+}
+
+/**
+ * The remote `publish`.
+ *
+ * Everything below the content decoding is the *same* code the multipart route
+ * runs — `resolvePublishTarget` and `storeUpload` from src/api.ts — so slug
+ * rules, ownership, workspace suspension, plan quotas, version numbering,
+ * retention and the response shape cannot differ between the two transports.
+ * What is genuinely new here is only the front half: how bytes arrive, and what
+ * this endpoint refuses to accept as a way of naming them.
+ */
+async function publish(c: Context<Vars>, args: any): Promise<ToolCallResult> {
+  const identity = c.get("identity");
+  // Checked here as well as reflected in `tools/list`, because a tool list is
+  // advisory: a client may have cached an older one, or simply call a name it
+  // read in a transcript. Authorization is never left to what we advertised.
+  if (!hasScope(identity, "publish")) {
+    return failure(
+      new ToolError('this token lacks the "publish" scope', {
+        error: "insufficient_scope",
+        status: 403,
+        hint: "mint a token with the publish scope at /admin/integrations, or sign in again and grant it",
+      })
+    );
+  }
+
+  try {
+    const hasFiles = Array.isArray(args?.files);
+    const hasSingle = typeof args?.content_text === "string" || typeof args?.content_base64 === "string";
+    if (hasFiles && hasSingle) {
+      throw new ToolError(
+        "send either a single document (content_text/content_base64) or a multi-file site (files), not both"
+      );
+    }
+    if (!hasFiles && !hasSingle) {
+      throw new ToolError("nothing to publish", {
+        detail:
+          'provide "content_text" (an HTML page), "content_base64" (a PDF), or "files" (a multi-file site)',
+        hint: "this transport publishes the bytes you send; it cannot read a path on your machine",
+      });
+    }
+
+    // Metadata first: a caller who cannot publish to this slug at all should
+    // learn that before spending anything on decoding megabytes of content.
+    const target = await resolvePublishTarget(c, { slug: args?.slug, title: args?.title });
+    if (target instanceof Response) throw await responseError(target);
+
+    let processed: ProcessedUpload;
+    if (hasFiles) {
+      if (args.files.length === 0) throw new ToolError("files is empty");
+      processed = processFiles(inlineFiles(args.files));
+    } else {
+      const bytes = contentBytes(args, "publish");
+      const kind = sniffKind("", bytes);
+      checkDeclaredType(args?.content_type, kind);
+      if (kind === "zip") {
+        // Refused rather than unzipped: a zip that reached us as base64 inside
+        // a JSON message was assembled by the model, so the multi-file surface
+        // it should have used is `files` — which reports every path it takes
+        // instead of quietly dropping the ones a zip walk would.
+        throw new ToolError("that content is a zip archive, which this transport does not accept", {
+          hint: 'send the site as "files": [{path, content_text}], or publish the zip with the local rtfx plugin',
+        });
+      }
+      processed = kind === "pdf" ? singlePdf(bytes) : singleHtml(bytes);
+    }
+
+    const res = await storeUpload(c, target, processed, {
+      title: args?.title,
+      description: args?.description,
+      note: args?.note,
+    });
+    if (!res.ok) throw await responseError(res);
+
+    const data = (await res.json()) as {
+      slug: string;
+      url: string;
+      type: string;
+      file_count: number;
+      version: number;
+    };
+    return result(
+      [
+        `published ${data.slug} v${data.version} (${data.type}, ${data.file_count} file(s))`,
+        data.url,
+        data.version === 1
+          ? "private to you until you share it — set access from the dashboard"
+          : "same URL as before; the previous version is still retrievable",
+      ],
+      { command: "publish", transport: "http", ...data, files: processed.files.map((f) => f.path) }
+    );
+  } catch (e) {
+    if (e instanceof ToolError) return failure(e);
+    if (e instanceof UploadError) return failure(new ToolError(e.message, { error: "bad_request" }));
+    return failure(new ToolError(e instanceof Error ? e.message : String(e), { error: "internal_error" }));
+  }
+}
+
+/** Turn an API refusal (already shaped by src/api.ts) into a tool-level error. */
+async function responseError(res: Response): Promise<ToolError> {
+  let body: any = {};
+  try {
+    body = await res.json();
+  } catch {
+    /* a non-JSON body from our own routes would be a bug; fall through to the status */
+  }
+  return new ToolError(body?.detail ?? body?.error ?? `request failed with ${res.status}`, {
+    error: body?.error ?? "request_failed",
+    status: res.status,
+  });
 }
 
 // --- JSON-RPC ----------------------------------------------------------------
@@ -349,8 +790,8 @@ function unknownToolMessage(name: unknown): string {
   if (typeof name === "string" && LOCAL_ONLY_TOOLS.includes(name)) {
     return (
       `tool "${name}" is not available over the remote HTTP transport (available: ${available}). ` +
-      `It acts on files on the machine running the client, which this server cannot read — ` +
-      `install the rtfx Claude Code plugin, whose stdio MCP server runs beside your files.`
+      `Install the rtfx Claude Code plugin, whose stdio MCP server exposes it — or call the same ` +
+      `thing directly on the REST API at /api/machine, with this token.`
     );
   }
   return `unknown tool "${String(name)}" (available: ${available})`;
@@ -366,12 +807,12 @@ async function route(c: Context<Vars>, method: unknown, params: any): Promise<un
         protocolVersion: negotiateProtocol(params?.protocolVersion),
         capabilities: { tools: { listChanged: false } },
         serverInfo: SERVER_INFO,
-        instructions: HTTP_INSTRUCTIONS,
+        instructions: httpInstructionsFor(c.get("identity")),
       };
     case "ping":
       return {};
     case "tools/list":
-      return { tools: REMOTE_TOOLS };
+      return { tools: remoteToolsFor(c.get("identity")) };
     case "resources/list":
       return { resources: [] };
     case "prompts/list":
@@ -380,12 +821,18 @@ async function route(c: Context<Vars>, method: unknown, params: any): Promise<un
       const name = params?.name;
       const tool = REMOTE_TOOLS.find((t) => t.name === name);
       if (!tool) throw new RpcError(-32602, unknownToolMessage(name));
+      // Before the schema, because the schema's answer ("unknown argument") is
+      // true but useless: a `path` here is a misunderstanding about what this
+      // transport is, and it gets told so in those terms.
+      const refusal = pathRefusal(params?.arguments);
+      if (refusal) throw new RpcError(-32602, refusal);
       // Closed schema: an unknown argument is refused before the handler runs,
-      // so a hallucinated `path` on `doctor` is an error rather than an ignored
-      // field that makes the call look like it did something with a file.
+      // so a hallucinated argument on `doctor` is an error rather than an
+      // ignored field that makes the call look like it did something with a file.
       const { ok, errors } = validateToolInput(tool, params?.arguments);
       if (!ok) throw new RpcError(-32602, `invalid arguments for "${name}": ${errors.join("; ")}`);
-      return doctor(c);
+      // Scope, not the advertised list, decides what may run — see `publish`.
+      return name === "publish" ? publish(c, params?.arguments ?? {}) : doctor(c);
     }
     default:
       throw new RpcError(-32601, `method not found: ${method}`);
@@ -406,7 +853,7 @@ export const mcpRoutes = new Hono<Vars>();
 mcpRoutes.use(MCP_PATH, mcpCors);
 
 /**
- * RFC 9728 §5.1 / MCP authorization: every 401 from this endpoint names the
+ * RFC 9728 §5.1 / MCP authorization: every *** from this endpoint names the
  * protected-resource document that describes it, so a client with no credential
  * can discover the authorization server instead of simply failing.
  *

@@ -77,8 +77,8 @@ export ARTIFACTS_URL=https://rtfx.pro   # only when self-hosting
 ```
 
 Remote MCP also has OAuth (`claude mcp login rtfx`) and a dedicated app-side host at
-`mcp.rtfx.pro`, but currently exposes only `doctor`. It cannot publish local files, so the browser
-login in the local plugin is the supported no-token-copy publishing path.
+`mcp.rtfx.pro`. It can publish content sent inside the MCP tool call and run `doctor`, but it still
+cannot read a local filesystem path. Use the local plugin/server for large folders or build outputs.
 
 Anyone can add this marketplace today — a custom marketplace needs no approval, only a valid
 `.claude-plugin/marketplace.json` in a reachable repository. Inclusion in Anthropic's official or

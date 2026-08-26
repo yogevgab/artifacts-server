@@ -1,4 +1,10 @@
 import { Unzip, UnzipInflate, type UnzipFile, type FlateError } from "fflate";
+// The single definition of "this filename looks like a credential", shared with
+// the CLI and the stdio plugin (plugins/rtfx/scripts/rtfx.lib.mjs). A second
+// copy here would be a second thing to keep in step, and the failure mode of
+// drift is a leaked `.env` — so the server imports the same list rather than
+// restating it.
+import { isSensitivePath } from "../plugins/rtfx/scripts/rtfx.lib.mjs";
 
 export type UploadFile = { path: string; bytes: Uint8Array };
 
@@ -88,7 +94,7 @@ export function singleHtml(bytes: Uint8Array): ProcessedUpload {
  * null if it's unsafe (absolute, traversal, contains a null/control byte,
  * backslashes, or is too long for an R2 key).
  */
-function normalizeEntryPath(path: string): string | null {
+export function normalizeEntryPath(path: string): string | null {
   if (!path || path.length > MAX_PATH_BYTES) return null;
   if (path.includes("\\")) return null;
   // eslint-disable-next-line no-control-regex
@@ -220,4 +226,69 @@ export function processZip(buf: Uint8Array, limits: ZipLimits = DEFAULT_ZIP_LIMI
     throw new UploadError("Bundle must contain an index.html at its root");
   }
   return { files, entry: "index.html", type: "bundle" };
+}
+
+
+// --- Files supplied inline, as content ---------------------------------------
+
+/**
+ * How many files one inline bundle may carry, and how many decoded bytes it may
+ * total. Far below the zip limits on purpose: this path exists for a model
+ * assembling a small site inside a JSON tool call, not for shipping a build
+ * output — every byte here first travelled as base64 inside a JSON-RPC message,
+ * and the caller pays for it twice (once in tokens, once in memory).
+ */
+export const MAX_INLINE_FILES = 50;
+export const MAX_INLINE_BYTES = 5 * 1024 * 1024; // 5 MiB decoded, across all files
+
+/**
+ * Turn an explicit list of `{ path, bytes }` into a bundle.
+ *
+ * Deliberately stricter than {@link processZip} on two points, because the two
+ * have different provenance. A zip is usually something the caller *found* —
+ * so stray dotfiles and macOS forks are silently dropped, and a nested top
+ * directory is stripped, because refusing would punish somebody for an archive
+ * they did not assemble. This list is something the caller *wrote*, one path at
+ * a time, in the request itself: silently dropping an entry from it would make
+ * the result a lie about what was published, and there is no such thing as an
+ * accidental `.env` in a hand-authored array. So every rejection here is loud.
+ */
+export function processFiles(files: UploadFile[]): ProcessedUpload {
+  if (files.length === 0) throw new UploadError("no files were supplied");
+  if (files.length > MAX_INLINE_FILES) {
+    throw new UploadError(`too many files (${files.length}); at most ${MAX_INLINE_FILES} may be sent inline`);
+  }
+
+  const out: UploadFile[] = [];
+  const seen = new Set<string>();
+  let totalBytes = 0;
+
+  for (const file of files) {
+    const path = normalizeEntryPath(file.path);
+    if (path === null) {
+      throw new UploadError(`unsafe or invalid file path: "${file.path}"`);
+    }
+    // Refused, not dropped: see the note above. `isSensitivePath` also covers
+    // any dot-prefixed segment, `__MACOSX`, and build/VCS directories.
+    if (isSensitivePath(path)) {
+      throw new UploadError(
+        `refusing to publish "${path}": it looks like a credential, a hidden file, or a build/VCS directory`
+      );
+    }
+    if (seen.has(path)) throw new UploadError(`duplicate file path: "${path}"`);
+    seen.add(path);
+
+    totalBytes += file.bytes.byteLength;
+    if (totalBytes > MAX_INLINE_BYTES) {
+      throw new UploadError(`inline files exceed the max total size of ${MAX_INLINE_BYTES} bytes`);
+    }
+    out.push({ path, bytes: file.bytes });
+  }
+
+  if (!out.some((f) => f.path === "index.html")) {
+    throw new UploadError(
+      'a multi-file artifact must include a file whose path is exactly "index.html" (no leading directory)'
+    );
+  }
+  return { files: out, entry: "index.html", type: "bundle" };
 }

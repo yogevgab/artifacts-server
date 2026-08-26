@@ -83,7 +83,7 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
     title: "Docs — connectors, publishing, access control and the API",
     summary:
       "Every way to connect an agent — the Claude Code plugin with browser sign-in, the local " +
-      "MCP server, the OAuth-authorized remote MCP endpoint (diagnostics only), Hermes, the CLI " +
+      "MCP server, the OAuth-authorized remote MCP endpoint with content publishing, Hermes, the CLI " +
       "and the API — and which of them publish; who uses rtfx.pro and for what; the " +
       "access-control and privacy model; versioning; view " +
       "logs; what is table stakes in this category versus what makes rtfx.pro different, " +
@@ -294,18 +294,14 @@ Full comparison: ${origin}/docs#agents.
   installed, for an MCP client with no shell (Claude Desktop, for instance). Tools: publish,
   list_artifacts, get_versions, rollback, doctor. It publishes because it runs on the user's own
   machine, beside the build output it is asked to send.
-- **Remote MCP over OAuth — diagnostics, NOT publishing.**
+- **Remote MCP over OAuth — publishes content, not paths.**
   \`claude mcp add --transport http rtfx https://mcp.rtfx.pro/mcp\` then \`claude mcp login rtfx\`.
   Real OAuth: RFC 9728/8414 discovery, dynamic client registration, authorization code with PKCE,
-  refresh rotation and revocation, so no bearer token is pasted anywhere. It exposes exactly one
-  read-only tool, \`doctor\`, which reports how the calling credential is authenticated, the scopes
-  it holds, where artifacts are served from and whether the instance answers — an authenticated
-  connection, readiness and support check. **Never describe this endpoint as able to publish, and
-  never describe remote publishing as a setting waiting to be enabled.** \`publish\` takes a path
-  on the machine running the *client*;
-  a server-side endpoint handed one could only read the server's disk. Publishing over HTTP MCP
-  would be an upload design (bytes in the request), and that is not built. Until it is, publishing
-  is the local plugin and the local MCP server.
+  refresh rotation and revocation, so no bearer token is pasted anywhere. It exposes \`publish\` for
+  bytes sent inside the tool call — an HTML page as text, a PDF as base64, or a small explicit file
+  list — plus \`doctor\` for connection and readiness checks. **Never describe this as remote
+  \`publish(path)\`: the hosted endpoint cannot read the client's filesystem and deliberately refuses
+  path-shaped arguments.** Larger local folders and build outputs stay with the local plugin/server.
 - **API, CLI and Hermes — publish.** The advanced automation paths, for CI and scripted work,
   using a scoped, owner-bound, revocable \`RTFX_API_TOKEN\`.
 
@@ -398,9 +394,9 @@ into an invite queue for a product that cannot solve their problem wastes their 
 - Serving the artifact from the user's own domain. Custom domains are not built.
 - (Now shipped: signup is self-serve and immediate.)
 - Usage-based or metered pricing. Plans are flat monthly tiers.
-- A hosted, remote MCP server that uploads a local directory. \`https://mcp.rtfx.pro/mcp\` is
-  authorized over OAuth but answers \`doctor\` alone; anything that has to read the caller's disk
-  runs locally, via the Claude Code plugin or its bundled MCP server.
+- A hosted, remote MCP server that uploads a local directory by path. \`https://mcp.rtfx.pro/mcp\`
+  publishes content supplied inside the MCP call; anything that has to read the caller's disk
+  still needs the local plugin/server.
 - Game hosting, leaderboards, template galleries, comments, approvals or polls.
 
 ## Links

@@ -112,14 +112,12 @@ const FAQS: readonly Faq[] = [
   {
     q: "Can the remote MCP endpoint at mcp.rtfx.pro publish for me?",
     a:
-      "No, and it is not a switch waiting to be turned on. The hosted endpoint is authorized in " +
-      "the browser over OAuth and exposes one read-only tool, doctor, which reports how your " +
-      "credential is authenticated, what it may do and whether the instance answers. Publishing " +
-      "takes a path on the machine running the client, so a server-side endpoint handed one could " +
-      "only ever read the server's own disk. Publishing therefore stays with the Claude Code " +
-      "plugin and the local MCP server that ships inside it, both of which run beside your files. " +
-      "Publishing over the hosted endpoint would be an upload rather than a path, and that is not " +
-      "built.",
+      "Yes, when the content is sent inside the tool call. The hosted endpoint is authorized in " +
+      "the browser over OAuth and exposes publish plus doctor. Remote publish accepts an HTML page " +
+      "as text, a PDF as base64, or a small explicit file list; it rejects path, folder and zip-path " +
+      "arguments because a server-side endpoint cannot read the client's local filesystem. Use the " +
+      "Claude Code plugin or local MCP server for large folders and build outputs that already exist " +
+      "on disk.",
   },
   {
     q: "Do I still have to copy an API token to use Claude Code?",
@@ -344,14 +342,12 @@ $ curl -X POST https://rtfx.pro/api/machine/artifacts \
 
       <section id="agents">
         <h2>Connectors: Claude Code, MCP &amp; Hermes</h2>
-        <p>Four ways to connect an agent, and they are not interchangeable — three of them publish,
-          and the hosted one deliberately does not. This is the whole table before the detail:</p>
-        <!-- The "Publishes?" column is the load-bearing one. mcp.rtfx.pro is the
-             newest surface and the most impressive-sounding, which makes it the
-             one a reader is most likely to assume can do everything. It exposes
-             a single read-only tool (src/mcp.ts), because publish takes a path
-             on the machine running the *client* and a server-side endpoint could
-             only ever read our disk. Stated as a row rather than a footnote. -->
+        <p>Four ways to connect an agent, and they are not interchangeable: the local surfaces can
+          publish by reading paths beside the client, while the hosted MCP surface publishes only
+          content sent inside the tool call. This is the whole table before the detail:</p>
+        <!-- The "Publishes?" column is the load-bearing one. mcp.rtfx.pro can
+             publish content bytes supplied in the MCP call, but it must never be
+             described as a remote path reader. Stated as a row rather than a footnote. -->
         <div class="table-wrap"><table class="compare" data-docs="connectors">
           <thead><tr><th scope="col">Connector</th><th scope="col">How you connect</th><th scope="col">Publishes?</th><th scope="col">Best for</th></tr></thead>
           <tbody>
@@ -365,8 +361,8 @@ $ curl -X POST https://rtfx.pro/api/machine/artifacts \
               <td>An MCP client with no shell, such as Claude Desktop.</td></tr>
             <tr data-connector="remote-mcp"><th scope="row">Remote MCP — <code>mcp.rtfx.pro</code></th>
               <td><code>claude mcp login rtfx</code> — OAuth, authorization code with PKCE</td>
-              <td>No — one read-only tool, <code>doctor</code></td>
-              <td>Checking a connection, a credential and instance readiness.</td></tr>
+              <td>Yes — content sent in the tool call, not filesystem paths</td>
+              <td>Publishing an HTML page, PDF or small explicit file list from a hosted MCP client.</td></tr>
             <tr data-connector="api-cli-hermes"><th scope="row">API, CLI and Hermes</th>
               <td>A scoped <code>RTFX_API_TOKEN</code> minted in the dashboard</td>
               <td>Yes</td>
@@ -428,16 +424,14 @@ tools: publish · list_artifacts · get_versions · rollback · doctor</code></p
         <pre class="code" data-docs="remote-mcp"><code>$ claude mcp add --transport http rtfx https://mcp.rtfx.pro/mcp
 $ claude mcp login rtfx
 
-tools: doctor</code></pre>
-        <p><b>It reports; it does not publish.</b> The endpoint exposes one read-only tool,
-          <code>doctor</code>, which tells you how the calling credential is authenticated, which
-          scopes it holds, where artifacts are served from and whether the instance answers — the
-          first thing to run when a connection misbehaves. Publishing stays with the plugin and the
-          local MCP server, and that is a design decision rather than a missing switch:
-          <code>publish</code> takes a path on the machine running the <i>client</i>, so a
-          server-side endpoint asked for one could only ever read the server's disk. Publishing over
-          the hosted endpoint would be an upload — bytes travelling up in the request — and that is
-          not built.</p>
+tools: publish · doctor</code></pre>
+        <p><b>It publishes content; it does not read paths.</b> The hosted endpoint exposes
+          <code>publish</code> for bytes sent inside the MCP call — an HTML page as text, a PDF as
+          base64, or a small explicit file list — plus <code>doctor</code> for connection checks. It
+          deliberately refuses <code>path</code>, <code>folder</code> and similar arguments: a
+          server-side endpoint asked for a path could only ever read the server's disk, not the
+          client's. Large build outputs and local directories still belong to the plugin and the
+          local MCP server.</p>
         <div class="callout">
           <p><b>Why a token, not your login.</b> An API token is bound to its owner, carries only the
             scopes you give it (<code>read</code>, <code>publish</code>, <code>manage</code>), and can

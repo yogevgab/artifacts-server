@@ -19,17 +19,18 @@ authorization server (`src/oauth-routes.ts`) serves RFC 9728/RFC 8414 discovery,
 public-client registration, authorization-code + PKCE consent, access-token issuance as short-lived
 `api_tokens`, refresh-token rotation and revocation. `mcp.rtfx.pro` is now a route in
 `wrangler.jsonc` (§3), and `/login` completes the sign-in detour the flow takes when nobody is
-signed in yet (§4).
+signed in yet (§4). The hosted tool surface now includes `doctor` and `publish` by content.
 
 What that does **not** say:
 
-- **The exact `mcp.rtfx.pro` Claude Code client smoke is still waiting on local DNS propagation.**
-  The custom domain is provisioned and authoritative Cloudflare DNS answers for it; production server
-  smoke passed via `curl --resolve`. The live Claude Code OAuth round trip was driven against the
-  same Worker at `https://rtfx.pro/mcp` because this Mac's resolver still returned NXDOMAIN for the
-  new hostname immediately after provisioning.
-- **It still cannot publish.** One read-only tool, `doctor`. The local plugin remains the supported
-  publishing path, and that is a design decision rather than a missing feature — see below.
+- **The exact `mcp.rtfx.pro` Claude Code client smoke is still waiting on local DNS/client
+  verification after this publish-by-content change.** The custom domain is provisioned and
+  authoritative Cloudflare DNS answers for it; the previous production server smoke passed via
+  `curl --resolve`. Before announcing the feature, run a real client login/tool-call smoke on the
+  deployed `https://mcp.rtfx.pro/mcp` endpoint.
+- **It still cannot publish by path.** Remote `publish` accepts bytes in the request: `content_text`,
+  `content_base64`, or a small explicit `files` array. The local plugin remains the best path for
+  folders/build outputs because it runs beside the user's local files.
 
 ---
 
@@ -40,25 +41,29 @@ What that does **not** say:
 | Route | `POST /mcp` on **either app host** — `rtfx.pro` or `mcp.rtfx.pro` (§3). A content host answers 404 (`MANAGEMENT_PREFIXES`, src/host.ts). |
 | Transport | MCP Streamable HTTP. One JSON-RPC message per POST, one JSON response. No SSE stream, no session id. |
 | Auth | `Authorization: Bearer rtfx_…`, gated by `requireApiToken` — the *same* middleware as `/api/machine/*`. A token may be hand-minted in `/admin/integrations` or issued by the OAuth flow below. |
-| Tools | `doctor`, and nothing else. |
+| Tools | `doctor` plus `publish` for content bytes supplied in the MCP request. |
 | OAuth | Discovery + dynamic registration + authorization-code/PKCE + refresh/revoke. |
 | Tests | [`test/mcp-http.test.ts`](../test/mcp-http.test.ts) and [`test/oauth.test.ts`](../test/oauth.test.ts), driving the real Worker, D1 and token API. |
 
-It is still a bridge in one important sense: the remote endpoint can be authorized by browser login,
-but it exposes only `doctor`. Publishing still belongs to the local plugin because publishing needs
-the user's local files. A client configured with
-`claude mcp add --transport http rtfx https://<instance>/mcp --header "Authorization: Bearer ***"`
+It is still a bridge in one important sense: the remote endpoint can be authorized by browser login
+and can publish content supplied in the MCP request, but it cannot read local paths. A client
+configured with
+`claude mcp add --transport http rtfx https://<instance>/mcp --header "Authorization: Bearer rtfx_…"`
 connects today; a compliant OAuth client can also discover the authorization server from `/mcp`'s
 401 challenge.
 
 ### What it deliberately does not do
 
-**No `publish`.** This is not a gap to be closed by enabling something. `publish` takes a path on the
-machine running the *client*; a server-side endpoint cannot read that machine's disk. A remote
+**No `publish(path)`.** This is not a gap to be closed by passing a flag. A filesystem path belongs
+to the machine running the *client*; a server-side endpoint cannot read that machine's disk. A remote
 `publish(path)` could only ever read the **server's** filesystem, which is not what the caller means
-and is a disclosure primitive rather than a feature. Publishing stays with the local plugin, whose
-stdio MCP server runs beside the user's files. Any future remote publish is an *upload* design —
-bytes travelling up in the request — not a path argument, and it needs its own slice.
+and is a disclosure primitive rather than a feature. The hosted tool therefore publishes bytes
+travelling up in the request: `content_text` for a textual/HTML document, `content_base64` for a PDF,
+or `files: [{ path, content_text | content_base64 }]` for a small site with a root `index.html`.
+
+The inline route is intentionally smaller than the multipart REST upload: every byte is carried in a
+JSON-RPC message, often base64-expanded, so large build folders still belong to the local plugin whose
+stdio MCP server runs beside the user's files.
 
 **No `list_artifacts`, `get_versions` or `rollback`.** These have no filesystem problem; they are
 ordinary API calls. They are held back on a narrower rule: this endpoint's reach should stay at

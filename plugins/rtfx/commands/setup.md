@@ -36,9 +36,9 @@ CI and advanced users. To use the browser credential, unset the env var. To use 
 mint one at `https://rtfx.pro/admin/integrations` with scopes **read** and **publish** and export it
 in the shell that starts Claude Code — never in a repository file or commit.
 
-Remote HTTP MCP at `/mcp` also supports Claude's OAuth login, but it currently exposes only the
-read-only `doctor` tool. Publishing remains the local plugin's job because it has to read files from
-the user's machine.
+Remote HTTP MCP at `/mcp` also supports Claude's OAuth login and exposes `publish` for content
+sent inside the MCP call, plus `doctor`. It still cannot publish by local filesystem path; folders
+and build outputs remain the local plugin's job because it runs beside the user's files.
 
 If `doctor` reports that **Cloudflare Access** answered instead of the API, the instance has not
 exposed that surface (see its operator's `DEPLOY_RTFX.md` §5e). Until they do, the only way

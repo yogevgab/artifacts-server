@@ -10,9 +10,10 @@ HTTP contract are the same modules the CLI uses, so the two cannot drift apart.
 The user-facing quickstart is in [`plugins/rtfx/README.md`](../plugins/rtfx/README.md); this is the
 operator's view.
 
-There is now a **second** transport: the app itself answers MCP over HTTP at `POST /mcp`, with one
-read-only tool and a bearer token. It is a foundation for hosted MCP, not a replacement for the
-plugin — §10, and [`REMOTE_MCP_OAUTH.md`](REMOTE_MCP_OAUTH.md) for where it is going.
+There is now a **second** transport: the app itself answers MCP over HTTP at `POST /mcp`, with
+`doctor` and publish-by-content over bearer/OAuth auth. It is a hosted complement to the plugin, not
+a replacement for path-based local publishing — §10, and [`REMOTE_MCP_OAUTH.md`](REMOTE_MCP_OAUTH.md)
+for the OAuth details.
 
 ---
 
@@ -233,7 +234,7 @@ answers the same way through either.
 The pattern is the one the repo already uses: pure rules unit-tested inside the Workers pool, the
 filesystem walk applied to the real tree by a script.
 
-## 10. The remote HTTP transport — a foundation, not the finished thing
+## 10. The remote HTTP transport — hosted publishing by content
 
 Everything above describes the **stdio** server that ships in the plugin. The app also serves MCP
 over HTTP, from `src/mcp.ts`:
@@ -243,36 +244,34 @@ claude mcp add --transport http rtfx https://rtfx.pro/mcp \
   --header "Authorization: Bearer rtfx_…"
 ```
 
-That works. The app also exposes the OAuth discovery/registration/authorization-code + PKCE flow a
-compliant MCP client needs for `claude mcp login`; keep it behind a production smoke gate before
-making it the default onboarding path. The remote tool surface remains intentionally narrow: `doctor`
-only, no publishing.
+The app also exposes the OAuth discovery/registration/authorization-code + PKCE flow a compliant MCP
+client needs for `claude mcp login`; keep a production client smoke gate before making it the default
+onboarding path. The remote tool surface is intentionally narrow but useful: `doctor` plus `publish`
+for content supplied inside the JSON-RPC request.
 
 | | stdio (the plugin) | HTTP (`/mcp`) |
 |---|---|---|
-| Tools | publish, list_artifacts, get_versions, rollback, doctor (+ update_access, gated) | `doctor` only |
-| Credential | `RTFX_API_TOKEN` in the environment | `Authorization: Bearer rtfx_…` header, hand-minted or OAuth-issued |
-| Sign-in | none — export a token | OAuth authorization-code + PKCE, plus manual bearer-token header |
+| Tools | publish, list_artifacts, get_versions, rollback, doctor (+ update_access, gated) | publish-by-content, doctor |
+| Credential | `RTFX_API_TOKEN` or local browser sign-in | `Authorization: Bearer rtfx_…`, hand-minted or OAuth-issued |
+| Sign-in | local browser sign-in via `rtfx.mjs login` | OAuth authorization-code + PKCE, plus manual bearer-token header |
 | Runs | on the user's machine | on the instance |
 
-**Why one tool.** `publish` takes a path on the machine running the *client*, and a server-side
-endpoint cannot read that machine's disk — a remote `publish(path)` could only read the **server's**
-filesystem, which is not what the caller means. It is absent rather than stubbed, and the refusal
-says where publishing actually lives so an agent redirects instead of retrying. The read tools have
-no such problem, but are still held back to avoid widening the remote surface before the login flow
-has live-client smoke coverage and explicit scope UX. `update_access`, user management and token
-management have no handler at all, the same rule `/api/machine` follows.
+**Why content, not path.** The stdio `publish` takes a path on the machine running the *client*.
+A server-side endpoint cannot read that machine's disk — a remote `publish(path)` could only read the
+**server's** filesystem, which is not what the caller means. The HTTP tool therefore has a different
+schema: `content_text` for HTML/text, `content_base64` for PDF/binary, or `files` for a small
+explicit multi-file site. Path-shaped arguments are refused before publishing.
 
 **What the endpoint enforces.** Bearer token only, through the very same `requireApiToken` that
 guards `/api/machine/*` — so a session cookie, dev impersonation and a Cloudflare Access assertion
 are all refused, which is what keeps a surface meant to sit outside Access immune to CSRF. `Origin`
 is validated and an unrecognized one is refused outright (DNS-rebinding protection, per the MCP
 spec); a content host can never be an allowed origin, and `*` is never emitted. Messages are capped
-at 256 KiB, batches are refused, and a content host answers 404 for `/mcp` entirely. `doctor`
-reports the token's **id**, never its secret.
+from the inline upload size, batches are refused, and a content host answers 404 for `/mcp` entirely.
+`doctor` reports the token's **id**, never its secret.
 
-`test/mcp-http.test.ts` pins all of it against the real Worker, including that every tool the stdio
-server exposes and this one does not is genuinely unreachable here.
+`test/mcp-http.test.ts` pins all of it against the real Worker, including publish success, path
+refusal, scope checks, inline bundle path filtering and body-size limits.
 
 ## 11. Related
 

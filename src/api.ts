@@ -255,41 +255,28 @@ artifactRoutes.get("/artifacts", requireScope("read"), async (c) => {
   return c.json({ artifacts, content_base: contentBase(c) });
 });
 
-artifactRoutes.post("/artifacts", requireScope("publish"), async (c) => {
-  // Fast path: if the client declares an honest, oversized Content-Length, reject
-  // before reading any of the body. This is purely an optimization — a missing or
-  // inaccurate Content-Length (e.g. chunked transfer encoding) skips this check
-  // entirely, so it must never be relied on as the actual size guarantee; the
-  // streaming limit below is what enforces the cap against real bytes read.
-  const contentLength = Number(c.req.header("content-length") ?? "");
-  if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
-    return c.json(
-      { error: "payload_too_large", detail: `upload exceeds the max size of ${MAX_UPLOAD_BYTES} bytes` },
-      413
-    );
-  }
+/**
+ * Where a publish is landing, resolved from the caller's metadata alone —
+ * before a single byte of content is looked at.
+ *
+ * Extracted so the multipart route below and the remote MCP `publish` tool
+ * (src/mcp.ts) share one implementation of the slug rules, the title rule and
+ * the "may this caller add a version to that artifact?" check. Two transports
+ * that decide *who may publish where* in two places will eventually disagree,
+ * and the direction they disagree in is not knowable in advance.
+ */
+export type PublishTarget = {
+  slug: string;
+  existing: ArtifactRow | null;
+  accounts: Awaited<ReturnType<typeof accountsFor>>;
+};
 
-  let form: FormData;
-  try {
-    const body = c.req.raw.body;
-    const req = body ? new Request(c.req.raw, { body: limitBodyBytes(body, MAX_BODY_BYTES) } as RequestInit) : c.req.raw;
-    form = await req.formData();
-  } catch (e) {
-    if (e instanceof PayloadTooLargeError) {
-      return c.json(
-        { error: "payload_too_large", detail: `upload exceeds the max size of ${MAX_UPLOAD_BYTES} bytes` },
-        413
-      );
-    }
-    return c.json({ error: "bad_request", detail: "expected multipart/form-data" }, 400);
-  }
-
-  const providedTitle = String(form.get("title") ?? "").trim();
-  const description = (form.get("description") ? String(form.get("description")) : "").trim();
-  const note = (form.get("note") ? String(form.get("note")) : "").trim();
-
-  const existingSlug = String(form.get("slug") ?? "").trim();
-  let slug = existingSlug || slugify(providedTitle);
+export async function resolvePublishTarget(
+  c: Context<Vars>,
+  input: { slug?: string; title?: string }
+): Promise<PublishTarget | Response> {
+  const providedTitle = (input.title ?? "").trim();
+  const slug = (input.slug ?? "").trim() || slugify(providedTitle);
 
   const existing = slug ? await getArtifact(c.env, slug) : null;
 
@@ -310,35 +297,25 @@ artifactRoutes.post("/artifacts", requireScope("publish"), async (c) => {
       409
     );
   }
+  return { slug, existing, accounts };
+}
 
-  const htmlFile = form.get("file");
-  const bundleFile = form.get("bundle");
-
-  const uploadFile = bundleFile instanceof File && bundleFile.size > 0 ? bundleFile : htmlFile;
-  if (uploadFile instanceof File && uploadFile.size > MAX_UPLOAD_BYTES) {
-    return c.json(
-      { error: "payload_too_large", detail: `upload exceeds the max size of ${MAX_UPLOAD_BYTES} bytes` },
-      413
-    );
-  }
-
-  let processed: ProcessedUpload;
-  try {
-    if (bundleFile instanceof File && bundleFile.size > 0) {
-      processed = processZip(new Uint8Array(await bundleFile.arrayBuffer()));
-    } else if (htmlFile instanceof File && htmlFile.size > 0) {
-      // Decided by the bytes, never the filename: a filename is a claim by the
-      // uploader, magic bytes are a fact. Without this, `deck.pdf` containing
-      // HTML would be served as a document with our chrome around it.
-      const bytes = new Uint8Array(await htmlFile.arrayBuffer());
-      processed = sniffKind(htmlFile.name, bytes) === "pdf" ? singlePdf(bytes) : singleHtml(bytes);
-    } else {
-      return c.json({ error: "bad_request", detail: "provide a 'file' (.html) or 'bundle' (.zip)" }, 400);
-    }
-  } catch (e) {
-    if (e instanceof UploadError) return c.json({ error: "bad_request", detail: e.message }, 400);
-    return c.json({ error: "bad_request", detail: "could not process upload" }, 400);
-  }
+/**
+ * Commit a processed upload: plan limits, then the version, then the bytes,
+ * then the row. Everything after "what are we publishing?" lives here, which is
+ * what lets a second transport reuse the quota check, the suspension check, the
+ * retention window and the response shape without restating any of them.
+ */
+export async function storeUpload(
+  c: Context<Vars>,
+  target: PublishTarget,
+  processed: ProcessedUpload,
+  meta: { title?: string; description?: string; note?: string }
+): Promise<Response> {
+  const { slug, existing, accounts } = target;
+  const providedTitle = (meta.title ?? "").trim();
+  const description = (meta.description ?? "").trim();
+  const note = (meta.note ?? "").trim();
 
   // Versions are immutable and stored under <slug>/v<N>/, so we never delete a
   // previous version's files. Reserve the version number atomically first
@@ -491,6 +468,77 @@ artifactRoutes.post("/artifacts", requireScope("publish"), async (c) => {
     file_count: processed.files.length,
     version,
   });
+}
+
+artifactRoutes.post("/artifacts", requireScope("publish"), async (c) => {
+  // Fast path: if the client declares an honest, oversized Content-Length, reject
+  // before reading any of the body. This is purely an optimization — a missing or
+  // inaccurate Content-Length (e.g. chunked transfer encoding) skips this check
+  // entirely, so it must never be relied on as the actual size guarantee; the
+  // streaming limit below is what enforces the cap against real bytes read.
+  const contentLength = Number(c.req.header("content-length") ?? "");
+  if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
+    return c.json(
+      { error: "payload_too_large", detail: `upload exceeds the max size of ${MAX_UPLOAD_BYTES} bytes` },
+      413
+    );
+  }
+
+  let form: FormData;
+  try {
+    const body = c.req.raw.body;
+    const req = body ? new Request(c.req.raw, { body: limitBodyBytes(body, MAX_BODY_BYTES) } as RequestInit) : c.req.raw;
+    form = await req.formData();
+  } catch (e) {
+    if (e instanceof PayloadTooLargeError) {
+      return c.json(
+        { error: "payload_too_large", detail: `upload exceeds the max size of ${MAX_UPLOAD_BYTES} bytes` },
+        413
+      );
+    }
+    return c.json({ error: "bad_request", detail: "expected multipart/form-data" }, 400);
+  }
+
+  const providedTitle = String(form.get("title") ?? "").trim();
+  const description = (form.get("description") ? String(form.get("description")) : "").trim();
+  const note = (form.get("note") ? String(form.get("note")) : "").trim();
+
+  const target = await resolvePublishTarget(c, {
+    slug: String(form.get("slug") ?? ""),
+    title: providedTitle,
+  });
+  if (target instanceof Response) return target;
+
+  const htmlFile = form.get("file");
+  const bundleFile = form.get("bundle");
+
+  const uploadFile = bundleFile instanceof File && bundleFile.size > 0 ? bundleFile : htmlFile;
+  if (uploadFile instanceof File && uploadFile.size > MAX_UPLOAD_BYTES) {
+    return c.json(
+      { error: "payload_too_large", detail: `upload exceeds the max size of ${MAX_UPLOAD_BYTES} bytes` },
+      413
+    );
+  }
+
+  let processed: ProcessedUpload;
+  try {
+    if (bundleFile instanceof File && bundleFile.size > 0) {
+      processed = processZip(new Uint8Array(await bundleFile.arrayBuffer()));
+    } else if (htmlFile instanceof File && htmlFile.size > 0) {
+      // Decided by the bytes, never the filename: a filename is a claim by the
+      // uploader, magic bytes are a fact. Without this, `deck.pdf` containing
+      // HTML would be served as a document with our chrome around it.
+      const bytes = new Uint8Array(await htmlFile.arrayBuffer());
+      processed = sniffKind(htmlFile.name, bytes) === "pdf" ? singlePdf(bytes) : singleHtml(bytes);
+    } else {
+      return c.json({ error: "bad_request", detail: "provide a 'file' (.html) or 'bundle' (.zip)" }, 400);
+    }
+  } catch (e) {
+    if (e instanceof UploadError) return c.json({ error: "bad_request", detail: e.message }, 400);
+    return c.json({ error: "bad_request", detail: "could not process upload" }, 400);
+  }
+
+  return storeUpload(c, target, processed, { title: providedTitle, description, note });
 });
 
 // --- User management -------------------------------------------------------
