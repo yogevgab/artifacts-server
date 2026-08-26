@@ -136,6 +136,18 @@ a.link-button:hover{opacity:.96;transform:translateY(-1px);text-decoration:none;
  */
 export const SOURCE_URL = "https://github.com/yogevgab/artifacts-server";
 
+/**
+ * The Claude Desktop extension bundle, as a release asset.
+ *
+ * Same reason as `SOURCE_URL`: the landing page's install card and the /docs
+ * quickstart both hand a reader this exact file, and a version-pinned URL that
+ * disagrees between the two surfaces sends half of them to a build that no
+ * longer matches the documented steps. Bump it here when `npm run dxt:pack`
+ * output is attached to a new release — `docs/CLAUDE_DESKTOP.md` cites the
+ * same asset.
+ */
+export const DXT_URL = `${SOURCE_URL}/releases/download/v1.2.0/rtfx.dxt`;
+
 // --- the mark ---------------------------------------------------------------
 //
 // One shape, drawn twice: once URL-encoded for the favicon, once as inline SVG

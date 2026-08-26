@@ -1,6 +1,6 @@
 import type { Env } from "./env";
 import { requestHostname } from "./host";
-import { MARK_PATH, MARK_BLUE, SOURCE_URL } from "./pages";
+import { MARK_PATH, MARK_BLUE, SOURCE_URL, DXT_URL } from "./pages";
 
 /**
  * Public-web surface: canonical identity, crawler files, and the metadata every
@@ -33,10 +33,18 @@ export const SITE = {
    * "Claude Code, Hermes, the CLI or the dashboard" without the native MCP
    * server, which has been shipped since issue #39. Kept under 160 now, and the
    * upper bound is asserted in `test/seo.test.ts` so it cannot drift back.
+   *
+   * The wording then followed the landing page down to plain language. The
+   * previous version — "Private, access-controlled hosting for pages, PDFs and
+   * artifacts Claude builds. Publish from Claude Code, MCP or CLI" — spent three
+   * of its first six words on category vocabulary and named two acronyms, in the
+   * one string a person reads *before* deciding whether to click. It says the
+   * outcome and the two places you can install it instead; the acronyms are a
+   * scroll away on the page itself.
    */
   description:
-    "Private, access-controlled hosting for pages, PDFs and artifacts Claude builds. Publish from " +
-    "Claude Code, MCP or CLI; share by identity. Start free.",
+    "Turn what Claude builds — a page, a PDF, a small site — into a private link only the people " +
+    "you choose can open. Works with Claude Desktop and Claude Code.",
 } as const;
 
 /** Absolute origin for canonical URLs, with any trailing slash removed. */
@@ -72,17 +80,21 @@ export interface PublicPage {
 export const PUBLIC_PAGES: readonly PublicPage[] = [
   {
     path: "/",
-    title: "Private hosting for Claude artifacts and AI-made deliverables · rtfx.pro",
+    title: "Private links for work Claude makes · rtfx.pro",
     summary:
-      "Product overview: what rtfx.pro does, who it is for, and how it differs from " +
-      "generic static hosting.",
+      "Product overview in plain language: turn what Claude builds into a private link, the " +
+      "three-step round trip, the two local installs (Claude Desktop extension and Claude Code " +
+      "plugin), what non-developers publish with it, the privacy and versioning model, and " +
+      "pricing.",
     priority: "1.0",
   },
   {
     path: "/docs",
     title: "Docs — connectors, publishing, access control and the API",
     summary:
-      "Every way to connect an agent — the Claude Code plugin with browser sign-in, the local " +
+      "Starts with a quickstart — install the Claude Desktop extension (rtfx.dxt) or the Claude " +
+      "Code plugin, sign in once, and ask Claude to publish. Then every way to connect an agent " +
+      "— the Claude Code plugin with browser sign-in, the local " +
       "MCP server, the OAuth-authorized remote MCP endpoint with content publishing, Hermes, the CLI " +
       "and the API — and which of them publish; who uses rtfx.pro and for what; the " +
       "access-control and privacy model; versioning; view " +
@@ -291,7 +303,11 @@ Full comparison: ${origin}/docs#agents.
   session built; \`/rtfx:setup\`, \`/rtfx:list\`, \`/rtfx:versions\`, \`/rtfx:rollback\` and
   \`/rtfx:logout\` complete the set.
 - **Local MCP server — publishes.** Bundled in that same plugin and registered when the plugin is
-  installed, for an MCP client with no shell (Claude Desktop, for instance). Tools: publish,
+  installed, for an MCP client with no shell (Claude Desktop, for instance). For Claude Desktop the
+  one-step install is the Desktop Extension \`rtfx.dxt\`
+  (${DXT_URL}): open the file and Claude Desktop registers the
+  server — no \`claude_desktop_config.json\` to edit. It reads the same locally stored browser
+  credential the Claude Code plugin writes, so one \`/rtfx:login\` connects both. Tools: publish,
   list_artifacts, get_versions, rollback, doctor. It publishes because it runs on the user's own
   machine, beside the build output it is asked to send.
 - **Remote MCP over OAuth — publishes content, not paths.**

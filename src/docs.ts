@@ -1,4 +1,4 @@
-import { layout, esc, siteHeader, siteFooter, PUBLIC_CHROME_STYLE } from "./pages";
+import { layout, esc, siteHeader, siteFooter, PUBLIC_CHROME_STYLE, DXT_URL } from "./pages";
 import { cookieNotice, CONSENT_STYLE, CONSENT_SCRIPT } from "./consent";
 import type { Env } from "./env";
 import { SITE, canonicalUrl } from "./seo";
@@ -229,13 +229,13 @@ export function docsPage(env: Env): string {
     <main id="main">
     <div class="doc-hero">
       <p class="eyebrow">Documentation</p>
-      <h1>Publish it, control who opens it, keep every version.</h1>
-      <p class="lede">rtfx.pro hosts the pages, PDFs and multi-file artifacts that come out of an
-        AI session — from Claude Code, Hermes, your terminal or your browser — behind real access
-        control instead of an unlisted URL.</p>
+      <h1>Set it up once, then ask Claude to publish.</h1>
+      <p class="lede">Pick the Claude you already use, connect it in a couple of minutes, and send
+        the link. Everything below the quickstart is detail you only need when you want it.</p>
     </div>
 
     <nav class="toc" aria-label="On this page">
+      <a href="#start">Choose your setup</a>
       <a href="#overview">Overview</a>
       <a href="#use-cases">Use cases</a>
       <a href="#publishing">Publishing</a>
@@ -249,6 +249,67 @@ export function docsPage(env: Env): string {
     </nav>
 
     <article class="doc">
+      <!-- The page used to open on "What rtfx.pro is": four paragraphs of model
+           before a single runnable line, which is the right opening for somebody
+           evaluating the architecture and the wrong one for the far larger group
+           who arrived from the homepage having already decided. The quickstart
+           goes first now; the architecture is still here, one screen down, in
+           the order somebody reading for depth would want it. -->
+      <section id="start" data-docs="start">
+        <h2>Choose your setup</h2>
+        <p>Two ways to connect, and the difference that matters is where the connector runs. Both
+          of these run on your own machine, so Claude can publish a file or folder you point it
+          at.</p>
+
+        <h3>Claude Desktop</h3>
+        <ol>
+          <li>Download <a href="${DXT_URL}"><code>rtfx.dxt</code></a>.</li>
+          <li>Open the file. Claude Desktop installs the rtfx connector — there is no
+            <code>claude_desktop_config.json</code> to edit.</li>
+          <li>Leave <b>rtfx endpoint</b> as <code>https://rtfx.pro</code>, and leave
+            <b>Expose access-management tool</b> off unless you want Claude changing who can open
+            an artifact.</li>
+          <li>Sign in once. A browser sign-in on this machine is enough — the credential is stored
+            in your home directory and shared with the Claude Code plugin below, so
+            <code>/rtfx:login</code> there also connects Claude Desktop. If you never use a
+            terminal, paste a scoped token from <b>dashboard &rarr; Integrations</b> into the
+            extension's <b>API token</b> field instead.</li>
+          <li>Ask Claude to publish. <code>doctor</code> reports which credential it found if
+            anything looks wrong.</li>
+        </ol>
+
+        <h3>Claude Code, in the terminal</h3>
+        <p>Two commands to install, one browser sign-in to connect. Nothing to clone and no package
+          to install — the plugin brings its own dependency-free publisher.</p>
+        <pre class="code" data-docs="claude-code-plugin"><code>/plugin marketplace add yogevgab/artifacts-server
+/plugin install rtfx@rtfx
+
+/rtfx:login       # browser OAuth sign-in; stores a local renewing credential
+/rtfx:setup       # confirm your credential reaches your instance
+/rtfx:publish     # publish what the session just built
+/rtfx:versions    # history · /rtfx:rollback to go back</code></pre>
+
+        <h3>What to ask Claude</h3>
+        <p>Once either one is connected, publishing is a sentence rather than a command:</p>
+        <ul>
+          <li>“Publish this page as a private link.”</li>
+          <li>“Publish the folder <code>./out</code> to rtfx as <code>client-demo</code>.”</li>
+          <li>“Publish this PDF to rtfx and give me the link.”</li>
+          <li>“Publish the updated version to the same link.”</li>
+          <li>“Roll <code>client-demo</code> back to version 2.”</li>
+        </ul>
+        <p>Every link starts restricted to you. Deciding who else may open it is a deliberate step
+          you take yourself — see <a href="#access">Access &amp; privacy</a>.</p>
+
+        <div class="callout">
+          <p><b>No install at all?</b> rtfx.pro also runs a hosted MCP endpoint you authorize in
+            the browser. It publishes content sent inside the tool call — an HTML page, a PDF, a
+            small file list — and cannot reach your filesystem, so local folders still belong to
+            the two setups above. Details under
+            <a href="#agents">Connectors</a>.</p>
+        </div>
+      </section>
+
       <section id="overview">
         <h2>What rtfx.pro is</h2>
         <p>An artifact is one publishable thing: a single HTML page, a PDF, or a folder/zip with its own
@@ -388,23 +449,16 @@ $ node cli/artifacts.mjs publish ./out --slug client-demo --title "Checkout prot
           <a href="#access">Access &amp; privacy</a>. An agent publishes; a person decides who
           may read.</p>
         <h3>The Claude Code plugin</h3>
-        <p>Two commands to install, one browser sign-in to connect. After that <i>publish this</i> is
-          an ordinary sentence: the session picks the build output, versions it under a slug and hands
-          back the link. The plugin ships a skill, seven slash commands and a dependency-free
-          publisher — nothing to clone and no package to install, since it brings its own copy.</p>
-        <pre class="code" data-docs="claude-code-plugin"><code>/plugin marketplace add yogevgab/artifacts-server
-/plugin install rtfx@rtfx
-
-/rtfx:login       # browser OAuth sign-in; stores a local renewing credential
-/rtfx:setup       # confirm your credential reaches your instance
-/rtfx:publish     # publish what the session just built
-/rtfx:versions    # history · /rtfx:rollback to go back</code></pre>
+        <p>The two install commands are in <a href="#start">Choose your setup</a>. The plugin ships
+          a skill, seven slash commands and a dependency-free publisher, so after
+          <code>/rtfx:login</code> <i>publish this</i> is an ordinary sentence: the session picks
+          the build output, versions it under a slug and hands back the link.</p>
         <p>The plugin's browser login stores a local credential with owner-only permissions and prints
           only a token id, never the token. For CI and advanced scripts, a scoped
           <code>RTFX_API_TOKEN</code> from Integrations still works and takes priority over the
           browser sign-in.</p>
         <h3>The Claude Desktop extension and local MCP server</h3>
-        <p>For Claude Desktop, the easiest local install is <a href="https://github.com/yogevgab/artifacts-server/releases/download/v1.2.0/rtfx.dxt"><code>rtfx.dxt</code></a>: open the Desktop
+        <p>For Claude Desktop, the easiest local install is <a href="${DXT_URL}"><code>rtfx.dxt</code></a>: open the Desktop
           Extension package and Claude Desktop registers the rtfx MCP server for you. The same plugin
           also ships the native MCP server directly, for manual setup or any other client that speaks
           MCP. This local server publishes, lists versions and rolls back as tool calls, holding the

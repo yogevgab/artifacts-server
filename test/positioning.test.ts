@@ -190,10 +190,35 @@ describe("/docs#why-rtfx: table stakes vs differentiators", () => {
 });
 
 describe("the wedge is stated on the landing page", () => {
-  it("keeps the Claude wedge above the fold while the h1 says what buyers get", async () => {
+  /**
+   * The h1 was "Publish AI-made work without putting it on the open web." — a
+   * true sentence built from three abstractions and a negation, which is how a
+   * category insider describes the product and not how a buyer describes their
+   * problem. It says the job in the buyer's own words now. The wedge (Claude)
+   * and the outcome (a private link somebody can be sent) both have to survive
+   * whatever the wording becomes next, so those are what is pinned.
+   */
+  it("keeps the Claude wedge above the fold while the h1 states the job in plain words", async () => {
     const html = await publicHtml("/");
-    expect(html).toContain("<h1>Publish AI-made work without putting it on the open web.</h1>");
+    expect(html).toContain("<h1>Turn Claude's work into a private link you can send.</h1>");
     expect(html).toContain(SITE.tagline);
+  });
+
+  /**
+   * The vocabulary that makes this page unreadable to the people it is for.
+   * Every one of these words is legitimate and every one of them still appears
+   * further down the page — the rule is only that none may stand between a
+   * first-time visitor and the sentence explaining what this is.
+   */
+  it("keeps infrastructure vocabulary out of the headline and the lead", async () => {
+    const html = await publicHtml("/");
+    const hero = html.slice(html.indexOf("<h1"), html.indexOf('class="quick-add"')).toLowerCase();
+    for (const jargon of ["mcp", "api", "cli", "oauth", "artifact", "static host", "endpoint"]) {
+      expect(hero, `headline/lead includes jargon: ${jargon}`).not.toContain(jargon);
+    }
+    // …and they are still on the page, lower down, for a reader who wants them.
+    const lower = html.toLowerCase();
+    for (const term of ["mcp", "oauth", "artifact"]) expect(lower).toContain(term);
   });
 
   it("leads with agent-native publishing, private sharing, versions and workspaces", async () => {

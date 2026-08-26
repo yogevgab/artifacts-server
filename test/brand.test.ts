@@ -108,11 +108,67 @@ describe("public pages share one header and one footer", () => {
 });
 
 describe("the landing page leads with one idea", () => {
-  it("keeps the Claude tagline above the fold while the h1 states the launch promise", async () => {
+  it("keeps the Claude tagline above the fold while the h1 states the promise plainly", async () => {
     const body = await html("/", ANON);
-    expect(body).toContain("<h1>Publish AI-made work without putting it on the open web.</h1>");
+    expect(body).toContain("<h1>Turn Claude's work into a private link you can send.</h1>");
     expect(body).toContain("Claude creates. We share.");
     expect(body.match(/<h1[ >]/g) ?? []).toHaveLength(1);
+  });
+
+  /**
+   * The three-step path is the whole point of the rewrite: somebody who has
+   * never opened a terminal has to be able to read what happens to their work
+   * before the page shows them a command. Structure is pinned on the markup so
+   * the wording can keep improving; what cannot vanish is that there are three
+   * of them and that they come before the install cards.
+   */
+  it("explains the round trip in three plain steps before it shows a command", async () => {
+    const body = await html("/", ANON);
+    const steps = body.slice(body.indexOf('class="steps"'), body.indexOf('class="installs"'));
+    expect((steps.match(/<div class="step">/g) ?? []).length).toBe(3);
+    expect(steps).not.toContain("<pre");
+    expect(body.indexOf('class="steps"')).toBeLessThan(body.indexOf('class="installs"'));
+  });
+
+  /**
+   * "Can I add this to the Claude I already use?" decides the visit, and the
+   * answer used to be nine sections down. Both install cards carry the literal
+   * first step — a download link, or the real slash commands — because a card
+   * that paraphrases an install is one a reader cannot follow.
+   */
+  it("offers both install paths near the top, each with its real first step", async () => {
+    const body = await html("/", ANON);
+    const desktop = body.slice(
+      body.indexOf('data-install="claude-desktop"'),
+      body.indexOf('data-install="claude-code"')
+    );
+    expect(desktop).toContain("rtfx.dxt");
+    expect(desktop).toContain("releases/download/");
+    expect(desktop.toLowerCase()).toContain("claude desktop");
+
+    const code = body.slice(body.indexOf('data-install="claude-code"'));
+    expect(code).toContain("/plugin marketplace add yogevgab/artifacts-server");
+    expect(code).toContain("/plugin install rtfx@rtfx");
+    expect(code).toContain("/rtfx:login");
+    expect(code).toContain("/rtfx:publish");
+
+    // Both sit above the connector grid, the pricing table and the final CTA.
+    expect(body.indexOf('class="installs"')).toBeLessThan(body.indexOf('data-landing="connectors"'));
+    expect(body.indexOf('class="installs"')).toBeLessThan(body.indexOf('id="pricing"'));
+  });
+
+  /**
+   * The non-developer examples. Without them the page argues its case entirely
+   * in build outputs and terminal sessions, which is a description of one of the
+   * four connectors rather than of the product.
+   */
+  it("shows what a non-developer would send, not only a build output", async () => {
+    const body = (await html("/", ANON)).toLowerCase();
+    for (const example of ["client", "pdf", "report", "demo"]) {
+      expect(body, `landing missing a plain example: ${example}`).toContain(example);
+    }
+    // And the update story, which is the reason to use a link at all.
+    expect(body).toContain("update it without resending");
   });
 
   it("promises secure, access-protected sharing rather than a feature list", async () => {
@@ -228,6 +284,40 @@ describe("the docs page absorbed the material without losing its own", () => {
     const body = await html("/docs", ANON);
     expect(body).toContain('href="#use-cases"');
     expect(body).toContain('href="#why"');
+  });
+
+  /**
+   * /docs used to open on "What rtfx.pro is" — four paragraphs of model before a
+   * single runnable line. That is the right opening for somebody evaluating the
+   * architecture and the wrong one for the larger group arriving from the
+   * homepage having already decided. The quickstart is first now, and the
+   * architecture is one screen down rather than deleted.
+   */
+  it("opens on a quickstart rather than an architecture essay", async () => {
+    const body = await html("/docs", ANON);
+    expect(body).toContain('<section id="start" data-docs="start">');
+    expect(body).toContain('<a href="#start">');
+    expect(body.indexOf('id="start"')).toBeLessThan(body.indexOf('id="overview"'));
+
+    const start = body.slice(body.indexOf('id="start"'), body.indexOf('id="overview"'));
+    // Both setups, each runnable from what is on the page.
+    expect(start).toContain("rtfx.dxt");
+    expect(start).toContain("/plugin marketplace add yogevgab/artifacts-server");
+    expect(start).toContain("/rtfx:login");
+    // …and what to actually say once connected.
+    expect(start.toLowerCase()).toContain("publish this page as a private link");
+  });
+
+  /**
+   * The one thing the quickstart must not do to earn its brevity: imply the
+   * hosted endpoint is a third local install. It publishes bytes sent in the
+   * call, and the section that mentions it has to say so where it mentions it.
+   */
+  it("keeps the hosted-endpoint caveat attached in the quickstart itself", async () => {
+    const body = await html("/docs", ANON);
+    const start = body.slice(body.indexOf('id="start"'), body.indexOf('id="overview"'));
+    expect(start.toLowerCase()).toContain("content sent inside the tool call");
+    expect(start.toLowerCase()).toMatch(/cannot reach your filesystem|not a path|never reads/);
   });
 
   it("keeps its FAQ structured data answering from visible prose", async () => {

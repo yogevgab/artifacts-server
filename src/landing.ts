@@ -1,5 +1,5 @@
 import { maxSeatsFor } from "./members";
-import { layout, siteHeader, siteFooter, PUBLIC_CHROME_STYLE, SOURCE_URL } from "./pages";
+import { layout, siteHeader, siteFooter, PUBLIC_CHROME_STYLE, SOURCE_URL, DXT_URL } from "./pages";
 import { cookieNotice, CONSENT_STYLE, CONSENT_SCRIPT } from "./consent";
 import type { Env } from "./env";
 import { SITE, canonicalUrl } from "./seo";
@@ -41,11 +41,34 @@ import {
  * ours — publishing from inside the agent session, access by identity rather
  * than a secret URL, versions, and a workspace with roles — and points at
  * `/docs#why-rtfx` for the full table-stakes-vs-differentiators split.
+ *
+ * The current pass rebuilt the *reading order* without touching that stance.
+ * Every claim above was true and every one of them was written for somebody who
+ * already knew what an artifact, an MCP server and agent-native publishing are
+ * — so a consultant who wanted to send a client a private preview met four
+ * paragraphs of infrastructure first and left. The page now descends in
+ * specificity rather than opening at the bottom of it:
+ *
+ *  1. **Hero** — one plain sentence, then three steps in the words a person
+ *     would use to describe what they just did.
+ *  2. **Install** — the two ways somebody actually adds this to the Claude they
+ *     already run, as literal steps, high enough that they need no scrolling.
+ *  3. **What you'd send** — four concrete deliverables, none of them a build
+ *     output.
+ *  4. **Privacy and versions** — the two mechanics in plain prose, beside the
+ *     state panel that used to sit above the fold arguing for itself.
+ *  5. **Under the hood** — the connector grid, the pricing table, and the links
+ *     into /docs, in that order, for a reader who is still going.
+ *
+ * Nothing was deleted to achieve it. Every constraint the older copy protected —
+ * that the hosted endpoint publishes content and not paths, that there is no
+ * password anywhere, that Team and Enterprise are not self-serve — is still on
+ * the page, just further down it.
  */
 
 const LANDING_STYLE = `${PUBLIC_CHROME_STYLE}${CONSENT_STYLE}
 .wrap{max-width:1180px}
-.hero{position:relative;padding:5.4rem 0 3rem;text-align:center;overflow:hidden}
+.hero{position:relative;padding:3.8rem 0 2.6rem;text-align:center;overflow:hidden}
 /* A calm, symmetric wash behind the headline. The 90deg linear gradient this
    replaces ran blue → cyan → transparent across the band, which put all of its
    weight on the left and read as a smudge sitting behind the first word rather
@@ -58,37 +81,53 @@ const LANDING_STYLE = `${PUBLIC_CHROME_STYLE}${CONSENT_STYLE}
 /* text-wrap:balance so the two sentences break between themselves rather than
    orphaning "share." on its own line; the ch cap is the fallback for browsers
    that don't have it. */
-.hero h1{font-size:clamp(2.9rem,8vw,6rem);line-height:.96;margin:0 auto 1.15rem;max-width:18ch;letter-spacing:-.075em;font-weight:780;text-wrap:balance}
+.hero h1{font-size:clamp(2.45rem,6.2vw,4.9rem);line-height:.98;margin:0 auto 1rem;max-width:19ch;letter-spacing:-.075em;font-weight:780;text-wrap:balance}
 .hero p.lead{font-size:clamp(1.08rem,2vw,1.34rem);color:var(--muted);max-width:40rem;margin:0 auto 2rem;letter-spacing:-.015em}
 .hero .cta{display:flex;gap:.72rem;justify-content:center;flex-wrap:wrap}.hero .cta a:hover{text-decoration:none}
-.cta-note{color:var(--faint);font-size:.88rem;margin:.95rem auto 0;max-width:32rem}.cta-note b{color:var(--muted);font-weight:600}
+.quick-add{margin:1rem auto 0;max-width:48rem;display:grid;grid-template-columns:1fr 1fr;gap:.7rem;text-align:left}
+.quick-add a,.quick-add div{display:block;border:1px solid var(--border);border-radius:16px;background:rgba(255,255,255,.045);padding:.82rem .95rem;color:var(--muted);font-size:.86rem;line-height:1.42}
+.quick-add a:hover{text-decoration:none;border-color:var(--border-strong)}
+.quick-add b{display:block;color:var(--fg);font-size:.92rem;margin-bottom:.18rem}
+.quick-add code{font-family:var(--mono);font-size:.82em;color:var(--fg)}
+.cta-note{color:var(--faint);font-size:.86rem;margin:.8rem auto 0;max-width:32rem}.cta-note b{color:var(--muted);font-weight:600}
 #waitlist .note{margin-top:1.1rem}
 .badge-row{display:flex;gap:.55rem;justify-content:center;margin-bottom:1.15rem;flex-wrap:wrap}.pill{border:1px solid var(--border);border-radius:999px;padding:.36rem .86rem;font-size:.82rem;color:var(--muted);background:rgba(255,255,255,.05);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}
-/* The round trip. Two steps side by side: the command that publishes, and the
-   state that exists the instant it returns. Left column is deliberately wider —
-   a terminal line has a natural length and wrapping it reads as breakage. */
-.roundtrip{margin:3.2rem auto 0;max-width:60rem;display:grid;grid-template-columns:1.06fr .94fr;gap:1.15rem;text-align:left}
-/* Both steps stretch to the taller of the two, so the transcript and the state
-   panel share a baseline instead of ending at two different heights. */
-.rt-step{min-width:0;display:flex;flex-direction:column}
-.rt-step>pre.code,.rt-step>.rt-state{flex:1}
-.rt-label{display:flex;align-items:center;gap:.55rem;margin:0 0 .7rem;font-size:.86rem;color:var(--muted);letter-spacing:-.01em}
-.rt-num{flex:none;width:1.45rem;height:1.45rem;border-radius:50%;border:1px solid var(--border-strong);display:inline-flex;align-items:center;justify-content:center;font-size:.76rem;font-weight:650;color:var(--fg)}
-/* Same code surface as /docs, so the homepage and the documentation do not
-   look like two products (issue #35). */
-.roundtrip pre.code{background:#05070c;border:1px solid var(--border);border-radius:var(--radius);padding:1.1rem 1.2rem;overflow-x:auto;font-family:var(--mono);font-size:.83rem;line-height:1.75;color:#dfe5f0;box-shadow:var(--shadow);margin:0}
-.roundtrip pre.code b{color:#fff;font-weight:650}
+/* The three-step path, in the plainest markup available: a number, a heading and
+   one sentence each. What stood here was a terminal transcript beside a state
+   panel — accurate, and the first thing a non-developer bounced off, because the
+   page opened by asking them to read a shell. The transcript still exists; it
+   moved down into the Claude Code install card, where a reader has already
+   self-selected into a terminal. */
+.steps{margin:2.8rem auto 0;max-width:62rem;display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;text-align:left}
+.step{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem 1.3rem;box-shadow:var(--shadow);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}
+.step-num{display:inline-flex;align-items:center;justify-content:center;width:1.6rem;height:1.6rem;border-radius:50%;border:1px solid var(--border-strong);font-size:.8rem;font-weight:650;color:var(--fg);margin-bottom:.7rem}
+.step h3{margin:0 0 .35rem;font-size:1.02rem;letter-spacing:-.02em}
+.step p{margin:0;color:var(--muted);font-size:.92rem;line-height:1.5}
+/* The two install paths, side by side and high on the page, because "can I add
+   this to the Claude I already use?" is the question that decides the visit —
+   and it was previously answerable only by scrolling into a four-card connector
+   grid that led with MCP transports. */
+.installs{margin:1.5rem auto 0;max-width:62rem;display:grid;grid-template-columns:1fr 1fr;gap:1rem;text-align:left}
+.install{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:1.4rem 1.35rem;box-shadow:var(--shadow);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);display:flex;flex-direction:column;gap:.85rem}
+.install h3{margin:0;font-size:1.08rem;letter-spacing:-.02em}
+.install ol{margin:0;padding-left:1.2rem;color:var(--muted);font-size:.93rem;line-height:1.55;display:grid;gap:.35rem}
+.install ol b{color:var(--fg);font-weight:600}
+.install>p{margin:0;color:var(--faint);font-size:.87rem;line-height:1.5}
+/* pre-wrap, not overflow-x: the marketplace line is longer than any card width
+   worth having, and a clipped command reads as a rendering bug. */
+.install pre.code{background:#05070c;border:1px solid var(--border);border-radius:var(--radius-sm);padding:.9rem 1rem;font-family:var(--mono);font-size:.79rem;line-height:1.72;color:#dfe5f0;margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.install pre.code b{color:#fff;font-weight:650}
 .rt-ok{color:#5ac8fa}
+/* What the link is, the moment it exists — real markup rather than a
+   screenshot, so it survives light mode, 200% zoom, a narrow screen and a
+   screen reader. It sits beside the privacy explanation now instead of above
+   the fold: it is the illustration of a claim, not the claim itself. */
 .rt-state{list-style:none;margin:0;padding:1.1rem 1.2rem;display:grid;gap:.72rem;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);font-size:.9rem;color:var(--muted)}
 .rt-state li{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;line-height:1.45}
-/* Spans both columns: it is the consequence of the whole round trip, not a
-   footnote to the right-hand panel, and keeping it inside that column made the
-   two panels stretch to different heights. */
-.rt-foot{grid-column:1/-1;margin:.2rem 0 0;font-size:.88rem;color:var(--faint);line-height:1.55;text-align:center}
-.launch-strip{margin:1.4rem auto 0;max-width:60rem;display:grid;grid-template-columns:repeat(3,1fr);gap:.8rem;text-align:left}
-.launch-strip div{background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:18px;padding:.92rem 1rem}
-.launch-strip b{display:block;color:var(--fg);font-size:.92rem;letter-spacing:-.01em;margin-bottom:.18rem}
-.launch-strip span{display:block;color:var(--muted);font-size:.83rem;line-height:1.45}
+.plain{display:grid;grid-template-columns:1.08fr .92fr;gap:1.4rem;align-items:start}
+.plain p{margin:0 0 .9rem;color:var(--muted);font-size:.96rem;line-height:1.62}
+.plain p:last-child{margin-bottom:0}
+.plain p b{color:var(--fg);font-weight:650}
 section.band{margin:4rem 0}
 .band-head{text-align:center;max-width:44rem;margin:0 auto 2rem}
 .band-head h2{font-size:clamp(1.9rem,4.2vw,3.1rem);letter-spacing:-.055em;margin:0 0 .6rem;line-height:1.05}
@@ -150,64 +189,16 @@ section.band{margin:4rem 0}
 .tier .link-button{align-self:flex-start}
 .tier-more{margin:-.3rem 0 0;font-size:.86rem}
 .pricing-note{text-align:center;color:var(--faint);font-size:.88rem;margin:1.2rem 0 0}
-#waitlist{background:var(--card);border:1px solid var(--border);border-radius:32px;padding:2.3rem;text-align:center;margin:2.6rem 0;box-shadow:var(--shadow);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}#waitlist h2{margin:0 0 .45rem;font-size:clamp(1.8rem,4vw,3rem);letter-spacing:-.055em}#waitlist p{color:var(--muted);margin:0 0 1.3rem}#waitlist form{display:flex;gap:.6rem;justify-content:center;flex-wrap:wrap;max-width:31rem;margin:0 auto}#waitlist input{flex:1;min-width:15rem}#msg{max-width:31rem;margin:.85rem auto 0}
-@media(max-width:760px){.hero{padding:3rem 0 1.8rem}.roundtrip,.launch-strip{grid-template-columns:1fr;gap:1.6rem;margin-top:2.4rem}section.band{margin:3rem 0}}
+#waitlist{background:var(--card);border:1px solid var(--border);border-radius:32px;padding:2.3rem;text-align:center;margin:2.6rem 0;box-shadow:var(--shadow);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}#waitlist h2{margin:0 0 .45rem;font-size:clamp(1.8rem,4vw,3rem);letter-spacing:-.055em}#waitlist p{color:var(--muted);margin:0 0 1.3rem}
+@media(max-width:760px){.hero{padding:3rem 0 1.8rem}.quick-add,.steps,.installs{grid-template-columns:1fr;gap:1rem;margin-top:1.4rem}.plain{grid-template-columns:1fr;gap:1.2rem}section.band{margin:3rem 0}}
 `;
 
-const SCRIPT = `
-const $ = (s)=>document.querySelector(s);
-const msg = $('#msg');
-const btn = $('#wl button[type=submit]');
-/* #msg is a polite live region, so this is also what announces the result to a
-   screen reader: set the text, unhide, and let the status class carry the
-   colour. Colour is never the only signal — the sentence says what happened.
-
-   Three states, not two. 'Sending…' used to be shown with the success class,
-   which painted a green box around a request that had not happened yet —
-   state as decoration, which docs/DESIGN.md forbids. It gets the neutral
-   class now, and only a real answer turns the box green or red. */
-function show(text, kind){ msg.textContent=text; msg.hidden=false;
-  msg.className = kind === 'ok' ? 'is-ok' : kind === 'error' ? 'is-error' : ''; }
-if ($('#wl')) $('#wl').addEventListener('submit', async (e)=>{
-  e.preventDefault();
-  const email = $('#email').value.trim();
-  /* Disabling the button is what stops an impatient double-submit from
-     spending the 3-per-hour, per-address budget in src/waitlist.ts and
-     turning a successful signup into a rate-limit error. */
-  btn.disabled = true;
-  show('Sending…', 'pending');
-  try {
-    const res = await fetch('/waitlist', {
-      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email })
-    });
-    const data = await res.json().catch(()=>({}));
-    /* Every failure used to report "Enter a valid email address", including
-       the 429. Somebody who submitted twice was told their own address was
-       malformed, retyped a correct address, and got the same lie back. Each
-       status now says what actually happened and whether retrying can help. */
-    /* Two independent buckets answer 429 (src/waitlist.ts): 3 per hour per
-       address, and 12 per hour per IP — and the request is rejected before the
-       row is written. The per-IP bucket is shared by everyone behind that
-       address, so on CGNAT, a mobile carrier or an office network this can fire
-       on somebody's very first attempt, for an address that was never recorded.
-       So the wording can neither say "you've tried several times" nor promise
-       they are on the list: it attributes the limit to the network and makes
-       list membership conditional. */
-    if (res.status === 429) return show("Too many requests from your network just now — please try again in an hour. If an earlier attempt went through, you're already on the list.", 'error');
-    if (res.status === 400 || data.error === 'invalid_email') return show('Enter a valid email address.', 'error');
-    if (!res.ok) return show("Something went wrong on our side — please try again in a moment.", 'error');
-    /* No confirmation email is sent — src/waitlist.ts records the address and
-       nothing else — so this must not imply one is on its way, or the first
-       thing a new person experiences is a message that never arrives. */
-    show(data.status === 'already' ? "You're already on the list." : "Request recorded. A person reviews these by hand and replies by email — there's no automatic confirmation, so nothing else will arrive just yet.", 'ok');
-    e.target.reset();
-  } catch (err) {
-    show('Network error — please try again.', 'error');
-  } finally {
-    btn.disabled = false;
-  }
-});
-`;
+/**
+ * There is no script on this page beyond the consent notice's own. The waitlist
+ * form it used to drive was replaced by self-serve signup, and the handler sat
+ * here unreferenced afterwards — dead code that test/accessibility.test.ts
+ * explicitly forbids from ever reaching the page again.
+ */
 
 /**
  * The title used to be "rtfx.pro — private hosting for AI-built pages and
@@ -219,7 +210,7 @@ if ($('#wl')) $('#wl').addEventListener('submit', async (e)=>{
  * Descriptive, nominative use of the name, which is what it has always been on
  * this site.
  */
-const TITLE = "Private hosting for Claude artifacts and AI-made deliverables · rtfx.pro";
+const TITLE = "Private links for work Claude makes · rtfx.pro";
 
 /** Structured data: what this site is, and what the product is. */
 function structuredData(env: Env): unknown[] {
@@ -437,11 +428,10 @@ function connectorCard(c: Connector): string {
 function connectorSection(): string {
   return `<div id="connectors" class="connectors" data-landing="connectors">
     <div class="band-head">
-      <p class="eyebrow-c">Connectors</p>
+      <p class="eyebrow-c">Under the hood</p>
       <h2>Connect Claude once. Publish for the rest of the project.</h2>
-      <p>rtfx.pro meets an agent where it already works: a Claude Code plugin you sign into in the
-        browser, an MCP server that runs beside your files, a hosted MCP endpoint authorized over
-        OAuth, and the HTTP API underneath all three.</p>
+      <p>Four ways in, for whichever Claude you work in. The first three are the two cards above
+        plus a hosted endpoint that needs no install; the API is there for CI.</p>
     </div>
     <div class="conn-grid">
       ${CONNECTORS.map(connectorCard).join("")}
@@ -457,9 +447,9 @@ function pricingSection(): string {
     <div class="band-head">
       <p class="eyebrow-c">Pricing</p>
       <h2>Free to start. Upgrade only if you outgrow it.</h2>
-      <p>Every workspace starts on Free, and Pro is a switch inside it — not a signup step. Team and
-        Enterprise are set up with a person, because the parts that would make them self-serve
-        aren't built yet, and a checkout button would be lying about that.</p>
+      <p>Every workspace starts on Free, and Pro is a switch inside Settings. Team and Enterprise
+        are set up with a person, because the parts that would make them self-serve aren't built
+        yet.</p>
     </div>
     <div class="pricing-grid">
       ${PUBLIC_TIERS.map(tierCard).join("")}
@@ -475,108 +465,149 @@ export function landingPage(env: Env): string {
 
     <main id="main">
     <section class="hero">
-      <div class="badge-row"><span class="pill">Claude creates. We share.</span><span class="pill">Private by default</span><span class="pill">Agent-native publishing</span><span class="pill">PDFs, pages &amp; dashboards</span><!-- "Versioned & audited" claimed an audit log this product does not have.
+      <div class="badge-row"><span class="pill">Claude creates. We share.</span><span class="pill">Private by default</span><span class="pill">No coding needed</span><!-- "Versioned & audited" claimed an audit log this product does not have.
            What exists is a per-artifact view log — who opened it, when, which
            version — which is a real and specific thing, and not the same
            promise. "Audited" is the word a buyer reads as "there is a tamper-
            evident record of every administrative action", and there isn't one. -->
       </div>
-      <h1>Publish AI-made work without putting it on the open web.</h1>
-      <!-- "Artifact" carried the whole page and was never defined on it; the
-           definition lived a click away on /docs. It costs four words here. -->
-      <p class="lead">rtfx.pro gives Claude Code, Hermes and your browser a secure, professional place to
-        ship artifacts: pages, PDFs, reports, dashboards and small static apps. Every link starts
-        restricted, every re-publish keeps history, and sharing is a deliberate action — not an
-        unlisted URL you hope nobody forwards.</p>
+      <!-- The h1 used to be "Publish AI-made work without putting it on the open
+           web": three abstractions and a negation, in a sentence nobody outside
+           this category speaks. The job is concrete — you made a thing, you need
+           to send it to somebody, and you don't want the whole internet reading
+           it — so the headline says that in words a client or a designer already
+           uses. Everything more precise ("artifact", "access-protected",
+           "immutable version") still appears further down, where somebody has
+           already decided they care. -->
+      <h1>Turn Claude's work into a private link you can send.</h1>
+      <p class="lead">Claude makes you a page, a report, a PDF or a small site. rtfx.pro turns it
+        into a secure link only the people you choose can open — and you can update it later
+        without sending a new one.</p>
       <div class="cta">
         <a class="link-button" href="/signup" data-cta="signup">Start free</a>
         <a class="ghost link-button" href="/docs" data-cta="docs">See how it works</a>
       </div>
-      <p class="cta-note">Create a workspace with one email code. No password, no human review,
-        no card for Free. <b><a href="/login" data-cta="sign-in">Sign in</a></b> if you already
-        have an account.</p>
-      <!-- One round trip, as real content rather than a picture of content.
-           What stood here was a rounded window with macOS traffic-light dots
-           and grey bars for text — the universal signature of a landing page
-           that shipped before its product did, carrying an aria-label that
-           asserted specific facts ("version 4, shared with three people")
-           about nothing. For a product whose whole posture is "we publish
-           what we haven't overclaimed", a fake screenshot was the one element
-           on the site that wasn't truthful in kind.
-           Rendering it as HTML instead means it survives light mode, 200%
-           zoom, a narrow screen and a screen reader — and it does the job the
-           page was missing: showing the mechanism, not asserting it. The
-           commands are the real ones from docs/CLAUDE_CODE.md. -->
-      <div class="roundtrip">
-        <div class="rt-step">
-          <p class="rt-label"><span class="rt-num">1</span> Publish from the session that built it</p>
-          <pre class="code" data-landing="publish"><code>&gt; publish this to rtfx.pro
-
-<b>/rtfx:publish ./out client-demo</b>
-  uploaded 6 files · 214 KB
-  <span class="rt-ok">https://rtfx.pro/client-demo/  · v4</span></code></pre>
-        </div>
-        <div class="rt-step">
-          <p class="rt-label"><span class="rt-num">2</span> What the link is, the moment it exists</p>
-          <ul class="rt-state">
-            <li><span class="badge is-locked">Restricted</span> private until you say otherwise</li>
-            <li><span class="badge is-role">Shared with 2</span> named people, by identity</li>
-            <li><span class="badge">v4</span> v1–v3 still addressable · roll back in one click</li>
-            <li><span class="badge">Viewed</span> alex@example.com · 2 min ago · v4</li>
-          </ul>
-        </div>
-        <p class="rt-foot">Everyone else gets the same 404 as a page that was never published —
-          the link never admits the artifact exists.</p>
+      <div class="quick-add" role="group" aria-label="Add rtfx to Claude">
+        <a href="${DXT_URL}" data-cta="hero-dxt"><b>Add to Claude Desktop</b>Download <code>rtfx.dxt</code>, open it, sign in once.</a>
+        <div><b>Add to Claude Code</b><code>/plugin install rtfx@rtfx</code> then <code>/rtfx:login</code>.</div>
       </div>
-      <div class="launch-strip" role="group" aria-label="Launch readiness">
-        <div><b>Public product, private content</b><span>The marketing site is crawlable; artifacts and dashboards stay access-controlled.</span></div>
-        <div><b>Real plans, honest limits</b><span>Free and Pro are self-serve; Team and Enterprise are conversation-led until invite automation is complete.</span></div>
-        <div><b>Built to recover</b><span>Version history, rollback, workspace roles and view logs are part of the workflow from day one.</span></div>
+      <p class="cta-note">One email code creates your workspace. No password, no card for Free.
+        <b><a href="/login" data-cta="sign-in">Sign in</a></b> if you already have an account.</p>
+
+      <div class="steps">
+        <div class="step"><span class="step-num" aria-hidden="true">1</span>
+          <h3>Make it with Claude</h3>
+          <p>A proposal, a report, a dashboard, a one-page site — whatever you were going to send
+            anyway.</p></div>
+        <div class="step"><span class="step-num" aria-hidden="true">2</span>
+          <h3>Say “publish this”</h3>
+          <p>Claude puts it on rtfx.pro and hands the link back. Nothing to build, deploy or
+            configure.</p></div>
+        <div class="step"><span class="step-num" aria-hidden="true">3</span>
+          <h3>Send the link</h3>
+          <p>Only the people you name can open it. To everyone else the page simply doesn't
+            exist.</p></div>
+      </div>
+
+      <!-- The two install paths, as the second thing on the page rather than the
+           ninth. Both are the literal steps from docs/CLAUDE_DESKTOP.md and
+           docs/CLAUDE_CODE.md — a card that paraphrases an install is a card a
+           reader cannot follow. -->
+      <div class="installs">
+        <div class="install" data-install="claude-desktop">
+          <span class="conn-tag">Claude Desktop</span>
+          <h3>Add it in a few clicks</h3>
+          <ol>
+            <li>Download <a href="${DXT_URL}" data-cta="download-dxt"><b>rtfx.dxt</b></a>.</li>
+            <li>Open the file — Claude Desktop installs the rtfx connector.</li>
+            <li>Connect your account once: a browser sign-in, nothing to paste.</li>
+            <li>Ask Claude: <b>“publish this as a private link.”</b></li>
+          </ol>
+          <p>It runs on your own computer, so Claude can publish a file or folder you point it at.
+            <a href="/docs#start">Full Claude Desktop steps &rarr;</a></p>
+        </div>
+        <div class="install" data-install="claude-code">
+          <span class="conn-tag">Claude Code</span>
+          <h3>Two commands in the terminal</h3>
+          <pre class="code" data-landing="publish"><code><b>/plugin marketplace add yogevgab/artifacts-server</b>
+<b>/plugin install rtfx@rtfx</b>
+
+<b>/rtfx:login</b>     browser sign-in — no token to copy
+<b>/rtfx:publish</b> ./out client-demo
+  <span class="rt-ok">https://rtfx.pro/client-demo/ · v1</span></code></pre>
+          <p>After that, <i>publish this</i> is an ordinary sentence in the session.
+            <a href="/docs#start">Full Claude Code steps &rarr;</a></p>
+        </div>
       </div>
     </section>
 
     <section id="features" class="band">
       <div class="band-head">
-        <p class="eyebrow-c">The product</p>
-        <!-- The hero h1 explains the job now; this h2 carries the professional
-             SaaS positioning for launch-day buyers who need the category quickly. -->
-        <h2>A launch-ready publishing layer for work that should not be public.</h2>
-        <p>Use it when the output is real enough to send to a client, teammate or stakeholder —
-          but too sensitive, provisional or accountable to throw onto a generic static host.</p>
+        <p class="eyebrow-c">What people send with it</p>
+        <h2>For the things you'd otherwise email as an attachment.</h2>
+        <p>You don't have to be a developer. If Claude can make it, rtfx.pro can put it behind a
+          link that belongs to you.</p>
       </div>
       <div class="features">
-        <div class="feature"><h3>Private links with an owner</h3><p>Keep an artifact restricted,
-          share it with named people, or open it to your workspace. Anyone else gets the same 404
-          as a page that never existed.</p></div>
-        <div class="feature"><h3>Built for agent workflows</h3><p>Connect Claude Code with one
-          browser sign-in — no token to copy — and “publish this” becomes the last step of the
-          work. The MCP server, Hermes, the CLI and the API all publish through the same model.</p></div>
-        <div class="feature"><h3>Versions you can trust</h3><p>Every re-publish creates a new immutable
-          version. The link you already sent keeps working, older versions stay inspectable, and
-          rollback is one click.</p></div>
-        <div class="feature"><h3>Workspace control, not shared logins</h3><p>See who opened each
-          artifact, when, and which version they saw. Artifacts belong to a workspace with roles,
-          billing limits and operator safety controls.</p></div>
+        <div class="feature"><h3>Send a client a private preview</h3><p>A proposal, a mockup, a
+          draft page. One link, opened only by the people on that account — not by whoever it gets
+          forwarded to.</p></div>
+        <div class="feature"><h3>Share a report or a PDF</h3><p>Board packs, analyses, monthly
+          numbers. They live at a real address instead of in an inbox, and you can see who actually
+          read them.</p></div>
+        <div class="feature"><h3>Show a small site or demo</h3><p>A one-page site, a prototype, a
+          dashboard. It works at its link straight away — no hosting account, no deploy, no domain
+          to buy.</p></div>
+        <div class="feature"><h3>Update it without resending</h3><p>Publish again and the link you
+          already sent shows the new version. Nobody needs a new URL, and nothing you shared before
+          is lost.</p></div>
       </div>
+
+      <div class="connectors" data-landing="privacy">
+        <div class="band-head">
+          <p class="eyebrow-c">Privacy &amp; versions</p>
+          <h2>A link that stays yours.</h2>
+        </div>
+        <div class="plain">
+          <div>
+            <p><b>Who can open it.</b> Every artifact is access-protected from the moment it
+              exists. You share it with named people, by identity — they open it with their own
+              email sign-in, so there's no password to pass around. Everyone else gets the same 404
+              as a page that was never published, so a forwarded link gives nothing away.</p>
+            <p><b>What happens when you change it.</b> Publishing again keeps the same link and
+              adds a version. The version history stays, so going back is one click, and the view
+              log tells you who opened it, when, and which version they saw.</p>
+            <p><b>Where it lives.</b> Your work belongs to a workspace you can add people to, and
+              nothing you publish is indexed by a search engine.</p>
+          </div>
+          <ul class="rt-state">
+            <li><span class="badge is-locked">Restricted</span> private until you say otherwise</li>
+            <li><span class="badge is-role">Shared with 2</span> named people, by identity</li>
+            <li><span class="badge">v4</span> v1–v3 still there · roll back in one click</li>
+            <li><span class="badge">Viewed</span> alex@example.com · 2 min ago · v4</li>
+          </ul>
+        </div>
+      </div>
+
       ${connectorSection()}
-      <p class="band-more">Going deeper: <a href="/docs#why-rtfx">table stakes vs what's different</a> ·
-        <a href="/docs#use-cases">who uses it and for what</a> ·
+      <p class="band-more">Going deeper: <a href="/docs#use-cases">who uses it and for what</a> ·
+        <a href="/docs#why-rtfx">what agent-native publishing means</a> ·
         <a href="/docs#why">why not a generic static host</a> ·
-        <a href="/docs#agents">publishing from Claude Code or MCP</a> ·
+        <a href="/docs#agents">every way to connect</a> ·
         <a href="/docs#faq">FAQ</a></p>
       ${pricingSection()}
     </section>
 
     <section id="waitlist">
       <h2>Start free</h2>
-      <p>One email code creates your workspace on the Free plan. Upgrade later only if you outgrow
-        the limits.</p>
+      <p>One email code creates your workspace. Upgrade later only if you outgrow the free
+        limits.</p>
       <div class="cta">
         <a class="link-button" href="/signup" data-cta="signup-final">Create your workspace</a>
         <a class="ghost link-button" href="/login" data-cta="sign-in">Sign in instead</a>
       </div>
-      <p class="note">No password and no card for Free. Paid upgrades are handled from Settings once
-        you're inside. Read the <a href="/privacy">privacy policy</a> first if you want the data model.</p>
+      <p class="note">No password and no card for Free. Paid upgrades happen in Settings once
+        you're inside. The <a href="/privacy">privacy policy</a> has the data model.</p>
     </section>
     </main>
 
