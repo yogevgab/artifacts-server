@@ -9,11 +9,24 @@ declared version.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are
 [semantic](https://semver.org/spec/v2.0.0.html).
 
+## 1.2.0
+
+The submission-ready package for Anthropic review/listing. This version keeps the local Claude Code
+and Claude Desktop extension surface stable while aligning the review packet with the current product:
+browser OAuth by default, hosted Remote MCP with Anthropic-recommended client metadata support, and
+remote artifact lifecycle management.
+
+### Changed
+
+- Submission and review materials now describe browser OAuth as the default connection path, with
+  `RTFX_API_TOKEN` kept as an advanced/CI fallback.
+- Desktop extension and public docs now link the `v1.2.0` downloadable MCP bundle.
+- Review materials document the hosted Remote MCP management tools: list, details, statistics,
+  sharing, rollback and deletion with scoped authorization.
+
 ## 1.1.0
 
-The version currently declared, and the one offered for marketplace submission. Everything in this
-section shipped under it — the manifest was set to `1.1.0` when the MCP server landed, and the
-entries after it were released without a further bump.
+This version introduced the local MCP server and browser-login era of the plugin.
 
 ### Added
 

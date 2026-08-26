@@ -283,7 +283,7 @@ Details, testing and design notes: [`docs/CLAUDE_CODE.md`](docs/CLAUDE_CODE.md).
 Download it from the current release or build it locally:
 
 ```text
-https://github.com/yogevgab/artifacts-server/releases/download/v1.1.0/rtfx.dxt
+https://github.com/yogevgab/artifacts-server/releases/download/v1.2.0/rtfx.dxt
 ```
 
 ```bash

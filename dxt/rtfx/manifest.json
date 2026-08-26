@@ -3,7 +3,7 @@
   "dxt_version": "0.1",
   "name": "rtfx",
   "display_name": "rtfx.pro",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Publish local HTML, PDF, and multi-file artifacts from Claude Desktop to rtfx.pro with versioned, access-controlled stable URLs.",
   "long_description": "rtfx.pro is private, access-controlled hosting for artifacts Claude builds. This Desktop Extension installs a local MCP server inside Claude Desktop, so Claude can publish a local file or folder by path, list artifacts, inspect versions, roll back, and check the connection. It uses browser OAuth credentials stored locally, or an optional scoped RTFX_API_TOKEN for advanced users. It never needs Cloudflare account credentials.",
   "author": {

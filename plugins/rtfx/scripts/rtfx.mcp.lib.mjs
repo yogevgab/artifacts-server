@@ -51,7 +51,7 @@ import {
 export const SERVER_INFO = {
   name: "rtfx",
   title: "rtfx.pro publishing",
-  version: "1.1.0",
+  version: "1.2.0",
 };
 
 /**

@@ -31,7 +31,7 @@ Copy these into the form.
 | Field | Value |
 |---|---|
 | Plugin name | `rtfx` |
-| Version | `1.1.0` |
+| Version | `1.2.0` |
 | Plugin path in repository | `./plugins/rtfx` |
 | Manifest | `plugins/rtfx/.claude-plugin/plugin.json` |
 | Marketplace manifest | `.claude-plugin/marketplace.json` (marketplace name: `rtfx`) |
@@ -113,21 +113,25 @@ by `npm run validate:plugin` or the test suite unless noted.
 Two things a reviewer will notice. Both are already documented for users in
 [`CLAUDE_ONBOARDING.md`](CLAUDE_ONBOARDING.md) and the plugin README, in the same words.
 
-**Authentication is a manually exported token.** The user mints a scoped token and exports
-`RTFX_API_TOKEN` in the shell they start Claude Code from. That is a developer setup step, and it
-is the supported path today.
+**Authentication uses browser OAuth by default.** The user runs `/rtfx:login`; the plugin opens a
+browser authorization flow, stores a local OAuth credential with owner-only permissions, and rotates
+refresh tokens. `RTFX_API_TOKEN` remains an advanced/CI fallback and takes priority only when the
+user intentionally sets it in the shell that starts Claude Code.
 
 **Server-side remote MCP/OAuth is separate from this plugin.** The artifacts-server app answers MCP
 over HTTP at `POST /mcp` (`src/mcp.ts`) and now serves OAuth discovery, Anthropic-recommended CIMD,
 dynamic client registration fallback, authorization-code + PKCE, token refresh and revocation. That
-remote endpoint exposes `doctor` and content-based `publish`: clients send `content_text`,
-`content_base64`, or explicit `files[]`; it still never reads client-local filesystem paths.
-`mcp.rtfx.pro` is the dedicated remote-MCP origin for live smoke. The plan and status are in
+remote endpoint exposes `doctor`, content-based `publish`, read tools (`list_artifacts`,
+`artifact_details`, `artifact_statistics`), and manage-scoped tools (`share_artifact`,
+`rollback_artifact`, `delete_artifact`). Clients send `content_text`, `content_base64`, or explicit
+`files[]`; hosted Remote MCP still never reads client-local filesystem paths. `mcp.rtfx.pro` is the
+dedicated remote-MCP origin for live smoke. The plan and status are in
 [`REMOTE_MCP_OAUTH.md`](REMOTE_MCP_OAUTH.md).
 
-None of that changes what is being submitted here. **The plugin itself is stdio-only** and reads
-`RTFX_API_TOKEN` — the HTTP/OAuth endpoint is server-side code in this repository, not something the
-plugin ships or calls. Do not describe the plugin to reviewers as having a sign-in flow.
+None of that changes what is being submitted here. **The plugin itself is stdio-first**: it runs local
+Node scripts and uses the local browser-OAuth credential store by default, with `RTFX_API_TOKEN` as an
+advanced fallback. The HTTP/OAuth endpoint is server-side code in this repository, not something the
+plugin needs in order to publish local paths.
 
 **Artifacts share one content origin.** The origin split isolates published content from the
 dashboard, not artifacts from each other. `SECURITY.md` §"Content-origin isolation" covers exactly
@@ -166,7 +170,7 @@ by editing the file afterwards.
 
 - [ ] Working tree clean, and the change is on `main` — not a branch head that can move under review
 - [ ] All five commands in §7 pass
-- [ ] `plugins/rtfx/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` both read `1.1.0`
+- [ ] `plugins/rtfx/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` both read `1.2.0`
 - [ ] [`../plugins/rtfx/CHANGELOG.md`](../plugins/rtfx/CHANGELOG.md) has an entry for that version
 - [ ] `LICENSE` (MIT) and `SECURITY.md` present at repository root
 - [ ] No page in the repository claims an official or community listing

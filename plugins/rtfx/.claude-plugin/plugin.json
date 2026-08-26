@@ -1,6 +1,6 @@
 {
   "name": "rtfx",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Publish HTML pages and multi-file artifacts to rtfx.pro from a Claude Code session or any MCP client — versioned, access-controlled, with a stable URL",
   "author": {
     "name": "rtfx.pro",
