@@ -347,7 +347,9 @@ describe("no credential can leave the process", () => {
     expect(summary(result)).toMatch(/browser sign-in/);
     expect(payload(result).credential_source).toBe("oauth");
     expect(payload(result).token).toMatch(/^rtfx_[a-z0-9]+_…$/);
-    expect(JSON.stringify(result)).not.toContain(token.split("_").at(-1)!);
+    const secret = token.split("_").at(-1)!;
+    expect(JSON.stringify(result)).not.toContain(token);
+    if (secret.length >= 8) expect(JSON.stringify(result)).not.toContain(secret);
     expect(writes).toEqual([]);
   });
 

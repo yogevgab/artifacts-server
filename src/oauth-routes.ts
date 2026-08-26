@@ -48,6 +48,7 @@ import {
   createRefreshToken,
   findRefreshToken,
   getOAuthClient,
+  isLoopbackHostname,
   isMissingOAuthTable,
   isRefreshTokenShape,
   isRefreshUsable,
@@ -156,6 +157,7 @@ oauthRoutes.get(AS_METADATA_PATH, (c) => {
       grant_types_supported: ["authorization_code", "refresh_token"],
       code_challenge_methods_supported: ["S256"],
       token_endpoint_auth_methods_supported: ["none"],
+      client_id_metadata_document_supported: true,
       revocation_endpoint_auth_methods_supported: ["none"],
       scopes_supported: OAUTH_SCOPES_SUPPORTED,
       service_documentation: `${origin}/docs`,
@@ -307,6 +309,103 @@ type AuthorizeOutcome =
   | { ok: false; redirect: RedirectableFailure }
   | { ok: false; page: PageFailure };
 
+type ClientResolution = { client: OAuthClient; cimd: boolean } | { page: PageFailure };
+
+function normalizeClientMetadataUrl(raw: string): string | null {
+  if (!raw || raw.length > 2048 || /[\s]/.test(raw)) return null;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" || url.username || url.password || url.hash || !url.hostname) return null;
+  return url.toString();
+}
+
+function redirectMatchesCimd(registered: string, presented: string): boolean {
+  const a = new URL(registered);
+  const b = new URL(presented);
+  if (a.protocol === "http:" && b.protocol === "http:" && isLoopbackHostname(a.hostname) && isLoopbackHostname(b.hostname)) {
+    return a.hostname.toLowerCase() === b.hostname.toLowerCase() && a.pathname === b.pathname && a.search === b.search && !b.hash;
+  }
+  return registered === presented;
+}
+
+async function fetchCimdClient(clientId: string, now: string): Promise<OAuthClient | null> {
+  const metadataUrl = normalizeClientMetadataUrl(clientId);
+  if (!metadataUrl) return null;
+  const res = await fetch(metadataUrl, { headers: { Accept: "application/json" } });
+  if (!res.ok) return null;
+  const type = (res.headers.get("Content-Type") ?? "").toLowerCase();
+  if (type && !type.includes("json")) return null;
+  const body = await res.json().catch(() => null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  const input = body as Record<string, unknown>;
+  if (normalizeClientMetadataUrl(String(input.client_id ?? "")) !== metadataUrl) return null;
+
+  const redirects = normalizeRedirectUris(input.redirect_uris);
+  if ("error" in redirects) return null;
+  const authMethod = input.token_endpoint_auth_method;
+  if (authMethod !== undefined && authMethod !== "none") return null;
+  if (input.response_types !== undefined) {
+    const types = input.response_types;
+    if (!Array.isArray(types) || types.some((t) => t !== "code")) return null;
+  }
+  if (input.grant_types !== undefined) {
+    const grants = input.grant_types;
+    const allowed = ["authorization_code", "refresh_token"];
+    if (!Array.isArray(grants) || grants.some((g) => typeof g !== "string" || !allowed.includes(g))) return null;
+  }
+  const rawName = typeof input.client_name === "string" ? input.client_name.trim() : "";
+  let clientName = new URL(metadataUrl).hostname;
+  if (rawName && rawName.length <= MAX_CLIENT_NAME_LENGTH) clientName = `${clientName} (${rawName})`;
+  return {
+    client_id: metadataUrl,
+    client_name: clientName.slice(0, MAX_CLIENT_NAME_LENGTH),
+    redirectUris: redirects.uris,
+    scope: typeof input.scope === "string" ? input.scope : null,
+    created_at: now,
+    last_used_at: null,
+  };
+}
+
+async function resolveOAuthClient(c: Ctx, clientId: string, now: string): Promise<ClientResolution> {
+  if (normalizeClientMetadataUrl(clientId)) {
+    const client = await fetchCimdClient(clientId, now);
+    if (client) return { client, cimd: true };
+    return {
+      page: {
+        error: "invalid_client",
+        detail: "That client metadata document could not be fetched or validated.",
+        status: 400,
+      },
+    };
+  }
+  try {
+    const client = await getOAuthClient(c.env, clientId);
+    if (client) return { client, cimd: false };
+  } catch (e) {
+    if (isMissingOAuthTable(e)) {
+      return {
+        page: {
+          error: "temporarily_unavailable",
+          detail: "This instance has not run the OAuth migration yet.",
+          status: 400,
+        },
+      };
+    }
+    throw e;
+  }
+  return {
+    page: {
+      error: "invalid_client",
+      detail: "That application is not registered with this server.",
+      status: 400,
+    },
+  };
+}
+
 /**
  * Validate an authorization request. Identical for GET and POST — the consent
  * form re-runs every check from scratch rather than trusting the hidden fields
@@ -317,38 +416,21 @@ async function validateAuthorize(
   params: URLSearchParams
 ): Promise<AuthorizeOutcome> {
   const clientId = params.get("client_id") ?? "";
-  let client: OAuthClient | null;
-  try {
-    client = await getOAuthClient(c.env, clientId);
-  } catch (e) {
-    if (isMissingOAuthTable(e)) {
-      return {
-        ok: false,
-        page: {
-          error: "temporarily_unavailable",
-          detail: "This instance has not run the OAuth migration yet.",
-          status: 400,
-        },
-      };
-    }
-    throw e;
-  }
-  if (!client) {
-    return {
-      ok: false,
-      page: {
-        error: "invalid_client",
-        detail: "That application is not registered with this server.",
-        status: 400,
-      },
-    };
-  }
+  const now = new Date().toISOString();
+  const resolved = await resolveOAuthClient(c, clientId, now);
+  if ("page" in resolved) return { ok: false, page: resolved.page };
+  const { client } = resolved;
 
   // Exact match against what was registered. Normalized on both sides with the
   // same function, so `https://x.example` and `https://x.example/` cannot be
   // made to disagree — and nothing here is a prefix or substring test.
   const presented = normalizeRedirectUri(params.get("redirect_uri"));
-  if (!presented || !client.redirectUris.includes(presented)) {
+  const redirectAllowed = presented
+    ? resolved.cimd
+      ? client.redirectUris.some((registered) => redirectMatchesCimd(registered, presented))
+      : client.redirectUris.includes(presented)
+    : false;
+  if (!presented || !redirectAllowed) {
     return {
       ok: false,
       page: {
@@ -737,18 +819,13 @@ oauthRoutes.post("/oauth/token", async (c) => {
     );
   }
 
-  let client: OAuthClient | null;
-  try {
-    client = await getOAuthClient(c.env, clientId);
-  } catch (e) {
-    if (isMissingOAuthTable(e)) {
-      return tokenError(c, "temporarily_unavailable", "this instance has not run the OAuth migration yet");
-    }
-    throw e;
-  }
-  if (!client) return tokenError(c, "invalid_client", "unknown client_id", 401);
-
   const now = new Date().toISOString();
+  const resolved = await resolveOAuthClient(c, clientId, now);
+  if ("page" in resolved) {
+    const status = resolved.page.error === "invalid_client" ? 401 : 400;
+    return tokenError(c, resolved.page.error, resolved.page.detail, status as 400 | 401);
+  }
+  const { client } = resolved;
 
   if (grantType === "authorization_code") {
     const code = params.get("code") ?? "";

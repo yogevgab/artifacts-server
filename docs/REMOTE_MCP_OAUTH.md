@@ -42,7 +42,7 @@ What that does **not** say:
 | Transport | MCP Streamable HTTP. One JSON-RPC message per POST, one JSON response. No SSE stream, no session id. |
 | Auth | `Authorization: Bearer rtfx_…`, gated by `requireApiToken` — the *same* middleware as `/api/machine/*`. A token may be hand-minted in `/admin/integrations` or issued by the OAuth flow below. |
 | Tools | `doctor` plus `publish` for content bytes supplied in the MCP request. |
-| OAuth | Discovery + dynamic registration + authorization-code/PKCE + refresh/revoke. |
+| OAuth | Discovery + Anthropic-recommended CIMD + dynamic registration fallback + authorization-code/PKCE + refresh/revoke. |
 | Tests | [`test/mcp-http.test.ts`](../test/mcp-http.test.ts) and [`test/oauth.test.ts`](../test/oauth.test.ts), driving the real Worker, D1 and token API. |
 
 It is still a bridge in one important sense: the remote endpoint can be authorized by browser login
@@ -119,8 +119,10 @@ client                     rtfx (RS + AS)
   │                                 oauth-protected-resource/mcp"
   │  GET that document       ──►  { resource, authorization_servers: [ "https://rtfx.pro" ] }
   │  GET /.well-known/oauth-authorization-server
-  │                          ──►  endpoints, PKCE methods, scopes_supported
-  │  POST /oauth/register    ──►  a client_id (RFC 7591 dynamic registration)
+  │                          ──►  endpoints, PKCE methods, scopes_supported,
+  │                               client_id_metadata_document_supported: true
+  │  client_id is either an HTTPS CIMD document URL, or POST /oauth/register
+  │                          ──►  fallback dynamic client_id (RFC 7591)
   │  browser → /oauth/authorize?…&code_challenge=…&resource=https://rtfx.pro/mcp
   │                          ──►  sign in (existing /auth), then a consent screen
   │  POST /oauth/token       ──►  access token (+ refresh token)
@@ -132,8 +134,8 @@ client                     rtfx (RS + AS)
 | Route | Spec | Notes |
 |---|---|---|
 | `GET /.well-known/oauth-protected-resource/mcp` | RFC 9728 | Must be **public** — outside any Access application, like `/docs`. |
-| `GET /.well-known/oauth-authorization-server` | RFC 8414 | Public. Advertise `code_challenge_methods_supported: ["S256"]` only. |
-| `POST /oauth/register` | RFC 7591 | Dynamic registration, because Claude Code will not be pre-registered. Rate-limited per IP like `/auth/start`. |
+| `GET /.well-known/oauth-authorization-server` | RFC 8414 | Public. Advertise `code_challenge_methods_supported: ["S256"]`, `token_endpoint_auth_methods_supported: ["none"]`, and `client_id_metadata_document_supported: true`. |
+| `POST /oauth/register` | RFC 7591 | Dynamic registration fallback for clients that do not use CIMD. Rate-limited per IP like `/auth/start`. |
 | `GET /oauth/authorize` | OAuth 2.1 | Requires an interactive session; redirects to `/login?next=…` when there is none. Renders consent naming the client, the scopes and the resource. |
 | `POST /oauth/authorize` | — | The consent submission. CSRF-protected; this is the only place a browser POST grants a credential. |
 | `POST /oauth/token` | OAuth 2.1 | `authorization_code` + PKCE, and `refresh_token`. No implicit grant, no password grant. |
@@ -142,7 +144,22 @@ client                     rtfx (RS + AS)
 `/mcp`'s 401 names the protected-resource document. The challenge and the document are shipped and
 tested together.
 
-### 2.3 Storage
+## 2.3 CIMD and DCR clients
+
+Claude's recommended OAuth mode is CIMD (Client ID Metadata Document). The authorization-server
+metadata therefore advertises both `client_id_metadata_document_supported: true` and
+`token_endpoint_auth_methods_supported: ["none"]`. When `client_id` is an HTTPS URL,
+`/oauth/authorize` fetches that URL, verifies the returned JSON is self-referential
+(`client_id` equals the document URL), validates the public-client metadata, and checks the presented
+`redirect_uri` against the document's `redirect_uris`.
+
+For native Claude clients, loopback redirect URIs are compared with the port ignored, so a document
+that lists `http://127.0.0.1/callback` can authorize a runtime callback such as
+`http://127.0.0.1:49152/callback`. Non-loopback HTTPS redirect URIs remain exact-match only.
+
+DCR remains available at `/oauth/register` as a fallback for clients that do not select CIMD.
+
+### 2.4 Storage
 
 Three new tables, plus two columns on the one that exists. Only hashes are stored, exactly as
 `api_tokens` does today (src/tokens.ts). Fresh installs get the columns from `schema.sql`; existing
@@ -341,8 +358,9 @@ server, DNS, OAuth client and Claude Code smoke below have been run with the lim
 6. **Check cleanup.** ✅ The local smoke MCP server was removed from Claude Code, and the smoke OAuth
    client/access/refresh rows were deleted from production D1 after verifying revocation.
 
-Only the `doctor` flow is ready to describe as remotely authorized. Publishing still needs the local
-plugin until upload-over-MCP is designed and built.
+Remote `doctor` and publish-by-content are ready to describe as remotely authorized. Publishing local
+paths/folders still needs the local plugin/Desktop extension, because only local stdio MCP can read
+the user's filesystem.
 
 ## 6. Related
 

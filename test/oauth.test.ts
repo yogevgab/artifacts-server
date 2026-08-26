@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { env } from "cloudflare:test";
 import app from "../src/index";
 import { initDb, clearR2, req, as, dropOAuthTables } from "./fixtures";
@@ -41,6 +41,7 @@ const VERIFIER = "a".repeat(64);
 let CHALLENGE = "";
 
 beforeEach(async () => {
+  vi.restoreAllMocks();
   await initDb();
   await clearR2();
   // Rate-limit buckets outlive initDb (the table is created on demand and is not
@@ -81,6 +82,25 @@ async function registerClient(redirectUris: string[] = [CB], scope?: string): Pr
   });
   expect(res.status).toBe(201);
   return (await json(res)).client_id as string;
+}
+
+function cimdClient(
+  url = "https://claude.ai/.well-known/oauth-client-metadata.json",
+  redirectUris: string[] = [CB]
+): string {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL) => {
+    if (String(input) !== url) return new Response("not found", { status: 404 });
+    return Response.json({
+      client_id: url,
+      client_name: "Claude",
+      redirect_uris: redirectUris,
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+      scope: "rtfx:read rtfx:publish",
+    });
+  });
+  return url;
 }
 
 function authorizeQuery(clientId: string, over: Record<string, string> = {}): string {
@@ -280,6 +300,7 @@ describe("authorization-server metadata (RFC 8414)", () => {
     expect(body.grant_types_supported).not.toContain("implicit");
     expect(body.grant_types_supported).not.toContain("password");
     expect(body.token_endpoint_auth_methods_supported).toEqual(["none"]);
+    expect(body.client_id_metadata_document_supported).toBe(true);
   });
 
   /** Every endpoint the document names has to be one this app actually routes. */
@@ -438,6 +459,45 @@ describe("the authorization endpoint", () => {
     expect(html).not.toContain("Manage access and delete artifacts");
     expect(html).toContain(BOB);
     expect(html).toContain("http://localhost/mcp");
+  });
+
+  it("accepts a CIMD client_id URL without dynamic registration", async () => {
+    const clientId = cimdClient();
+    const res = await req(authorizeQuery(clientId), as(BOB));
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("claude.ai");
+    expect(html).toContain("Claude");
+    expect(html).toContain("Publish and update artifacts");
+
+    const rows = await env.DB.prepare("SELECT COUNT(*) AS n FROM oauth_clients").first<{ n: number }>();
+    expect(rows?.n).toBe(0);
+  });
+
+  it("lets CIMD native clients vary only the loopback callback port", async () => {
+    const clientId = cimdClient("https://claude.ai/.well-known/oauth-client-metadata.json", [
+      "http://127.0.0.1/callback",
+    ]);
+    const res = await req(
+      authorizeQuery(clientId, { redirect_uri: "http://127.0.0.1:49152/callback" }),
+      as(BOB)
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("refuses a CIMD document that is not self-referential", async () => {
+    const url = "https://claude.ai/.well-known/oauth-client-metadata.json";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({
+        client_id: "https://evil.example.com/client.json",
+        client_name: "Claude",
+        redirect_uris: [CB],
+        token_endpoint_auth_method: "none",
+      })
+    );
+    const res = await req(authorizeQuery(url), as(BOB));
+    expect(res.status).toBe(400);
+    expect(await res.text()).toContain("invalid_client");
   });
 
   /**
@@ -761,6 +821,43 @@ describe("the token endpoint", () => {
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
     });
     expect(mcp.status).toBe(200);
+  });
+
+  it("exchanges a CIMD authorization code without storing an OAuth client row", async () => {
+    const clientId = cimdClient();
+    const code = await authorizationCode(clientId);
+
+    const res = await tokenRequest({
+      grant_type: "authorization_code",
+      code,
+      code_verifier: VERIFIER,
+      redirect_uri: CB,
+      client_id: clientId,
+    });
+    expect(res.status).toBe(200);
+    const body = await json(res);
+    expect(body.access_token).toMatch(/^rtfx_/);
+    expect(body.refresh_token).toMatch(/^rtfxr_/);
+
+    const rows = await env.DB.prepare("SELECT COUNT(*) AS n FROM oauth_clients").first<{ n: number }>();
+    expect(rows?.n).toBe(0);
+  });
+
+  it("rejects a CIMD token exchange when the metadata URL no longer validates", async () => {
+    const clientId = cimdClient();
+    const code = await authorizationCode(clientId);
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("not found", { status: 404 }));
+
+    const res = await tokenRequest({
+      grant_type: "authorization_code",
+      code,
+      code_verifier: VERIFIER,
+      redirect_uri: CB,
+      client_id: clientId,
+    });
+    expect(res.status).toBe(401);
+    expect((await json(res)).error).toBe("invalid_client");
   });
 
   /**
