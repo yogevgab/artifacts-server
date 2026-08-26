@@ -192,7 +192,29 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
         files: {
           type: "array",
           maxItems: MAX_INLINE_FILES,
-          items: { type: "object" },
+          items: {
+            type: "object",
+            properties: {
+              path: {
+                type: "string",
+                minLength: 1,
+                description:
+                  'Artifact-relative path using "/", for example "index.html" or "assets/app.js". One file must be exactly "index.html".',
+              },
+              content_text: {
+                type: "string",
+                minLength: 1,
+                description: "Text content for this file. Use exactly one of content_text or content_base64.",
+              },
+              content_base64: {
+                type: "string",
+                minLength: 1,
+                description: "Base64/base64url bytes for this file. Use exactly one of content_text or content_base64.",
+              },
+            },
+            required: ["path"],
+            additionalProperties: false,
+          },
           description:
             "A multi-file site, as [{path, content_text | content_base64}]. Paths are artifact-relative and must use \"/\" — one of them must be exactly \"index.html\". Credential-looking files, dotfiles and build directories are refused outright, not silently dropped. At most " +
             `${MAX_INLINE_FILES} files and ${Math.round(MAX_INLINE_BYTES / (1024 * 1024))}MB decoded in total; publish a larger build with the local rtfx plugin.`,

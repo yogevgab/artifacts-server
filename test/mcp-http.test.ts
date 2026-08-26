@@ -209,6 +209,11 @@ describe("the remote tool surface", () => {
     expect(body.result.tools[0].annotations.readOnlyHint).toBe(true);
     expect(body.result.tools[1].annotations.readOnlyHint).toBe(false);
     expect(body.result.tools[1].inputSchema.properties.path).toBeUndefined();
+    expect(body.result.tools[1].inputSchema.properties.files.items.properties.path).toBeTruthy();
+    expect(body.result.tools[1].inputSchema.properties.files.items.properties.content_text).toBeTruthy();
+    expect(body.result.tools[1].inputSchema.properties.files.items.properties.content_base64).toBeTruthy();
+    expect(body.result.tools[1].inputSchema.properties.files.items.additionalProperties).toBe(false);
+    expect(body.result.tools[1].inputSchema.properties.files.items.required).toEqual(["path"]);
     expect(body.result.tools[1].description).toContain("content carried IN THIS REQUEST");
   });
 
