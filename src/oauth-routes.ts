@@ -299,6 +299,7 @@ interface PageFailure {
   error: string;
   detail: string;
   status: 400 | 403;
+  retryHref?: string | null;
 }
 
 type AuthorizeOutcome =
@@ -405,7 +406,20 @@ function redirectWithError(c: Ctx, failure: RedirectableFailure) {
 }
 
 function renderFailure(c: Ctx, failure: PageFailure) {
-  return c.html(oauthErrorPage(c.env, { error: failure.error, detail: failure.detail }), failure.status);
+  return c.html(
+    oauthErrorPage(c.env, {
+      error: failure.error,
+      detail: failure.detail,
+      retryHref: failure.retryHref,
+    }),
+    failure.status
+  );
+}
+
+function restartAuthorizeHref(params: URLSearchParams): string | null {
+  const echoed = echoedParams(params);
+  const next = new URLSearchParams(echoed);
+  return next.toString() ? `/oauth/authorize?${next}` : null;
 }
 
 /**
@@ -582,6 +596,7 @@ oauthRoutes.post("/oauth/authorize", async (c) => {
       detail:
         "That consent form has expired or did not come from this browser. Start the sign-in again.",
       status: 403,
+      retryHref: restartAuthorizeHref(params),
     });
   }
 

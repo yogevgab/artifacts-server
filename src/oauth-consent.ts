@@ -140,8 +140,11 @@ export function consentPage(env: Env, input: ConsentPageInput): string {
  */
 export function oauthErrorPage(
   env: Env,
-  input: { error: string; detail: string }
+  input: { error: string; detail: string; retryHref?: string | null }
 ): string {
+  const retry = input.retryHref
+    ? `<a class="link-button" href="${esc(input.retryHref)}">Start authorization again</a>`
+    : "";
   return layout(
     "Authorization failed · rtfx.pro",
     sheet(
@@ -150,9 +153,10 @@ export function oauthErrorPage(
      <h1>That request can't be completed</h1>
      <p class="lede">${esc(input.detail)}</p>
      <dl class="facts sheet-facts"><dt>Error</dt><dd>${esc(input.error)}</dd></dl>
-     <p class="warn">Nothing was granted and nobody was signed out. If a command-line tool sent you
-     here, start its sign-in again — the request it built was not one this server can answer.</p>
-     <div class="actions"><a class="ghost link-button" href="/admin">Back to rtfx</a></div>`
+     <p class="warn">Nothing was granted and nobody was signed out. If Claude or another MCP client
+     already says the rtfx connection is active, you can close this tab. This usually means an old
+     or parallel consent tab was submitted after the live sign-in had already completed.</p>
+     <div class="actions">${retry}<a class="ghost link-button" href="/admin">Back to rtfx</a></div>`
     ),
     CONSENT_PAGE_STYLE
   );

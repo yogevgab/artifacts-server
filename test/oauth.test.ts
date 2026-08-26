@@ -666,6 +666,10 @@ describe("the consent submission", () => {
       );
       expect(res.status, label).toBe(403);
       expect(res.headers.get("Location"), label).toBeNull();
+      const html = await res.text();
+      expect(html, label).toContain("Start authorization again");
+      expect(html, label).toContain("already says the rtfx connection is active");
+      expect(html, label).toContain("/oauth/authorize?");
     }
   });
 
