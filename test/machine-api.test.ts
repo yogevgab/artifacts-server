@@ -7,22 +7,20 @@ import { initDb, clearR2, req, as, withToken, htmlForm } from "./fixtures";
 /**
  * The machine API — `/api/machine/*`.
  *
- * Why it exists: on an Access-gated deployment, `/api` is guarded at the edge by
- * Cloudflare Access, so a request carrying only an `rtfx_…` bearer token is
- * answered by Access's login redirect before the Worker ever runs. The
- * documented "publish from Claude Code / the CLI / curl" path therefore could
- * not be completed by an invited external user unless they were *also* handed
- * Cloudflare service-token credentials — a per-deployment secret an operator
- * cannot reasonably give out per person.
+ * Why it exists: `/api` is the dashboard's surface, so it also accepts the
+ * app-owned `rtfx_session` cookie. A surface a machine drives should accept
+ * exactly one credential and no ambient one — a cookie the browser attaches by
+ * itself is the wrong shape for "publish from Claude Code / the CLI / curl".
+ * (It also removes the last reason an operator behind a legacy edge gate had to
+ * hand out per-deployment service-token credentials per person.)
  *
  * `/api/machine/*` is the same artifact routes behind a *stricter* app-layer
- * gate, so it can be put on an Access Bypass policy safely. These tests pin the
- * three properties that makes true:
+ * gate. These tests pin the three properties that makes true:
  *
- *  1. A valid bearer token works with no Access identity of any kind.
+ *  1. A valid bearer token works on its own, with no other identity of any kind.
  *  2. Nothing else works: no token, a bad token, a revoked/expired token, and —
  *     crucially — a browser-style session identity are all refused. That last
- *     one is what keeps an un-gated surface immune to CSRF.
+ *     one is what keeps the surface immune to CSRF.
  *  3. It is not a bypass of anything else. Scopes, ownership, the paused-account
  *     check and the "no credential management from a token" rule all still
  *     apply, and `/api` itself is untouched.
@@ -39,7 +37,7 @@ beforeEach(async () => {
   await clearR2();
 });
 
-/** Mint a token as a signed-in person (an Access login — the only way to get one). */
+/** Mint a token as a signed-in app user — the only way to get one. */
 async function tokenFor(email: string, body: Record<string, unknown> = { name: "t" }) {
   const res = await req(
     "/api/tokens",

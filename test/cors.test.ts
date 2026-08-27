@@ -12,9 +12,9 @@ import { createApiToken } from "../src/tokens";
  * The bug this file pins down: the People panel's "Send invite" button POSTs
  * `/api/users` with `Content-Type: application/json`. That is a same-origin
  * request, so no preflight is involved *until* something in front of the Worker
- * answers with a cross-origin redirect — which is exactly what Cloudflare Access
- * does when the browser has no session for the Access application guarding
- * `/api/users` (production evidence: 302 → `…cloudflareaccess.com`). A browser
+ * answers with a cross-origin redirect — which is what a legacy/self-host edge
+ * gate does when the browser has no session for the application guarding
+ * `/api/users` (historical evidence: 302 → `…cloudflareaccess.com`). A browser
  * will not follow a cross-origin redirect for a request that would need a
  * preflight, and reports the whole thing as a CORS failure.
  *
@@ -334,16 +334,16 @@ describe("private-route protection is unchanged", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Recovering from the Access session handoff that caused the bug
+// Recovering from the edge session handoff that caused the bug
 // ---------------------------------------------------------------------------
 
 /**
- * `/admin` and `/api/users` sit behind two *different* Cloudflare Access
- * applications (docs/DEPLOY_RTFX.md §5d), so a browser holding a session for the
- * first has none for the second and the first invite of a session is answered
- * with a cross-origin redirect the `fetch` cannot follow. This route is the way
- * back: a full-page navigation Access *can* complete, which then returns the
- * person to the page they were on.
+ * On a legacy/self-host instance `/admin` and `/api/users` can sit behind two
+ * *different* edge applications, so a browser holding a session for the first
+ * has none for the second and the first invite of a session is answered with a
+ * cross-origin redirect the `fetch` cannot follow. This route is the way back: a
+ * full-page navigation the edge *can* complete, which then returns the person to
+ * the page they were on. The app-owned deployment never needs it.
  */
 describe("GET /api/users/reauth", () => {
   it("bounces an admin back to the page they came from", async () => {

@@ -163,8 +163,8 @@ function scope<T>(map: Map<string, T>, slugs: Set<string>): Map<string, T> {
 // is exactly as safe as one clicked in the nav.
 //
 // Admins see and manage every artifact; a member sees and manages only the ones
-// they own. (In production Cloudflare Access still gates who can reach /admin
-// at all — see docs/DEPLOY_RTFX.md.)
+// they own. Reaching /admin at all takes a signed-in app session (`rtfx_session`)
+// belonging to a directory account that is not paused.
 
 /** The artifacts this caller manages, with everything the cards need. */
 async function artifactContext(c: PortalContext): Promise<{
@@ -439,8 +439,8 @@ app.route("/", mcpRoutes);
 // discovery documents, dynamic client registration, the consent flow, token
 // issuance and revocation. Mounted at the root because the module declares its
 // own full paths, and app-host only (MANAGEMENT_PREFIXES in host.ts). Its
-// discovery documents and /mcp itself must sit OUTSIDE any Cloudflare Access
-// application — see docs/DEPLOY_RTFX.md §5e and docs/REMOTE_MCP_OAUTH.md.
+// discovery documents and /mcp itself must never sit behind an edge gate on a
+// legacy/self-host instance — see docs/DEPLOY_RTFX.md and docs/REMOTE_MCP_OAUTH.md.
 app.route("/", oauthRoutes);
 
 // Public landing-page waitlist signup (unauthenticated).
@@ -460,8 +460,9 @@ app.route("/", shareRoutes);
 // --- Public product surface (issue #29) -------------------------------------
 // Everything below is served to anyone, identically, without reading an identity:
 // the two marketing/doc pages plus the files crawlers and AI agents look for.
-// These paths must sit OUTSIDE the Cloudflare Access application in production
-// (see docs/DEPLOY_RTFX.md), or a visitor meets Access's login screen instead.
+// They authenticate nobody. On a legacy/self-host instance still gated at the
+// edge these paths must sit outside that gate (see docs/DEPLOY_RTFX.md), or a
+// visitor meets a sign-in screen instead of the public page.
 
 /** Public pages are the same bytes for everyone, so they cache at the edge. */
 const PUBLIC_HTML_CACHE = "public, max-age=300";
@@ -562,15 +563,16 @@ app.get("/og.png", () => pngResponse(OG_IMAGE_PNG_BASE64));
 // The square mark, for `Organization.logo` in the landing page's JSON-LD. That
 // pointed at /og.png — a 1200×630 card that is mostly headline copy — which is
 // not what a consumer of the graph is promised when it asks for a logo. Public,
-// like the rest of the crawler-facing files, so it needs an Access Bypass
-// destination alongside /og.png (docs/DEPLOY_RTFX.md §5.3).
+// like the rest of the crawler-facing files, so a legacy/self-host edge gate must
+// be told to let it through alongside /og.png (docs/DEPLOY_RTFX.md).
 app.get("/logo.png", () => pngResponse(LOGO_PNG_BASE64));
 
 
-// Sign-in surface. Public on purpose: it explains how to get in, so it must sit
-// OUTSIDE the Cloudflare Access application (see docs/DEPLOY_RTFX.md). It never
-// authenticates anyone itself — "Continue with email" simply hands off to
-// /admin, which Access gates, which is what sends the one-time code.
+// Sign-up surface. Public on purpose: it explains how to get in, so it must stay
+// reachable without a session (and outside any legacy/self-host edge gate — see
+// docs/DEPLOY_RTFX.md). It never authenticates anyone itself: the form posts to
+// /auth/start, the same endpoint /login uses, which is what emails the one-time
+// code.
 app.get("/signup", async (c) => {
   const { identity } = await resolveAuth(c);
   if (identity?.email) {
@@ -626,8 +628,8 @@ app.get("/login", async (c) => {
 // to expose consistently on a custom-domain Worker route. This first-party route
 // gives the portal a stable Sign out target.
 //
-// It must expire BOTH credentials. During the Access migration a person can hold
-// an app session, a Cloudflare Access session, or both, and "sign out" that
+// It must expire BOTH credentials. On a legacy/self-host instance a person can
+// hold an app session, an edge Access session, or both, and a "sign out" that
 // leaves either one standing is not a sign-out. Clearing a cookie that was never
 // set is harmless, so this is unconditional rather than clever.
 app.get("/logout", () =>

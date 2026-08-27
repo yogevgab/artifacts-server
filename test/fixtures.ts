@@ -225,7 +225,7 @@ export const as = (email: string, init: RequestInit = {}): RequestInit => ({
   headers: { ...(init.headers as Record<string, string> | undefined), "X-Dev-Email": email },
 });
 
-/** Request authenticated with an API token instead of an Access login. */
+/** Request authenticated with an API token instead of a signed-in session. */
 export const withToken = (token: string, init: RequestInit = {}): RequestInit => ({
   ...init,
   headers: {

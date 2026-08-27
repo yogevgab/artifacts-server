@@ -25,11 +25,6 @@ const STATUS_LABEL: Record<PublicUser["status"], string> = {
   disabled: "Paused",
 };
 
-/**
- * How the Cloudflare Access side of things is doing, as a calm sentence rather
- * than a red box. Only a genuine API failure is an error — "not configured yet"
- * is a setup step, and dressing it up as a fault trains people to ignore red.
- */
 /** The timeline of one person, in the order it actually reads: newest fact last. */
 function userMeta(u: PublicUser): string {
   const bits: string[] = [];
@@ -38,7 +33,7 @@ function userMeta(u: PublicUser): string {
   if (u.status === "disabled" && u.disabled_at) bits.push(`paused ${stamp(u.disabled_at)}`);
   else if (u.last_seen_at) bits.push(`last seen ${stamp(u.last_seen_at)}`);
   else bits.push("never signed in");
-  if (!u.in_directory) bits.push("allow-list only");
+  if (!u.in_directory) bits.push("from configuration");
   return bits.join(" · ");
 }
 
@@ -52,7 +47,6 @@ function userRow(u: PublicUser, info: UsersInfo): string {
     `<span class="badge is-role" data-badge="role">${esc(ROLE_LABEL[u.role])}</span>`,
     `<span class="badge is-${u.status === "disabled" ? "disabled" : u.status}" data-badge="status">${esc(STATUS_LABEL[u.status])}</span>`,
   ];
-  // Drift: the directory says they're a member, but Access won't let them in.
 
   let actions: string;
   if (locked) {
@@ -102,10 +96,9 @@ function peopleStats(info: UsersInfo): {
 }
 
 /**
- * The People panel: the local directory first, Cloudflare Access as a fact about
- * each person rather than the list itself. That inversion is the point of issue
- * #24 — an operator thinks in people ("has Dana signed in yet?"), not in policy
- * rows.
+ * The People panel. The directory this app owns *is* the list — there is no
+ * external policy system to reconcile it against — so each row reads as a person
+ * with a lifecycle ("has Dana signed in yet?") rather than as a policy row.
  */
 function usersPanel(info: UsersInfo): string {
   const { summary } = peopleStats(info);
@@ -115,8 +108,8 @@ function usersPanel(info: UsersInfo): string {
     <div class="panel-head"><div>
       <h2 id="users-h">Directory <span class="hint" data-user-summary>${esc(summary)}</span></h2>
       <p class="hint">Anyone who verifies an email address can sign in; this is who the product knows
-        about. Inviting somebody adds them to the Access allow-list — grant them individual
-        artifacts from the artifact's own page.</p>
+        about. Inviting somebody adds them here and emails them a sign-in link — grant them
+        individual artifacts from the artifact's own page.</p>
     </div></div>
     <form id="userform" class="userform" data-invite-form>
       <input id="newuser" type="email" placeholder="person@example.com" autocomplete="off"
@@ -140,21 +133,24 @@ function usersPanel(info: UsersInfo): string {
 const PEOPLE_SCRIPT = `
 /* ---- people ----
    Every mutation reloads on success. The server re-derives the whole directory
-   (D1 + the Access allow-list) after each write, so re-rendering from source is
-   both simpler and more honest than patching rows client-side. */
+   from D1 after each write, so re-rendering from source is both simpler and more
+   honest than patching rows client-side. */
 
-/* Cloudflare Access guards /api/users with a *different* application than the
-   one guarding /admin (docs/DEPLOY_RTFX.md §5d), and an Access session is
-   per-application. So the first write of a browser session is answered — before
-   the Worker sees it — with a 302 to cloudflareaccess.com. That redirect is
-   cross-origin, and a request carrying 'Content-Type: application/json' may not
-   follow a cross-origin redirect without a preflight, which is not allowed after
-   a redirect. Left alone the browser reports the whole thing as a CORS error and
-   "Send invite" appears broken (issue #37).
+/* Sign-in is app-owned: these writes carry the host-only rtfx_session cookie,
+   and an expired session comes back as a plain 403 the handlers below already
+   report.
+
+   The redirect handling is for a legacy/self-host deployment that still gates
+   paths at the edge. There, a write can be answered before the Worker sees it
+   with a cross-origin 302 to the edge sign-in page, and a request carrying
+   'Content-Type: application/json' may not follow a cross-origin redirect
+   without a preflight, which is not allowed after a redirect. Left alone the
+   browser reports the whole thing as a CORS error and "Send invite" appears
+   broken (issue #37).
 
    redirect:'manual' stops the browser from escalating it: we get an opaque
-   response instead of an exception, and that is our cue to re-authenticate the
-   way Access can actually complete — a full-page navigation. */
+   response instead of an exception, and that is our cue to re-authenticate with
+   the one thing that can follow such a redirect — a full-page navigation. */
 function apiFetch(url, init){
   init = init || {};
   init.redirect = 'manual';
@@ -191,8 +187,8 @@ if(userForm){
       if(needsReauth(res)){ reauth(status); return; }
       if(!res.ok){ setStatus(status, (await detail(res)) || 'Could not invite that person.', 'error'); return; }
       var data = await res.json();
-      /* A warning means the write landed but Access didn't — say so rather than
-         letting the reload imply everything is fine. */
+      /* A warning means the write landed but something alongside it did not —
+         say so rather than letting the reload imply everything is fine. */
       if(data.warning){ alert(data.warning); }
       location.reload();
     } catch(err){ setStatus(status, 'Network error — try again.', 'error'); }

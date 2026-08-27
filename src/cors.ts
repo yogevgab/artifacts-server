@@ -10,15 +10,16 @@ import { parseHostnames, requestHostname } from "./host";
  * module fixes is a browser-level failure mode that made "Send invite" look
  * broken:
  *
- *   • `/admin` and `/api/users` sit behind two different Cloudflare Access
- *     applications (docs/DEPLOY_RTFX.md §5d). A browser holding a session for
- *     the first has none for the second, so Access answers the invite `fetch`
- *     with a 302 to `…cloudflareaccess.com`. That is a *cross-origin* redirect,
- *     and a request carrying `Content-Type: application/json` may not follow one
- *     without a preflight — which is not allowed after a redirect. The browser
- *     reports the whole thing as a CORS error. (See `PEOPLE_SCRIPT` in
- *     src/people.ts for the client half of the fix, and `/api/users/reauth` in
- *     src/api.ts for the way back.)
+ *   • On a legacy/self-host instance, `/admin` and `/api/users` can sit behind
+ *     two *different* edge applications. A browser holding a session for the
+ *     first has none for the second, so the edge answers the invite `fetch` with
+ *     a cross-origin 302 to its own sign-in host. A request carrying
+ *     `Content-Type: application/json` may not follow such a redirect without a
+ *     preflight — which is not allowed after a redirect. The browser reports the
+ *     whole thing as a CORS error. (See `PEOPLE_SCRIPT` in src/people.ts for the
+ *     client half of the fix, and `/api/users/reauth` in src/api.ts for the way
+ *     back.) The app-owned deployment has one origin and one session cookie, so
+ *     none of that happens there.
  *
  *   • A genuine preflight is sent with *no* credentials, by definition. Running
  *     `requireUser`/`requireAdmin` on one therefore refuses it — and a refused

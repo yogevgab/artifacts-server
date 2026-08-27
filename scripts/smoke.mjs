@@ -54,7 +54,7 @@
 //                             Claude Code plugin.
 //   CF_ACCESS_CLIENT_ID       optional. Only for a self-hosted instance that
 //   CF_ACCESS_CLIENT_SECRET   still gates every path with Cloudflare Access at
-//                             the edge (see docs/DEPLOY_RTFX.md §5e). Sent
+//                             the edge (see docs/DEPLOY_RTFX.md §5f). Sent
 //                             alongside the bearer token on API calls, exactly
 //                             like cli/artifacts.mjs. Deliberately NOT sent on
 //                             the share-link-only fetches in step 8/9 below —

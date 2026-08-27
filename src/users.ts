@@ -1,18 +1,15 @@
 import type { Env } from "./env";
 
 /**
- * The local user directory — product state layered *above* the Cloudflare Access
- * allow-list (issue #24).
+ * The user directory this app owns (issue #24).
  *
- * Two sources of truth, deliberately split:
- *
- * - **Cloudflare Access** decides who can authenticate at all. `src/access-api.ts`
- *   reads and writes that allow-list. Nothing here can grant a login.
- * - **This table** holds what the product needs to know about each person:
- *   lifecycle `status`, display name, operator notes, and timestamps. `status`
- *   IS authoritative — a `disabled` row is refused by the Worker on every
- *   request, so disabling somebody takes effect immediately even if the Access
- *   write fails or Access isn't configured at all.
+ * Sign-in is app-owned: somebody proves an email address with a one-time code /
+ * magic link (`src/otp.ts`, `src/auth-routes.ts`) and gets a signed `rtfx_session`
+ * cookie. There is no external allow-list to reconcile against — this table is
+ * what the product knows about each person: lifecycle `status`, display name,
+ * operator notes, and timestamps. `status` IS authoritative — a `disabled` row is
+ * refused by the Worker on every request, so pausing somebody takes effect
+ * immediately across every surface at once.
  *
  * Privilege is a third thing again, and comes from configuration only:
  * `SUPER_ADMIN_EMAILS` and `ADMIN_EMAILS`. The `role` column merely *records*
@@ -27,7 +24,7 @@ export type UserRole = (typeof USER_ROLES)[number];
 
 /**
  * Lifecycle status.
- * - `invited` — on the allow-list, has never signed in.
+ * - `invited` — in the directory, has never signed in.
  * - `active`  — has signed in at least once.
  * - `disabled` — access paused. Refused by the Worker; artifacts are untouched.
  */
@@ -91,7 +88,7 @@ export function isSuperAdminEmail(env: Env, email: string | null | undefined): b
 
 /**
  * Every email that must always be able to sign in: admins plus super admins.
- * The Access allow-list is always merged with this set, so no edit — from the
+ * The directory listing is always merged with this set, so no edit — from the
  * panel, the CLI, or a bug — can lock the operator out of their own instance.
  */
 export function privilegedEmails(env: Env): string[] {
@@ -127,9 +124,9 @@ export function effectiveRole(env: Env, email: string | null | undefined): UserR
  * which is what guarantees the operator cannot be locked out of their own
  * instance by a bad edit or a hand-written row.
  *
- * With no row at all the answer is `invited`: this is somebody Cloudflare Access
- * allows but who has never used the product, which is exactly what `invited`
- * means. The distinction is presentational — what matters for enforcement is
+ * With no row at all the answer is `invited`: this is somebody the instance
+ * knows of by configuration but who has never used the product, which is exactly
+ * what `invited` means. The distinction is presentational — what matters for enforcement is
  * that it isn't `disabled`, so a missing row still lets them in (see the
  * fail-open note on `getUser`).
  */
@@ -158,8 +155,8 @@ export function isDisabled(
  * One user's row, or null. Never throws: the directory is an *additive* layer,
  * so a missing table (code deployed ahead of the migration) or a transient D1
  * error must not break authentication. Failing open here is safe by
- * construction — with no row nobody is disabled, and Cloudflare Access is still
- * the gate that decides who reaches the Worker at all.
+ * construction — with no row nobody is disabled, and a caller still has to hold
+ * a valid session or API token to reach anything at all.
  */
 export async function getUser(env: Env, email: string): Promise<UserRow | null> {
   try {
@@ -240,8 +237,8 @@ export async function updateProfile(
 }
 
 /**
- * Pause access. Creates the row if the person only existed in the Access
- * allow-list, so an admin can disable somebody the directory hasn't met yet.
+ * Pause access. Creates the row if the person only existed in configuration
+ * (`ADMIN_EMAILS`), so an admin can pause somebody the table hasn't met yet.
  */
 export async function disableUser(
   env: Env,
@@ -354,12 +351,9 @@ export interface PublicUser {
   last_seen_at: string | null;
   disabled_at: string | null;
   /**
-   * Whether Cloudflare Access currently lets this email log in: true/false when
-   * the allow-list could be read, null when Access isn't configured or errored.
-   * A `false` here is the drift an operator needs to see — the directory says
-   * they're a member but they can't actually get in.
+   * False for an email the panel lists without a directory row of its own — a
+   * configured admin who has never signed in. Everyone else has a row.
    */
-  /** False for an email that exists only in the Access allow-list, with no row here. */
   in_directory: boolean;
   /** True when this entry cannot be disabled or removed (the super admin). */
   is_protected: boolean;
@@ -385,11 +379,11 @@ export function toPublicUser(env: Env, row: UserRow | null, email: string): Publ
 }
 
 /**
- * The directory as one list: every row, plus any email that Cloudflare Access
- * allows but this table has never seen (so an operator can adopt or disable it),
- * plus every configured admin — an admin always belongs in the panel even
- * before their first sign-in. Sorted operators first, then admins, then by email,
- * so the people who can change things are never buried in a long list.
+ * The directory as one list: every row, plus every configured admin — an admin
+ * always belongs in the panel even before their first sign-in, so an operator can
+ * see (and pause) them without waiting for a row to exist. Sorted operators
+ * first, then admins, then by email, so the people who can change things are
+ * never buried in a long list.
  */
 export function describeUsers(env: Env, rows: UserRow[]): PublicUser[] {
   const byEmail = new Map<string, UserRow | null>();

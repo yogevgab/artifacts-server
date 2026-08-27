@@ -8,8 +8,9 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs" doctor
 ```
 
 Report the endpoint, the token id (the command prints only the id — never echo a full token, and
-never read one out of a file to display it), whether Access service-token headers are set, and
-whether the API answered.
+never read one out of a file to display it), and whether the API answered. `doctor` also prints an
+`access` line; on rtfx.pro it reads "not set" and that is correct — it only matters on a
+self-hosted instance that gates every path at the edge.
 
 If it all checks out, say so in one line and stop — there is nothing else to configure. Offer
 `/rtfx:publish` as the next thing to try.
@@ -40,12 +41,15 @@ Remote HTTP MCP at `/mcp` also supports Claude's OAuth login and exposes `publis
 sent inside the MCP call, plus `doctor`. It still cannot publish by local filesystem path; folders
 and build outputs remain the local plugin's job because it runs beside the user's files.
 
-If `doctor` reports that **Cloudflare Access** answered instead of the API, the instance has not
-exposed that surface (see its operator's `DEPLOY_RTFX.md` §5e). Until they do, the only way
-through the edge is a Cloudflare Access service token — `CF_ACCESS_CLIENT_ID` and
-`CF_ACCESS_CLIENT_SECRET`, which the operator issues in Cloudflare Zero Trust, not the rtfx
-dashboard. A `403` with the token looking right is a different problem: a scope the token lacks,
-or a route (people, tokens) that needs a real sign-in.
+A `403` with the token looking right is not a credential problem: it is a scope the token lacks,
+or a route (people, tokens, workspaces) that needs a real signed-in session rather than any token.
+
+**Advanced / self-host only.** If `doctor` reports that something other than the API answered —
+an edge gate's own sign-in page rather than JSON — the instance is an older self-hosted one that
+still gates every path at the edge. rtfx.pro is not one of these and needs no such credential.
+There, the operator issues a Cloudflare Access service token (`CF_ACCESS_CLIENT_ID` /
+`CF_ACCESS_CLIENT_SECRET`) in Cloudflare Zero Trust, not the rtfx dashboard; it gets the request
+through the edge while the `rtfx_…` token still decides identity and scope.
 
 The plugin also registers an **MCP server** with the same tools, for clients with no shell (Claude
 Desktop). It reads the same `RTFX_API_TOKEN`. If the user asks about it, run:

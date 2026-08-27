@@ -204,7 +204,7 @@ export function canUseDashboard(identity: Identity | null): identity is Identity
 
 /**
  * Does this identity hold a given API scope?
- * A caller authenticated through Cloudflare Access (a human, or an admin
+ * A caller who is not using an API token (a signed-in human, or an admin
  * service token) holds every scope — scopes exist to *narrow* an API token
  * below its owner's rights, never to widen anyone's. Scope is checked in
  * addition to ownership: a `manage`-scoped token still only reaches artifacts
@@ -241,11 +241,11 @@ function sameEmail(a: string | null | undefined, b: string | null | undefined): 
  * 1. **The operator can't be removed.** A super admin can never be disabled or
  *    removed — by anyone, including themselves. Combined with `effectiveStatus`
  *    (which refuses to read a super admin as disabled) and `privilegedEmails`
- *    (which keeps them in the Access allow-list), there is no path that ends
+ *    (which always lists them in the directory), there is no path that ends
  *    with nobody able to administer the instance.
  * 2. **Admins don't fight.** Only a super admin may act on another admin, so one
  *    admin cannot lock out a peer. Because `Identity.role` is capped at `admin`
- *    for API tokens and Access service tokens, this also means a leaked
+ *    for API tokens and service tokens, this also means a leaked
  *    non-interactive credential can never touch an admin account.
  * 3. **No self-lockout.** Nobody may disable or remove their own account, so the
  *    common slip of disabling the row you're signed in as just fails.

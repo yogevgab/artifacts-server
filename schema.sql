@@ -79,9 +79,10 @@ CREATE TABLE IF NOT EXISTS contact_requests (
 
 CREATE INDEX IF NOT EXISTS idx_contact_requests_created ON contact_requests (created_at DESC);
 
--- Local user directory: product state above the Cloudflare Access allow-list.
--- Access remains the authentication source of truth; `role` here is a record of
--- the configured role and never grants privilege (ADMIN_EMAILS /
+-- The sign-in directory. Sign-in is app-owned (emailed one-time code or magic
+-- link into a signed `rtfx_session` cookie), so this table IS who exists —
+-- there is no external list underneath it. `role` here is a record of the
+-- configured role and never grants privilege (ADMIN_EMAILS /
 -- SUPER_ADMIN_EMAILS do). `status` is authoritative — 'disabled' is enforced by
 -- the Worker on every request.
 CREATE TABLE IF NOT EXISTS users (

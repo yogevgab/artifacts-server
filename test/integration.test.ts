@@ -465,7 +465,7 @@ describe("per-artifact permissions", () => {
     expect(acc.visibility).toBe("restricted");
   });
 
-  it("granting still succeeds when user management is not configured", async () => {
+  it("granting never carries an allow-list warning — a grant is not an invite", async () => {
     await publish("nocfg", "NoCfg");
     const res = await setAcc("nocfg", "restricted", ["bob@x.com"]);
     expect(res.status).toBe(200);
@@ -623,12 +623,12 @@ describe("views log", () => {
   });
 });
 
-describe("user management (Cloudflare Access not configured in tests)", () => {
-  // Issue #24 changed this deliberately: the local directory is the product's
-  // own state, so it is readable and writable with or without Cloudflare Access.
-  // Access being absent is reported as `allowlist.configured: false` plus a
-  // warning on writes, not as a 503 that makes the whole panel unusable.
-  it("POST /api/users rejects bad email with 400 before hitting Access", async () => {
+describe("user management (app-owned directory)", () => {
+  // Sign-in is app-owned: the `users` table IS the directory, so these routes
+  // read and write nothing but D1. There is no external allow-list to be
+  // "configured" or to fail, and so no warning field in the response either —
+  // see the `allowlistWarning` absence assertion above.
+  it("POST /api/users rejects a bad email with 400", async () => {
     const res = await req("/api/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

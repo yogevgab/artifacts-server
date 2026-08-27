@@ -534,11 +534,11 @@ describe("the JSON-RPC surface", () => {
 
 // --- Which surface the tools actually call -----------------------------------
 //
-// The reason this matters is the whole point of `/api/machine`: on an
-// Access-gated deployment, `/api` is answered by Cloudflare Access before the
-// Worker sees the request, so an agent holding only an `rtfx_…` token cannot
+// The reason this matters is the whole point of `/api/machine`: on a
+// legacy/self-host edge-gated deployment, `/api` is answered at the edge before
+// the Worker sees the request, so an agent holding only an `rtfx_…` token cannot
 // publish there. These tests pin that the tools go to the machine surface, that
-// they still work against an instance too old to have one, and that an Access
+// they still work against an instance too old to have one, and that an edge
 // interception is reported as itself instead of as an empty result.
 
 describe("the tools publish through the machine API", () => {

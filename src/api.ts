@@ -126,7 +126,7 @@ api.use("*", apiCors);
 api.use("/machine", requireApiToken);
 api.use("/machine/*", requireApiToken);
 
-// Every other API route needs an authenticated caller — an Access login or an
+// Every other API route needs an authenticated caller — an app session or an
 // API token. Per-artifact ownership is enforced per route below (admins manage
 // everything, members only what they own), and API tokens are additionally
 // narrowed by scope (`requireScope`).
@@ -134,7 +134,7 @@ api.use("/machine/*", requireApiToken);
 // A request the machine gate already authenticated is passed straight through:
 // it has an identity, so re-running `requireUser` would only repeat the token
 // lookup — and must never be able to *widen* the machine surface by resolving a
-// second, Access-shaped identity for it.
+// second, session-shaped identity for it.
 api.use("*", async (c, next) => (c.get("identity") ? next() : requireUser(c, next)));
 // Managing who can sign in stays admin-only, and is off-limits to
 // API tokens: issuing credentials always requires an interactive login.
@@ -561,16 +561,17 @@ artifactRoutes.post("/artifacts", requireScope("publish"), async (c) => {
 
 // --- User management -------------------------------------------------------
 //
-// Two layers, deliberately separate (see src/users.ts):
-//   • Cloudflare Access holds the login allow-list — who can authenticate at all.
-//   • The local `users` table holds product state: status, name, notes, timestamps.
+// Sign-in is app-owned (see src/users.ts): the `users` table IS the directory —
+// who exists, their status, name, notes and timestamps — and a signed-in
+// `rtfx_session` plus a non-paused row is what lets somebody in. There is no
+// external allow-list layered underneath it.
 //
 // Every route here is admin-only and refuses API tokens (see the middleware at
 // the top of this file), because inviting somebody hands out a credential.
 
 /**
- * The full directory response. Read straight back from D1 and Cloudflare after
- * every mutation, so the client never has to merge state itself and can't drift.
+ * The full directory response. Read straight back from D1 after every mutation,
+ * so the client never has to merge state itself and can't drift.
  * `focus` is the email the request acted on, echoed back as `user`.
  */
 async function directory(
@@ -629,19 +630,20 @@ function safeNext(raw: string | undefined): string {
 }
 
 /**
- * Re-establish the Cloudflare Access session for this path prefix, then go back
+ * Bounce a browser through an edge gate for this path prefix, then go back
  * (issue #37).
  *
- * `/admin` and `/api/users` are guarded by two *different* Access applications
- * (docs/DEPLOY_RTFX.md §5d), and an Access session is per-application. A browser
- * that signed in at `/admin` therefore has no session for `/api/users`, so the
- * first invite of a session is answered — before the Worker ever sees it — with
- * a 302 to `…cloudflareaccess.com`. A `fetch` cannot follow a cross-origin
- * redirect like that, which is what users saw as "CORS error".
+ * On the app-owned deployment this is inert: the `rtfx_session` cookie covers
+ * the whole origin, so a dashboard write is never answered with a redirect.
+ * It stays for a legacy/self-host instance that gates paths at the edge with
+ * *separate* applications, where a browser holding a session for `/admin` has
+ * none for `/api/users` and the first invite of a session is answered — before
+ * the Worker ever sees it — with a cross-origin 302. A `fetch` cannot follow
+ * that, which is what users saw as "CORS error".
  *
- * The redirect Access sends *can* be followed by a full-page navigation, so the
- * dashboard sends the browser here instead of failing. Being under `/api/users`
- * is the entire point: reaching this route at all means the session now exists.
+ * Such a redirect *can* be followed by a full-page navigation, so the dashboard
+ * sends the browser here instead of failing. Being under `/api/users` is the
+ * entire point: reaching this route at all means the session now exists.
  *
  * It is an ordinary admin-only route — the middleware at the top of this file
  * applies, so a member and an API token are both refused — and it discloses
@@ -650,9 +652,9 @@ function safeNext(raw: string | undefined): string {
 api.get("/users/reauth", (c) => c.redirect(safeNext(c.req.query("next")), 302));
 
 /**
- * Invite somebody (or re-invite an existing person). The Access allow-list is
- * written *first*: if that fails we have handed out nothing, so there is no
- * directory row promising a login that does not exist.
+ * Invite somebody (or re-invite an existing person). The app owns sign-in, so the
+ * directory row IS the invite — there is nothing else to write, and nothing that
+ * can leave a row promising a login that does not exist.
  */
 api.post("/users", async (c) => {
   const body = await c.req.json().catch(() => null);
@@ -674,10 +676,9 @@ api.post("/users", async (c) => {
     );
   }
 
-  // Inviting used to write a Cloudflare Access allow-list before touching the
-  // directory. The app owns sign-in now, so the directory row IS the invite.
-  const warning: string | undefined = undefined;
-
+  // Inviting used to write a legacy external allow-list before touching the
+  // directory. The app owns sign-in now, so the directory row IS the invite,
+  // and there is no second system left to warn about failing to reach.
   await upsertInvite(c.env, {
     email: target.email,
     displayName,
@@ -686,7 +687,7 @@ api.post("/users", async (c) => {
     role: target.role,
     now: new Date().toISOString(),
   });
-  return c.json(await directory(c.env, { warning, focus: target.email }));
+  return c.json(await directory(c.env, { focus: target.email }));
 });
 
 /** Edit the human-facing metadata (display name, notes). Never role or status. */
@@ -729,34 +730,31 @@ api.post("/users/:email/disable", async (c) => {
   await disableUser(c.env, target.email, target.role, now);
   await revokeTokensForEmail(c.env, target.email, now);
 
-  let warning: string | undefined;
-  return c.json(await directory(c.env, { warning, focus: target.email }));
+  return c.json(await directory(c.env, { focus: target.email }));
 });
 
 /**
- * Lift a pause. Allow-list first, mirroring invite: granting access must not be
- * recorded locally unless the login it implies actually exists. Previously
- * revoked API tokens stay revoked — re-enabling a person is not re-issuing
- * their credentials.
+ * Lift a pause. Clearing the row's `disabled` status is the whole operation —
+ * they can sign in again on their next one-time code. Previously revoked API
+ * tokens stay revoked: re-enabling a person is not re-issuing their credentials.
  */
 api.post("/users/:email/enable", async (c) => {
   const target = await targetUser(c, c.req.param("email"), "enable");
   if (target instanceof Response) return target;
 
-  let warning: string | undefined;
   await enableUser(c.env, target.email, target.role, new Date().toISOString());
   return c.json(
     await directory(c.env, {
-      warning: warning ?? "re-enabled — any API tokens they had stay revoked",
+      warning: "re-enabled — any API tokens they had stay revoked",
       focus: target.email,
     })
   );
 });
 
 /**
- * Remove somebody from rtfx.pro entirely. The Access allow-list is written first
- * and a failure aborts: deleting the local row while Access still lets them in
- * would leave a signed-in stranger with no directory entry at all.
+ * Remove somebody from rtfx.pro entirely. Dropping the directory row is what ends
+ * their sign-in — with no row and no configured role there is nothing left for a
+ * one-time code to resolve to.
  *
  * Their artifacts, versions, files and view history are NOT deleted — published
  * work outlives the account. What goes is the login, the view grants, and every
@@ -766,7 +764,6 @@ api.delete("/users/:email", async (c) => {
   const target = await targetUser(c, c.req.param("email"), "remove");
   if (target instanceof Response) return target;
 
-  const warning: string | undefined = undefined;
   const now = new Date().toISOString();
   await removeEmailFromAllGrants(c.env, target.email);
   await revokeTokensForEmail(c.env, target.email, now);
@@ -776,7 +773,7 @@ api.delete("/users/:email", async (c) => {
   // the account, exactly as the artifact rows do.
   await removeMemberEverywhere(c.env, target.email);
   await deleteUser(c.env, target.email);
-  return c.json(await directory(c.env, { warning, removed: target.email }));
+  return c.json(await directory(c.env, { removed: target.email }));
 });
 
 // --- API tokens (bearer credentials for Hermes Cloud / CI / scripts) ---
@@ -989,9 +986,9 @@ api.get("/accounts/:id/members", async (c) => {
  * login, never an API token. It grants nothing outside the workspace: writing
  * `owner` here cannot make anybody a platform admin.
  *
- * It deliberately does NOT touch the Cloudflare Access allow-list. Being a
- * member of a workspace is not permission to sign in; that stays an admin action
- * through /api/users, so an account owner cannot widen who reaches the instance.
+ * It deliberately does NOT add anybody to the sign-in directory. Being a member
+ * of a workspace is not permission to sign in; that stays an admin action through
+ * /api/users, so an account owner cannot widen who reaches the instance.
  */
 api.put("/accounts/:id/members/:email", async (c) => {
   const id = c.req.param("id");
@@ -1143,12 +1140,11 @@ artifactRoutes.put("/artifacts/:slug/access", requireScope("manage"), async (c) 
 
   await setAccess(c.env, slug, visibility, emails, new Date().toISOString());
 
-  // Ensure granted users can actually log in: add them to the Access allow-list.
-  // Admin-only — access is invite-only, so an owner sharing their own artifact
-  // must not be able to widen who can sign in. Their grants still apply; the
+  // Granting an artifact never grants a login: sign-in is invite-only and stays
+  // an admin action through /api/users, so an owner sharing their own artifact
+  // cannot widen who reaches the instance. Their grants still apply; the
   // recipient just needs an admin to invite them first.
-  let allowlistWarning: string | undefined;
-  return c.json({ slug, visibility, emails: await listGrants(c.env, slug), allowlistWarning });
+  return c.json({ slug, visibility, emails: await listGrants(c.env, slug) });
 });
 
 artifactRoutes.delete("/artifacts/:slug", requireScope("manage"), async (c) => {
@@ -1166,18 +1162,22 @@ artifactRoutes.delete("/artifacts/:slug", requireScope("manage"), async (c) => {
 //
 // Twice, from the single definition above.
 //
-// 1. `/api/artifacts…` — unchanged. The dashboard's own fetches, the Access-
-//    authenticated CLI, and bearer tokens presented alongside an Access session
-//    all keep working exactly as they did.
+// 1. `/api/artifacts…` — the dashboard's own surface, gated by `requireUser`:
+//    an app-owned `rtfx_session` or a bearer token, whichever the caller has.
 //
 // 2. `/api/machine/artifacts…` — the same routes, gated by `requireApiToken`
 //    (registered near the top of this file, before the general one) instead of
-//    `requireUser`. This is the surface an operator puts on an Access **Bypass**
-//    policy, so an invited person can publish with the scoped token they minted
-//    at /admin/integrations and nothing else. Without it, every machine caller
-//    on an Access-gated instance also needs Cloudflare service-token
-//    credentials — which are per-deployment secrets an operator cannot hand out
-//    per user, and which grant edge entry rather than product identity.
+//    `requireUser`. A bearer `rtfx_…` token is the *only* credential accepted
+//    there and a browser session is refused, so a machine caller needs nothing
+//    but the scoped token it minted at /admin/integrations, and the surface
+//    cannot be driven by a victim's cookies from another site.
+//
+//    A legacy/self-hosted instance that still gates every path at the edge is
+//    the one place this needs configuration: that path has to be let through
+//    (an Access Bypass policy, docs/DEPLOY_RTFX.md §5f) or every machine caller
+//    also needs Cloudflare service-token credentials — per-deployment secrets
+//    an operator cannot hand out per user, and which grant edge entry rather
+//    than product identity. rtfx.pro has no such gate.
 //
 // Nothing else is mounted there. User management, token issuance and workspace
 // membership stay on `/api` alone: they are the routes that hand out

@@ -10,7 +10,7 @@ import { normalize, type UserRole } from "./users";
  *
  * | Concept | Where it lives | What it answers |
  * |---|---|---|
- * | **Identity / user** | `users` (+ Cloudflare Access) | who you are |
+ * | **Identity / user** | `users` + `rtfx_session` | who you are |
  * | **Account** | `accounts` (this file) | whose stuff it is |
  * | **Membership** | `account_members` (this file) | what you may do *inside* one account |
  * | **Platform role** | `ADMIN_EMAILS` / `SUPER_ADMIN_EMAILS` **only** | operator authority over the *instance* |
