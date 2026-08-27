@@ -90,8 +90,10 @@ anyone, only a repository with a valid `.claude-plugin/marketplace.json`; `npm r
 checks that file on every CI run. This is not a lesser path — it is the same install flow, from a
 repository you choose to trust.
 
-**Anthropic's community marketplace — not submitted.** `anthropics/claude-plugins-community` is a
-separate listing that requires an external submission and review, which has not been made. Its
+**Anthropic's community marketplace — submitted, pending review.**
+`anthropics/claude-plugins-community` is a separate listing that requires an external submission and
+review. The plugin has been submitted through the Claude Platform form, but it is not
+approved/listed yet. Its
 `@claude-community` install string would only resolve after approval, so you will not find one on
 any page here. The packet a submission needs is written down in
 [`ANTHROPIC_PLUGIN_SUBMISSION.md`](ANTHROPIC_PLUGIN_SUBMISSION.md).
@@ -100,7 +102,7 @@ any page here. The packet a submission needs is written down in
 own discretion; there is no application process, so there is no step here that moves it along.
 
 Nothing in this repository can grant a listing in either of the last two, and no page here should
-imply the plugin has one.
+imply the plugin has one until Anthropic approves it.
 
 ---
 
