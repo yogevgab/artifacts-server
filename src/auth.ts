@@ -198,8 +198,8 @@ async function identityFromApiToken(c: AuthContext, presented: string): Promise<
   // Shape check before the lookup. Every token this app has ever minted reads
   // `rtfx_<id>_<secret>` (see generateToken), so anything else cannot match a
   // stored hash — and refusing it here costs no database read. That matters on
-  // the machine surface, which is reachable without Cloudflare Access in front
-  // of it: a flood of junk credentials must not turn into a flood of D1 queries.
+  // the machine surface, which is reachable with no edge gate in front of it: a
+  // flood of junk credentials must not turn into a flood of D1 queries.
   if (tokenId(presented) === null) return null;
   let row;
   try {
@@ -274,14 +274,15 @@ function allowed(identity: Identity): AuthResult {
  * Apply local directory state to an authenticated identity: refuse a disabled
  * account, and record presence for a human.
  *
- * This is the single choke point for `status`, which is why disabling somebody
- * works even when the Cloudflare Access allow-list write fails, and why it
- * applies to every surface at once — dashboard, API, *and* artifact viewing.
+ * This is the single choke point for `status`, which is why pausing somebody
+ * applies to every surface at once — dashboard, API, *and* artifact viewing —
+ * whichever credential they arrived with.
  *
  * `getUser` never throws (see users.ts): with no readable row nobody is
- * disabled. That is a deliberate fail-open on the *local* layer only — Access
- * is still the gate that decides who reaches the Worker — chosen so a D1 blip or
- * a not-yet-run migration can't lock every user, including the operator, out.
+ * disabled. That is a deliberate fail-open on the *directory* layer only — the
+ * caller still had to present a valid session or API token to get this far —
+ * chosen so a D1 blip or a not-yet-run migration can't lock every user,
+ * including the operator, out.
  */
 async function applyDirectory(c: AuthContext, identity: Identity): Promise<AuthResult> {
   if (!identity.email) return allowed(identity);
@@ -308,16 +309,14 @@ async function applyDirectory(c: AuthContext, identity: Identity): Promise<AuthR
 
 /**
  * Authenticate a request. An `Authorization: Bearer` token wins when present —
- * and a bad one is an error, never a silent downgrade to the Access (or dev)
+ * and a bad one is an error, never a silent downgrade to the session (or dev)
  * identity, so a caller can't be handed rights they didn't ask for. With no
- * bearer header the behavior is exactly as before: dev impersonation locally,
- * Cloudflare Access in production.
+ * bearer header the app-owned `rtfx_session` cookie is next, then dev
+ * impersonation locally, and finally a Cloudflare Access JWT — which only a
+ * legacy/self-host instance still gated at the edge will ever present.
  *
  * Whichever path authenticated, the local user directory has the last word: a
  * disabled account resolves to no identity at all (see `applyDirectory`).
- *
- * Bearer auth does not bypass Cloudflare Access: Access still gates the
- * hostname/path at the edge. This is the second, app-layer check.
  */
 /** The app-owned session cookie. Host-only on the app origin — never the content host. */
 export const SESSION_COOKIE = "rtfx_session";
@@ -425,7 +424,7 @@ export async function resolveAuth(c: AuthContext): Promise<AuthResult> {
 
 /**
  * Resolve the caller's identity for authorization: an API token (`Authorization:
- * Bearer`), else Cloudflare Access. In dev mode (DEV_LOGIN=true, local/tests
+ * Bearer`), else the app session cookie. In dev mode (DEV_LOGIN=true, local/tests
  * only) the `X-Dev-Email` header impersonates a viewer for testing; absent, the
  * first admin email is used. `X-Dev-Anonymous: true` simulates an
  * unauthenticated caller (for testing the public landing page / reserved-route
@@ -538,8 +537,9 @@ function invalidTokenResponse(c: Parameters<MiddlewareHandler<AuthApp>>[0]) {
  * Refused for want of an identity.
  *
  * Nobody signed in, in a browser, means "you need to sign in" — send them to
- * the sign-in page. Cloudflare Access used to do this bounce before the Worker
- * ever saw the request; once it stopped, a person typing /admin got raw JSON.
+ * the sign-in page. An edge gate used to do this bounce before the Worker ever
+ * saw the request; once the app owned sign-in, a person typing /admin got raw
+ * JSON instead unless this route redirected them.
  *
  * Somebody who IS signed in and still may not be here (a guest, a non-admin
  * service token) gets 403 and stays put. Redirecting them would loop forever,
@@ -566,9 +566,8 @@ function disabledResponse(c: Parameters<MiddlewareHandler<AuthApp>>[0], email: s
 
 /**
  * Middleware: 403 unless the caller is an admin. Accepts a human whose email is
- * in ADMIN_EMAILS, a service token (common_name) — both of which have already
- * been vetted by Cloudflare Access's admin-application policy before the request
- * reaches the Worker — or an admin API token. Stashes the identity in
+ * in ADMIN_EMAILS, a service token (common_name) allow-listed in
+ * ADMIN_SERVICE_TOKENS, or an admin API token. Stashes the identity in
  * c.get('email') and c.get('identity').
  */
 export const requireAdmin: MiddlewareHandler<AuthApp> = async (c, next) => {
@@ -611,15 +610,16 @@ export const requireUser: MiddlewareHandler<AuthApp> = async (c, next) => {
  * Middleware: authenticate with an API token and nothing else — the gate on the
  * machine surface (`/api/machine/*`, see src/api.ts).
  *
- * That surface exists so somebody invited to the product can publish from a CLI,
- * an agent or CI with the scoped `rtfx_…` token they minted themselves, without
- * *also* being handed Cloudflare Access service-token credentials. It is
- * therefore meant to sit OUTSIDE the Access application (docs/DEPLOY_RTFX.md
- * §5e), which makes this middleware the only gate in front of it.
+ * That surface exists so somebody using the product can publish from a CLI, an
+ * agent or CI with the scoped `rtfx_…` token they minted themselves, and with
+ * no other credential at all. This middleware is the only gate in front of it —
+ * on rtfx.pro there is nothing else in front of the Worker (a legacy/self-hosted
+ * instance still gated at the edge has to let the path through; see
+ * docs/DEPLOY_RTFX.md §5f).
  *
  * So it is deliberately NARROWER than `requireUser`, not a relaxation of it:
  *
- *   • A bearer token is required. An Access session cookie is not accepted, and
+ *   • A bearer token is required. A browser session cookie is not accepted, and
  *     that is what keeps the surface immune to CSRF — a browser attaches cookies
  *     to a cross-site request by itself, but never an `Authorization` header.
  *   • Dev impersonation can't reach it either: `resolveAuth` only consults
@@ -643,8 +643,8 @@ export const requireApiToken: MiddlewareHandler<AuthApp> = async (c, next) => {
   const { identity, invalidToken, disabled, disabledEmail } = await resolveAuth(c);
   if (invalidToken) return invalidTokenResponse(c);
   if (disabled) return disabledResponse(c, disabledEmail);
-  // `identity.token` is the proof that it was the bearer path — and not Access,
-  // and not dev mode — that authenticated this request.
+  // `identity.token` is the proof that it was the bearer path — and not a
+  // session, and not dev mode — that authenticated this request.
   if (!identity?.token || !canUseDashboard(identity)) return invalidTokenResponse(c);
   c.set("identity", identity);
   c.set("email", displayName(identity));
@@ -669,9 +669,9 @@ export function requireScope(scope: Scope): MiddlewareHandler<AuthApp> {
 
 /**
  * Middleware: refuse API-token callers outright. Used for the endpoints that
- * hand out credentials — the sign-in allow-list and token management itself —
- * so a leaked token can never mint another token, widen its own rights, or
- * invite a new user. Those actions require an interactive Access login.
+ * hand out credentials — the user directory and token management itself — so a
+ * leaked token can never mint another token, widen its own rights, or invite a
+ * new user. Those actions require a signed-in admin session.
  */
 export const denyApiToken: MiddlewareHandler<AuthApp> = async (c, next) => {
   if (c.get("identity")?.token) {

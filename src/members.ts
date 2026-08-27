@@ -192,9 +192,10 @@ function membersPanel(info: MembersPageInput): string {
 const MEMBERS_SCRIPT = `
 /* ---- workspace members ----
    Mirrors the People panel's script (src/people.ts): apiFetch/needsReauth/reauth
-   exist for the same reason — Cloudflare Access guards this differently from
-   /admin, so the first write of a session needs a full-page re-auth rather
-   than a fetch that a cross-origin redirect would turn into a CORS error. */
+   exist for the same reason — a legacy/self-host instance may gate this path at
+   the edge separately from /admin, so the first write of a session needs a
+   full-page re-auth rather than a fetch that a cross-origin redirect would turn
+   into a CORS error. On the app-owned deployment no redirect happens at all. */
 function apiFetch(url, init){
   init = init || {};
   init.redirect = 'manual';

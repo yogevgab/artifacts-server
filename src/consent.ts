@@ -5,7 +5,7 @@
  * landing, docs, sign-in, /privacy, /terms. Those pages set no analytics,
  * advertising or profiling cookies, full stop, and never will without this
  * component changing: the browser storage involved is strictly necessary
- * (Cloudflare Access' session cookie when somebody signs in, Cloudflare's own
+ * (the app's own `rtfx_session` cookie when somebody signs in, Cloudflare's own
  * edge security cookies, and this notice's first-party localStorage
  * dismissal). Two things follow, and they are the whole design:
  *

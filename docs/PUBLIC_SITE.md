@@ -84,7 +84,7 @@ constrains copy hardest — what we have not built and must not imply.
 Two rules bind every public surface:
 
 - **Say "access-protected", never "password-protected".** There is no password anywhere in
-  this product: sign-in is a one-time email code through Cloudflare Access, and share links
+  this product: sign-in is an app-owned one-time email code or magic link, and share links
   carry no secret of their own. Competing products lead with password protection, so the
   vocabulary is easy to borrow by accident.
 - **A planned feature is labelled planned, on the page.** `/docs#why-rtfx` carries a "Not
@@ -108,26 +108,32 @@ Two rules bind every public surface:
   `llmsTxt()` in `src/seo.ts` change together.
 
 - **The `curl` example must run against this instance as deployed.** Two ways it silently stops
-  being runnable: dropping the Access service-token headers (`CF-Access-Client-Id` /
-  `CF-Access-Client-Secret`), which a machine call needs *in addition to* the bearer token for as
-  long as `/api` sits inside the Access application ([HERMES_CLOUD.md](HERMES_CLOUD.md) §2); and
-  sending a zip as `-F file=@…`, when `file` is one HTML document and `bundle` is the zip field
-  (`src/api.ts`). Both spellings appear on `/docs` (`data-docs="http-publish"`) and in the
-  Integrations panel (`data-snippet="setup-http"`), and change together.
+  being runnable: sending a zip as `-F file=@…`, when `file` is one HTML document and `bundle` is
+  the zip field (`src/api.ts`); or showing legacy Cloudflare Access service-token headers as if
+  `rtfx.pro` still needed them. It does not: `/api/machine/*` authenticates the bearer `rtfx_…`
+  token and nothing else. The examples on `/docs` (`data-docs="http-publish"`) and in the
+  Integrations panel (`data-snippet="setup-http"`) must change together.
 
 `test/positioning.test.ts` enforces these, plus the `#why-rtfx` anchor and its markers;
 `test/portal.test.ts` covers the Integrations copy of the same snippets.
 
 ## Cookies and consent (issue #36)
 
-There is **no non-essential storage on this site**, and the cookie notice says exactly that
+There is **no non-essential storage on the public site**, and the cookie notice says exactly that
 rather than asking permission for tracking that does not exist:
 
 | Stored | Kind | Why |
 |---|---|---|
-| `CF_Authorization` | Cookie, set by Cloudflare Access | The session. Without it nobody is signed in. |
+| `rtfx_session` | Cookie, set by us | The app-owned sign-in session, created by verifying an email code or magic link. Set by signing in, never by reading a public page. |
 | `__cf_bm` and similar | Cookie, set by the Cloudflare network | Bot management / abuse prevention. |
 | `rtfx.cookie-notice` | `localStorage`, set by us | Remembers the notice was dismissed. Never sent to the server. |
+
+**The dashboard is a different surface, on purpose.** `/admin` can load PostHog for session
+recording and error tracking, but only on a deployment that sets `POSTHOG_KEY` at all, and only
+after an explicit accept/decline choice (`analyticsConsentNotice` in `src/consent.ts`,
+`src/posthog.ts`). None of that reaches a public page: `window.rtfxConsent.analytics` is hard-coded
+`false` on every page the public notice renders on, and the notice links to
+`/privacy#dashboard-analytics` so the difference is stated rather than hidden.
 
 `src/consent.ts` renders the notice as a **labelled region, not a dialog** — no overlay, no
 focus trap, no scroll lock, last in the tab order — because it must never block core use. It
@@ -143,24 +149,28 @@ external script/stylesheet/font, or preconnecting to a third party.
 
 ## Deployment
 
-The public paths must sit **outside** the Cloudflare Access application, or a visitor (or
-Googlebot) meets Cloudflare's login screen instead of the site. The `Artifacts (public)`
-Access app needs Bypass destinations for all of:
+The public paths are public because the Worker routes them that way, not because a Cloudflare
+Access Bypass app sits in front of them. Earlier revisions of this project used Access as the
+primary identity layer; fresh rtfx.pro-style deployments do not. The app owns sign-in now: it emails
+a one-time code or magic link, verifies it, and sets its own host-only `rtfx_session` cookie.
 
+After deploying, verify the public/crawler surface from a shell with no browser session:
+
+```bash
+for p in / /docs /login /privacy /terms /robots.txt /sitemap.xml /llms.txt /og.svg /og.png /logo.png; do
+  printf '%-14s ' "$p"; curl -s -o /dev/null -w '%{http_code} %{content_type}
+' "https://rtfx.pro$p"
+done
 ```
-rtfx.pro/            rtfx.pro/docs         rtfx.pro/login        rtfx.pro/waitlist
-rtfx.pro/privacy     rtfx.pro/terms
-rtfx.pro/robots.txt  rtfx.pro/sitemap.xml  rtfx.pro/llms.txt     rtfx.pro/og.svg
-rtfx.pro/og.png      rtfx.pro/logo.png
-```
 
-`rtfx.pro/logo.png` is the newest of these. It serves a static image and reads nothing about
-the caller, so bypassing Access on it exposes exactly what `/og.png` already does — but it
-does have to be added, or the JSON-LD points every consumer of the graph at Cloudflare's
-login screen.
+Expected: every path returns `200`, the HTML pages are `text/html`, `robots.txt` and `llms.txt` are
+`text/plain`, the sitemap is XML, and the image paths are PNG/SVG. No public HTML page may set a
+cookie of its own; `rtfx_session` is set by signing in, not by reading marketing/legal/docs pages.
 
-See [DEPLOY_RTFX.md](DEPLOY_RTFX.md) step 5.3 for the full runbook step and the post-deploy
-verification (`curl -I` each path expecting `200` and no `CF_Authorization` challenge).
+The content host remains the hard boundary: `a.rtfx.pro` serves artifact content and should answer
+`404` for app/legal/API pages such as `/login`, `/privacy`, `/terms`, `/docs`, `/admin` and `/api/*`.
+
+See [DEPLOY_RTFX.md](DEPLOY_RTFX.md) §6b for the command checklist.
 
 ## Social previews and trust headers
 
@@ -209,11 +219,13 @@ lives in six files at once and drifts if edited one at a time.
   gain it. The table-stakes/differentiator/not-yet split is `#why-rtfx` in the same file.
 - Product summary shared with AI agents → `llmsTxt()` in `src/seo.ts`, including the
   **Not shipped yet** section that keeps an answer engine from inventing features.
-- Privacy policy / terms of use → `src/legal.ts`. Canonical rtfx.pro renders production-facing
-  copy; non-canonical/self-host deployments still show the operator-template banner until an
-  operator adapts the legal text. The inventory in the privacy policy is written against the D1
+- Privacy policy / terms of use → `src/legal.ts`. Both pages open with the **operator-template /
+  not-legal-advice** banner on *every* deployment, rtfx.pro included, because the legal entity,
+  address, contact and governing law are still placeholders. Do not remove it until real values
+  exist and a lawyer has looked at them; a self-hoster has the same job
+  ([SELF_HOSTING.md](SELF_HOSTING.md)). The inventory in the privacy policy is written against the D1
   schema and the R2 bucket, so a change to what is stored is a change to that page — treat the
   two as one commit.
 - Add a public page → add it to `PUBLIC_PAGES` (`src/seo.ts`, which feeds the sitemap and
-  llms.txt), to `MANAGEMENT_PATHS` (`src/host.ts`), to `RESERVED_SLUGS` (`src/util.ts`),
-  and to the Access bypass list above.
+  llms.txt), to `MANAGEMENT_PATHS` (`src/host.ts`), and to `RESERVED_SLUGS` (`src/util.ts`). Then
+  update the public-route smoke list in [DEPLOY_RTFX.md](DEPLOY_RTFX.md).

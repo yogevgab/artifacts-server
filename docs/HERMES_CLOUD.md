@@ -15,9 +15,9 @@ no Cloudflare account, no service token. See [§2](#2-authenticate) for why the 
 
 ## 1. Get a token
 
-Tokens can only be minted by someone signed in through Cloudflare Access (a human, or the
-CLI's Access service token). **An API token can never mint another token** — that is
-deliberate, so a leaked publishing credential can't grow itself new rights.
+Tokens can only be minted by a human with a signed-in app session — the `rtfx_session` cookie
+set by verifying an emailed code or magic link. **An API token can never mint another token** —
+that is deliberate, so a leaked publishing credential can't grow itself new rights.
 
 ```bash
 # As an admin, for an integration that publishes on behalf of a member:
@@ -120,23 +120,22 @@ node cli/artifacts.mjs publish ./page.html --slug my-page --title "My Page"
 
 ### Why `/api/machine` and not `/api`
 
-Cloudflare Access gates `/api` at the edge, and Access has no idea what an `rtfx_…` token is —
-it decides on a browser session or on Cloudflare service-token headers. A call carrying only a
-bearer token is therefore answered by Access's login redirect and never reaches the Worker.
-A service token can't stand in for one either: it is a *deployment* credential, so handing one
-to every user who wants to publish is not something an operator can do.
+`/api` is the browser/session API. It can also see API-token identities after the shared auth
+middleware resolves them, but it is not the contract for automated publishers and it contains routes
+that must never accept bearer tokens, such as user management and token issuance. Sign-in is
+app-owned: the browser side uses the host-only `rtfx_session` cookie, not a Cloudflare Access
+session.
 
-`/api/machine/*` exists for exactly that reason. Same artifact routes, **stricter** gate:
+`/api/machine/*` is the contract for automated publishers. Same artifact routes, **stricter** gate:
 
 - A bearer token is required, and a browser session is refused — which is what keeps the surface
-  safe once Access is no longer in front of it, since a browser attaches cookies to a cross-site
-  request by itself but never an `Authorization` header.
+  safe as a machine API, since a browser attaches cookies to a cross-site request by itself but
+  never an `Authorization` header.
 - Scopes, ownership and the paused-account check are unchanged.
 - `/api/users`, `/api/tokens` and `/api/accounts` are **not** mounted there. Credential handout
-  stays edge-gated on `/api` and keeps refusing API tokens whatever the path.
+  stays on the app-session API and keeps refusing API tokens whatever the path.
 
-An operator puts `/api/machine` on an Access **Bypass** policy once — see
-[`DEPLOY_RTFX.md`](DEPLOY_RTFX.md) §5e. After that, `RTFX_API_TOKEN` is the whole credential set.
+On rtfx.pro, `RTFX_API_TOKEN` is the whole credential set for `/api/machine/*`.
 
 > **Self-hosting with everything edge-gated?** Send Access service-token headers alongside the
 > bearer token; the CLI, plugin and MCP server do it automatically when
@@ -221,29 +220,29 @@ curl -sS -X PUT "$ARTIFACTS_URL/api/machine/artifacts/my-page/access" \
 curl -sS -X DELETE "$ARTIFACTS_URL/api/machine/artifacts/my-page" -H "Authorization: Bearer $RTFX_API_TOKEN"
 ```
 
-A non-admin token's grants are saved but do **not** invite anyone to sign in — the
-response carries `allowlistWarning` when a granted address still needs an admin invite.
+A grant is not an invitation: sharing an artifact with an address never creates a sign-in for it.
+The grant is saved either way and applies the moment that person has an account. The response is
+`{"slug":…,"visibility":…,"emails":[…]}` and carries no warning field.
 
 ## 6. Errors
 
 | Status | `error` | Meaning / what to do |
 |---|---|---|
-| 401 | `unauthorized` | No `Authorization: Bearer` header reached `/api/machine/*`. Set `RTFX_API_TOKEN`. |
+| 401 | `unauthorized` | No `Authorization: Bearer <token>` header reached `/api/machine/*`. Set `RTFX_API_TOKEN`. |
 | 401 | `invalid_token` | Unknown, revoked, or expired token. Response carries `WWW-Authenticate: Bearer error="invalid_token"`. Mint a new one — do not retry. |
 | 403 | `insufficient_scope` | The token lacks the scope for this route. Mint one with the scope; retrying won't help. |
-| 403 | `forbidden` | Token used against `/api/users` or `/api/tokens`, which require an Access login. |
+| 403 | `forbidden` | Token used against `/api/users` or `/api/tokens`, which require a signed-in admin/session. |
 | 403 | `account_disabled` | The account this credential acts as has been paused by an admin. Not retryable and not a token problem — ask an admin to re-enable it. |
 | 404 | `not_found` | The slug doesn't exist **or** isn't yours. Existence of other users' artifacts is deliberately not observable. |
 | 409 | `slug_taken` | Someone else owns that slug. Pick another. |
 | 400 | `bad_request` | Missing title/file, bad slug, malformed JSON body. |
 | 413 | `payload_too_large` | Upload over the size cap. |
-| 503 | `not_configured` | User management isn't configured on this instance. |
 
 On `/api/machine/*` a missing `Authorization` header is `401 unauthorized`: there is no other
 identity to fall back to, by design. On `/api` it is not an error by itself — the request falls
-through to Cloudflare Access authentication and ends in `403 forbidden` if that yields no
-identity. On either surface a **bad** bearer token is always `401`, never a silent downgrade to
-another identity.
+back to the app-owned `rtfx_session` cookie, and ends in `403 forbidden` if that yields no
+identity (which it will for a script, since it has no cookie). On either surface a **bad** bearer
+token is always `401`, never a silent downgrade to another identity.
 
 A `404` whose body has no `error` field means the instance is older than `/api/machine`; the
 shipped clients notice that and retry the call once against `/api`, so a client may be newer

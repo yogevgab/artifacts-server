@@ -8,6 +8,11 @@ step that creates, modifies, or deletes a Cloudflare resource is labeled
 **MANUAL — mutates Cloudflare, run yourself**. Do not let an agent run those steps
 unattended; review each one before running it.
 
+It documents the *procedure* for the reference deployment and carries no credential, customer
+record or live account secret — that is the line described in [`OPEN_SOURCE.md`](../OPEN_SOURCE.md),
+and it is what keeps this file publishable. Running the software on your own domain instead is
+[`SELF_HOSTING.md`](SELF_HOSTING.md).
+
 ## Already prepared (this repo)
 
 - `wrangler.jsonc` `routes`: `rtfx.pro` and `a.rtfx.pro` (both `custom_domain: true`).
@@ -17,11 +22,10 @@ unattended; review each one before running it.
   which fields are still pending manual Cloudflare provisioning. Safe to run any time;
   touches no external resources.
 
-Still placeholders in `wrangler.jsonc`, filled in during the steps below:
-`d1_databases[0].database_id`, `vars.ADMIN_EMAILS`, `vars.ACCESS_TEAM_DOMAIN`,
-`vars.ACCESS_AUD`, `vars.CF_ACCOUNT_ID`, `vars.ACCESS_VIEWER_APP_ID`,
-`vars.ACCESS_VIEWER_POLICY_ID`, `vars.ADMIN_SERVICE_TOKENS`. No secret values are
-committed anywhere — `CF_API_TOKEN` is set with `wrangler secret put`, never in this file.
+Operator-specific values in `wrangler.jsonc` are intentionally visible when they are not secrets:
+routes, `vars.ADMIN_EMAILS`, `vars.MAIL_FROM`, plan variant ids and `PUBLIC_BASE_URL`. Actual
+secrets are not committed anywhere: `SESSION_SECRET` and `LEMONSQUEEZY_WEBHOOK_SECRET` are set with
+`wrangler secret put`.
 
 ## Prerequisites
 
@@ -33,11 +37,9 @@ committed anywhere — `CF_API_TOKEN` is set with `wrangler secret put`, never i
 
 ## Why `npm run setup` doesn't apply here
 
-`scripts/setup.mjs` automates a **single-hostname** deploy: it patches the first
-`"pattern"` it finds in `wrangler.jsonc` and creates one Access app on one hostname.
-This deployment needs two routes (`rtfx.pro` + `a.rtfx.pro`) and an Access viewer app
-covering *both* hostnames (see step 5) — `npm run setup` was not built for that and
-would misconfigure the second route. Use the manual steps below instead.
+`scripts/setup.mjs` automates a **single-hostname** starter deploy. This production deployment needs
+three routes (`rtfx.pro`, `mcp.rtfx.pro`, `a.rtfx.pro`), app/content-host isolation, Cloudflare Email
+Sending, billing-webhook secrets and legal/trust checks. Use the manual steps below instead.
 
 ## 1. Pre-deploy config gate
 
@@ -75,8 +77,9 @@ since it's operator-specific.
 npx wrangler deploy
 ```
 
-This creates the `rtfx.pro` and `a.rtfx.pro` custom domains. `/admin` and `/api` will
-reject all requests until Access is configured (steps below) — that's expected.
+This creates the `rtfx.pro`, `mcp.rtfx.pro` and `a.rtfx.pro` custom domains. `/admin` and `/api`
+will redirect/reject unsigned requests until app-owned email sign-in and `SESSION_SECRET` are ready
+— that's expected.
 
 ## 5. Identity — the app owns it
 
@@ -193,10 +196,9 @@ allow-list. See §5f.
 
 ## 6b. Public site + crawler surface (issue #29)
 
-No Cloudflare mutation beyond the Access bypass destinations in step 5.3. After deploying,
-confirm each public path answers **unauthenticated** — run this from a shell with no browser
-session. (Historically this also caught an Access redirect to
-`…cloudflareaccess.com`; that can no longer happen.)
+After deploying, confirm each public path answers **unauthenticated** — run this from a shell with
+no browser session. Historically this also caught an Access redirect to `…cloudflareaccess.com`; a
+fresh deployment no longer uses Access, but the smoke still proves public pages are actually public.
 
 ```bash
 for p in / /docs /login /privacy /terms /robots.txt /sitemap.xml /llms.txt /og.svg /og.png /logo.png; do
@@ -227,10 +229,18 @@ curl -s -o /dev/null -w '%{http_code}\n' https://a.rtfx.pro/docs    # 404 — co
 Then, in a browser: `/` and `/docs` render, the **Request access** form returns
 "Request received", and `view-source:` shows `<link rel="canonical">` plus the OpenGraph tags.
 Also confirm the issue-#36 surface: `/privacy` and `/terms` render with the site chrome, the
-footer of every public page links to both, and the cookie notice appears once, dismisses, and
-stays dismissed on reload (it is remembered in `localStorage`, not in a cookie). Before
-publishing to real users, fill in the two placeholders both legal pages call out — the
-contact address and the governing law — see [PUBLIC_SITE.md](PUBLIC_SITE.md).
+footer of every public page links to both (plus **Source** and **Security**), and the cookie
+notice appears once, dismisses, and stays dismissed on reload (it is remembered in `localStorage`,
+not in a cookie). The public pages load no analytics, no third-party script and no font — that is
+asserted by `test/legal.test.ts`, and it is what the notice claims, so it has to stay true.
+
+**The legal pages are still an operator template, and the banner stays until they are not.** Both
+open with "Operator template — not legal advice" on every deployment including this one. Before
+serving real users, fill in what it names: the contact address (`privacy@rtfx.pro` is a
+placeholder), the governing law and jurisdiction, and the legal entity's name and registered
+address — then have a lawyer review the result. Do not delete the banner ahead of that.
+See [PUBLIC_SITE.md](PUBLIC_SITE.md); self-hosters have the same job, in
+[SELF_HOSTING.md](SELF_HOSTING.md).
 Finally submit `https://rtfx.pro/sitemap.xml` in Google Search Console and Bing Webmaster
 Tools — nothing in the deploy does that for you. Details: [PUBLIC_SITE.md](PUBLIC_SITE.md).
 
@@ -242,25 +252,17 @@ curl -i https://rtfx.pro/health
 curl -i https://a.rtfx.pro/admin        # expect 404 — content hosts never serve /admin
 
 export ARTIFACTS_URL=https://rtfx.pro
-# The normal path, and the one an invited user has: a scoped API token, no
-# Cloudflare credential. Needs §5e to have been done.
+# The normal path: a scoped app API token minted at /admin/integrations.
+# No Cloudflare credential is involved in a fresh rtfx.pro deployment.
 export RTFX_API_TOKEN=<a token minted at /admin/integrations>
-
-# Advanced / self-host only: the service token is what gets a request past
-# Access on an instance where every path is still edge-gated. It is a
-# deployment credential — never hand it to a user.
-# export CF_ACCESS_CLIENT_ID=<artifacts-cli service token client id>
-# export CF_ACCESS_CLIENT_SECRET=<artifacts-cli service token secret>
 
 echo '<h1>rtfx smoke test</h1>' > /tmp/smoke.html
 node cli/artifacts.mjs publish /tmp/smoke.html --slug smoke-test --title "Smoke Test"
 node cli/artifacts.mjs list                       # confirm smoke-test appears
 
-curl -i https://a.rtfx.pro/smoke-test/            # renders on the content host
-                                                   # (302 to the Access login if run
-                                                   # outside a browser session — that's
-                                                   # expected; check status in a browser
-                                                   # signed in as an admin/viewer instead)
+curl -i https://a.rtfx.pro/smoke-test/            # renders on the content host when your browser/session
+                                                   # or share link is authorized; signed-out curl without
+                                                   # a session/share link should not see private content.
 
 node cli/artifacts.mjs delete smoke-test
 node cli/artifacts.mjs list                       # confirm smoke-test is gone
@@ -273,7 +275,7 @@ npx wrangler deployments list
 npx wrangler rollback [deployment-id]
 ```
 
-If Access or `wrangler.jsonc` config was the problem, revert the relevant local edits
-and redeploy — Cloudflare Access apps/policies created above are not removed by a
-Worker rollback and must be cleaned up separately in the Zero Trust dashboard if no
-longer wanted.
+If `wrangler.jsonc` config was the problem, revert the relevant local edits and redeploy. If you
+are migrating an older instance that still has Cloudflare Access apps in front of it, remember those
+apps/policies live outside the Worker and are not changed by a Worker rollback; clean or flip them
+in Zero Trust separately.

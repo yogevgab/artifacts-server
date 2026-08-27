@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 // Artifacts CLI — publish/list/delete/version artifacts on your instance.
 //
-// Auth: an API token, a Cloudflare Access service token, or both.
+// Auth: an API token, plus optional edge service-token headers for a self-hosted
+// instance that gates every path at the edge.
 //   ARTIFACTS_URL            your instance URL (default http://localhost:8787 for dev)
 //   RTFX_URL                 alias for ARTIFACTS_URL, so the Claude Code plugin and this
 //                            CLI accept the same environment (ARTIFACTS_URL still wins)
 //   RTFX_API_TOKEN           API token (rtfx_…) — sent as `Authorization: Bearer`
-//   CF_ACCESS_CLIENT_ID      Access service token client id      (advanced/self-host)
-//   CF_ACCESS_CLIENT_SECRET  Access service token client secret  (advanced/self-host)
+//   CF_ACCESS_CLIENT_ID      edge service-token client id      (advanced/self-host)
+//   CF_ACCESS_CLIENT_SECRET  edge service-token client secret  (advanced/self-host)
 //
 // The artifact commands go to the machine API (/api/machine/…), which
 // authenticates the bearer token and nothing else — RTFX_API_TOKEN on its own is
@@ -16,8 +17,9 @@
 // get a request *through the gate* and grant nothing inside the app.
 //
 // The user-* and token-* commands are different: they manage credentials, so
-// they stay on /api, refuse API tokens outright, and need a real login (or, from
-// a shell, the service-token headers).
+// they stay on /api, refuse API tokens outright, and need a signed-in admin
+// session (or, from a shell against an edge-gated self-host, the service-token
+// headers plus that session).
 //
 // Usage:
 //   artifacts publish <path> [--slug s] [--title t] [--description d] [--overwrite]
@@ -75,13 +77,14 @@ async function attempt(path, init) {
  * Call the API and return the parsed body, or exit with a readable error.
  *
  * Artifact work goes to the machine surface (`/api/machine/…`), which takes the
- * bearer token and nothing else — so publishing needs no Cloudflare credential
- * even on an Access-gated instance. An instance too old to have that surface
- * answers with a bare 404 and the call is retried once against `/api`.
+ * bearer token and nothing else — so publishing needs no Cloudflare credential,
+ * including on a legacy/self-host instance gated at the edge. An instance too old
+ * to have that surface answers with a bare 404 and the call is retried once
+ * against `/api`.
  *
  * `{ admin: true }` opts out for the routes that manage credentials: they stay
- * on `/api`, where Cloudflare Access can still gate them, and they refuse API
- * tokens in the Worker regardless.
+ * on `/api`, which a legacy/self-host edge gate can still front, and they refuse
+ * API tokens in the Worker regardless — they want a signed-in admin session.
  */
 async function call(path, init = {}, { admin = false } = {}) {
   const target = admin ? path : machineApiPath(path);
@@ -248,10 +251,9 @@ async function views(slug) {
 
 /**
  * Since issue #24, /api/users returns the local directory: `users` is a list of
- * objects (email, role, status, timestamps), not a list of email strings, and
- * `allowlist` describes what we can see of Cloudflare Access. Warnings are
- * surfaced verbatim — a write that landed locally but not in Access is a state
- * an operator must not miss.
+ * objects (email, role, status, timestamps), not a list of email strings. The app
+ * owns sign-in, so this directory is the whole story. Warnings are surfaced
+ * verbatim — a partial write is a state an operator must not miss.
  */
 const ROLE_TAG = { super_admin: "owner", admin: "admin", member: "" };
 
@@ -276,11 +278,7 @@ async function users() {
   const list = data.users || [];
   if (!list.length) return console.log("(no users)");
   for (const u of list) printUser(u);
-  if (data.allowlist && !data.allowlist.configured) {
-    console.log("  ! Cloudflare Access isn't configured — nobody new can sign in");
-  } else if (data.allowlist?.error) {
-    console.log(`  ! couldn't read the Access allow-list: ${data.allowlist.error}`);
-  }
+  printWarning(data);
 }
 
 async function userAdd(email, flags = {}) {
@@ -432,7 +430,7 @@ switch (cmd) {
     console.log("  revoke <slug> <email>            remove a user from an artifact");
     console.log("  visibility <slug> <everyone|restricted>");
     console.log("  users                            list the beta directory (role + status)");
-    console.log("  user-add <email> [--name n] [--note n] invite a person (adds them to Cloudflare Access)");
+    console.log("  user-add <email> [--name n] [--note n] invite a person (adds them to the directory)");
     console.log("  user-disable <email>             pause access + revoke their API tokens");
     console.log("  user-enable <email>              lift a pause");
     console.log("  user-remove <email>              revoke login, grants and tokens (keeps artifacts)");
@@ -444,6 +442,6 @@ switch (cmd) {
     console.log("auth: RTFX_API_TOKEN (bearer) is all the artifact commands need — they use the");
     console.log("      machine API (/api/machine/…). CF_ACCESS_CLIENT_ID/SECRET is only for a");
     console.log("      self-hosted instance that gates every path at the edge.");
-    console.log("      token-* and user-* commands require an Access login, not an API token.");
+    console.log("      token-* and user-* commands require a signed-in admin session, not an API token.");
     process.exit(cmd ? 1 : 0);
 }

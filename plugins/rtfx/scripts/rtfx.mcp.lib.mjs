@@ -654,7 +654,6 @@ async function updateAccess(ctx, args) {
   return toolResult(
     [
       `${data.slug} is ${data.visibility}${data.visibility === "restricted" ? ` for ${(data.emails ?? []).length} named person/people` : ""}`,
-      ...(data.allowlistWarning ? [`note: ${data.allowlistWarning}`] : []),
     ],
     { command: "update_access", ...data },
     ctx.config

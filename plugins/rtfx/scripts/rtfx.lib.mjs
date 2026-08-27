@@ -244,7 +244,7 @@ export function describeNonJsonResponse(requestedUrl, finalUrl) {
   if (/(^|\.)cloudflareaccess\.com$/.test(to)) {
     return {
       message: `Cloudflare Access answered with a sign-in page (${to}) instead of the API`,
-      hint: `${MACHINE_API_PREFIX} has to be on an Access "Bypass" policy for a bearer token to reach it — an operator does that once, see docs/DEPLOY_RTFX.md §5e. Until then, CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET (a Cloudflare service token) are the only way through.`,
+      hint: `This instance is self-hosted behind an edge gate (rtfx.pro is not). Its operator has to let ${MACHINE_API_PREFIX} through — an Access "Bypass" policy for that path, see docs/DEPLOY_RTFX.md §5f. Until then, CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET (a Cloudflare service token they issue) are the only way through.`,
     };
   }
   if (to && from && to !== from) {

@@ -12,15 +12,17 @@ Authorization: Bearer $RTFX_API_TOKEN
 Only a SHA-256 hash of the token is stored server-side; the plaintext is shown once, at creation.
 
 **Use `/api/machine/…`, not `/api/…`.** They serve the same artifact routes, but `/api` is the
-dashboard's API and is gated by Cloudflare Access at the edge, which does not understand bearer
-tokens — a call with only `RTFX_API_TOKEN` is answered by a sign-in page there. `/api/machine`
-authenticates the bearer token and nothing else, so it is the surface a machine can actually
-reach. If a call to it returns a `404` with no `error` field, the instance predates the machine
-surface: retry that one call against `/api`.
+dashboard's browser API: it also accepts the app's own `rtfx_session` cookie, and its
+user/token/workspace routes refuse bearer tokens outright. `/api/machine` authenticates a bearer
+`rtfx_…` token and *nothing else* — a browser session is refused there on purpose — so it is the
+surface a machine should target. If a call to it returns a `404` with no `error` field, the
+instance predates the machine surface: retry that one call against `/api`.
 
-On a self-hosted instance that gates every path at the edge, add the service-token headers
-`CF-Access-Client-Id` / `CF-Access-Client-Secret` as well — they get the request through the
-edge, while the bearer token still decides identity and scope. rtfx.pro does not need them.
+rtfx.pro needs no other credential: the token minted at `/admin/integrations` is sufficient on its
+own. An older self-hosted instance that still puts an edge gate (e.g. Cloudflare Access) in front
+of every path is the one exception — there the operator's `CF-Access-Client-Id` /
+`CF-Access-Client-Secret` service-token headers go alongside the bearer token, getting the request
+through the edge while the bearer token still decides identity and scope.
 
 ## Scopes
 
@@ -101,7 +103,7 @@ artifact's URL.
 | 401 | `unauthorized` | no | No bearer token reached the server. Set `RTFX_API_TOKEN`. |
 | 401 | `invalid_token` | no | Unknown, revoked or expired. Mint a new one. |
 | 403 | `insufficient_scope` | no | Token lacks the scope for this route. |
-| 403 | `forbidden` | no | Route needs a browser login, or Access is blocking at the edge. |
+| 403 | `forbidden` | no | Route needs a signed-in browser session (people, tokens, workspaces). |
 | 403 | `account_disabled` | no | The account was paused by an admin. |
 | 404 | `not_found` | no | Slug missing **or** not yours — deliberately indistinguishable. |
 | 409 | `slug_taken` | no | Someone else owns it. Pick another. |
@@ -110,12 +112,12 @@ artifact's URL.
 | 5xx | — | once | Server-side failure. |
 
 On `/api/machine/…` a missing `Authorization` header is `401 unauthorized` — there is no other
-identity to fall back to, which is the point. On `/api/…` it falls through to Cloudflare Access
-and ends in `403` if that yields no identity. A **bad** bearer token is always `401` on either,
-never a silent downgrade to another identity.
+identity to fall back to, which is the point. On `/api/…` it falls back to the app's `rtfx_session`
+cookie, which a script does not have, and ends in `403 forbidden`. A **bad** bearer token is always
+`401` on either, never a silent downgrade to another identity.
 
-If a response is not JSON at all, something in front of the app answered — almost always
-Cloudflare Access with a sign-in page, which `fetch` follows and reports as a `200`. Do not treat
-that as an empty result.
+If a response is not JSON at all, something other than the API answered — an HTML error page, or,
+on a self-hosted instance behind an edge gate, that gate's own sign-in page, which `fetch` follows
+and reports as a `200`. Do not treat that as an empty result.
 
 Full operator-side reference: <https://github.com/yogevgab/artifacts-server/blob/main/docs/HERMES_CLOUD.md>

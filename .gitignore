@@ -10,5 +10,11 @@ dist/
 # Agent worktrees are checked out inside the repo; they are not source.
 .claude/worktrees/
 
+# One agent's working notes — prompts, drafts, scratch plans. Not project
+# documentation, and not something to publish with a repo that is public.
+# Scoped to the directory that actually holds them, so nothing under docs/,
+# test/ or plugins/ is ever swept up by this line.
+.hermes/plans/
+
 # Every variant, not just the exact name — a .bak of a secrets file is still a secrets file.
 .dev.vars*

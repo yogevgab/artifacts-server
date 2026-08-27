@@ -6,15 +6,12 @@ import { initDb, clearR2, dropUsersTable, req, as, withToken, htmlForm } from ".
 /**
  * Full beta user management (issue #24).
  *
- * The model under test has three layers that must never be confused:
+ * The model under test has two layers that must never be confused:
  *
- *   1. **Cloudflare Access** decides who can authenticate. Not configured in
- *      tests, which is itself an important case — the product has to stay usable
- *      and the local layer has to keep working without it.
- *   2. **The local `users` table** holds product state: status, name, notes,
- *      timestamps. `status` is authoritative — disabling somebody works even
- *      when the Access write can't happen.
- *   3. **Configuration** (`ADMIN_EMAILS` / `SUPER_ADMIN_EMAILS`) holds privilege.
+ *   1. **The `users` table** is the directory the app owns. It holds product
+ *      state: status, name, notes, timestamps. `status` is authoritative — a
+ *      paused row is refused on every surface at once.
+ *   2. **Configuration** (`ADMIN_EMAILS` / `SUPER_ADMIN_EMAILS`) holds privilege.
  *      Nothing written through the API may ever change it.
  *
  * Per vitest.config.ts: admin@test.com is the super admin, admin2@test.com is a
@@ -67,10 +64,10 @@ describe("directory shape", () => {
     expect(body.admins).toEqual([SUPER, ADMIN2].sort());
   });
 
-  it("reads an allow-list-only person as invited, not active", async () => {
-    // They can sign in as far as Access is concerned, but this product has never
-    // met them — which is exactly what `invited` means. Only the operator is
-    // pinned to active regardless.
+  it("reads a configured admin with no row as invited, not active", async () => {
+    // Configuration says they may administer the instance, but the product has
+    // never met them — which is exactly what `invited` means. Only the operator
+    // is pinned to active regardless.
     const { body } = await listUsers();
     expect(find(body, ADMIN2)).toMatchObject({ status: "invited", in_directory: false });
     expect(find(body, SUPER).status).toBe("active");

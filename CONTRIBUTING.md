@@ -9,7 +9,7 @@ welcome — bug reports, features, docs, and code.
 git clone https://github.com/yogevgab/artifacts-server.git
 cd artifacts-server
 npm install
-npm run dev      # local server at http://localhost:8787 (no Access gate; you are admin)
+npm run dev      # local server at http://localhost:8787 (DEV_LOGIN: no sign-in, you are admin)
 ```
 
 You do **not** need a Cloudflare account to develop or run the tests — everything runs locally
@@ -36,12 +36,12 @@ npm run check      # tsc --noEmit && vitest run
 ```
 
 - **Add tests** for new behavior. Unit tests for pure logic (`src/util.ts`, `src/authz.ts`,
-  `src/access-api.ts`); integration tests (`test/integration.test.ts`) drive the Hono app
+  `src/session.ts`); integration tests (`test/integration.test.ts`) drive the Hono app
   end-to-end and can impersonate viewers via `X-Dev-Email`.
 - **Keep files focused.** Each module has one job (see `docs/ARCHITECTURE.md`). Match the
   surrounding style; no formatter config is enforced beyond `.editorconfig` (2-space indent).
-- **Security-sensitive areas** (`src/auth.ts`, `src/authz.ts`, `src/access-api.ts`, the serving
-  and `/api` routes): explain the authorization implications in your PR description.
+- **Security-sensitive areas** (`src/auth.ts`, `src/authz.ts`, `src/session.ts`, `src/otp.ts`,
+  the serving and `/api` routes): explain the authorization implications in your PR description.
 
 ## Pull request guidelines
 
@@ -59,7 +59,7 @@ vulnerabilities, **do not** open a public issue — see [SECURITY.md](SECURITY.m
 
 ```
 src/          Worker source (routing, auth, serving, API, DB, HTML)
-cli/          Node CLI (talks to /api via an Access service token)
+cli/          Node CLI (talks to /api/machine with an rtfx_… API token)
 test/         vitest unit + integration tests
 migrations/   D1 schema migrations (schema.sql is the full current schema)
 scripts/      setup.mjs — automated deploy

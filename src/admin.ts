@@ -263,7 +263,7 @@ export function overviewPage(o: OverviewInput): string {
 
   const health: HealthRow[] = [];
   if (users) {
-    // Sign-in used to depend on a Cloudflare Access allow-list that could be
+    // Sign-in used to depend on a legacy external allow-list that could be
     // unconfigured or unreachable, so this row reported on that. The app owns
     // identity now: anybody in the directory who is not paused can sign in, and
     // there is no external system left to be out of sync with.
@@ -1609,8 +1609,7 @@ $$('button[data-save]').forEach(function(b){
       var who = data.visibility === 'everyone'
         ? 'Saved — visible to everyone signed in.'
         : 'Saved — ' + (data.emails.length === 1 ? '1 person' : data.emails.length + ' people') + ' can open it.';
-      setStatus(status, data.allowlistWarning ? who + ' (sign-in list warning: ' + data.allowlistWarning + ')' : who,
-        data.allowlistWarning ? 'error' : 'ok');
+      setStatus(status, who, 'ok');
       var badge = $('[data-artifact-detail="' + slug + '"] [data-badge=visibility]');
       if(badge){
         badge.textContent = data.visibility === 'everyone' ? 'Everyone' : 'Restricted · ' + data.emails.length;

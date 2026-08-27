@@ -17,9 +17,10 @@ export interface Env {
   CHAT?: DurableObjectNamespace;
   /**
    * Secret (>= 32 bytes) signing app-owned session cookies. Set with
-   * `wrangler secret put SESSION_SECRET`. Absent means app sessions are simply
-   * not honoured — during the Cloudflare Access migration that degrades to the
-   * previous behaviour rather than failing the request.
+   * `wrangler secret put SESSION_SECRET`. Required in production: sign-in is
+   * app-owned, so with no secret no session is ever honoured and nobody can sign
+   * in. Absent, requests are not failed outright — they simply resolve no session
+   * identity, which is what keeps a legacy/self-host edge-gated instance working.
    */
   SESSION_SECRET?: string;
   /** Comma-separated list of admin emails allowed to publish/delete. */
@@ -33,11 +34,14 @@ export interface Env {
   SUPER_ADMIN_EMAILS?: string;
   /** Comma-separated service-token common_names (client ids) with admin rights. */
   ADMIN_SERVICE_TOKENS?: string;
-  /** Cloudflare Access team domain, e.g. "myteam.cloudflareaccess.com". Empty in dev. */
+  /**
+   * Legacy/self-host only: Cloudflare Access team domain, e.g.
+   * "myteam.cloudflareaccess.com". Empty on rtfx.pro and in dev.
+   */
   ACCESS_TEAM_DOMAIN: string;
-  /** Cloudflare Access application AUD tag. Empty in dev. */
+  /** Legacy/self-host only: Cloudflare Access application AUD tag. Empty in dev. */
   ACCESS_AUD: string;
-  /** "true" only in local dev/tests: bypasses Access and treats caller as admin. */
+  /** "true" only in local dev/tests: skips sign-in and treats the caller as admin. */
   DEV_LOGIN?: string;
   /**
    * Comma-separated hostnames (e.g. "a.rtfx.pro" or "a.rtfx.pro,a-staging.rtfx.pro")
