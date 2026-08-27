@@ -21,6 +21,12 @@ const MANAGEMENT_PATHS = new Set([
   "/contact",
   "/sitemap.xml",
   "/llms.txt",
+  // security.txt (RFC 9116). Its canonical path lives under the `/.well-known`
+  // prefix below; this is the legacy top-level one, and it has to be named
+  // explicitly or the app host 302s it to the content host as an unknown path
+  // — which is how it came to be findable at neither origin. See SECURITY_TXT_PATHS
+  // in src/seo.ts.
+  "/security.txt",
   "/og.svg",
   "/og.png",
   "/logo.png",

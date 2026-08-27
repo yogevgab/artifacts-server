@@ -97,6 +97,8 @@ import {
   LOGO_PNG_BASE64,
   isCanonicalHost,
   siteOrigin,
+  securityTxt,
+  SECURITY_TXT_PATHS,
 } from "./seo";
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVars }>();
@@ -537,6 +539,20 @@ app.get(
 // answer engines — what this is, who it's for, how publishing works, and what is
 // deliberately not crawlable.
 app.get("/llms.txt", (c) => c.text(llmsTxt(c.env), 200, { "Cache-Control": PUBLIC_FILE_CACHE }));
+
+// security.txt (RFC 9116), served at both the canonical `/.well-known` path and
+// the legacy top-level one — a researcher who tries either must find it rather
+// than a 302 or a 404. App host only: both paths are management paths, so the
+// content origin 404s them like every other product surface (src/host.ts).
+//
+// Public bytes, identical for everyone, no identity read and no cookie set —
+// which is the point of routing it here rather than letting it fall through to
+// artifact routing on the content host.
+for (const path of SECURITY_TXT_PATHS) {
+  app.get(path, (c) =>
+    c.text(securityTxt(c.env, new Date()), 200, { "Cache-Control": PUBLIC_FILE_CACHE })
+  );
+}
 
 app.get(
   "/og.svg",

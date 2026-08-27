@@ -98,6 +98,22 @@ describe("isManagementPath", () => {
     }
   });
 
+  /**
+   * security.txt (RFC 9116). The canonical path rides the `/.well-known` prefix
+   * already asserted above; the legacy top-level one has to be listed by name,
+   * and this is the regression: without it the app host 302s `/security.txt` at
+   * the content host, where it 404s — findable at neither origin.
+   */
+  it("blocks both security.txt paths so neither origin redirects them", () => {
+    for (const p of ["/security.txt", "/.well-known/security.txt"]) {
+      expect(isManagementPath(p), p).toBe(true);
+    }
+    // Not per-origin like robots.txt: a content host answers 404, not a body.
+    for (const p of ["/security.txt", "/.well-known/security.txt"]) {
+      expect(isPerOriginPath(p), p).toBe(false);
+    }
+  });
+
   it("blocks nested management paths", () => {
     for (const p of ["/admin/", "/api/artifacts", "/v/slug/1/index.html"]) {
       expect(isManagementPath(p)).toBe(true);
