@@ -3,8 +3,10 @@
 Everything a human needs in front of them to fill in the submission form, in one page, so the form
 is a transcription job rather than a research one.
 
-**Status: not submitted.** Nothing in this repository can grant a listing, and no page here should
-imply one. What the repository *can* do — a valid marketplace manifest, a plugin that passes
+**Status: submitted and pending review.** The Claude Platform submissions page shows an `rtfx`
+submission from 2026-08-26 and a duplicate refreshed submission from 2026-08-27, both pending
+review. Nothing in this repository can grant a listing, and no page here should imply approval.
+What the repository *can* do — a valid marketplace manifest, a plugin that passes
 `claude plugin validate --strict`, a license, a security policy, a changelog — is done, and
 [the checklist below](#pre-submission-checklist) is how you confirm that before opening the form.
 
@@ -17,7 +19,7 @@ Three different things get called "the marketplace". Only the first works today.
 | | How it is obtained | Status here |
 |---|---|---|
 | **This repository, as a custom marketplace** | Nothing. Any repository with a valid `.claude-plugin/marketplace.json` is one. | **Live.** `/plugin marketplace add yogevgab/artifacts-server`, then `/plugin install rtfx@rtfx`. |
-| **Community marketplace** (`anthropics/claude-plugins-community`) | Submit through the form in §3; Anthropic reviews. | **Not submitted.** The install string only becomes real after approval — see §6. |
+| **Community marketplace** (`anthropics/claude-plugins-community`) | Submit through the form in §3; Anthropic reviews. | **Submitted, pending review.** The install string only becomes real after approval — see §6. |
 | **Official marketplace** | No application process. Anthropic curates it at their own discretion. | **Nothing to do.** There is no form, and no step here that moves it along. |
 
 A custom marketplace is not a lesser version of the other two — it is the same install flow, from a
@@ -37,7 +39,7 @@ Copy these into the form.
 | Marketplace manifest | `.claude-plugin/marketplace.json` (marketplace name: `rtfx`) |
 | Repository URL | `https://github.com/yogevgab/artifacts-server` (public) |
 | Branch | `main` |
-| Commit SHA | *fill at submission time* — see the note below |
+| Commit SHA | `4878adfbabc081dfb9436755bb15a19cb8abd572` for the refreshed 2026-08-27 submission |
 | License | MIT (`LICENSE` at repository root) |
 | Homepage | `https://rtfx.pro/docs` |
 | Author | rtfx.pro — `https://rtfx.pro` |
@@ -175,7 +177,7 @@ by editing the file afterwards.
 - [ ] `LICENSE` (MIT) and `SECURITY.md` present at repository root
 - [ ] No page in the repository claims an official or community listing
 - [ ] Assets captured per §8, every token redacted
-- [ ] Commit SHA from `git rev-parse origin/main` recorded in §2 and in the log below
+- [x] Commit SHA from `git rev-parse origin/main` recorded in §2 and in the log below
 
 ## 10. After approval
 
@@ -197,11 +199,10 @@ Until then, and afterwards too, the path that works is the one in §1:
 
 ## Submission log
 
-Fill in when a submission is actually made. Empty is the honest state until then.
-
 | Date | Version | Commit SHA | Form | Outcome |
 |---|---|---|---|---|
-| — | — | — | — | not submitted |
+| 2026-08-26 | 1.2.0 | unknown from local evidence | Claude Platform plugin submit form | submitted and pending review |
+| 2026-08-27 | 1.2.0 | `4878adfbabc081dfb9436755bb15a19cb8abd572` | Claude Platform plugin submit form | duplicate/refreshed submission received and pending review |
 
 ## Related
 

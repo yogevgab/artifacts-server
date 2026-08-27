@@ -1,6 +1,6 @@
 # Anthropic Store / Directory Submission Packet — rtfx.pro
 
-Status: ready to submit after final validation + release asset upload
+Status: submitted and pending review
 Product: rtfx.pro
 Package version: 1.2.0
 Repository: https://github.com/yogevgab/artifacts-server
@@ -77,7 +77,7 @@ claude, mcp, publishing, artifacts, hosting, preview, deployment, html, pdf, ver
 | Version | `1.2.0` |
 | Repository | `https://github.com/yogevgab/artifacts-server` |
 | Branch | `main` |
-| Commit SHA | fill with `git rev-parse origin/main` after final push |
+| Commit SHA | `4878adfbabc081dfb9436755bb15a19cb8abd572` for the refreshed 2026-08-27 plugin submission |
 | Plugin path | `./plugins/rtfx` |
 | Plugin manifest | `plugins/rtfx/.claude-plugin/plugin.json` |
 | Marketplace manifest | `.claude-plugin/marketplace.json` |
@@ -283,3 +283,11 @@ After submitting, update `docs/ANTHROPIC_PLUGIN_SUBMISSION.md` and this file wit
 | Date | Version | Commit SHA | Form | Outcome |
 |---|---|---|---|---|
 | YYYY-MM-DD | 1.2.0 | `<sha>` | `<url/name>` | submitted |
+
+
+## Submission status log
+
+| Date | Surface | Commit/source | Outcome |
+|---|---|---|---|
+| 2026-08-26 | Claude Platform plugin submit form | unknown from local evidence | `rtfx` submission visible as submitted and pending review |
+| 2026-08-27 | Claude Platform plugin submit form | `4878adfbabc081dfb9436755bb15a19cb8abd572` | duplicate/refreshed `rtfx` submission received and pending review |
