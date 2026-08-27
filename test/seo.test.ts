@@ -10,6 +10,8 @@ import {
   canonicalUrl,
   isCanonicalHost,
   robotsTxt,
+  securityTxt,
+  SECURITY_TXT_PATHS,
   sitemapXml,
   llmsTxt,
 } from "../src/seo";
@@ -108,6 +110,82 @@ describe("robots.txt", () => {
     const txt = await res.text();
     expect(txt).toMatch(/^Disallow: \/$/m);
     expect(txt).toContain("access-controlled");
+  });
+});
+
+/**
+ * security.txt (RFC 9116). Production smoke found `/security.txt` 302ing to the
+ * content host and `/.well-known/security.txt` 404ing, so the file existed at
+ * neither origin. These pin the fix from both ends: the app host answers both
+ * paths itself, and the content host answers neither.
+ */
+describe("security.txt", () => {
+  const NOW = new Date("2026-08-27T12:34:56.000Z");
+
+  it("carries the RFC 9116 required fields and the real reporting channel", () => {
+    const txt = securityTxt({ PUBLIC_BASE_URL: "https://rtfx.pro" }, NOW);
+    expect(txt).toMatch(
+      /^Contact: https:\/\/github\.com\/yogevgab\/artifacts-server\/security\/advisories\/new$/m
+    );
+    expect(txt).toMatch(
+      /^Policy: https:\/\/github\.com\/yogevgab\/artifacts-server\/blob\/main\/SECURITY\.md$/m
+    );
+    expect(txt).toMatch(/^Expires: \d{4}-\d{2}-\d{2}T00:00:00Z$/m);
+    expect(txt).toMatch(/^Canonical: https:\/\/rtfx\.pro\/\.well-known\/security\.txt$/m);
+    expect(txt).toMatch(/^Canonical: https:\/\/rtfx\.pro\/security\.txt$/m);
+  });
+
+  // The file promises only what SECURITY.md promises. A machine-readable
+  // encryption key, acknowledgements page or bounty link that does not exist
+  // would be a commitment nobody here can keep.
+  it("advertises nothing that does not exist", () => {
+    const txt = securityTxt({}, NOW);
+    expect(txt).not.toMatch(/^Encryption:/m);
+    expect(txt).not.toMatch(/^Acknowledgments:/m);
+    expect(txt).not.toMatch(/^Hiring:/m);
+    expect(txt).toContain("no bug-bounty programme");
+    expect(txt).not.toMatch(/mailto:/);
+  });
+
+  it("expires in the future, and within a year as RFC 9116 asks", () => {
+    const expires = new Date(/^Expires: (.+)$/m.exec(securityTxt({}, NOW))![1]);
+    expect(expires.getTime()).toBeGreaterThan(NOW.getTime());
+    expect(expires.getTime() - NOW.getTime()).toBeLessThan(365 * 24 * 3600 * 1000);
+    // Snapped to the first of a month, so the body is byte-stable for cache lifetimes.
+    expect(expires.toISOString()).toBe("2027-02-01T00:00:00.000Z");
+    // Rolls over the year boundary rather than producing a month 13.
+    const late = new Date(/^Expires: (.+)$/m.exec(securityTxt({}, new Date("2026-11-30T00:00:00Z")))![1]);
+    expect(late.toISOString()).toBe("2027-05-01T00:00:00.000Z");
+  });
+
+  it("is served as public text/plain at both paths on the app host", async () => {
+    for (const path of SECURITY_TXT_PATHS) {
+      const res = await canonicalReq(path);
+      expect(res.status, path).toBe(200);
+      expect(res.headers.get("Content-Type"), path).toContain("text/plain");
+      expect(res.headers.get("Cache-Control"), path).toBe("public, max-age=3600");
+      expect(res.headers.get("Set-Cookie"), path).toBeNull();
+      expect(await res.text()).toContain("Contact: ");
+    }
+  });
+
+  // The reported bug: `/security.txt` is not an artifact path, so the app host
+  // must answer it rather than 302 it at the content origin.
+  it("is answered by the app host, never redirected to the content host", async () => {
+    for (const path of SECURITY_TXT_PATHS) {
+      const res = await app.request(`https://app.test.local${path}`, {}, contentEnv as any);
+      expect(res.status, path).toBe(200);
+      expect(res.headers.get("Location"), path).toBeNull();
+      expect(await res.text()).toContain("Contact: ");
+    }
+  });
+
+  it("does not exist on the content origin", async () => {
+    for (const path of SECURITY_TXT_PATHS) {
+      const res = await contentReq(path);
+      expect(res.status, path).toBe(404);
+      expect(res.headers.get("Location"), path).toBeNull();
+    }
   });
 });
 

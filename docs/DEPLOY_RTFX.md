@@ -201,11 +201,19 @@ no browser session. Historically this also caught an Access redirect to `…clou
 fresh deployment no longer uses Access, but the smoke still proves public pages are actually public.
 
 ```bash
-for p in / /docs /login /privacy /terms /robots.txt /sitemap.xml /llms.txt /og.svg /og.png /logo.png; do
-  printf '%-14s ' "$p"; curl -s -o /dev/null -w '%{http_code} %{content_type}\n' "https://rtfx.pro$p"
+for p in / /docs /login /privacy /terms /robots.txt /sitemap.xml /llms.txt /og.svg /og.png /logo.png /security.txt /.well-known/security.txt; do
+  printf '%-30s ' "$p"; curl -s -o /dev/null -w '%{http_code} %{content_type}\n' "https://rtfx.pro$p"
 done
-# all 200; / /docs /login /privacy /terms are text/html, robots+llms text/plain,
-# sitemap application/xml, og.png + logo.png image/png
+# all 200; / /docs /login /privacy /terms are text/html, robots+llms+security text/plain,
+# sitemap application/xml, og.png + logo.png image/png.
+# A 302 on either security.txt path means it fell through to artifact routing on
+# the content host — that is the bug the paths were added to MANAGEMENT_PATHS to fix.
+
+# security.txt is app-host only; the content origin must 404 both paths, not redirect.
+for p in /security.txt /.well-known/security.txt; do
+  printf '%-30s ' "$p"; curl -s -o /dev/null -w '%{http_code}\n' "https://a.rtfx.pro$p"
+done
+# both 404
 
 # No public page may set a cookie of its own (issue #36) — the only cookie in the
 # product is our own rtfx_session cookie, and it is set by signing in, not by reading.
