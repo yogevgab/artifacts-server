@@ -116,27 +116,47 @@ describe("the landing page leads with one idea", () => {
   });
 
   /**
-   * The three-step path is the whole point of the rewrite: somebody who has
-   * never opened a terminal has to be able to read what happens to their work
-   * before the page shows them a command. Structure is pinned on the markup so
-   * the wording can keep improving; what cannot vanish is that there are three
-   * of them and that they come before the install cards.
+   * The step path is the whole point of the rewrite: somebody who has never
+   * opened a terminal has to be able to read what happens to their work before
+   * the page shows them a command. Structure is pinned on the markup so the
+   * wording can keep improving; what cannot vanish is that the sequence is
+   * there, that it covers the *whole* round trip, and that it comes before the
+   * install cards.
+   *
+   * It is four beats rather than three now, because three stopped at "send the
+   * link" — which is where the older copy's story ended and where the product's
+   * actually begins. What happens afterwards (you are told when it was read,
+   * and the link you already sent updates itself) is the reason to use this
+   * rather than an attachment, and it was buried in a band nobody scrolled to.
    */
-  it("explains the round trip in three plain steps before it shows a command", async () => {
+  it("explains the whole round trip in plain steps before it shows a command", async () => {
     const body = await html("/", ANON);
-    const steps = body.slice(body.indexOf('class="steps"'), body.indexOf('class="installs"'));
-    expect((steps.match(/<div class="step">/g) ?? []).length).toBe(3);
+    const steps = body.slice(body.indexOf('class="steps"'), body.indexOf('<p class="eyebrow-c">What people send with it</p>'));
+    expect((steps.match(/<div class="step">/g) ?? []).length).toBe(4);
     expect(steps).not.toContain("<pre");
     expect(body.indexOf('class="steps"')).toBeLessThan(body.indexOf('class="installs"'));
+    // The last two beats are the ones that were missing: evidence, and update
+    // in place. Asserted on meaning rather than wording.
+    const lower = steps.toLowerCase();
+    expect(lower, "the steps never mention being told it was read").toMatch(
+      /first time each person opens it|told .* opens it|when .* opens it/
+    );
+    expect(lower, "the steps never mention updating the link you already sent").toMatch(
+      /link you already sent/
+    );
   });
 
   /**
-   * "Can I add this to the Claude I already use?" decides the visit, and the
-   * answer used to be nine sections down. Both install cards carry the literal
-   * first step — a download link, or the real slash commands — because a card
-   * that paraphrases an install is one a reader cannot follow.
+   * "Can I add this to the Claude I already use?" decides the visit, so both
+   * install cards carry the literal first step — a download link, or the real
+   * slash commands — because a card that paraphrases an install is one a reader
+   * cannot follow.
+   *
+   * Where they sit is pinned separately, in test/positioning.test.ts: they must
+   * come after the page has made its case and before the connector grid and the
+   * pricing table. This test is only about whether they are followable.
    */
-  it("offers both install paths near the top, each with its real first step", async () => {
+  it("offers both install paths, each with its real first step", async () => {
     const body = await html("/", ANON);
     const desktop = body.slice(
       body.indexOf('data-install="claude-desktop"'),
@@ -244,7 +264,7 @@ describe("the landing page leads with one idea", () => {
    * It is now the real round trip, rendered as HTML: the actual publish command
    * and the state that exists the moment it returns.
    */
-  it("shows a real round trip above the fold, not a picture of one", async () => {
+  it("shows a real round trip on the page, not a picture of one", async () => {
     const body = await html("/", ANON);
     expect(body).toContain('data-landing="publish"');
     // The command has to be the one that actually works — see docs/CLAUDE_CODE.md.

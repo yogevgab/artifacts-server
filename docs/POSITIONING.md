@@ -22,6 +22,7 @@ Read from each product's own public pages. Positions move; re-read before rewrit
 | [Star](https://buildwithstar.com/blog/share-claude-artifact) | People shipping AI-generated games | Instant hosting, permanent links, play tracking, leaderboards, continued AI iteration on the hosted thing |
 | [Send](https://www.send.co/) | Teams publishing Claude-created sites and documents | Templates, custom domains, engagement tracking, access control, a Claude connector |
 | [Shareable](https://useshareable.com/) | Anyone with an AI-made page, report or dashboard | Access control, analytics, embeds, comments/approvals/polls, versions, MCP and developer docs |
+| [LiveSend](https://www.livesend.io/) | Agencies, consultants and B2B teams sending AI-generated HTML reports, decks and proposals to clients | Branded client links, password protection, open/read analytics, first-open email notifications, inline edits, version history/rollback, optional viewer email gate, collaborative comments, Free/Pro/Team pricing |
 
 What that adds up to: hosting an AI artifact is solved, and **"upload your HTML" is no longer
 a position.** Everyone offers a link. Several offer analytics, custom domains and some form of
@@ -55,11 +56,12 @@ product in the table above, and each one is enforced somewhere in the test suite
    filters that keep a `.env` out of a bundle apply identically
    ([`MCP.md`](MCP.md)). What we still do not claim: sharing through an agent is opt-in per
    operator, and no agent surface can mint a token or invite a person.
-2. **Access is an identity, not a secret URL.** Every artifact is restricted until its owner
-   names someone. Unauthorized and non-existent return the identical 404 — a leaked link can't
-   confirm the artifact is real. This is the sharpest contrast in the field: the category norm
-   is a public link with optional friction on top, and ours is a locked artifact with sharing
-   as a deliberate, revocable act.
+2. **Identity-first access, with bounded share links for exceptions.** Every artifact is
+   restricted until its owner names someone, or creates a revocable share link for somebody who
+   will not sign in. Unauthorized and non-existent return the identical 404 — a random link can't
+   confirm the artifact is real. Named sharing is revocable, per artifact, and never widens who
+   can sign in. A share link is intentionally different: a capability URL for exactly one
+   artifact, with optional expiry and immediate revocation.
 3. **Immutable versions with one-click rollback.** Every publish is a new version with its own
    preview URL. Nothing already shared is overwritten.
 4. **A view log that names a person and a version.** Not a hit counter — who, when, from which
@@ -79,13 +81,15 @@ product in the table above, and each one is enforced somewhere in the test suite
 ## What we do not have, and must not imply
 
 This list is the reason the section exists. Several competitors advertise these; copy that
-borrows their vocabulary starts making claims we cannot honour.
+borrows their vocabulary starts making claims we cannot honour. Re-check code before editing:
+capability share links with optional expiry and branded workspace addresses
+(`rtfx.pro/yogev/q3-board-report`) are now implemented, but password links and custom artifact
+domains still are not.
 
 | Not shipped | What we say instead |
 |---|---|
-| **Per-link passwords / shared link secrets** | "Access-protected", "shared with named people", "sign-in is passwordless (one-time email code)". Never "password-protected". |
-| **Link expiry** | Access is revoked by hand. *API tokens* do support an optional expiry — that is a different object; don't blur them. |
-| **Custom domains for artifacts** | Content already runs on its own origin, which is the hard part. Listed as planned. |
+| **Per-link passwords / shared link passwords** | "Access-protected", "shared with named people", "sign-in is passwordless (one-time email code)", or "revocable/expiring share link" when referring to capability URLs. Never "password-protected" unless a real password gate ships. |
+| **Custom domains for artifacts** | Content already runs on its own origin, which is the hard part. Listed as planned. What *is* shipped is a branded **workspace address** — `rtfx.pro/yogev/q3-board-report` — which is a path on the app host, unique across workspaces, and never a hostname the customer owns. Say "branded address on rtfx.pro"; never "your own domain". |
 | **Comments, approvals, polls** | rtfx.pro publishes and controls the artifact; it is not the review tool around it. |
 | **Leaderboards, game hosting, templates** | Not a goal. Star's category is not ours. |
 | **A published npm package / global `artifacts` binary** | "Install the Claude Code plugin", or "run `node cli/artifacts.mjs …` from a checkout". Never `npx artifacts …`: that name is not ours on the registry. |

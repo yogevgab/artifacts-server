@@ -148,6 +148,15 @@ const PRO_FACTS: readonly PlanFact[] = [
       "This is not a custom domain; those are not built yet.",
   },
   {
+    title: "A branded address for your workspace.",
+    detail:
+      "Claim a name and every artifact gains a second, human link: " +
+      "<span class=\"mono\">rtfx.pro/yogev/q3-board-report</span>, " +
+      "<span class=\"mono\">rtfx.pro/maya/client-proposal</span>. Claim it in Settings, change it " +
+      "or give it up whenever you like — the original URL never changes, so nothing you have " +
+      "already sent can break. It is a path on rtfx.pro, not a domain of your own.",
+  },
+  {
     title: `${num(PLANS.pro.maxArtifacts)} artifacts, ${bytes(PLANS.pro.maxStorageBytes)} of storage.`,
     detail:
       "Per workspace, not per person, and enforced at publish time — you are told which limit " +
@@ -186,7 +195,9 @@ const PRO_NOT_INCLUDED: readonly PlanFact[] = [
   {
     title: "Custom domains for artifacts.",
     flag: "Not built",
-    detail: "Artifacts are served from the shared content origin on every plan.",
+    detail:
+      "Artifacts are served from the shared content origin on every plan. The branded workspace " +
+      "address above is a path on rtfx.pro, not your own hostname.",
   },
   {
     title: "Usage-based pricing.",
@@ -265,10 +276,11 @@ const TEAM_FACTS: readonly PlanFact[] = [
     detail: "Per workspace, shared across everybody in it, with full version history on every artifact.",
   },
   {
-    title: "Access still by identity, never by a secret link.",
+    title: "Access by identity first, with share links when somebody will not sign in.",
     detail:
-      "Set an artifact to the people you name, or to everyone in your workspace. Anybody else " +
-      "gets the same 404 as a page that was never published.",
+      "Set an artifact to the people you name, or to everyone in your workspace. For an outside " +
+      "recipient who will not have an account, create a revocable share link for exactly one " +
+      "artifact. Anybody else gets the same 404 as a page that was never published.",
   },
   {
     title: "One view log for the whole workspace.",

@@ -4,7 +4,9 @@ import app from "../src/index";
 import { SESSION_COOKIE } from "../src/auth";
 import { mintSession } from "../src/session";
 import { createShareLink, redeemShareLink, revokeShareLink, listShareLinks } from "../src/share";
-import { initDb, clearR2, req, as } from "./fixtures";
+import type { Env } from "../src/env";
+import { createApiToken } from "../src/tokens";
+import { initDb, clearR2, req, as, withToken } from "./fixtures";
 
 const SECRET = "test-secret-at-least-32-bytes-long-for-hs256!!";
 const OWNER = "owner@rtfx.pro";
@@ -192,6 +194,62 @@ describe("managing share links over the API", () => {
       e()
     );
     expect(res.status).toBeGreaterThanOrEqual(403);
+  });
+
+  it("enforces API-token scopes on link management", async () => {
+    const readOnly = await createApiToken(env as unknown as Env, {
+      name: "read-only",
+      ownerEmail: OWNER,
+      accountId: null,
+      isAdmin: false,
+      scopes: ["read"],
+      createdBy: OWNER,
+      expiresAt: null,
+      now: AT,
+    });
+    const manage = await createApiToken(env as unknown as Env, {
+      name: "manager",
+      ownerEmail: OWNER,
+      accountId: null,
+      isAdmin: false,
+      scopes: ["manage"],
+      createdBy: OWNER,
+      expiresAt: null,
+      now: AT,
+    });
+
+    const listed = await app.request("https://rtfx.pro/api/artifacts/report/links", withToken(readOnly.token), e());
+    expect(listed.status).toBe(200);
+
+    const refusedCreate = await app.request(
+      "https://rtfx.pro/api/artifacts/report/links",
+      withToken(readOnly.token, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }),
+      e()
+    );
+    expect(refusedCreate.status).toBe(403);
+    expect(await refusedCreate.json()).toMatchObject({ error: "insufficient_scope" });
+
+    const created = await app.request(
+      "https://rtfx.pro/api/artifacts/report/links",
+      withToken(manage.token, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }),
+      e()
+    );
+    expect(created.status).toBe(201);
+    const { id } = (await created.json()) as { id: string };
+
+    const refusedDelete = await app.request(
+      `https://rtfx.pro/api/artifacts/report/links/${id}`,
+      withToken(readOnly.token, { method: "DELETE" }),
+      e()
+    );
+    expect(refusedDelete.status).toBe(403);
+
+    const deleted = await app.request(
+      `https://rtfx.pro/api/artifacts/report/links/${id}`,
+      withToken(manage.token, { method: "DELETE" }),
+      e()
+    );
+    expect(deleted.status).toBe(200);
   });
 });
 

@@ -33,6 +33,7 @@ import {
   listMembers,
   accountIdsWithAtLeast,
   atLeast,
+  getAccountByPublicSlug,
   memberRole,
   resolveAccountContext,
   MANAGE_ARTIFACTS,
@@ -46,6 +47,8 @@ import { viewLimitStatus, blocksOnViewLimit, blocksOnSuspension } from "./quota"
 import { overViewLimitPage, suspendedContentPage } from "./view-limit-page";
 export { ChatRoom } from "./chat";
 import { redeemShareLink } from "./share";
+import { accountSlugRoutes, addressNotice, brandedBase } from "./account-slug-routes";
+import { brandedPathParts } from "./account-slugs";
 
 /**
  * Carries a redeemed share key.
@@ -122,6 +125,17 @@ app.use("*", async (c, next) => {
     }
     if (isManagementPath(c.req.path)) return c.html(notFoundPage(), 404);
   } else if (!isManagementPath(c.req.path) && !isPerOriginPath(c.req.path)) {
+    // A branded workspace address (`/yogev/q3-board-report`) is an APP-host
+    // route, so it must not be blanket-redirected to the content host the way
+    // every other unknown path is. Only GET, and only the exact two-segment
+    // shape — see `brandedPathParts`. The route itself falls back to this same
+    // redirect when the first segment is not a claimed address, so a
+    // two-segment path that is really an artifact's own sub-path keeps behaving
+    // exactly as it did before branded addresses existed.
+    if (c.req.method === "GET" && brandedPathParts(c.req.path)) {
+      await next();
+      return;
+    }
     if (c.req.method === "GET" || c.req.method === "HEAD") {
       const target = new URL(c.req.url);
       target.host = contentHost;
@@ -399,7 +413,26 @@ app.get("/admin/integrations", requireUser, async (c) => {
   return c.html(integrationsPage(viewer, tokens, siteOrigin(c.env)));
 });
 
-app.get("/admin/settings", requireUser, async (c) => c.html(settingsPage(await viewerOf(c))));
+app.get("/admin/settings", requireUser, async (c) => {
+  const viewer = await viewerOf(c);
+  const ws = viewer.workspace;
+  return c.html(
+    settingsPage(
+      viewer,
+      ws
+        ? {
+            origin: c.env.PUBLIC_BASE_URL || siteOrigin(c.env),
+            slug: ws.publicSlug ?? null,
+            canEdit: ws.role === "owner" || ws.role === "admin" || viewer.isAdmin,
+            // Absent billing means "not computed", never "free" — so the row
+            // shows the address without offering an upgrade it cannot price.
+            planAllows: ws.brandedAddressAllowed ?? false,
+            notice: addressNotice(c.req.query("address")),
+          }
+        : undefined
+    )
+  );
+});
 
 // The operator control plane: /admin/platform and everything under it, GET and
 // POST. Mounted BEFORE the /admin/* catch-all below, which would otherwise
@@ -412,6 +445,12 @@ app.route("/", platformRoutes);
 // same reason platformRoutes is — the /admin/* catch-all below owns everything
 // after it. See src/workspace-routes.ts.
 app.route("/", workspaceRoutes);
+
+// Claiming/changing the workspace's branded address: POST /admin/workspace/address
+// (the Settings form) and PUT|DELETE /api/workspace/:id/slug. Mounted here for
+// the same reason workspaceRoutes is — the /admin/* catch-all below owns
+// everything after it. See src/account-slug-routes.ts.
+app.route("/", accountSlugRoutes);
 
 // Anything else under /admin is not a section. Render the portal shell so the
 // person still has navigation, but answer 404 so a mistyped URL is never a 200.
@@ -816,6 +855,71 @@ app.get("/_chat/:slug", async (c) => {
 
   const stub = c.env.CHAT.get(c.env.CHAT.idFromName(slug));
   return stub.fetch(new Request(c.req.url, { headers, method: "GET" }));
+});
+
+/**
+ * The branded workspace link: `https://rtfx.pro/yogev/q3-board-report`.
+ *
+ * A LINK, not a second copy of the artifact. It authorizes nothing itself and
+ * renders nothing itself: it answers one question — does this workspace address
+ * own this artifact slug — and then redirects to the artifact's real URL on the
+ * content origin, where every existing rule (sign-in bounce, share key, guest
+ * session, workspace membership, view limit, suspension) runs exactly as it
+ * does for a link somebody pasted from the API. That is deliberate and is the
+ * whole security story: uploaded HTML is still only ever served from the origin
+ * that serves files and nothing else, so nothing here can put somebody's page
+ * same-origin with the dashboard, the API or /admin.
+ *
+ * The query string survives the redirect, so `?k=<share key>` keeps working on
+ * a branded link exactly as it does on a content-origin one.
+ *
+ * Three outcomes, and the difference between them is the point:
+ *
+ *  - **Address claimed, artifact belongs to it** → 302 to the content origin.
+ *  - **Address claimed, artifact missing OR owned by another workspace** →
+ *    the same 404 page, byte for byte. A branded namespace must never become an
+ *    oracle for "does maya have an artifact called client-proposal", and it must
+ *    never front another workspace's content, which is why the `account_id`
+ *    comparison is not optional.
+ *  - **Address not claimed by anybody** → precisely what this path did before
+ *    branded addresses existed: the app host's redirect to the content origin
+ *    (or, on a single-host deployment, the catch-all below). `/report/preview`
+ *    is a real artifact sub-path, and links already sent must not start 404ing
+ *    because a two-segment URL now *looks* like somebody's namespace.
+ *
+ * Registered before the catch-all so it wins, and it is a wildcard rather than
+ * `/:a/:b` so there is no routing-precedence question against `/_chat/:slug` or
+ * anything else already registered — a request it does not own falls straight
+ * through with `next()`.
+ */
+app.get("*", async (c, next) => {
+  const parts = brandedPathParts(c.req.path);
+  if (!parts) return next();
+  // On the content origin `/a/b` is an artifact's own asset path, never an
+  // address. The isolation middleware already keeps app routes off that host;
+  // this keeps the branded route off it too.
+  if (isContentHost(c.env, c.req.url)) return next();
+
+  const contentHost = firstContentHostname(c.env);
+  const account = await getAccountByPublicSlug(c.env, parts.accountSlug);
+  if (!account) {
+    if (!contentHost) return next();
+    const target = new URL(c.req.url);
+    target.host = contentHost;
+    return c.redirect(target.toString(), 302);
+  }
+
+  const art = await getArtifact(c.env, parts.artifactSlug);
+  if (!art || !art.account_id || art.account_id !== account.id) {
+    return c.html(notFoundPage(parts.artifactSlug, siteOrigin(c.env)), 404);
+  }
+
+  // Deliberately NOT plan-gated on read. An address is claimed under a plan;
+  // links sent while it was held must not break when a subscription lapses.
+  const target = new URL(c.req.url);
+  if (contentHost) target.host = contentHost;
+  target.pathname = `/${encodeURIComponent(art.slug)}/`;
+  return c.redirect(target.toString(), 302);
 });
 
 app.get("*", async (c) => {

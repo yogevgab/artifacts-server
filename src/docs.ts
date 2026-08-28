@@ -77,8 +77,9 @@ const TITLE = "Publish from Claude Code or MCP · rtfx.pro docs";
 const DESCRIPTION =
   "How rtfx.pro works: connect Claude Code with a browser sign-in, publish pages, PDFs and " +
   "multi-file artifacts from the plugin, the MCP server, Hermes, the CLI or the API; control " +
-  "who can open each one; keep every version; and see exactly who viewed what — plus what is " +
-  "table stakes in this category and what actually makes rtfx.pro different.";
+  "who can open each one; send an expiring, revocable share link to someone with no account; " +
+  "keep every version; and get a read receipt the first time each recipient opens it — plus " +
+  "what is table stakes in this category and what actually makes rtfx.pro different.";
 
 /** One question, one answer — rendered as prose *and* as FAQPage structured data. */
 interface Faq {
@@ -152,10 +153,36 @@ const FAQS: readonly Faq[] = [
     q: "Can I put a password on a share link?",
     a:
       "Not today, and nothing here pretends otherwise. Access is by identity instead: you name " +
-      "the people who may open an artifact, and everyone else — signed in or not — gets a 404. " +
+      "the people who may open an artifact; anyone else gets a 404. For somebody who will never " +
+      "sign in, create a revocable share link instead. " +
       "Sign-in itself is passwordless — a one-time code or magic link by email — so there is " +
-      "no shared secret to leak, rotate or forget. Per-link secrets and custom domains are " +
-      "listed as not built on this page; share links with optional expiry are built.",
+      "no shared secret to leak, rotate or forget. What a share link does have is an optional " +
+      "expiry date and immediate revocation, which is the control most people are reaching for " +
+      "when they ask about a password. Per-link secrets and custom domains are listed as not " +
+      "built on this page.",
+  },
+  {
+    q: "Can I send something to a client who will never have an account?",
+    a:
+      "Yes — create a share link. It is a capability URL: whoever holds it can open that one " +
+      "artifact with no sign-in, and it can open nothing else you have published. You choose " +
+      "whether it never expires or expires in 7 days, 30 days, or any number of days up to 365, " +
+      "and you can revoke it immediately from the same panel. Only a hash of the link is stored, " +
+      "so it cannot be re-displayed after it is created and it cannot leak from our database. " +
+      "It carries no password. The trade is attribution: a share-link visitor holds no identity, " +
+      "so their view is not attributed to anybody in the view log — if you need to know exactly " +
+      "who read it, grant access by email instead.",
+  },
+  {
+    q: "Will I know when somebody opens what I sent?",
+    a:
+      "Yes. The first time each person you granted access to opens an artifact, rtfx.pro emails " +
+      "you — you do not have to go and look. That is on by default; switching it off for one " +
+      "artifact is an API call today (PUT /api/artifacts/:slug/receipts) rather than a control " +
+      "in the dashboard. Everything else lives on the artifact's own page in the dashboard: every view " +
+      "with its person, time, country and version; one row per viewer with how often they came " +
+      "back and which version they last saw; and which versions are still being opened, so a " +
+      "rollback does not quietly break somebody's link.",
   },
   {
     q: "How is this different from the other tools for sharing what Claude built?",
@@ -320,7 +347,10 @@ export function docsPage(env: Env): string {
           <li><b>Private by default.</b> A new artifact is restricted to its owner until they share it.</li>
           <li><b>Owned.</b> The person who published it manages it; nobody else can, however they were shared with.</li>
           <li><b>Versioned.</b> Re-publishing creates the next version at the same address.</li>
-          <li><b>Observable.</b> The owner sees every view: person, time, country, version.</li>
+          <li><b>Observable.</b> The owner sees every view — person, time, country, version — and
+            is emailed the first time each named recipient opens it.</li>
+          <li><b>Shareable beyond your account list.</b> A link that expires when you say and
+            revokes the moment you want it to, for a recipient who will never sign in.</li>
         </ul>
       </section>
 
@@ -336,12 +366,14 @@ export function docsPage(env: Env): string {
               no repo, no build, no CDN config — and send the link before you lose the context.</p></div>
           <div class="case"><span class="pill">Consultants &amp; agencies</span>
             <h3>Client-ready links that stay off the open web</h3>
-            <p>Share a deliverable with exactly the people on the account, watch who actually
-              opened it, and roll back the moment a revision lands badly.</p></div>
+            <p>Send the proposal or the report to exactly the people on the account, get an email
+              when each of them opens it, and roll back the moment a revision lands badly. For a
+              recipient who will never have an account, an expiring share link.</p></div>
           <div class="case"><span class="pill">Product &amp; data teams</span>
             <h3>An internal home for dashboards and prototypes</h3>
-            <p>Stop mailing HTML attachments and unlisted URLs. Publish once, grant the team,
-              and let the version history be the changelog.</p></div>
+            <p>Stop mailing HTML attachments and unlisted URLs. Publish the research dashboard or
+              the prototype once, grant the team, and let the version history be the
+              changelog.</p></div>
         </div>
       </section>
 
@@ -499,7 +531,8 @@ tools: publish · list_artifacts · artifact_details · artifact_statistics · s
 
       <section id="access">
         <h2>Access &amp; privacy model</h2>
-        <p>There are two independent layers, and both must say yes.</p>
+        <p>There are two normal identity layers, plus a separate share-link path for recipients who
+          will not sign in.</p>
         <ol>
           <li><b>Who may sign in at all.</b> rtfx.pro owns the identity layer. Signup and sign-in are
             passwordless — a one-time code or magic link by email — and every new workspace starts
@@ -512,7 +545,32 @@ tools: publish · list_artifacts · artifact_details · artifact_statistics · s
           404, so a link can't be used to confirm that a page exists. Artifact content is served from
           a dedicated origin that hosts files only — never the dashboard or the API — so uploaded
           HTML can't reach the app it was published from.</p>
-        <p>Worth being precise about what that origin does and doesn't do: it separates published
+
+        <h3>Share links, for recipients with no account</h3>
+        <p>Naming a person is the default and the stronger option: they sign in as themselves, the
+          view log names them, and revoking them is one action. But some recipients will never
+          have an account — a client's legal team, a reviewer you met once — and for those there
+          is a <b>share link</b>: a capability URL that opens exactly one artifact for whoever
+          holds it, with no sign-in.</p>
+        <ul>
+          <li><b>It expires, if you want it to.</b> Never, in 7 days, in 30 days, or any number of
+            days up to 365. Expiry is enforced when the link is redeemed, not by a cleanup job.</li>
+          <li><b>It revokes immediately.</b> One action in the share panel, and the next request
+            with that link — including one already inside the artifact — gets the same 404 as a
+            stranger.</li>
+          <li><b>Only a hash of it is stored.</b> The URL is shown once, when it is created, and
+            cannot be redisplayed. A database dump does not contain a working link.</li>
+          <li><b>It is scoped to one artifact.</b> Holding a link for one thing never opens
+            another, and it grants no management rights.</li>
+          <li><b>It carries no password.</b> The URL is the whole credential — that is what makes
+            expiry and revocation the controls that matter, and why a link you can't take back
+            would be the wrong design.</li>
+        </ul>
+        <p>The trade is attribution. A share-link visitor holds no identity, so their view is not
+          attributed to anybody in the view log — the link records when it was last used, and that
+          is all. If you need to know exactly who read something, grant access by email
+          instead.</p>
+        <p>Worth being precise about what the content origin does and doesn't do: it separates published
           content from rtfx.pro, and all artifacts share it. It is not a per-artifact browser
           sandbox, so two pages published by people who don't trust each other are kept apart by the
           access list — who may open what — rather than by the browser's origin boundary. Publish
@@ -536,6 +594,17 @@ tools: publish · list_artifacts · artifact_details · artifact_statistics · s
         <p>The view log answers the question client work always ends with: who opened it, when, from
           where, and which version they saw. Views are recorded for signed-in people opening a page —
           not for asset requests or machine tokens.</p>
+        <p>The artifact's page in the dashboard reads that log three ways, because "has the client
+          seen it?" and "can I safely roll back?" are different questions: <b>Views</b> is the raw
+          event list, <b>Viewers</b> is one row per person with how often they came back and which
+          version they last saw, and <b>Views by version</b> shows which versions people are still
+          opening.</p>
+        <p><b>Read receipts.</b> You do not have to go and look. The first time each person you
+          granted access to opens an artifact, rtfx.pro emails you — once per person, never for
+          your own views, and never for a share-link visitor, who has no identity to name. It is on
+          by default; switching it off for one artifact is an API call today
+          (<code>PUT /api/artifacts/:slug/receipts</code>) rather than a control in the
+          dashboard.</p>
       </section>
 
       <!-- Issue #38. A category has formed around "share what Claude just built",
@@ -573,20 +642,36 @@ tools: publish · list_artifacts · artifact_details · artifact_statistics · s
             browser sign-in rather than a token you copy between two windows, and what it leaves
             behind is still a scoped, owner-bound, revocable credential: an agent can publish as
             you and can never become you.</li>
-          <li><b>Access is an identity, not a secret URL.</b> Every artifact is restricted until you
-            name someone. An unauthorized request and a request for something that doesn't exist
-            return the identical 404, so a leaked link can't even confirm the page is real. Sharing
-            is revocable, per artifact, and never widens who can sign in.</li>
+          <li><b>Identity-first access, with bounded share links for exceptions.</b> Every artifact is
+            restricted until you name someone, or create a share link for somebody who will not sign in.
+            Unauthorized and non-existent requests return the identical 404, so a random link can't
+            even confirm the page is real. Named sharing is revocable per artifact and never widens
+            who can sign in.</li>
           <li><b>Immutable versions with one-click rollback.</b> Every publish is a new version with
             its own preview URL. Nothing you have already shared is overwritten, so a bad revision
             is an undo rather than a re-run of whatever produced it.</li>
           <li><b>A view log that names a person and a version.</b> Not a hit counter: who opened it,
             when, from which country, and which version they saw — the question every client
-            project ends with.</li>
+            project ends with. And you are emailed the first time each named recipient opens it,
+            so the answer arrives without you asking for it.</li>
+          <li><b>Share links that expire and revoke, for people with no account.</b> When the
+            recipient will never sign in, a capability URL opens exactly one artifact — with an
+            expiry you choose (never, 7 days, 30 days, up to 365) and immediate revocation. Only a
+            hash of it is stored, so it cannot be redisplayed or dumped. It is deliberately not a
+            password: the URL is the whole credential, which is exactly why being able to expire
+            and revoke it is the control that matters.</li>
           <li><b>Workspace governance.</b> Artifacts belong to a workspace, not to one shared login.
             Members carry a role — owner, admin, member or viewer — and instance privilege is
             re-derived from configuration on every request, so no database write can escalate
             anyone.</li>
+          <li><b>A branded address for the workspace, on a URL you can read out loud.</b> A paid
+            workspace can claim an address &mdash; <code>yogev</code>, <code>maya</code>, your
+            company &mdash; and every artifact in it answers at
+            <span class="mono">rtfx.pro/yogev/q3-board-report</span> and
+            <span class="mono">rtfx.pro/maya/client-proposal</span> as well as at its original URL.
+            Both keep working, forever: the branded link is a second way in, never a move. It is a
+            path on rtfx.pro, <b>not</b> a custom domain of your own &mdash; those are still not
+            built, and are listed below.</li>
           <li><b>Uploaded HTML runs somewhere it can't reach us.</b> Artifact files are served from a
             dedicated content origin that hosts files and nothing else — no dashboard, no API, no
             admin — so a page you publish can never touch the app that published it. Artifacts share
@@ -602,16 +687,23 @@ tools: publish · list_artifacts · artifact_details · artifact_statistics · s
           project needs one of these today, this is the honest place to find that out.</p>
         <ul class="stance" data-positioning="not-yet">
           <li><b>Per-link secrets.</b> <span class="stance-flag">Not built</span> A shared password
-            on the link itself, separate from the recipient's email identity. Today the answer is an
-            identity-backed access list, an optional share link, and optional expiry.</li>
+            on the link itself, separate from the recipient's email identity. What exists instead
+            is an identity-backed access list, and a share link you can give an expiry date and
+            revoke at any moment — see <a href="#access">Access &amp; privacy</a>. Neither of those
+            is a password, and this page will not call them one.</li>
           <li><b>Custom domains.</b> <span class="stance-flag">Not built</span> Serving artifacts
-            from your own hostname. Content already runs on its own origin, which is the hard
-            part.</li>
-          <li><b>Comments, approvals and polls.</b> <span class="stance-flag">Not built</span>
-            rtfx.pro publishes and controls the artifact; it is not the review tool around it.</li>
+            from your own hostname &mdash; <span class="mono">docs.yourcompany.com</span>. What is
+            built is the branded workspace address above, which is a path on rtfx.pro; the two are
+            not the same thing and this page will not blur them. Content already runs on its own
+            origin, which is the hard part.</li>
+          <li><b>Editing a published page in place.</b> <span class="stance-flag">Not built</span>
+            Fixing a number or a sentence from the dashboard without going back to the session
+            that made it. Today a change is a re-publish, which is a new version at the same link
+            — cheap when Claude is still open, and a detour when it isn't.</li>
           <li><b>Approvals, polls and review workflows.</b> <span class="stance-flag">Not built</span>
-            rtfx.pro can show read receipts and access requests, but it is not a review workflow
-            system around the artifact yet.</li>
+            rtfx.pro can show view evidence and access requests, but it is not a review workflow
+            system around the artifact — there are no comments or annotations on a page you
+            published.</li>
         </ul>
       </section>
 
@@ -650,6 +742,15 @@ tools: publish · list_artifacts · artifact_details · artifact_statistics · s
           <li><code>DELETE /api/machine/artifacts/:slug</code> — delete an artifact and its
             versions.</li>
         </ul>
+        <p>The dashboard share panel uses the same authenticated API surface with the same scope
+          rules as the rest of artifact management:
+          <code>GET /api/artifacts/:slug/links</code> lists links for callers with <code>read</code>,
+          <code>POST /api/artifacts/:slug/links</code> and
+          <code>DELETE /api/artifacts/:slug/links/:id</code> create and revoke links for callers
+          with <code>manage</code> (<code>{"expires_in_days": 30}</code>, 1–365, omit for a link
+          that never expires — the URL comes back once and is never stored), and
+          <code>GET/PUT /api/artifacts/:slug/receipts</code> reads and sets the read-receipt
+          switch for one artifact.</p>
         <p><code>read</code> covers the listings, <code>publish</code> covers publishing and
           rollback, <code>manage</code> covers sharing and deletion — a token holds only the scopes
           you gave it. Managing people or minting tokens is not on this surface at all: those need

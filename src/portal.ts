@@ -69,6 +69,19 @@ export interface PortalViewer {
     /** How many workspaces this person belongs to, for the "+N more" hint. */
     count: number;
     /**
+     * The workspace's branded address — the `yogev` in
+     * `rtfx.pro/yogev/q3-board-report` — or null when it has not claimed one.
+     * See src/account-slugs.ts.
+     */
+    publicSlug?: string | null;
+    /**
+     * May this workspace claim a branded address on its current (effective)
+     * plan? Carried explicitly rather than re-derived from `billing.plan` by
+     * each renderer: `billing` is optional and its absence means "not
+     * computed", which must never be read as "free".
+     */
+    brandedAddressAllowed?: boolean;
+    /**
      * Plan, usage against its limits, and an upgrade path for this workspace
      * (free-to-paid path). Optional — and every renderer that reads it must
      * treat its absence as "unknown, not free": a caller that hasn't computed

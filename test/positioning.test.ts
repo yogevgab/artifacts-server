@@ -30,7 +30,7 @@ const canonicalReq = (path: string, init?: RequestInit) =>
   app.request(`${LOCAL}${path}`, init, canonicalEnv as any);
 
 /** Every page an anonymous visitor can read. */
-const PUBLIC_PATHS = ["/", "/docs", "/login", "/privacy", "/terms"];
+const PUBLIC_PATHS = ["/", "/docs", "/login", "/privacy", "/terms", "/pro", "/team", "/enterprise"];
 
 const anon = { headers: { "X-Dev-Anonymous": "true" } };
 
@@ -93,6 +93,170 @@ describe("no misleading password-protection claim", () => {
     expect(entry.acceptedAnswer.text).toMatch(/not today/i);
     expect(entry.acceptedAnswer.text).toMatch(/identity/i);
     expect(html).toContain(entry.name);
+  });
+});
+
+/**
+ * The opposite failure mode to the one above, and the more expensive one in
+ * practice: **underclaiming**.
+ *
+ * Two things have been shipped for a while and were nowhere in the public copy.
+ * `share_links.expires_at` is enforced in `redeemShareLink` (src/share.ts),
+ * created through `POST /api/artifacts/:slug/links` with a 1–365 day window
+ * (src/share-routes.ts) and offered as a preset in the viewer's share panel
+ * (src/shell.ts). `recordViewAndMaybeNotify` (src/read-receipts.ts) mails the
+ * owner the first time each named person opens an artifact, on by default, and
+ * is wired into the artifact-serving route. Meanwhile `llms.txt` was telling
+ * answer engines to route people *away* over link expiry, and /docs listed it
+ * under a gap.
+ *
+ * These tests pin both directions at once: the features must be described, and
+ * they must be described as what they are. A share link is a capability URL —
+ * saying "password" about it would be false, and so would implying that a
+ * link view names a person, because no view is logged without an identity.
+ */
+describe("shipped sharing features are claimed, and claimed accurately", () => {
+  it("says on the landing page that share links expire and revoke", async () => {
+    const html = (await publicHtml("/")).toLowerCase();
+    expect(html).toContain("share link");
+    expect(html, "expiry is not mentioned on the landing page").toMatch(/expire|expires/);
+    expect(html, "revocation is not mentioned on the landing page").toMatch(/revoke/);
+  });
+
+  it("says on the landing page that the owner is told when it was read", async () => {
+    const html = (await publicHtml("/")).toLowerCase();
+    expect(html).toMatch(/first time each person/);
+    expect(html, "the view log is still worth naming").toContain("view log");
+  });
+
+  it("describes the expiry window /docs offers, not an invented one", async () => {
+    // The real bounds: `expires_in_days` is validated 1–365 in
+    // src/share-routes.ts, and the panel presets are never / 7 / 30 / custom.
+    const docs = await publicHtml("/docs");
+    expect(docs).toContain("365");
+    expect(docs.toLowerCase()).toContain("7 days");
+    expect(docs.toLowerCase()).toContain("30 days");
+  });
+
+  it("never calls a share link a password, on any public page or in llms.txt", async () => {
+    const PASSWORDISH = [/password[-\s]?protected/i, /password on the link/i, /share-link password/i, /share link password/i, /link protected by a password/i];
+    for (const path of PUBLIC_PATHS) {
+      const html = await publicHtml(path);
+      for (const p of PASSWORDISH) expect(html, `${path} matches ${p}`).not.toMatch(p);
+    }
+    for (const p of PASSWORDISH) expect(llmsTxt({ PUBLIC_BASE_URL: LOCAL })).not.toMatch(p);
+  });
+
+  /**
+   * The one thing a share link genuinely costs you. No view is logged without
+   * an identity (src/index.ts only calls `recordViewAndMaybeNotify` when
+   * `identity?.email` is set), so a link visitor appears nowhere in the view
+   * log — and copy that implies otherwise would be selling attribution this
+   * product does not provide for that path.
+   */
+  it("admits that a share-link view is not attributed to a person", async () => {
+    const docs = (await publicHtml("/docs")).toLowerCase();
+    expect(docs).toMatch(/not attributed to (anybody|anyone|a person)/);
+    expect(llmsTxt({ PUBLIC_BASE_URL: LOCAL }).toLowerCase()).toMatch(
+      /not attributed\s+to a person in the view log/
+    );
+  });
+
+  it("scopes the read receipt to named people, never to everyone who opens it", async () => {
+    const lower = llmsTxt({ PUBLIC_BASE_URL: LOCAL }).toLowerCase();
+    expect(lower).toContain("read receipts");
+    expect(lower).toMatch(/never for\s+a share-link visitor/);
+    const docs = (await publicHtml("/docs")).toLowerCase();
+    expect(docs).toContain("read receipt");
+    expect(docs, "the docs must say who a receipt is *not* sent for").toMatch(
+      /never for a share-link visitor/
+    );
+  });
+
+  it("no longer lists either of them as a gap", async () => {
+    const html = await publicHtml("/docs");
+    const open = html.indexOf('<ul class="stance" data-positioning="not-yet">');
+    const section = html.slice(open, html.indexOf("</ul>", open)).toLowerCase();
+    for (const shipped of ["link expiry", "read receipt", "expiring"]) {
+      expect(section, `shipped feature still listed as a gap: ${shipped}`).not.toContain(shipped);
+    }
+    const notShipped = llmsTxt({ PUBLIC_BASE_URL: LOCAL });
+    const gaps = notShipped.slice(notShipped.indexOf("## Not shipped yet"));
+    const firstGapSection = gaps.slice(0, gaps.indexOf("\n## ", 3)).toLowerCase();
+    expect(firstGapSection).not.toContain("read receipt");
+    // "Share links themselves are shipped" is the one legal mention: the gap is
+    // the password, and the sentence exists precisely to stop the confusion.
+    expect(firstGapSection).toMatch(/share links themselves\s+are\s+shipped/);
+  });
+});
+
+/**
+ * Branded workspace addresses — `rtfx.pro/yogev/q3-board-report`.
+ *
+ * The riskiest copy this product has shipped, because the feature sits one word
+ * away from one it does NOT have. A branded address is a path on rtfx.pro; a
+ * custom domain is a hostname the customer owns and controls DNS for. Every
+ * competitor in this category advertises the second one, so any page that
+ * describes the first in the second's vocabulary — "your own domain", "custom
+ * domain" as an available feature — is making a claim we cannot honour, and an
+ * answer engine will repeat it.
+ *
+ * These tests therefore pin both halves at once: the shipped thing must be
+ * described (an unclaimed feature is a feature nobody buys), and the unshipped
+ * thing must stay in every gaps list it was already in.
+ */
+describe("branded workspace addresses are claimed, and not confused with custom domains", () => {
+  it("shows both advertised examples on the Pro page", async () => {
+    const html = await publicHtml("/pro");
+    expect(html).toContain("rtfx.pro/yogev/q3-board-report");
+    expect(html).toContain("rtfx.pro/maya/client-proposal");
+  });
+
+  it("describes it in /docs as something different from a custom domain", async () => {
+    const html = await publicHtml("/docs");
+    expect(html).toContain("rtfx.pro/yogev/q3-board-report");
+    expect(html.toLowerCase()).toMatch(/not.{0,4}<\/b>? ?a custom domain|not a custom domain of your own/);
+  });
+
+  it("tells an answer engine the feature exists, with the URLs it should quote", async () => {
+    const lower = llmsTxt({ PUBLIC_BASE_URL: LOCAL }).toLowerCase();
+    expect(lower).toContain("branded workspace address");
+    expect(lower).toContain("rtfx.pro/yogev/q3-board-report");
+    expect(lower).toContain("rtfx.pro/maya/client-proposal");
+  });
+
+  it("keeps custom domains in the gaps list on every surface that has one", async () => {
+    const txt = llmsTxt({ PUBLIC_BASE_URL: LOCAL });
+    const gaps = txt.slice(txt.indexOf("## Not shipped yet"));
+    expect(gaps.slice(0, gaps.indexOf("\n## ", 3)).toLowerCase()).toContain("custom domains");
+
+    const docs = await publicHtml("/docs");
+    const open = docs.indexOf('<ul class="stance" data-positioning="not-yet">');
+    const section = docs.slice(open, docs.indexOf("</ul>", open)).toLowerCase();
+    expect(section).toContain("custom domains");
+  });
+
+  /**
+   * The exact sentence a reader could quote back at us. "Your own domain" and
+   * "custom domain" may appear on a public page ONLY as a description of what
+   * is missing — never as a bullet of what a plan includes.
+   */
+  it("never offers a custom domain as something a plan includes", async () => {
+    for (const path of PUBLIC_PATHS) {
+      const lower = (await publicHtml(path)).toLowerCase();
+      for (const overclaim of [
+        /custom domains? (are |is )?(now )?(available|included|supported)/,
+        /serve .{0,40}from your own (domain|hostname)\b(?!.{0,80}not)/,
+        /bring your own domain/,
+      ]) {
+        expect(lower, `${path} matches ${overclaim}`).not.toMatch(overclaim);
+      }
+    }
+  });
+
+  it("says the original artifact URL is unaffected, so nobody reads it as a migration", async () => {
+    const lower = (await publicHtml("/docs")).toLowerCase();
+    expect(lower).toMatch(/both keep working|as well as at its original url/);
   });
 });
 
@@ -210,15 +374,86 @@ describe("the wedge is stated on the landing page", () => {
    * further down the page — the rule is only that none may stand between a
    * first-time visitor and the sentence explaining what this is.
    */
-  it("keeps infrastructure vocabulary out of the headline and the lead", async () => {
+  it("keeps infrastructure vocabulary out of the whole hero, not only the headline", async () => {
     const html = await publicHtml("/");
-    const hero = html.slice(html.indexOf("<h1"), html.indexOf('class="quick-add"')).toLowerCase();
+    // The slice used to stop at the quick-add strip, which was the third thing
+    // in the hero. That strip is now down in the setup band, so the boundary
+    // moved to the start of the first product band — which means the guard
+    // covers the headline, the lead, the CTAs *and* the four steps, rather than
+    // only the two sentences it used to reach.
+    const hero = html.slice(html.indexOf("<h1"), html.indexOf('id="features"')).toLowerCase();
+    expect(hero.length, "hero slice is empty — the boundary markers moved").toBeGreaterThan(500);
     for (const jargon of ["mcp", "api", "cli", "oauth", "artifact", "static host", "endpoint"]) {
-      expect(hero, `headline/lead includes jargon: ${jargon}`).not.toContain(jargon);
+      expect(hero, `hero includes jargon: ${jargon}`).not.toContain(jargon);
     }
     // …and they are still on the page, lower down, for a reader who wants them.
     const lower = html.toLowerCase();
     for (const term of ["mcp", "oauth", "artifact"]) expect(lower).toContain(term);
+  });
+
+  /**
+   * Reading order, which is the whole of this pass.
+   *
+   * The page used to put the two install cards second — directly under the hero,
+   * above every sentence explaining why anybody would want them. That reads as
+   * "here is a developer tool to set up", and the people this product is for
+   * (the consultant with a proposal, the analyst with a dashboard) do not want a
+   * tool. They want the thing they already made to arrive somewhere safely.
+   *
+   * So: desire first, installation after. Setup is not hidden — it has its own
+   * anchor, a link from the hero and a link from the final CTA — it is simply
+   * not the argument.
+   */
+  it("argues value before it asks for an install", async () => {
+    const html = await publicHtml("/");
+    const at = (marker: string) => {
+      const i = html.indexOf(marker);
+      expect(i, `landing page is missing ${marker}`).toBeGreaterThan(-1);
+      return i;
+    };
+
+    // What you'd send, then what you say to Claude, then control/evidence —
+    // and only then how to install it.
+    expect(at('id="features"')).toBeLessThan(at('data-landing="in-claude"'));
+    expect(at('data-landing="in-claude"')).toBeLessThan(at('data-landing="privacy"'));
+    expect(at('data-landing="privacy"')).toBeLessThan(at('id="setup"'));
+    expect(at('id="setup"')).toBeLessThan(at('data-landing="connectors"'));
+    expect(at('id="setup"')).toBeLessThan(at('id="pricing"'));
+
+    // Nothing installable stands between the visitor and the pitch: no install
+    // command, no package download and no connector card above the use cases.
+    const beforeValue = html.slice(0, at('id="features"'));
+    for (const install of ["/plugin install", "/plugin marketplace", "rtfx.dxt", "claude mcp add"]) {
+      expect(beforeValue, `install detail above the value: ${install}`).not.toContain(install);
+    }
+
+    // …but it is one anchor away from the first screen, and from the last one.
+    expect(html.slice(0, at('id="features"'))).toContain('href="#setup"');
+    expect(html).toContain('data-cta="final-setup"');
+  });
+
+  /**
+   * The four beats the page has to land, in the buyer's own terms. Asserted on
+   * meaning rather than wording so the copy can keep improving: ask Claude to
+   * make it, ask Claude to publish it, the recipient gets a protected link, and
+   * the owner gets evidence plus the ability to change it in place.
+   */
+  it("leads with the real-life round trip rather than with the connector list", async () => {
+    const lower = (await publicHtml("/")).toLowerCase();
+    const heroToSetup = lower.slice(lower.indexOf("<h1"), lower.indexOf('id="setup"'));
+    for (const [what, pattern] of [
+      ["asking Claude to make it", /ask claude to make it|asked claude for/],
+      ["asking Claude to publish it", /ask claude to publish|publish this as a private link/],
+      ["a protected link for named recipients", /only the people you name can open it|you decide access/],
+      ["evidence that it was read", /first time each person/],
+      ["updating without resending", /update it without resending/],
+    ] as const) {
+      expect(heroToSetup, `the value story never covers: ${what}`).toMatch(pattern);
+    }
+    // The deliverables somebody actually sends, not build outputs.
+    for (const deliverable of ["proposal", "report", "dashboard", "prototype", "preview"]) {
+      expect(heroToSetup, `no use case names a ${deliverable}`).toContain(deliverable);
+    }
   });
 
   it("leads with agent-native publishing, private sharing, versions and workspaces", async () => {
@@ -325,7 +560,7 @@ describe("llms.txt gives an answer engine the comparison and the gaps", () => {
     const lower = txt().toLowerCase();
     for (const claim of [
       "agent-native publishing",
-      "identity-backed list",
+      "identity-first access",
       "immutable versions",
       "workspaces with roles",
       "separate content origin",
@@ -344,7 +579,9 @@ describe("llms.txt gives an answer engine the comparison and the gaps", () => {
     for (const gap of ["per-link password", "custom domains", "metered pricing", "soc 2"]) {
       expect(lower, `llms.txt missing gap: ${gap}`).toContain(gap);
     }
-    expect(lower).toContain("there is no password on a share link");
+    // Whitespace-tolerant: this sentence sits inside a wrapped paragraph, and
+    // pinning the line break would fail on a reflow that changed nothing.
+    expect(lower).toMatch(/there is no password\s+on a share link/);
     expect(lower).toMatch(/there is no customer-facing\s+audit export/);
     // …and nothing shipped may appear in that section. An answer engine reading
     // "MCP" under "Not shipped yet" would repeat it long after it stopped being true.

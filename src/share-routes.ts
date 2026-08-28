@@ -9,7 +9,7 @@
 
 import { Hono, type Context } from "hono";
 import type { AppBindings, Env } from "./env";
-import { requireUser, accountsFor, type AuthVars } from "./auth";
+import { requireUser, requireScope, accountsFor, type AuthVars } from "./auth";
 import { canManage } from "./authz";
 import { getArtifact } from "./db";
 import { firstContentHostname } from "./host";
@@ -37,13 +37,13 @@ function linkUrl(env: Env, slug: string, key: string): string {
   return `https://${host}/${encodeURIComponent(slug)}/?k=${encodeURIComponent(key)}`;
 }
 
-shareRoutes.get("/api/artifacts/:slug/links", async (c) => {
+shareRoutes.get("/api/artifacts/:slug/links", requireScope("read"), async (c) => {
   const slug = c.req.param("slug");
   if (!(await manageable(c, slug))) return c.json({ error: "not_found" }, 404);
   return c.json({ links: await listShareLinks(c.env, slug) });
 });
 
-shareRoutes.post("/api/artifacts/:slug/links", async (c) => {
+shareRoutes.post("/api/artifacts/:slug/links", requireScope("manage"), async (c) => {
   const slug = c.req.param("slug");
   if (!(await manageable(c, slug))) return c.json({ error: "not_found" }, 404);
 
@@ -68,7 +68,7 @@ shareRoutes.post("/api/artifacts/:slug/links", async (c) => {
   return c.json({ id: link.id, url: linkUrl(c.env, slug, link.key), expires_at: link.expiresAt }, 201);
 });
 
-shareRoutes.delete("/api/artifacts/:slug/links/:id", async (c) => {
+shareRoutes.delete("/api/artifacts/:slug/links/:id", requireScope("manage"), async (c) => {
   const slug = c.req.param("slug");
   if (!(await manageable(c, slug))) return c.json({ error: "not_found" }, 404);
   const ok = await revokeShareLink(c.env, slug, c.req.param("id"), new Date().toISOString());

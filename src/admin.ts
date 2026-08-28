@@ -984,7 +984,7 @@ export function artifactDetailPage(o: ArtifactDetailInput): string {
  * at the two places that act on it: the header switcher, and the Members page
  * for the workspace it currently names.
  */
-function workspacePanel(viewer: PortalViewer): string {
+function workspacePanel(viewer: PortalViewer, address?: WorkspaceAddress): string {
   const ws = viewer.workspace;
   if (!ws) {
     return `<section class="panel" data-panel="workspace" data-workspace-state="none"
@@ -1038,6 +1038,7 @@ function workspacePanel(viewer: PortalViewer): string {
         accountRoleLabel(ws.role)
       )}</span></div>
     </div>
+    ${addressRow(address)}
     ${
       ws.role === "owner" || ws.role === "admin"
         ? `<div class="row" data-setting="workspace-members">
@@ -1052,6 +1053,97 @@ function workspacePanel(viewer: PortalViewer): string {
     }
     ${planRow(ws.billing)}
   </section>`;
+}
+
+/**
+ * What Settings needs to render (and offer to change) the workspace's branded
+ * address — the `yogev` in `rtfx.pro/yogev/q3-board-report`.
+ *
+ * Optional wherever it is accepted, and absent means "not computed" rather than
+ * "this workspace has none": a caller that has not looked the address up gets a
+ * panel without the row, never a row claiming there is no address. Same rule as
+ * {@link WorkspaceBilling}.
+ */
+export interface WorkspaceAddress {
+  /** The app origin, so the examples are this deployment's real URLs. */
+  origin: string;
+  /** The claimed address, or null when the workspace has not claimed one. */
+  slug: string | null;
+  /** Owner, admin, or a platform admin: everybody else sees it read-only. */
+  canEdit: boolean;
+  /** Does the workspace's effective plan allow claiming one? */
+  planAllows: boolean;
+  /** The outcome of the last submission, read back off `?address=`. */
+  notice?: { kind: "ok" | "error"; text: string };
+}
+
+/**
+ * The branded-address row.
+ *
+ * Three states, and the copy has to be exact about the one thing people will
+ * assume: this is a second address on rtfx.pro, NOT a custom domain. Custom
+ * domains are not built (see "Not here yet" below on this same page), and a row
+ * that let the two blur would be selling something that does not exist.
+ *
+ * The form is an ordinary POST with a real submit button, like the workspace
+ * switcher: it works with JavaScript switched off, and the result comes back as
+ * a redirect the page reads out of `?address=`.
+ */
+function addressRow(address?: WorkspaceAddress): string {
+  if (!address) return "";
+  const { origin, slug, canEdit, planAllows, notice } = address;
+  const shown = slug
+    ? `<a class="mono" href="${esc(`${origin}/${slug}`)}" data-branded-base>${esc(
+        `${origin.replace(/^https?:\/\//, "")}/${slug}`
+      )}</a>`
+    : `<span class="badge is-locked" data-badge="workspace-address">Not set</span>`;
+
+  const example = slug
+    ? `Artifacts here answer at <span class="mono">${esc(
+        `${origin.replace(/^https?:\/\//, "")}/${slug}/q3-board-report`
+      )}</span> as well as their content-origin URL. Both keep working.`
+    : `Claim one and every artifact in this workspace gets a second, human link —
+       <span class="mono">${esc(origin.replace(/^https?:\/\//, ""))}/yogev/q3-board-report</span>,
+       <span class="mono">${esc(origin.replace(/^https?:\/\//, ""))}/maya/client-proposal</span>.
+       It is a path on ${esc(origin.replace(/^https?:\/\//, ""))}, not a domain of your own.`;
+
+  const noticeHtml = notice
+    ? `<p class="addr-notice" data-address-notice="${esc(notice.kind)}">${esc(notice.text)}</p>`
+    : "";
+
+  const form = !canEdit
+    ? `<p class="addr-note">Only an owner or admin of this workspace can change its address.</p>`
+    : !planAllows
+      ? `<p class="addr-note" data-address-locked>A workspace address is a
+         <a href="/pro">Pro</a> feature. Every artifact keeps its existing URL either way.</p>`
+      : `<form class="addr-form" method="post" action="/admin/workspace/address"
+          data-form="workspace-address">
+        <label for="ws-address">Workspace address</label>
+        <div class="addr-line">
+          <span class="mono addr-prefix">${esc(origin.replace(/^https?:\/\//, ""))}/</span>
+          <input id="ws-address" name="slug" value="${esc(slug ?? "")}" autocomplete="off"
+            spellcheck="false" placeholder="yogev" minlength="3" maxlength="63"
+            pattern="[a-z0-9][a-z0-9-]{1,61}[a-z0-9]"
+            aria-describedby="ws-address-help">
+          <button type="submit" class="small">${slug ? "Change" : "Claim"}</button>
+          ${
+            slug
+              ? `<button type="submit" name="release" value="1" class="ghost small"
+                  data-address-release>Release</button>`
+              : ""
+          }
+        </div>
+        <p class="hint" id="ws-address-help">Lowercase letters, numbers and hyphens, 3–63
+          characters. Changing it does not break anything you have already sent: an artifact's
+          content-origin URL never changes.</p>
+      </form>`;
+
+  return `<div class="row is-stacked" data-setting="workspace-address"
+    data-address-state="${slug ? "claimed" : "unclaimed"}">
+    <div class="info"><b>Workspace address</b><span class="hint">${example}</span></div>
+    <div class="row-actions">${shown}</div>
+    ${noticeHtml}${form}
+  </div>`;
 }
 
 /**
@@ -1095,7 +1187,7 @@ function planRow(billing: WorkspaceBilling | undefined): string {
   </div>`;
 }
 
-export function settingsPage(viewer: PortalViewer): string {
+export function settingsPage(viewer: PortalViewer, address?: WorkspaceAddress): string {
   const account = `<section class="panel" data-panel="account" aria-labelledby="account-h">
     <div class="panel-head"><div>
       <h2 id="account-h">You</h2>
@@ -1167,8 +1259,9 @@ export function settingsPage(viewer: PortalViewer): string {
         find.</p>
     </div></div>
     <div class="row" data-placeholder="custom-domain">
-      <div class="info"><b>Custom domains</b><span class="hint">Serve artifacts from your own
-        hostname. Content already runs on its own origin, which is the hard part.</span></div>
+      <div class="info"><b>Custom domains</b><span class="hint">Serve artifacts from a hostname you
+        own. Different from the workspace address above, which is a path on this instance: this is
+        your own DNS. Content already runs on its own origin, which is the hard part.</span></div>
       <div class="row-actions"><span class="badge is-locked">Planned</span></div>
     </div>
     <div class="row" data-placeholder="webhooks">
@@ -1189,9 +1282,31 @@ export function settingsPage(viewer: PortalViewer): string {
     title: "Settings",
     heading: "Settings",
     lede: `You, your workspace, and how this instance decides who reaches what.`,
-    body: `${account}${workspacePanel(viewer)}${security}${later}`,
+    body: `${account}${workspacePanel(viewer, address)}${security}${later}`,
+    style: SETTINGS_STYLE,
   });
 }
+
+/**
+ * The address row is the first control in Settings that is a form rather than a
+ * link, so it needs a stacked variant of `.row` — the flex row that puts info
+ * and actions side by side has nowhere to put an input.
+ */
+const SETTINGS_STYLE = `
+.row.is-stacked{flex-wrap:wrap}
+.row.is-stacked .info{flex:1 1 22rem}
+.addr-form{flex:1 1 100%;margin-top:.85rem;padding-top:.85rem;border-top:1px solid var(--border)}
+.addr-form label{display:block;font-weight:600;font-size:.85rem;margin-bottom:.35rem}
+.addr-line{display:flex;gap:.4rem;align-items:center;flex-wrap:wrap}
+.addr-prefix{color:var(--muted);font-size:.9rem}
+.addr-form input{flex:0 1 16rem;min-width:9rem}
+.addr-form .hint{margin-top:.5rem}
+.addr-note{flex:1 1 100%;margin:.85rem 0 0;padding-top:.85rem;border-top:1px solid var(--border);
+  font-size:.9rem;color:var(--muted)}
+.addr-notice{flex:1 1 100%;margin:.75rem 0 0;font-size:.9rem}
+.addr-notice[data-address-notice="ok"]{color:var(--ok,#137a4a)}
+.addr-notice[data-address-notice="error"]{color:var(--danger,#b4232a)}
+`;
 
 // --- Platform (super admin only) --------------------------------------------
 
