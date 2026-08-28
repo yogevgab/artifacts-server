@@ -5,8 +5,10 @@
  * survives them changing devices; a link names nobody and works for whoever
  * holds it. Both are legitimate — "send this to the client" and "let Dana in"
  * are different asks — but they must never be confused, which is why they live
- * in separate tables and the view log records `via link` rather than inventing
- * a viewer.
+ * in separate tables and why a link view is never attributed to a person: the
+ * artifact route only logs a view when an identity carries an email
+ * (src/index.ts), so a link visitor leaves `last_used_at` on the link and
+ * nothing in the view log. Public copy must say so — see /docs#access.
  *
  * The URL *is* the credential. So: only a hash is stored, revocation is
  * immediate, expiry is optional but supported, and a link opens exactly one

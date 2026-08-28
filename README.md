@@ -10,11 +10,13 @@ published from a web dashboard, a CLI, or an agent session (Claude Code, Hermes)
 **per-artifact permissions** and **versioning**.
 
 - 🤖 **Agent-native publishing** — Claude Code, a native MCP server, Hermes, the CLI and the HTTP API all take the same path a human takes; no separate, weaker agent route. See [`plugins/rtfx`](plugins/rtfx) and [`docs/MCP.md`](docs/MCP.md).
-- 👥 **Access by identity, not a secret link** — each artifact is private, shared with named people, or open to all signed-in users. Unauthorized and non-existent both return **404**.
+- 👥 **Access by identity first** — each artifact is private, shared with named people, or open to all signed-in users. Unauthorized and non-existent both return **404**.
+- 🔗 **Revocable share links** — for someone who will not have an account, create a capability URL for exactly one artifact, optionally expiring in 1–365 days. Only a hash is stored.
 - 🕓 **Versioning** — every re-publish is a new immutable version; roll back within your plan's
   retention window (free keeps the last 5; paid plans keep everything).
-- 📈 **Views log** — see who viewed each artifact, when, which version, and from where — per person, not an aggregate counter.
+- 📈 **Views log + read receipts** — see who viewed each artifact, when, which version, and from where, with an email the first time each named recipient opens it.
 - 🏢 **Workspaces & roles** — artifacts belong to an account with `owner`/`admin`/`member`/`viewer` roles; instance privilege is re-derived from config, never read from a table.
+- 🔗 **Branded workspace addresses** — a paid workspace claims an address and every artifact in it also answers at `rtfx.pro/yogev/q3-board-report` / `rtfx.pro/maya/client-proposal`. The original content-origin URL keeps working unchanged, and the branded route only ever redirects there — a path on the app host, **not** a custom domain.
 - 🌐 **Public product site** — `/`, `/docs`, `/signup`, `/login`, `/privacy` and `/terms` are reachable by anyone, with SEO metadata, `sitemap.xml`, `robots.txt` and `llms.txt`; everything else needs an identity.
 - 🔒 **Access-gated dashboard** — app-owned email OTP/magic-link sign-in for `/admin` and the API; the app stores no passwords.
 - 🖼️ **One dashboard** — publish and manage under **Artifacts**; everything shared with you under **Gallery**. Same shell, same nav, same brand.
@@ -23,10 +25,11 @@ published from a web dashboard, a CLI, or an agent session (Claude Code, Hermes)
 
 > **Stack:** TypeScript · [Hono](https://hono.dev) · Cloudflare Workers / R2 / D1 / Email Sending · Lemon Squeezy
 
-**Not built yet**, and deliberately not implied anywhere in the copy: per-link passwords or
-shared link secrets, custom domains for artifacts, comments/approvals, a public gallery of
-artifacts, usage-based billing, and per-seat billing beyond the fixed seats included in each plan.
-Access is by identity only; share links can carry optional expiry. The competitive reasoning, and the full
+**Not built yet**, and deliberately not implied anywhere in the copy: per-link passwords,
+custom domains for artifacts (branded workspace addresses are a path on the app host, not your own
+hostname), comments/approvals, a public gallery of artifacts, usage-based
+billing, and per-seat billing beyond the fixed seats included in each plan. Access is by identity
+first; share links are separate capability URLs with optional expiry and immediate revocation. The competitive reasoning, and the full
 table-stakes-vs-differentiators split, is in [`docs/POSITIONING.md`](docs/POSITIONING.md) and
 published at [`/docs#why-rtfx`](https://rtfx.pro/docs#why-rtfx).
 

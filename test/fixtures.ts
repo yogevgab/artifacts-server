@@ -91,7 +91,17 @@ export async function initDb() {
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
       plan_override TEXT, plan_override_expires_at TEXT, plan_override_note TEXT,
       plan_override_by TEXT, plan_override_at TEXT, notes TEXT,
-      suspended_at TEXT, suspended_by TEXT, suspended_reason TEXT)`
+      suspended_at TEXT, suspended_by TEXT, suspended_reason TEXT,
+      public_slug TEXT)`
+  ).run();
+  // The branded-address uniqueness constraint (migration 0020). Recreated here
+  // rather than left to the column alone: `setAccountPublicSlug` relies on the
+  // index, not on its read-before-write, to make two simultaneous claims of the
+  // same address impossible — so a fixture without it would test a weaker
+  // guarantee than production has.
+  await env.DB.prepare(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_public_slug
+       ON accounts (public_slug) WHERE public_slug IS NOT NULL`
   ).run();
   await env.DB.prepare(
     `CREATE TABLE account_members (

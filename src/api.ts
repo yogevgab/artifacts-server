@@ -38,6 +38,7 @@ import {
   MANAGE_ARTIFACTS,
   MAX_ACCOUNT_NAME_LENGTH,
   type AccountRole,
+  type AccountRow,
 } from "./accounts";
 import {
   cleanText,
@@ -96,6 +97,8 @@ import {
   getViews,
 } from "./db";
 import { firstContentHostname } from "./host";
+import { brandedArtifactUrl } from "./account-slugs";
+import { siteOrigin } from "./seo";
 import { apiCors } from "./cors";
 
 type Vars = { Variables: AuthVars; Bindings: Env };
@@ -237,6 +240,32 @@ export function contentBase(c: Context<Vars>): string {
 
 export const artifactUrl = (c: Context<Vars>, slug: string): string => `${contentBase(c)}/${slug}/`;
 
+/**
+ * The BRANDED link for an artifact — `https://rtfx.pro/yogev/q3-board-report` —
+ * or null when its workspace has not claimed an address (which is most of them).
+ *
+ * Additive everywhere it appears, and deliberately never a replacement for
+ * `url`: the content-origin URL is the one that is always correct, always
+ * anonymous, and unaffected by anything the workspace later does with its
+ * address. A client that only knows `url` keeps working forever.
+ *
+ * Resolved from the memberships already loaded for this request, so reporting
+ * it costs no extra query. A caller with no membership in the artifact's
+ * workspace (a platform token, an un-migrated instance) simply gets null —
+ * an absent branded link is never wrong, and a guessed one would be.
+ */
+export function brandedUrl(
+  c: Context<Vars>,
+  memberships: readonly { account: AccountRow }[],
+  accountId: string | null | undefined,
+  slug: string
+): string | null {
+  if (!accountId) return null;
+  const address = memberships.find((m) => m.account.id === accountId)?.account.public_slug;
+  if (!address) return null;
+  return brandedArtifactUrl(c.env.PUBLIC_BASE_URL || siteOrigin(c.env), address, slug);
+}
+
 // Multipart overhead (boundaries/headers) is small, so a modest margin over
 // the file-size cap is enough headroom for the request body as a whole.
 const MAX_BODY_BYTES = MAX_UPLOAD_BYTES + 64 * 1024;
@@ -267,9 +296,16 @@ function limitBodyBytes(body: ReadableStream<Uint8Array>, maxBytes: number): Rea
 }
 
 artifactRoutes.get("/artifacts", requireScope("read"), async (c) => {
-  const artifacts = await visibleArtifacts(c);
-  // `content_base` is additive: rows keep their exact shape, and a machine
-  // client gets the one piece it cannot derive — where artifacts are served.
+  const rows = await visibleArtifacts(c);
+  const { memberships } = await accountsFor(c);
+  // `content_base` and `branded_url` are both additive: every field a row had
+  // before is still there and still means the same thing, and a machine client
+  // gets the two pieces it cannot derive — where artifacts are served, and the
+  // branded link when the workspace has an address.
+  const artifacts = rows.map((row) => {
+    const branded = brandedUrl(c, memberships, row.account_id, row.slug);
+    return branded ? { ...row, branded_url: branded } : row;
+  });
   return c.json({ artifacts, content_base: contentBase(c) });
 });
 
@@ -479,9 +515,13 @@ export async function storeUpload(
   }
 
 
+  const branded = brandedUrl(c, accounts.memberships, row.account_id, slug);
   return c.json({
     slug,
     url: artifactUrl(c, slug),
+    // Present only when the workspace has claimed an address, so a publish into
+    // a workspace without one answers exactly as it did before.
+    ...(branded ? { branded_url: branded } : {}),
     type: processed.type,
     file_count: processed.files.length,
     version,

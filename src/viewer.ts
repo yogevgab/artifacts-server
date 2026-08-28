@@ -2,6 +2,8 @@ import type { Context } from "hono";
 import type { Env } from "./env";
 import { accountsFor, type AuthVars } from "./auth";
 import { workspaceBilling } from "./plan-copy";
+import { effectivePlan } from "./accounts";
+import { planAllowsBrandedSlug } from "./account-slugs";
 import { posthogConfig } from "./posthog";
 import type { PortalViewer } from "./portal";
 
@@ -61,6 +63,11 @@ export async function viewerOf(c: PortalContext): Promise<PortalViewer> {
             kind: ctx.active.kind,
             role: ctx.role,
             count: ctx.memberships.length,
+            // The branded address and whether this plan may hold one. Both come
+            // off the account row that is already loaded, so the address row in
+            // Settings costs no extra query.
+            publicSlug: ctx.active.public_slug ?? null,
+            brandedAddressAllowed: planAllowsBrandedSlug(effectivePlan(ctx.active)),
             // Usage against the plan's limits, plus real checkout links. Absent
             // means "not computed", never "definitely free" — the UI degrades
             // to showing nothing rather than showing something wrong.

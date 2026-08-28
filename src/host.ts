@@ -129,3 +129,29 @@ export function isManagementPath(path: string): boolean {
   if (MANAGEMENT_PATHS.has(path)) return true;
   return MANAGEMENT_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
 }
+
+/**
+ * Every first path segment the app host already answers for itself, lowercase.
+ *
+ * Derived from the tables above rather than restated, because it feeds the
+ * reserved list for branded workspace addresses (src/account-slugs.ts): a route
+ * added to `MANAGEMENT_PATHS` or `MANAGEMENT_PREFIXES` becomes unclaimable in
+ * the same commit, with nobody having to remember the second list exists.
+ * Without that, somebody could hold `/docs` as a workspace address and own a
+ * namespace no request could ever reach, because the real page wins the route.
+ *
+ * Dotted entries (`robots.txt`, `sitemap.xml`) survive into the set even though
+ * a slug can never contain a dot. Harmless, and cheaper than filtering.
+ */
+export function reservedTopLevelSegments(): string[] {
+  const segments = new Set<string>();
+  const add = (path: string) => {
+    const first = path.replace(/^\/+/, "").split("/")[0];
+    if (first) segments.add(first.toLowerCase());
+  };
+  for (const p of MANAGEMENT_PATHS) add(p);
+  for (const p of MANAGEMENT_PREFIXES) add(p);
+  for (const p of CONTENT_PREFIXES) add(p);
+  for (const p of PER_ORIGIN_PATHS) add(p);
+  return [...segments];
+}

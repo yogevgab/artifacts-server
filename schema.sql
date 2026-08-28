@@ -166,10 +166,21 @@ CREATE TABLE IF NOT EXISTS accounts (
   -- why and when so an unsuspend is answerable rather than mysterious.
   suspended_at             TEXT,
   suspended_by             TEXT,
-  suspended_reason         TEXT
+  suspended_reason         TEXT,
+  -- The workspace's branded address (migration 0020): the `yogev` in
+  -- rtfx.pro/yogev/q3-board-report. NULL until an owner claims one, and nothing
+  -- backfills it — an address nobody asked for is a namespace published by
+  -- accident. Globally unique across accounts via the partial index below.
+  public_slug              TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_accounts_kind ON accounts (kind);
+-- Partial so the (many) NULLs do not contend. This constraint is what makes two
+-- simultaneous claims of the same address impossible; the read-before-write in
+-- `setAccountPublicSlug` only exists to produce a better error than a raw
+-- constraint failure.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_public_slug
+  ON accounts (public_slug) WHERE public_slug IS NOT NULL;
 
 -- Membership: identity × account × ACCOUNT role.
 CREATE TABLE IF NOT EXISTS account_members (

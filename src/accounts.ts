@@ -104,6 +104,18 @@ export interface AccountRow {
   plan: string;
   /** Set only for `kind: 'personal'` — the one identity this workspace is for. */
   personal_email: string | null;
+  /**
+   * The workspace's BRANDED ADDRESS (migration 0020): the `yogev` in
+   * `rtfx.pro/yogev/q3-board-report`. Globally unique across accounts, lowercase,
+   * and null for the overwhelming majority — nothing backfills it, because an
+   * address nobody asked for is a namespace published by accident.
+   *
+   * Optional rather than `| null` for the same reason the operator columns below
+   * are: a Worker deployed ahead of migration 0020 reads rows that have no such
+   * column, and absent means exactly what NULL means — "no branded address".
+   * See src/account-slugs.ts for every rule about what it may say.
+   */
+  public_slug?: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -331,6 +343,31 @@ export async function ownerCount(env: Env, accountId: string): Promise<number> {
   }
 }
 
+/**
+ * The account holding one branded address, or null.
+ *
+ * The whole of the branded route's namespace check (src/index.ts): an artifact
+ * is reachable at `/:accountSlug/:artifactSlug` only when its `account_id`
+ * equals this row's id, so one workspace's address can never front another
+ * workspace's artifact.
+ *
+ * Fails soft like every other reader here. On an instance whose database is
+ * behind migration 0020 there is no `public_slug` column, so no address exists,
+ * so no branded link resolves — which is precisely the pre-feature behavior
+ * rather than a 500 on a path anybody can hit unauthenticated.
+ */
+export async function getAccountByPublicSlug(env: Env, slug: string): Promise<AccountRow | null> {
+  const clean = slug.trim().toLowerCase();
+  if (!clean) return null;
+  try {
+    return await env.DB.prepare(`SELECT ${ACCOUNT_COLUMNS} FROM accounts WHERE public_slug = ?`)
+      .bind(clean)
+      .first<AccountRow>();
+  } catch {
+    return null;
+  }
+}
+
 // --- writes -----------------------------------------------------------------
 
 export interface CreateAccountInput {
@@ -454,6 +491,60 @@ export async function ensurePersonalAccount(
   } catch {
     return null;
   }
+}
+
+/**
+ * What happened when a workspace tried to claim an address.
+ *
+ * `taken` is a 409 and `unavailable` is a 503: the difference matters to the
+ * person, because one is answered by picking another name and the other is
+ * answered by trying again later (it is what an un-migrated database returns).
+ */
+export type PublicSlugResult =
+  | { ok: true; account: AccountRow }
+  | { ok: false; reason: "taken" | "unavailable" };
+
+/**
+ * Claim, change, or (with `null`) release this workspace's branded address.
+ *
+ * Validation is NOT done here — `checkAccountSlug` (src/account-slugs.ts) owns
+ * the shape and the reserved list, and the caller runs it first. This function
+ * owns exactly the part that needs the database: uniqueness.
+ *
+ * Uniqueness is enforced by the partial UNIQUE index, not by the read below.
+ * The read exists only to turn the common case into a clean "that address is
+ * taken" instead of a raw constraint failure; two requests claiming the same
+ * name in the same instant still both go to the INSERT, and the loser is caught
+ * by the constraint. Getting that backwards — trusting the read — is how two
+ * workspaces end up sharing a namespace.
+ */
+export async function setAccountPublicSlug(
+  env: Env,
+  accountId: string,
+  slug: string | null,
+  now: string
+): Promise<PublicSlugResult> {
+  const value = slug ? slug.trim().toLowerCase() : null;
+  try {
+    if (value) {
+      const holder = await getAccountByPublicSlug(env, value);
+      // Re-claiming the address you already hold is a no-op, not a conflict.
+      if (holder && holder.id !== accountId) return { ok: false, reason: "taken" };
+    }
+    const res = await env.DB.prepare(
+      "UPDATE accounts SET public_slug = ?, updated_at = ? WHERE id = ?"
+    )
+      .bind(value, now, accountId)
+      .run();
+    if ((res.meta?.changes ?? 0) === 0) return { ok: false, reason: "unavailable" };
+  } catch (err) {
+    // The UNIQUE index firing means somebody claimed it between the read and
+    // the write. Anything else — no such column on an un-migrated instance, a
+    // D1 blip — is not the customer's fault and must not read as "taken".
+    return { ok: false, reason: /UNIQUE|constraint/i.test(String(err)) ? "taken" : "unavailable" };
+  }
+  const account = await getAccount(env, accountId);
+  return account ? { ok: true, account } : { ok: false, reason: "unavailable" };
 }
 
 // --- request-scoped context -------------------------------------------------
@@ -620,6 +711,12 @@ export interface PublicAccount {
   /** True while an operator override is in force. Deliberately no note/expiry: those are operator-facing. */
   plan_overridden?: boolean;
   created_at: string;
+  /**
+   * The workspace's branded address, present only once one has been claimed.
+   * Additive on purpose: an account without one serializes byte-for-byte as it
+   * did before migration 0020, so no existing consumer sees a new null field.
+   */
+  public_slug?: string;
   /** The requesting caller's role here, or null when they are not a member. */
   your_role: AccountRole | null;
 }
@@ -635,6 +732,7 @@ export function toPublicAccount(account: AccountRow, role: AccountRole | null): 
     // Only present when it says something `plan` doesn't, so an ordinary
     // account's payload is byte-identical to what it was before overrides.
     ...(plan === account.plan ? {} : { billed_plan: account.plan, plan_overridden: true }),
+    ...(account.public_slug ? { public_slug: account.public_slug } : {}),
     created_at: account.created_at,
     your_role: role,
   };
