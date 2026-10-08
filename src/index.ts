@@ -43,7 +43,7 @@ import type { Identity } from "./auth";
 import { listApiTokens, toPublicToken, type PublicApiToken } from "./tokens";
 import { describeUsers, listUsers, privilegedEmails } from "./users";
 import { notFoundPage } from "./pages";
-import { shellPage, FRAME_TOKEN_SEGMENT } from "./shell";
+import { shellPage, sharePage, FRAME_TOKEN_SEGMENT } from "./shell";
 import { viewLimitStatus, blocksOnViewLimit, blocksOnSuspension } from "./quota";
 import { overViewLimitPage, suspendedContentPage } from "./view-limit-page";
 export { ChatRoom } from "./chat";
@@ -317,6 +317,29 @@ app.get("/admin/artifacts", requireUser, async (c) => {
 // One artifact, with its versions, view log, access list and danger zone.
 // 404 for both "no such artifact" and "not yours", so probing a slug here can
 // never reveal one exists — the same rule the public catch-all follows.
+// The share page (who can open it, share links). App host only: the viewer on
+// the content origin links here because that origin refuses /api by design.
+app.get("/share/:slug", requireUser, async (c) => {
+  const viewer = await viewerOf(c);
+  const slug = c.req.param("slug");
+  const row = await getArtifact(c.env, slug);
+  if (!row || !canManage(c.get("identity"), row, (await accountsFor(c)).roles)) {
+    return c.html(portalNotFound(viewer, `The artifact "${slug}"`), 404);
+  }
+  const grants = row.visibility === "restricted" ? await listGrants(c.env, slug) : [];
+  return c.html(
+    sharePage({
+      slug,
+      title: row.title || slug,
+      visibility: row.visibility,
+      grantCount: grants.length,
+      viewUrl: (await brandedUrl(c, row.account_id, slug)) ?? `/${encodeURIComponent(slug)}/`,
+    }),
+    200,
+    { "Cache-Control": "no-store" }
+  );
+});
+
 app.get("/admin/artifacts/:slug", requireUser, async (c) => {
   const viewer = await viewerOf(c);
   const slug = c.req.param("slug");
@@ -1169,6 +1192,19 @@ app.get("*", async (c) => {
   }
   if (wantsShell(c) && blocksOnViewLimit(status, owned || !!identity?.isAdmin)) {
     return c.html(overViewLimitPage(slug, siteOrigin(c.env)), 503);
+  }
+
+  // `?raw=1` is how the viewer frames content; as a top-level navigation it
+  // would put the bare artifact on screen as its own page. Send it to the
+  // viewer instead (the CSP sandbox in serveArtifact is the backstop).
+  if (
+    c.req.method === "GET" &&
+    c.req.header("Sec-Fetch-Dest") === "document" &&
+    new URL(c.req.url).searchParams.has("raw")
+  ) {
+    const clean = new URL(c.req.url);
+    clean.searchParams.delete("raw");
+    return c.redirect(clean.pathname + clean.search, 302);
   }
 
   if (wantsShell(c)) {

@@ -231,7 +231,7 @@ const SCRIPT = `
     card.innerHTML = '';
     var h = document.createElement('h1'); h.textContent = 'Your site is published'; card.appendChild(h);
     var p = document.createElement('p'); p.className = 'lede';
-    p.textContent = data.file_count + ' file' + (data.file_count === 1 ? '' : 's') + ' uploaded. It is private to you until you share it.';
+    p.textContent = data.file_count + ' file' + (data.file_count === 1 ? '' : 's') + ' uploaded. ' + (CFG.isUpdate ? 'It is now the live version, shared exactly as before.' : 'It is private to you until you share it.');
     card.appendChild(p);
     var a = document.createElement('a'); a.className = 'open'; a.href = data.url; a.textContent = 'Open your site';
     card.appendChild(a);
@@ -274,6 +274,7 @@ const SCRIPT = `
 
 export function uploadPage(input: UploadPageInput): string {
   const cfg = {
+    isUpdate: input.isUpdate,
     endpoint: `/api/uploads/${input.token}`,
     expiresAt: input.expiresAt,
     maxBytes: MAX_UPLOAD_BYTES,

@@ -241,3 +241,48 @@ describe("claude.ai downloads shim", () => {
     expect(raw).not.toContain("use:function");
   });
 });
+
+/**
+ * An artifact opened as its own top-level page used to run AS the content
+ * origin with the visitor's cookie, and could read every other artifact they
+ * can open (2026-10-08: ?raw=1 read a different private artifact, 200).
+ */
+describe("artifact documents are sandboxed however they are reached", () => {
+  it("sends a top-level ?raw=1 navigation to the viewer instead", async () => {
+    await publishSite();
+    const res = await navigate("/site/work.html?raw=1", true);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/site/work.html");
+  });
+
+  it("serves HTML with a CSP sandbox and no allow-same-origin", async () => {
+    await publishSite();
+    const res = await content("/site/work.html", {}, true);
+    const csp = res.headers.get("Content-Security-Policy") ?? "";
+    expect(csp).toContain("sandbox allow-scripts");
+    expect(csp).not.toContain("allow-same-origin");
+  });
+
+  it("leaves images unsandboxed and keeps their framing rule", async () => {
+    await publishSite();
+    const res = await content("/site/img/a.png", {}, true);
+    expect(res.headers.get("Content-Security-Policy")).toBe("frame-ancestors 'self'");
+  });
+});
+
+describe("the share page", () => {
+  it("is on the app host and only for people who can manage", async () => {
+    await publishSite();
+    const mine = await req("/share/site", as(OWNER));
+    expect(mine.status).toBe(200);
+    const html = await mine.text();
+    expect(html).toContain("data-make-link");
+    expect(html).toContain('data-slug="site"');
+    expect((await req("/share/site", as("stranger@example.com"))).status).toBe(404);
+  });
+
+  it("is refused on the content host", async () => {
+    await publishSite();
+    expect((await content("/share/site", {}, true)).status).toBe(404);
+  });
+});

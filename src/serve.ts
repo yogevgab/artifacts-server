@@ -20,6 +20,9 @@ import { siteOrigin } from "./seo";
  * decision — an artifact that forges the message can hide or show a toolbar,
  * and that is the whole blast radius.
  */
+/** Kept identical to the viewer frame's `sandbox` attribute (src/shell.ts). */
+export const ARTIFACT_SANDBOX = "allow-scripts allow-forms allow-popups allow-downloads allow-modals";
+
 const SCROLL_REPORTER = `<script>(function(){
   if(window.parent===window) return;
   var last=-1, queued=false;
@@ -135,7 +138,15 @@ export async function serveArtifact<E extends { Bindings: Env }>(
   // executes nothing, so the script/style directives buy no safety and can
   // interfere with the browser's own viewers. Framing control still applies.
   if (!headers.get("Content-Type")?.startsWith("text/html")) {
-    headers.set("Content-Security-Policy", "frame-ancestors 'self'");
+    // SVG is a document that runs script when opened directly, so it gets the
+    // same sandbox as HTML. Other types execute nothing, and a PDF must NOT be
+    // sandboxed (Chrome refuses to render it — see src/shell.ts sandboxFor).
+    headers.set(
+      "Content-Security-Policy",
+      headers.get("Content-Type")?.startsWith("image/svg+xml")
+        ? `frame-ancestors 'self'; sandbox ${ARTIFACT_SANDBOX}`
+        : "frame-ancestors 'self'"
+    );
     headers.set("ETag", obj.httpEtag);
     headers.set("Accept-Ranges", "bytes");
     const range = wantsRange ? (obj as R2ObjectBody & { range?: R2Range }).range : undefined;
@@ -160,7 +171,13 @@ export async function serveArtifact<E extends { Bindings: Env }>(
       "script-src * data: blob: 'unsafe-inline' 'unsafe-eval'; " +
       "style-src * 'unsafe-inline'; img-src * data: blob:; font-src * data:; " +
       "connect-src *; media-src * data: blob:; frame-src *; worker-src * blob:; " +
-      "frame-ancestors 'self'; base-uri 'none'"
+      "frame-ancestors 'self'; base-uri 'none'; " +
+      // The same sandbox the viewer frame applies, as a header, so it holds
+      // however the document is reached. Opened directly (e.g. `?raw=1` as a
+      // top-level page), an artifact used to run AS the content origin, with
+      // the visitor's cookie, and could read every other artifact they can
+      // open. Sandboxed, it gets an opaque origin wherever it runs.
+      `sandbox ${ARTIFACT_SANDBOX}`
   );
   headers.set("ETag", obj.httpEtag);
   const res = new Response(obj.body, { headers });

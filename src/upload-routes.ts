@@ -20,7 +20,7 @@
 
 import { Hono, type Context } from "hono";
 import type { Env } from "./env";
-import type { AuthVars, Identity } from "./auth";
+import { isAdmin, type AuthVars, type Identity } from "./auth";
 import { clientAddress, incrementRateLimitBucket } from "./rate-limit";
 import { getArtifact } from "./db";
 import { getUser, isDisabled } from "./users";
@@ -103,8 +103,11 @@ uploadRoutes.get("/u/:token", async (c) => {
 // --- POST /api/uploads/:token: the bytes --------------------------------------
 
 /** The identity the link's creator had when they made it, pinned to the workspace they chose. */
-function identityFor(session: UploadSessionRow): Identity {
-  const admin = session.is_admin === 1;
+function identityFor(env: Env, session: UploadSessionRow): Identity {
+  // The snapshot only ever narrows: admin power is re-read from live config at
+  // upload time, so demoting the creator within the link's 30 minutes takes it
+  // away from the link too (an admin can make a link for somebody else's slug).
+  const admin = session.is_admin === 1 && isAdmin(env, session.email);
   return {
     email: session.email.toLowerCase(),
     commonName: null,
@@ -204,7 +207,7 @@ uploadRoutes.post("/api/uploads/:token", async (c) => {
   if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return fail(c, 413, "payload_too_large", TOO_BIG);
 
   // Act as the person who made the link — and only while they are still allowed in.
-  const identity = identityFor(session);
+  const identity = identityFor(c.env, session);
   if (isDisabled(c.env, identity.email, await getUser(c.env, identity.email!))) {
     return fail(c, 403, "forbidden", "This account is paused, so it can't publish.");
   }

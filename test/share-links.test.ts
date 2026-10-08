@@ -258,7 +258,7 @@ describe("the share panel offers links", () => {
     const cookie = `${SESSION_COOKIE}=${await mintSession(SECRET, { email: OWNER, kind: "member" }, new Date().toISOString())}`;
     const html = await (
       await app.request(
-        "https://a.rtfx.pro/report/",
+        "https://rtfx.pro/share/report",
         { headers: { "Sec-Fetch-Dest": "document", Cookie: cookie } },
         e()
       )

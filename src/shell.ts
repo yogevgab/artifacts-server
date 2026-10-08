@@ -16,6 +16,7 @@
  */
 
 import { esc } from "./pages";
+import { ARTIFACT_SANDBOX } from "./serve";
 
 /** The path segment that introduces a frame token: `/<slug>/~t/<token>/<file>`. */
 export const FRAME_TOKEN_SEGMENT = "~t";
@@ -246,22 +247,29 @@ const CHEVRON_DOWN = chevron("M2.5 4.5 6 8l3.5-3.5");
  */
 function banner(i: ShellInput): string {
   if (!i.canManage) return "";
+  // Sharing runs on the app host, not here. This page is served from the
+  // content origin, which refuses every /api route by design (it hosts
+  // untrusted uploads), so a share panel on this page could never reach the
+  // API — it looked like it worked and created nothing. The app-host page
+  // has the session and the same-origin API.
+  const appBase = (i.appBaseUrl ?? "").replace(/\/+$/, "");
+  const href = `${appBase}/share/${encodeURIComponent(i.slug)}`;
+  return `<a class="btn primary" data-share-banner href="${esc(href)}" target="_blank"
+      rel="noopener">Share</a>`;
+}
+
+/** Who-can-open + share-link controls, shared by nothing else but the share page. */
+function sharePanel(i: { visibility: "restricted" | "everyone"; grantCount: number }): string {
   const summary =
     i.visibility === "everyone"
       ? "Anyone signed in can open this"
       : i.grantCount === 1
         ? "1 person can open this"
         : `${i.grantCount} people can open this`;
-
-  return `<div class="share" data-share>
-      <button type="button" class="btn primary" data-share-banner data-open-share
-        aria-haspopup="dialog" aria-expanded="false" aria-controls="rtfx-share">Share</button>
-      <section class="panel" id="rtfx-share" data-share-panel hidden tabindex="-1"
-        role="dialog" aria-label="Sharing">
+  return `<section class="panel standalone" id="rtfx-share" data-share-panel aria-label="Sharing">
         <span class="grip" aria-hidden="true"></span>
         <div class="panel-head">
           <h2>Share</h2>
-          <button type="button" class="btn icon" data-close-share aria-label="Close sharing">&times;</button>
         </div>
         <h3>Who can open this</h3>
         <p class="hint" data-share-summary>${esc(summary)}</p>
@@ -284,8 +292,7 @@ function banner(i: ShellInput): string {
           <button type="button" class="btn" data-make-link>Create share link</button>
         </div>
         <div class="list" data-link-list></div>
-      </section>
-    </div>`;
+      </section>`;
 }
 
 /**
@@ -312,7 +319,7 @@ function banner(i: ShellInput): string {
 function sandboxFor(i: ShellInput): string | null {
   return i.isDocument
     ? null
-    : "allow-scripts allow-forms allow-popups allow-downloads allow-modals";
+    : ARTIFACT_SANDBOX;
 }
 
 export function shellPage(i: ShellInput): string {
@@ -380,8 +387,8 @@ const SHELL_SCRIPT = `(function(){
   var scrim=document.querySelector('[data-scrim]');
   var chat=document.querySelector('[data-chat]');
   var chatBtn=document.querySelector('[data-open-chat]');
-  var panel=document.querySelector('[data-share-panel]');
-  var shareBtn=document.querySelector('[data-open-share]');
+  /* Sharing moved to the app-host share page; nothing here opens a panel. */
+  var panel=null, shareBtn=null;
   var pinnedHidden=false;
 
   /* --- one panel at a time -------------------------------------------------
@@ -534,9 +541,13 @@ const SHELL_SCRIPT = `(function(){
     });
   }
 
-  if(!shareBtn||!panel) return;
+})();`;
 
-  var slug=location.pathname.split('/').filter(Boolean)[0];
+const SHARE_SCRIPT = `(function(){
+  var panel=document.querySelector('[data-share-panel]');
+  if(!panel) return;
+  var slug=panel.getAttribute('data-slug');
+
   var list=panel.querySelector('[data-share-list]');
 
   function render(emails){
@@ -606,35 +617,33 @@ const SHELL_SCRIPT = `(function(){
       fetch('/api/artifacts/'+encodeURIComponent(slug)+'/links/'+encodeURIComponent(id),
         {method:'DELETE'}).then(function(){ row.remove(); });
     });
-    row.appendChild(c); row.appendChild(expEl); row.appendChild(rev);
+    row.appendChild(c); row.appendChild(expEl);
+    if(url){
+      var cp=document.createElement('button');
+      cp.type='button'; cp.className='btn sm'; cp.textContent='Copy';
+      cp.addEventListener('click',function(){
+        navigator.clipboard.writeText(url).then(function(){ cp.textContent='Copied'; },
+          function(){ var r=document.createRange(); r.selectNodeContents(c);
+            var sel=getSelection(); sel.removeAllRanges(); sel.addRange(r); cp.textContent='Press \u2318C'; });
+      });
+      row.appendChild(cp);
+    }
+    row.appendChild(rev);
     return row;
   }
 
-  var closeShareBtn=panel.querySelector('[data-close-share]');
-  if(closeShareBtn) closeShareBtn.addEventListener('click',function(){
-    closeShare(); shareBtn.focus();
-  });
-
-  shareBtn.addEventListener('click',function(){
-    if(!panel.hidden){ closeShare(); return; }
-    closeChat();
-    panel.hidden=false;
-    shareBtn.setAttribute('aria-expanded','true');
-    syncScrim();
-    panel.focus();
-    fetch('/api/artifacts/'+encodeURIComponent(slug)+'/access')
-      .then(function(r){return r.ok?r.json():null;})
-      .then(function(j){ if(j)render(j.emails||[]); });
-    fetch('/api/artifacts/'+encodeURIComponent(slug)+'/links')
-      .then(function(r){return r.ok?r.json():null;})
-      .then(function(j){
-        linkList.innerHTML='';
-        if(!j||!j.links) return;
-        j.links.filter(function(l){return !l.revokedAt;}).forEach(function(l){
-          linkList.appendChild(linkRow(l.id,null,l.expiresAt));
-        });
+  fetch('/api/artifacts/'+encodeURIComponent(slug)+'/access')
+    .then(function(r){return r.ok?r.json():null;})
+    .then(function(j){ if(j)render(j.emails||[]); });
+  fetch('/api/artifacts/'+encodeURIComponent(slug)+'/links')
+    .then(function(r){return r.ok?r.json():null;})
+    .then(function(j){
+      linkList.innerHTML='';
+      if(!j||!j.links) return;
+      j.links.filter(function(l){return !l.revokedAt;}).forEach(function(l){
+        linkList.appendChild(linkRow(l.id,null,l.expiresAt));
       });
-  });
+    });
 
   /* The key comes back exactly once — it is hashed on the server and cannot be
      shown again — so it goes straight to the clipboard and is never re-fetched. */
@@ -642,16 +651,32 @@ const SHELL_SCRIPT = `(function(){
     var days=selectedExpiryDays();
     if(days!==null&&isNaN(days)){ daysInput.focus(); return; }
     mk.disabled=true; mk.textContent='Creating\u2026';
-    fetch('/api/artifacts/'+encodeURIComponent(slug)+'/links',{
+    var made=fetch('/api/artifacts/'+encodeURIComponent(slug)+'/links',{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(days?{expires_in_days:days}:{})
-    }).then(function(r){return r.ok?r.json():null;}).then(function(j){
-      if(!j){ mk.disabled=false; mk.textContent='Create share link'; return; }
-      navigator.clipboard.writeText(j.url).catch(function(){});
+    }).then(function(r){ if(!r.ok) throw new Error('create failed'); return r.json(); });
+    /* Safari only allows a clipboard write that starts inside the click, so the
+       write is started now with the URL still pending. writeText after the
+       fetch was silently refused there — and the button said "Copied!". */
+    var copied;
+    try{
+      if(window.ClipboardItem&&navigator.clipboard&&navigator.clipboard.write){
+        copied=navigator.clipboard.write([new ClipboardItem({'text/plain':
+          made.then(function(j){return new Blob([j.url],{type:'text/plain'});})})]);
+      }
+    }catch(e){ copied=null; }
+    if(!copied) copied=made.then(function(j){return navigator.clipboard.writeText(j.url);});
+    made.then(function(j){
       linkList.appendChild(linkRow(j.id,j.url,j.expires_at));
-      mk.disabled=false; mk.textContent='Copied!';
-      setTimeout(function(){ mk.textContent='Create share link'; },1400);
-    }).catch(function(){ mk.disabled=false; mk.textContent='Create share link'; });
+      return copied.then(function(){ return true; },function(){ return false; });
+    }).then(function(ok){
+      mk.disabled=false;
+      mk.textContent= ok ? 'Link copied' : 'Link created \u2014 copy it below';
+      setTimeout(function(){ mk.textContent='Create share link'; },2400);
+    },function(){
+      mk.disabled=false; mk.textContent='Could not create a link \u2014 try again';
+      setTimeout(function(){ mk.textContent='Create share link'; },2400);
+    });
   });
 
   panel.querySelector('[data-share-add]').addEventListener('submit',function(e){
@@ -663,3 +688,39 @@ const SHELL_SCRIPT = `(function(){
     input.value=''; save(current);
   });
 })();`;
+
+/**
+ * The share page, on the APP host (`/share/<slug>`).
+ *
+ * The viewer runs on the content origin, which refuses every /api route, so its
+ * old in-page panel could never create a link or change access. This page is
+ * the same panel where the session and the API actually are.
+ */
+export function sharePage(i: {
+  slug: string;
+  title: string;
+  visibility: "restricted" | "everyone";
+  grantCount: number;
+  viewUrl: string;
+}): string {
+  return `<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Share ${esc(i.title)} · rtfx.pro</title>
+<style>${SHELL_STYLE}
+body{overflow:auto}
+.share-page{max-width:520px;margin:40px auto;padding:0 16px}
+.share-page .back{display:inline-block;margin:0 0 14px;font-size:13px;color:var(--sh-muted)}
+.panel.standalone{position:static;display:block;width:auto;max-width:none;inset:auto;
+  transform:none;box-shadow:none}
+</style>
+</head><body>
+<main class="share-page">
+  <a class="back" href="${esc(i.viewUrl)}">&larr; ${esc(i.title)}</a>
+  ${sharePanel(i).replace('data-share-panel', `data-share-panel data-slug="${esc(i.slug)}"`)}
+</main>
+<script>${SHARE_SCRIPT}</script>
+</body></html>`;
+}

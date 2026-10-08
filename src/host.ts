@@ -49,6 +49,8 @@ const MANAGEMENT_PREFIXES = [
   "/v",
   "/auth",
   "/shared",
+  // `/share/<slug>`: the share page the content-origin viewer links to.
+  "/share",
   "/mcp",
   // `/u/<token>` is the browser upload page behind the MCP `create_upload_link`
   // tool (src/upload-routes.ts). Its token is a credential, and `u` can never

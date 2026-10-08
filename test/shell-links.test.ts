@@ -14,11 +14,8 @@ beforeEach(async () => {
   await req("/api/artifacts", { method: "POST", body, ...as(OWNER) });
 });
 
-const nav = (who: string) =>
-  req("/demo/", {
-    ...as(who),
-    headers: { ...(as(who).headers as Record<string, string>), "Sec-Fetch-Dest": "document" },
-  });
+/** The share panel now lives on the app-host share page, not in the viewer. */
+const nav = (who: string) => req("/share/demo", as(who));
 
 describe("the share panel's link-expiry controls", () => {
   it("offers an expiry select and a hidden custom-days input", async () => {
