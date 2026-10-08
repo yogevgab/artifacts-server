@@ -35,6 +35,50 @@ const SCROLL_REPORTER = `<script>(function(){
   },{passive:true});
 })();</script>`;
 
+/**
+ * A minimal stand-in for the claude.ai Artifacts runtime's downloads
+ * capability, injected ahead of the page's own scripts in framed HTML.
+ *
+ * Claude routinely writes pages against `window.claude.use('downloads')`, and
+ * those pages hide their download buttons when it is absent — so a site built
+ * as a claude.ai artifact and published here silently lost every "Download PDF"
+ * button (2026-10-08, drportfolio). Only `downloads` is provided: it is the one
+ * capability that is pure browser behaviour. Every other name resolves to null,
+ * which is how such pages already detect "not available" and degrade. A page
+ * that defines its own `window.claude` keeps it.
+ *
+ * The save itself is a blob URL on a temporary <a download>: the frame has
+ * `allow-downloads`, and a blob URL minted by the document is the one download
+ * the browser honours `download=` for from an opaque-origin frame.
+ */
+const CLAUDE_DOWNLOADS_SHIM = `<script>(function(){
+  if(window.claude) return;
+  function toBlob(data,mime){
+    if(data instanceof Blob) return data;
+    if(typeof data==='string') return new Blob([data],{type:mime||'text/plain;charset=utf-8'});
+    if(data instanceof ArrayBuffer||ArrayBuffer.isView(data)) return new Blob([data],{type:mime||'application/octet-stream'});
+    throw Object.assign(new Error('unsupported data'),{code:'invalid'});
+  }
+  var downloads={
+    save:function(o){
+      return new Promise(function(resolve,reject){
+        try{
+          o=o||{};
+          var url=URL.createObjectURL(toBlob(o.data,o.mimeType||o.type));
+          var a=document.createElement('a');
+          a.href=url; a.download=String(o.filename||'download'); a.rel='noopener'; a.style.display='none';
+          (document.body||document.documentElement).appendChild(a);
+          a.click(); a.remove();
+          setTimeout(function(){URL.revokeObjectURL(url)},60000);
+          resolve();
+        }catch(e){reject(e)}
+      });
+    }
+  };
+  var api={use:function(name){return Promise.resolve(name==='downloads'?downloads:null)}};
+  try{Object.defineProperty(window,'claude',{value:api,configurable:true,writable:true})}catch(e){window.claude=api}
+})();</script>`;
+
 export async function serveArtifact<E extends { Bindings: Env }>(
   c: Context<E>,
   slug: string,
@@ -126,9 +170,20 @@ export async function serveArtifact<E extends { Bindings: Env }>(
   // because "immutable version" has to mean the bytes too.
   const framed = opts.framed || new URL(c.req.url).searchParams.has("raw");
   if (framed && headers.get("Content-Type")?.startsWith("text/html")) {
+    // The shim must run before the page's scripts, so it goes first in <head>,
+    // or first in <body> when the document has no <head> tag.
+    let shimmed = false;
     return new HTMLRewriter()
+      .on("head", {
+        element(el) {
+          el.prepend(CLAUDE_DOWNLOADS_SHIM, { html: true });
+          shimmed = true;
+        },
+      })
       .on("body", {
         element(el) {
+          if (!shimmed) el.prepend(CLAUDE_DOWNLOADS_SHIM, { html: true });
+          shimmed = true;
           el.append(SCROLL_REPORTER, { html: true });
         },
       })

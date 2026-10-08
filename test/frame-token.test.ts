@@ -188,3 +188,44 @@ describe("media serving", () => {
     expect((await res.arrayBuffer()).byteLength).toBe(100);
   });
 });
+
+describe("claude.ai downloads shim", () => {
+  async function publishPages(slug = "dl") {
+    const zip = zipSync({
+      "index.html": strToU8(
+        "<!doctype html><html><head><title>t</title><script>window.pageScript=1</script></head>" +
+          "<body><h1>home</h1></body></html>"
+      ),
+      "bare.html": strToU8("<body><p>no head</p><script>window.pageScript=1</script></body>"),
+    });
+    const fd = new FormData();
+    fd.set("slug", slug);
+    fd.set("title", "DL");
+    fd.set("bundle", new File([zip], "bundle.zip", { type: "application/zip" }));
+    expect((await req("/api/artifacts", as(OWNER, { method: "POST", body: fd }))).status).toBeLessThan(300);
+  }
+
+  it("runs before the page's own scripts in framed HTML", async () => {
+    await publishPages();
+    const base = (await frameSrc("dl")).replace(/\?raw=1$/, "");
+    const html = await (await framed(`${base}`, "iframe")).text();
+    const shim = html.indexOf("use:function");
+    expect(shim).toBeGreaterThan(-1);
+    expect(shim).toBeLessThan(html.indexOf("window.pageScript"));
+    expect(shim).toBeGreaterThan(html.indexOf("<head>"));
+  });
+
+  it("goes first in <body> when the page has no <head>", async () => {
+    await publishPages();
+    const base = (await frameSrc("dl")).replace(/\?raw=1$/, "");
+    const html = await (await framed(`${base}bare.html`, "iframe")).text();
+    expect(html.match(/use:function/g)?.length).toBe(1);
+    expect(html.indexOf("use:function")).toBeLessThan(html.indexOf("window.pageScript"));
+  });
+
+  it("never alters the bytes a machine client downloads", async () => {
+    await publishPages();
+    const raw = await (await content("/dl/index.html", {}, true)).text();
+    expect(raw).not.toContain("use:function");
+  });
+});
