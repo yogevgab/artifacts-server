@@ -1166,8 +1166,8 @@ function addressRow(address?: WorkspaceAddress): string {
           }
         </div>
         <p class="hint" id="ws-address-help">Lowercase letters, numbers and hyphens, 3–63
-          characters. Changing it does not break anything you have already sent: an artifact's
-          content-origin URL never changes.</p>
+          characters. Changing it changes every link that starts with your old address —
+          links already sent with it stop working.</p>
       </form>`;
 
   return `<div class="row is-stacked" data-setting="workspace-address"

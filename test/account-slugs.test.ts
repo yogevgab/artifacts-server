@@ -535,6 +535,24 @@ describe("claiming an address", () => {
     expect(reclaim.status).toBe(200);
   });
 
+  /** Rotating a generated address would break every branded link already sent. */
+  it("never rotates an address that is already generated", async () => {
+    await publish("q3-board-report", OWNER);
+    const account = await setPlan(OWNER, "pro");
+    const before = (await env.DB.prepare("SELECT public_slug FROM accounts WHERE id = ?")
+      .bind(account.id).first<{ public_slug: string }>())!.public_slug;
+    expect(before).toMatch(AUTO_ACCOUNT_SLUG_RE);
+    for (const init of [
+      { method: "DELETE" },
+      { method: "PUT", body: JSON.stringify({ slug: null }) },
+      { method: "PUT", body: JSON.stringify({ slug: "" }) },
+    ]) {
+      const res = await appReq(`/api/workspace/${account.id}/slug`, { ...init, ...as(OWNER) });
+      expect(res.status).toBe(200);
+      expect((await res.json() as any).public_slug).toBe(before);
+    }
+  });
+
   it("lets a downgraded workspace release an address, but not claim a new one", async () => {
     await publish("q3-board-report", OWNER);
     const account = await setPlan(OWNER, "pro");

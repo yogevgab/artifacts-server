@@ -261,14 +261,18 @@ export async function brandedUrl(
   c: Context<Vars>,
   accountId: string | null | undefined,
   slug: string,
-  cache?: Map<string, string | null>
+  cache?: Map<string, Promise<string | null>>
 ): Promise<string | null> {
   if (!accountId) return null;
-  let address: string | null | undefined = cache?.get(accountId);
-  if (address === undefined) {
-    address = await ensureAccountPublicSlug(c.env, accountId);
-    cache?.set(accountId, address);
+  // The promise is cached, not the value: callers resolve rows concurrently
+  // (Promise.all), and caching only after the await let every row miss and
+  // issue its own read.
+  let pending = cache?.get(accountId);
+  if (!pending) {
+    pending = ensureAccountPublicSlug(c.env, accountId);
+    cache?.set(accountId, pending);
   }
+  const address = await pending;
   if (!address) return null;
   return brandedArtifactUrl(c.env.PUBLIC_BASE_URL || siteOrigin(c.env), address, slug);
 }
@@ -308,7 +312,7 @@ artifactRoutes.get("/artifacts", requireScope("read"), async (c) => {
   // before is still there and still means the same thing, and a machine client
   // gets the two pieces it cannot derive — where artifacts are served, and the
   // branded link (present whenever the artifact belongs to a workspace).
-  const addresses = new Map<string, string | null>();
+  const addresses = new Map<string, Promise<string | null>>();
   const artifacts = await Promise.all(
     rows.map(async (row) => {
       const branded = await brandedUrl(c, row.account_id, row.slug, addresses);

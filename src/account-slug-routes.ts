@@ -45,6 +45,7 @@ import {
 } from "./accounts";
 import {
   checkAccountSlug,
+  isAutoAccountSlug,
   normalizeAccountSlug,
   planAllowsBrandedSlug,
   PLAN_REQUIRED_DETAIL,
@@ -151,6 +152,12 @@ async function applyAddress(c: SlugContext, id: string, raw: unknown): Promise<A
   // only in the JSON route, where `slug: null` is explicit — the form's empty
   // input means the same thing, and a person who clears the box means it.
   if (normalizeAccountSlug(raw) === "") {
+    // Already on a generated address: nothing to release. Rotating it would
+    // break every branded link already shared — an empty "Claim" submit or a
+    // repeated `slug: null` must not do that.
+    if (isAutoAccountSlug(found.account.public_slug)) {
+      return { code: "released", slug: found.account.public_slug ?? null, account: found.account };
+    }
     const released = await setAccountPublicSlug(c.env, id, null, now);
     if (!released.ok) {
       return { code: "unavailable", detail: "the address could not be released — try again" };

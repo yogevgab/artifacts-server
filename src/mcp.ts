@@ -1002,7 +1002,7 @@ function pageArgs(args: any): { limit: number; offset: number } {
 async function artifactSummary(
   c: Context<Vars>,
   row: ArtifactRow,
-  addresses?: Map<string, string | null>
+  addresses?: Map<string, Promise<string | null>>
 ): Promise<Record<string, unknown>> {
   const branded = await brandedUrl(c, row.account_id, row.slug, addresses);
   return {
@@ -1055,7 +1055,7 @@ async function listArtifactsTool(c: Context<Vars>, args: any): Promise<ToolCallR
   const page = rows.slice(offset, offset + limit);
   const views = await viewCounts(c.env);
   const versions = await versionCounts(c.env);
-  const addresses = new Map<string, string | null>();
+  const addresses = new Map<string, Promise<string | null>>();
   const artifacts = await Promise.all(
     page.map(async (row) => ({
       ...(await artifactSummary(c, row, addresses)),

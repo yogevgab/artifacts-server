@@ -192,7 +192,7 @@ function scope<T>(map: Map<string, T>, slugs: Set<string>): Map<string, T> {
 /** The artifacts this caller manages, with everything the cards need. */
 /** Branded URL per slug for the artifacts a portal page is about to show. */
 async function brandedLinks(c: PortalContext, rows: readonly ArtifactRow[]): Promise<Map<string, string>> {
-  const addresses = new Map<string, string | null>();
+  const addresses = new Map<string, Promise<string | null>>();
   const links = new Map<string, string>();
   for (const row of rows) {
     const url = await brandedUrl(c, row.account_id, row.slug, addresses);
