@@ -118,7 +118,10 @@ const FAQS: readonly Faq[] = [
       "as text, a PDF as base64, or a small explicit file list; it rejects path, folder and zip-path " +
       "arguments because a server-side endpoint cannot read the client's local filesystem. Use the " +
       "Claude Code plugin or local MCP server for large folders and build outputs that already exist " +
-      "on disk.",
+      "on disk. For a big site or one with images and video, ask Claude to use the upload link: " +
+      "the connector's create_upload_link tool reserves the address and returns a single-use, " +
+      "30-minute link. Claude uploads a zip from its own sandbox when it can; otherwise you open the " +
+      "link and drop the .zip or the whole folder onto the page (up to 50 MB). No terminal needed.",
   },
   {
     q: "Do I still have to copy an API token to use Claude Code?",
@@ -521,6 +524,11 @@ tools: publish · list_artifacts · artifact_details · artifact_statistics · s
           server-side endpoint asked for a path could only ever read the server's disk, not the
           client's. Large build outputs and local directories still belong to the plugin and the
           local MCP server.</p>
+        <p><b>Big sites, images and video: the upload link.</b> Inline content is capped at a few MB.
+          For anything larger, <code>create_upload_link</code> reserves the address and returns a
+          single-use link that works for 30 minutes. Claude uploads a zip from its own sandbox when
+          it can (<code>curl -F bundle=@site.zip</code>); if not, you open the link and drop the zip
+          or the whole folder onto the page, up to 50 MB, with no terminal involved.</p>
         <div class="callout">
           <p><b>Why a token, not your login.</b> An API token is bound to its owner, carries only the
             scopes you give it (<code>read</code>, <code>publish</code>, <code>manage</code>), and can

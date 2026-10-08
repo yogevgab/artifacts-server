@@ -27,6 +27,7 @@ export async function initDb() {
     "oauth_clients",
     "oauth_codes",
     "oauth_refresh_tokens",
+    "upload_sessions",
   ]) {
     await env.DB.prepare(`DROP TABLE IF EXISTS ${table}`).run();
   }
@@ -163,6 +164,14 @@ export async function initDb() {
       id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, client_id TEXT NOT NULL,
       email TEXT NOT NULL, account_id TEXT, scopes TEXT NOT NULL, resource TEXT NOT NULL,
       created_at TEXT NOT NULL, last_used_at TEXT, expires_at TEXT, revoked_at TEXT)`
+  ).run();
+  // Single-use upload sessions (migration 0022). Mirrors schema.sql.
+  await env.DB.prepare(
+    `CREATE TABLE upload_sessions (
+      id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, account_id TEXT,
+      email TEXT NOT NULL, is_admin INTEGER NOT NULL DEFAULT 0, slug TEXT NOT NULL,
+      title TEXT NOT NULL, description TEXT, note TEXT, created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL, used_at TEXT)`
   ).run();
 }
 

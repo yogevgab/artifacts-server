@@ -50,6 +50,10 @@ const MANAGEMENT_PREFIXES = [
   "/auth",
   "/shared",
   "/mcp",
+  // `/u/<token>` is the browser upload page behind the MCP `create_upload_link`
+  // tool (src/upload-routes.ts). Its token is a credential, and `u` can never
+  // be a workspace address (too short, and reserved here regardless).
+  "/u",
   "/oauth",
   "/.well-known",
 ];

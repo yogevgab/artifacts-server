@@ -359,3 +359,23 @@ CREATE INDEX IF NOT EXISTS idx_oauth_refresh_client ON oauth_refresh_tokens (cli
 -- nothing, and an ALTER against a table it just created with those columns would
 -- fail with "duplicate column name". The migration file has the ALTER form,
 -- because it is applied to a database that already has the table.
+
+-- Single-use browser/CLI upload sessions behind the remote MCP
+-- `create_upload_link` tool (migration 0022). Only the SHA-256 of the token is
+-- stored; `used_at` is set after a successful store, by a conditional UPDATE.
+CREATE TABLE IF NOT EXISTS upload_sessions (
+  id          TEXT PRIMARY KEY,
+  token_hash  TEXT NOT NULL UNIQUE,
+  account_id  TEXT,
+  email       TEXT NOT NULL,
+  is_admin    INTEGER NOT NULL DEFAULT 0,
+  slug        TEXT NOT NULL,
+  title       TEXT NOT NULL,
+  description TEXT,
+  note        TEXT,
+  created_at  TEXT NOT NULL,
+  expires_at  TEXT NOT NULL,
+  used_at     TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_upload_sessions_expires ON upload_sessions (expires_at);
