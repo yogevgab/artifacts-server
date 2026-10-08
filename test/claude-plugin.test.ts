@@ -430,8 +430,21 @@ describe("API error guidance", () => {
 
   it("summarises a publish as the fact plus the link", () => {
     expect(
-      publishSummary({ slug: "q3", version: 2, type: "bundle", file_count: 3, url: "https://a.rtfx.pro/q3/" })
-    ).toBe("published q3 v2 (bundle, 3 files)\nhttps://a.rtfx.pro/q3/");
+      publishSummary({ slug: "q3", version: 2, type: "bundle", file_count: 3, url: "https://rtfx.pro/w-3f9a0c12/q3" })
+    ).toBe("published q3 v2 (bundle, 3 files)\nhttps://rtfx.pro/w-3f9a0c12/q3");
+  });
+
+  it("shows the canonical url, never the deprecated alias or a content-host address", () => {
+    const out = publishSummary({
+      slug: "q3",
+      version: 1,
+      type: "single",
+      file_count: 1,
+      url: "https://rtfx.pro/yogev/q3",
+      ...({ branded_url: "https://elsewhere.example/q3" } as object),
+    });
+    expect(out).toContain("https://rtfx.pro/yogev/q3");
+    expect(out).not.toContain("elsewhere");
   });
 
   it("tells a missing token apart from a rejected one", () => {

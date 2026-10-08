@@ -1,5 +1,14 @@
 # Design: the viewer shell
 
+> **Superseded in part (canonical workspace URLs).** The shell no longer runs on the content
+> origin. It is rendered on the **app** host at `https://rtfx.pro/<workspace>/<artifact>`
+> (`src/viewer-routes.ts`) and frames the content host with an absolute, cross-origin,
+> `sandbox`ed `<iframe>`; the content host sends `frame-ancestors 'self' <app origins>` and no
+> `X-Frame-Options`; chat and the link cookie moved to the app host; there is no content-session
+> handoff (`/auth/content`, `?ct=`) any more. The sandbox/`allow-same-origin` reasoning and the
+> frame-token design below still hold. See `docs/ARCHITECTURE.md` §"The canonical address and the viewer".
+
+
 **Date:** 2026-08-14
 **Status:** Approved for planning
 **Depends on:** `2026-08-14-app-owned-identity-design.md` (guest identity), and the Access cutover

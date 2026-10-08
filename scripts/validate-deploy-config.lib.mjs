@@ -120,6 +120,23 @@ export function checkWranglerConfig(config) {
       contentHostsOk = false;
     }
     if (contentHostsOk) ok.push(`CONTENT_HOSTNAMES: ${contentHosts.join(", ")}`);
+
+    // The viewer renders on the app origin and frames the content host, whose
+    // CSP frame-ancestors names PUBLIC_BASE_URL. Without it the content would
+    // allow the product default origin and refuse to render under yours.
+    const base = String(vars.PUBLIC_BASE_URL ?? "").trim();
+    let baseOk = false;
+    try {
+      baseOk = new URL(base).protocol === "https:" && new URL(base).hostname === EXPECTED_APP_HOSTNAME;
+    } catch {
+      baseOk = false;
+    }
+    if (baseOk) ok.push(`PUBLIC_BASE_URL: ${base} (the viewer origin named in frame-ancestors)`);
+    else
+      errors.push(
+        `vars.PUBLIC_BASE_URL must be the https app origin ("https://${EXPECTED_APP_HOSTNAME}") — ` +
+          "the viewer is served there and content's frame-ancestors allowlist names it"
+      );
   }
 
   // Optional, and reported either way: without the route, `claude mcp add

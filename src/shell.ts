@@ -364,7 +364,7 @@ export function shellPage(i: ShellInput): string {
     : `${origin}/${encodeURIComponent(i.slug)}/`;
   const targetPath = target
     .split("/")
-    .filter((seg) => seg !== "")
+    .filter((seg) => seg !== "" && seg !== "." && seg !== "..")
     .map(encodeURIComponent)
     .join("/");
   const src = `${base}${targetPath}?raw=1`;

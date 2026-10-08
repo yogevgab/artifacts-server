@@ -157,14 +157,17 @@ curl -s -o /dev/null -w '%{http_code}\n' \
 
 ### 5e. What the content host serves
 
-`a.rtfx.pro` serves artifact files and the viewer shell, and nothing else — no
-`/admin`, no `/api`. A viewer arriving without a session is bounced to the app
-host to be identified and handed back; a share-link holder is admitted by the
-link alone. None of this needs configuration beyond `vars.CONTENT_HOSTNAMES`.
+`a.rtfx.pro` serves artifact files and nothing else — no `/admin`, no `/api`, no chat socket. It
+is the sandboxed origin the viewer frames, not an address anyone visits: the viewer itself lives on
+`rtfx.pro` at `/<workspace>/<slug>` and does all the access checking there. A browser that lands on
+`a.rtfx.pro/<slug>/` is redirected to the canonical viewer address. This needs
+`vars.CONTENT_HOSTNAMES` **and** `vars.PUBLIC_BASE_URL` (the app origin the content's
+`frame-ancestors` allowlist names).
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' https://a.rtfx.pro/admin        # 404
-curl -s -o /dev/null -w '%{http_code}\n' https://a.rtfx.pro/<some-slug>/ # 404 signed out
+curl -s -o /dev/null -w '%{http_code}\n' https://a.rtfx.pro/<some-slug>/ # 404 signed out (no browser headers)
+curl -sI -H 'Sec-Fetch-Dest: document' https://a.rtfx.pro/<some-slug>/ | grep -i '^location'   # -> https://rtfx.pro/<workspace>/<some-slug>
 ```
 
 ### 5f. Config that is no longer used
@@ -268,9 +271,9 @@ echo '<h1>rtfx smoke test</h1>' > /tmp/smoke.html
 node cli/artifacts.mjs publish /tmp/smoke.html --slug smoke-test --title "Smoke Test"
 node cli/artifacts.mjs list                       # confirm smoke-test appears
 
-curl -i https://a.rtfx.pro/smoke-test/            # renders on the content host when your browser/session
-                                                   # or share link is authorized; signed-out curl without
-                                                   # a session/share link should not see private content.
+curl -i https://rtfx.pro/<workspace>/smoke-test    # the url the publish printed; a browser gets the viewer,
+                                                   # curl is redirected to the content host's raw path,
+                                                   # where signed-out curl should not see private content.
 
 node cli/artifacts.mjs delete smoke-test
 node cli/artifacts.mjs list                       # confirm smoke-test is gone

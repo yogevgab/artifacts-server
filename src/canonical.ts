@@ -77,12 +77,17 @@ export function contentOrigin(env: Env, requestUrl: string): string | null {
   const host = firstContentHostname(env);
   if (!host) return null;
   let protocol = "https:";
+  let port = "";
   try {
-    protocol = new URL(requestUrl).protocol;
+    const u = new URL(requestUrl);
+    protocol = u.protocol;
+    // A non-default port is carried over, so a local dev server (app.localhost:8787
+    // and a.localhost:8787) works; production has none.
+    port = u.port ? `:${u.port}` : "";
   } catch {
     // keep https
   }
-  return `${protocol}//${host}`;
+  return `${protocol}//${host}${port}`;
 }
 
 /**

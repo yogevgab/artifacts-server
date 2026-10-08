@@ -15,7 +15,7 @@ Nothing below ships in this repository, and nothing below is shared with the hos
 | | What you need | Notes |
 |---|---|---|
 | **Cloudflare** | An account, a zone (domain), Workers, R2 and D1 | `npx wrangler login`, then `npm run setup` or the manual steps in the README. |
-| **A content hostname** | A second hostname routed to the same Worker | `CONTENT_HOSTNAMES` + a matching `routes[]` entry. Not optional — see below. |
+| **A content hostname** | A second hostname routed to the same Worker | `CONTENT_HOSTNAMES` + a matching `routes[]` entry, plus `PUBLIC_BASE_URL` (your app origin: the viewer and the content's `frame-ancestors` allowlist name it). Not optional — see below. |
 | **Email** | A Cloudflare Email Sending binding (`EMAIL`) and a verified sender | Sign-in is a one-time code by email; with no mail path, nobody can log in. `MAIL_FROM` must be in `allowed_sender_addresses`. |
 | **Session secret** | `npx wrangler secret put SESSION_SECRET` | Signs the `rtfx_session` cookie. |
 | **Billing** *(only for paid plans)* | A Lemon Squeezy store, variants and a webhook secret | `LEMONSQUEEZY_STORE_ID`, `LEMONSQUEEZY_VARIANT_FREE/PRO/TEAM`, plus `wrangler secret put LEMONSQUEEZY_WEBHOOK_SECRET`. Leave unset to run free-plan-only. |

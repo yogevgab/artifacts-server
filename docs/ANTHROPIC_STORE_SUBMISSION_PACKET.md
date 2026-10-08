@@ -252,7 +252,7 @@ Capture only after ensuring no token is visible.
 2. `/rtfx:login` browser OAuth.
 3. `/rtfx:setup` showing connected status with token id only.
 4. `/rtfx:publish ./demo --slug anthropic-review-demo` returning a stable rtfx URL.
-5. Artifact page open on `a.rtfx.pro`.
+5. Artifact page open at its `rtfx.pro/<workspace>/<slug>` address.
 6. `/rtfx:versions anthropic-review-demo` showing immutable versions.
 7. `/rtfx:rollback anthropic-review-demo 1` if a v2 exists.
 8. Claude Desktop installing/opening `rtfx.dxt`.

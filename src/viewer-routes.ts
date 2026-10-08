@@ -122,6 +122,12 @@ function notFound(c: AppContext, slug: string): Response {
   return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
 }
 
+/** Does this request carry a `?k=` or any link cookie? Cheap, no I/O. */
+function carriesKeyMaterial(c: AppContext): boolean {
+  if (new URL(c.req.url).searchParams.has("k")) return true;
+  return (c.req.header("Cookie") ?? "").includes("rtfx_link_");
+}
+
 /** True when the request carries any identity or capability for this slug. */
 async function hasAnyCredential(c: AppContext, slug: string): Promise<boolean> {
   if (await getIdentity(c)) return true;
@@ -171,15 +177,23 @@ export async function viewerRoute(c: AppContext, next: Next): Promise<Response |
     if (art && art.account_id === account.id) {
       return viewArtifact(c, art, account.public_slug ?? first, segs.slice(2));
     }
-    // A share key that opens this artifact in ANOTHER workspace address means the
-    // link was minted before the workspace's address changed: the key already
-    // proves access, so send it to the current address rather than strand it.
-    if (art && (await presentedKey(c, art.slug)).viaLink) {
-      return redirectToViewer(c, art, segs.slice(2).join("/"));
+  }
+
+  // Not an exact `<workspace>/<artifact>` match. A share key that opens
+  // `segs[1]` means the link was minted before its workspace's address changed
+  // (or names the wrong one): the key already proves access, so send it to the
+  // artifact's CURRENT address rather than strand it. Only attempted when the
+  // request carries key material at all, so ordinary 404 probes cost nothing.
+  if (segs.length >= 2 && carriesKeyMaterial(c)) {
+    const keyed = await getArtifact(c.env, segs[1]);
+    if (keyed && (await presentedKey(c, keyed.slug)).viaLink) {
+      return redirectToViewer(c, keyed, segs.slice(2).join("/"));
     }
+  }
+
+  if (account) {
     // `first` may also be a plain artifact slug (an old-form URL whose slug is
-    // coincidentally a workspace address too); fall through to that reading
-    // before giving up.
+    // coincidentally a workspace address too); try that reading before giving up.
     const legacy = await getArtifact(c.env, segs[0]);
     if (legacy) return legacyForm(c, legacy, segs.slice(1), twoHost, next);
     // Nothing to show. A signed-out browser is sent to sign in rather than told
