@@ -43,6 +43,7 @@ import type { Identity } from "./auth";
 import { listApiTokens, toPublicToken, type PublicApiToken } from "./tokens";
 import { describeUsers, listUsers, privilegedEmails } from "./users";
 import { notFoundPage } from "./pages";
+import { isLinkPreviewCrawler, linkPreviewPage } from "./link-preview";
 import { shellPage, sharePage, FRAME_TOKEN_SEGMENT } from "./shell";
 import { viewLimitStatus, blocksOnViewLimit, blocksOnSuspension } from "./quota";
 import { overViewLimitPage, suspendedContentPage } from "./view-limit-page";
@@ -1105,6 +1106,26 @@ app.get("*", async (c) => {
   const viaLink = shareKey ? await redeemShareLink(c.env, shareKey, new Date().toISOString()) : null;
 
   if (queryKey && viaLink && viaLink.slug === slug) {
+    // A link-card crawler (X, WhatsApp, iMessage, Slack…) gets the artifact's
+    // title and description instead of a redirect it cannot use. See
+    // src/link-preview.ts for why this is limited to a valid key.
+    if (c.req.method === "GET" && isLinkPreviewCrawler(c.req.raw.headers)) {
+      const previewed = await getArtifact(c.env, slug);
+      const status = previewed?.account_id
+        ? await viewLimitStatus(c.env, previewed.account_id, undefined, undefined, true)
+        : null;
+      if (previewed && !blocksOnSuspension(status, false)) {
+        return c.html(
+          linkPreviewPage({
+            title: previewed.title || slug,
+            description: previewed.description ?? null,
+            image: `${(c.env.PUBLIC_BASE_URL || siteOrigin(c.env)).replace(/\/+$/, "")}/logo.png`,
+          }),
+          200,
+          { "Cache-Control": "private, no-store", "X-Robots-Tag": "noindex, nofollow, noarchive" }
+        );
+      }
+    }
     const clean = new URL(c.req.url);
     clean.searchParams.delete("k");
     return new Response(null, {
