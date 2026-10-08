@@ -3,8 +3,11 @@
 -- Apply it on its own, the way every migration here is applied, BEFORE deploying
 -- the code that depends on it:
 --   npx wrangler d1 execute artifacts-meta --remote --file migrations/0021_auto_account_slugs.sql
--- NOT `wrangler d1 migrations apply`: production was never migrated through
--- wrangler's migration tracking, so that command would try to re-run 0001-0020. The Worker also assigns an address lazily when it finds a NULL
+-- Applying this one file directly is always safe — it only fills NULLs, so a
+-- re-run is a no-op. Prefer it over `wrangler d1 migrations apply` unless you
+-- have confirmed the d1_migrations table already records 0001-0020; if it does
+-- not, that command would try to re-run them, and 0009/0018/0019 are not
+-- re-runnable. The Worker also assigns an address lazily when it finds a NULL
 -- (`ensureAccountPublicSlug`, src/accounts.ts), so a late migration degrades to
 -- per-request writes rather than breaking links — but apply it first anyway.
 --
