@@ -798,6 +798,7 @@ body{overflow:auto}
 .share-page{max-width:520px;margin:40px auto;padding:0 16px}
 .share-page .back{display:inline-block;margin:0 0 14px;font-size:13px;color:var(--sh-muted)}
 .panel.standalone{position:static;display:block;width:auto;max-width:none;inset:auto;
+  max-height:none;overflow:visible;
   transform:none;box-shadow:none}
 </style>
 </head><body>
