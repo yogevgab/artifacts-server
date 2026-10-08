@@ -1,7 +1,10 @@
 -- Every workspace gets an address: backfill auto slugs for accounts without one.
 --
--- MUST be applied (`wrangler d1 migrations apply`) BEFORE deploying the code that
--- depends on it. The Worker also assigns an address lazily when it finds a NULL
+-- Apply it on its own, the way every migration here is applied, BEFORE deploying
+-- the code that depends on it:
+--   npx wrangler d1 execute artifacts-meta --remote --file migrations/0021_auto_account_slugs.sql
+-- NOT `wrangler d1 migrations apply`: production was never migrated through
+-- wrangler's migration tracking, so that command would try to re-run 0001-0020. The Worker also assigns an address lazily when it finds a NULL
 -- (`ensureAccountPublicSlug`, src/accounts.ts), so a late migration degrades to
 -- per-request writes rather than breaking links — but apply it first anyway.
 --
