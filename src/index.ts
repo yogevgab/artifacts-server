@@ -42,7 +42,7 @@ import type { Identity } from "./auth";
 import { listApiTokens, toPublicToken, type PublicApiToken } from "./tokens";
 import { describeUsers, listUsers, privilegedEmails } from "./users";
 import { notFoundPage } from "./pages";
-import { shellPage } from "./shell";
+import { shellPage, FRAME_TOKEN_SEGMENT } from "./shell";
 import { viewLimitStatus, blocksOnViewLimit, blocksOnSuspension } from "./quota";
 import { overViewLimitPage, suspendedContentPage } from "./view-limit-page";
 export { ChatRoom } from "./chat";
@@ -69,7 +69,13 @@ import { recordViewAndMaybeNotify } from "./read-receipts";
 import { membersPage } from "./members";
 import { billingPage } from "./billing-page";
 import { workspaceBilling } from "./plan-copy";
-import { verifyHandoff, mintSession, SESSION_TTL_SECONDS } from "./session";
+import {
+  verifyHandoff,
+  mintSession,
+  SESSION_TTL_SECONDS,
+  mintFrameToken,
+  verifyFrameToken,
+} from "./session";
 import { landingPage } from "./landing";
 import { proPage, teamPage, enterprisePage } from "./plan-pages";
 import { contactRoutes, contactPage, normalizePlan } from "./contact";
@@ -922,11 +928,79 @@ app.get("*", async (c, next) => {
   return c.redirect(target.toString(), 302);
 });
 
+/**
+ * Records a view and, on somebody's FIRST view of an artifact shared with them,
+ * emails the owner. Fire-and-forget in production (awaited in tests) — a mail
+ * failure must never affect serving the page.
+ */
+async function logViewInBackground(
+  c: Context<{ Bindings: Env; Variables: AuthVars }>,
+  art: ArtifactRow,
+  email: string,
+  path: string
+): Promise<void> {
+  const cf = (c.req.raw as { cf?: { country?: string } }).cf;
+  const p = recordViewAndMaybeNotify(c.env, {
+    slug: art.slug,
+    version: art.current_version,
+    email,
+    path,
+    country: cf?.country ?? null,
+    referrer: (c.req.header("Referer") ?? "").slice(0, 500) || null,
+    viewed_at: new Date().toISOString(),
+  }, art);
+  let ctx: { waitUntil(promise: Promise<unknown>): void } | undefined;
+  try {
+    ctx = c.executionCtx;
+  } catch {
+    ctx = undefined;
+  }
+  if (ctx) ctx.waitUntil(p);
+  else await p;
+}
+
 app.get("*", async (c) => {
   const rest = c.req.path.replace(/^\/+/, "");
   const idx = rest.indexOf("/");
   const slug = decodeURIComponent(idx === -1 ? rest : rest.slice(0, idx));
   const filePath = idx === -1 ? "" : decodeURIComponent(rest.slice(idx + 1));
+
+  // The viewer shell's frame, and everything the framed artifact loads by a
+  // relative URL. See `mintFrameToken` (src/session.ts) for why the credential
+  // rides in the path: the sandboxed frame sends no cookies at all.
+  const framePrefix = `${FRAME_TOKEN_SEGMENT}/`;
+  if (filePath.startsWith(framePrefix)) {
+    const afterPrefix = filePath.slice(framePrefix.length);
+    const cut = afterPrefix.indexOf("/");
+    const frameToken = cut === -1 ? afterPrefix : afterPrefix.slice(0, cut);
+    const framedPath = cut === -1 ? "" : afterPrefix.slice(cut + 1);
+
+    // Somebody opened a frame URL directly (copied it, or "open frame in new
+    // tab"). Never serve artifact HTML as a top-level document on this origin;
+    // send them to the shell, which runs its own access check and re-frames.
+    if (c.req.header("Sec-Fetch-Dest") === "document") {
+      const clean = new URL(c.req.url);
+      clean.pathname = `/${encodeURIComponent(slug)}/${framedPath}`;
+      clean.searchParams.delete("raw");
+      return c.redirect(clean.pathname + clean.search, 302);
+    }
+    if (c.req.method !== "GET" && c.req.method !== "HEAD") {
+      return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
+    }
+    const valid =
+      !!c.env.SESSION_SECRET &&
+      (await verifyFrameToken(c.env.SESSION_SECRET, frameToken, slug, new Date().toISOString()));
+    const art = valid ? await getArtifact(c.env, slug) : null;
+    if (!art) return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
+    // Suspension is a takedown control and binds every path, this one included.
+    const status = art.account_id
+      ? await viewLimitStatus(c.env, art.account_id, undefined, undefined, true)
+      : null;
+    if (blocksOnSuspension(status, false)) {
+      return c.html(suspendedContentPage(slug, siteOrigin(c.env)), 403);
+    }
+    return serveArtifact(c, slug, art.current_version, framedPath, { framed: true });
+  }
 
   // Crossing from the app host: exchange the one-shot handoff for a cookie of
   // this origin's own, then redirect to the clean URL so the token stops riding
@@ -1056,6 +1130,15 @@ app.get("*", async (c) => {
 
   if (wantsShell(c)) {
     const grants = art.visibility === "restricted" ? await listGrants(c.env, slug) : [];
+    const frameToken = c.env.SESSION_SECRET
+      ? await mintFrameToken(c.env.SESSION_SECRET, slug, new Date().toISOString())
+      : undefined;
+    // With a frame token the framed request carries no identity, so the view is
+    // recorded here, where the viewer is known. Without one (no secret) the
+    // frame's own ?raw=1 request still records it below, as it always did.
+    if (frameToken && identity?.email) {
+      await logViewInBackground(c, art, identity.email, filePath || art.entry || "index.html");
+    }
     return c.html(
       shellPage({
         slug,
@@ -1074,6 +1157,7 @@ app.get("*", async (c) => {
         entry: art.entry,
         isDocument: art.entry?.toLowerCase().endsWith(".pdf") ?? false,
         appBaseUrl: siteOrigin(c.env),
+        frameToken,
       })
     );
   }
@@ -1081,30 +1165,10 @@ app.get("*", async (c) => {
   const res = await serveArtifact(c, slug, art.current_version, filePath);
 
   // Log a view for an HTML page load by a signed-in person (not assets, not
-  // machine/service-token fetches). Non-blocking in production; awaited in tests.
+  // machine/service-token fetches).
   const isHtml = (res.headers.get("Content-Type") ?? "").startsWith("text/html");
   if (res.ok && isHtml && identity?.email) {
-    const cf = (c.req.raw as { cf?: { country?: string } }).cf;
-    // Records the view and, on somebody's FIRST view of an artifact shared with
-    // them, emails the owner. Same view object, same fire-and-forget handling —
-    // a mail failure must never affect serving the page.
-    const p = recordViewAndMaybeNotify(c.env, {
-      slug,
-      version: art.current_version,
-      email: identity.email,
-      path: filePath,
-      country: cf?.country ?? null,
-      referrer: (c.req.header("Referer") ?? "").slice(0, 500) || null,
-      viewed_at: new Date().toISOString(),
-    }, art);
-    let ctx: { waitUntil(promise: Promise<unknown>): void } | undefined;
-    try {
-      ctx = c.executionCtx;
-    } catch {
-      ctx = undefined;
-    }
-    if (ctx) ctx.waitUntil(p);
-    else await p;
+    await logViewInBackground(c, art, identity.email, filePath);
   }
 
   return res;

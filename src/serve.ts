@@ -39,13 +39,30 @@ export async function serveArtifact<E extends { Bindings: Env }>(
   c: Context<E>,
   slug: string,
   version: number,
-  path: string
+  path: string,
+  opts: { framed?: boolean } = {}
 ): Promise<Response> {
   let rel = path.replace(/^\/+/, "");
   if (rel === "" || rel.endsWith("/")) rel += "index.html";
 
   const key = `${slug}/v${version}/${rel}`;
-  const obj = await c.env.FILES.get(key);
+  // Byte ranges for everything but HTML (which may be rewritten below, so a
+  // range over it would not line up). Safari will not play a <video> or
+  // <audio> whose server answers a Range request with a plain 200.
+  const isHtmlPath = contentType(rel).startsWith("text/html");
+  // One well-formed range only. Anything else (multiple ranges, junk) is
+  // ignored and the whole file sent, which RFC 9110 permits.
+  let wantsRange = !isHtmlPath && /^bytes=(\d+-\d*|-\d+)$/.test(c.req.header("Range") ?? "");
+  let obj: R2ObjectBody | null = null;
+  if (wantsRange) {
+    try {
+      obj = await c.env.FILES.get(key, { range: c.req.raw.headers });
+    } catch {
+      // A malformed or unsatisfiable Range: serve the whole file instead.
+      wantsRange = false;
+    }
+  }
+  if (!wantsRange) obj = await c.env.FILES.get(key);
   if (!obj) {
     return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
   }
@@ -76,6 +93,20 @@ export async function serveArtifact<E extends { Bindings: Env }>(
   if (!headers.get("Content-Type")?.startsWith("text/html")) {
     headers.set("Content-Security-Policy", "frame-ancestors 'self'");
     headers.set("ETag", obj.httpEtag);
+    headers.set("Accept-Ranges", "bytes");
+    const range = wantsRange ? (obj as R2ObjectBody & { range?: R2Range }).range : undefined;
+    if (range && "offset" in range && typeof range.offset === "number") {
+      const length = Math.min(range.length ?? obj.size, obj.size - range.offset);
+      headers.set("Content-Range", `bytes ${range.offset}-${range.offset + length - 1}/${obj.size}`);
+      headers.set("Content-Length", String(length));
+      return new Response(obj.body, { status: 206, headers });
+    }
+    if (range && "suffix" in range && typeof range.suffix === "number") {
+      const length = Math.min(range.suffix, obj.size);
+      headers.set("Content-Range", `bytes ${obj.size - length}-${obj.size - 1}/${obj.size}`);
+      headers.set("Content-Length", String(length));
+      return new Response(obj.body, { status: 206, headers });
+    }
     return new Response(obj.body, { headers });
   }
 
@@ -93,7 +124,7 @@ export async function serveArtifact<E extends { Bindings: Env }>(
   // Only a framed HTML page gets the reporter. An unframed request — the CLI, a
   // download, a machine fetch — receives the artifact exactly as published,
   // because "immutable version" has to mean the bytes too.
-  const framed = new URL(c.req.url).searchParams.has("raw");
+  const framed = opts.framed || new URL(c.req.url).searchParams.has("raw");
   if (framed && headers.get("Content-Type")?.startsWith("text/html")) {
     return new HTMLRewriter()
       .on("body", {

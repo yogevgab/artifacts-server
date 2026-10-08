@@ -17,6 +17,9 @@
 
 import { esc } from "./pages";
 
+/** The path segment that introduces a frame token: `/<slug>/~t/<token>/<file>`. */
+export const FRAME_TOKEN_SEGMENT = "~t";
+
 export interface ShellInput {
   slug: string;
   title: string;
@@ -39,6 +42,11 @@ export interface ShellInput {
   isDocument?: boolean;
   /** Canonical app origin. Artifact chrome often renders on a.rtfx.pro. */
   appBaseUrl?: string;
+  /**
+   * Path capability for the frame (see `mintFrameToken` in src/session.ts).
+   * Without it the sandboxed frame's relative assets carry no credential.
+   */
+  frameToken?: string;
 }
 
 /**
@@ -306,7 +314,10 @@ export function shellPage(i: ShellInput): string {
   // An empty filePath means "the artifact itself", which is its entry — not
   // necessarily index.html.
   const target = i.filePath || (i.entry && i.entry !== "index.html" ? i.entry : "");
-  const src = `/${encodeURIComponent(i.slug)}/${target}${target.includes("?") ? "&" : "?"}raw=1`;
+  const base = i.frameToken
+    ? `/${encodeURIComponent(i.slug)}/${FRAME_TOKEN_SEGMENT}/${i.frameToken}/`
+    : `/${encodeURIComponent(i.slug)}/`;
+  const src = `${base}${target}${target.includes("?") ? "&" : "?"}raw=1`;
   const appHome = i.appBaseUrl ? `${i.appBaseUrl.replace(/\/+$/, "")}/` : "/";
 
   return `<!doctype html>

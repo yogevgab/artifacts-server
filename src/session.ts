@@ -154,3 +154,50 @@ export async function verifyHandoff(
   }
   return claims;
 }
+
+/**
+ * A capability for the viewer shell's frame, carried in the frame's URL path.
+ *
+ * The frame is sandboxed without `allow-same-origin` (see src/shell.ts), so the
+ * browser gives the artifact an opaque origin and sends no SameSite=Lax cookie
+ * with anything it loads — its images, scripts, styles, media and the pages it
+ * links to. Every artifact needs a credential, so without this every relative
+ * asset 404'd and a multi-file site rendered as bare HTML.
+ *
+ * The token sits in a path segment (`/<slug>/~t/<token>/<file>`) rather than a
+ * query string because relative URLs inherit the path but drop the query: an
+ * `img/a.jpg` inside the frame resolves to `/<slug>/~t/<token>/img/a.jpg` with
+ * no help from the artifact.
+ *
+ * Scope is one artifact, read-only, current version, for FRAME_TTL_SECONDS —
+ * kept short because revoking access does not reach a frame already open —
+ * the same shape as a share link, minted only after the shell's own access
+ * check passed. It carries no `kind` or `sub`, so `verifySession` rejects it,
+ * and `use: "frame"` keeps a session or handoff from being accepted here.
+ */
+export const FRAME_TTL_SECONDS = 4 * 60 * 60;
+
+export async function mintFrameToken(secret: string, slug: string, now: string): Promise<string> {
+  const issued = Math.floor(Date.parse(now) / 1000);
+  return new SignJWT({ use: "frame", slug })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt(issued)
+    .setExpirationTime(issued + FRAME_TTL_SECONDS)
+    .sign(keyFrom(secret));
+}
+
+/** True only for an unexpired frame token minted for exactly this artifact. */
+export async function verifyFrameToken(
+  secret: string,
+  token: string,
+  slug: string,
+  now: string
+): Promise<boolean> {
+  if (!token) return false;
+  try {
+    const { payload } = await jwtVerify(token, keyFrom(secret), { currentDate: new Date(now) });
+    return payload.use === "frame" && payload.slug === slug;
+  } catch {
+    return false;
+  }
+}
