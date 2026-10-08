@@ -107,6 +107,7 @@ import {
   ogImageSvg,
   OG_IMAGE_PNG_BASE64,
   LOGO_PNG_BASE64,
+  LOGO_SMALL_PNG_BASE64,
   isCanonicalHost,
   siteOrigin,
   securityTxt,
@@ -684,6 +685,8 @@ app.get("/og.png", () => pngResponse(OG_IMAGE_PNG_BASE64));
 // like the rest of the crawler-facing files, so a legacy/self-host edge gate must
 // be told to let it through alongside /og.png (docs/DEPLOY_RTFX.md).
 app.get("/logo.png", () => pngResponse(LOGO_PNG_BASE64));
+// The small mark for share-link previews (src/link-preview.ts).
+app.get("/logo-128.png", () => pngResponse(LOGO_SMALL_PNG_BASE64));
 
 
 // Sign-up surface. Public on purpose: it explains how to get in, so it must stay
@@ -1119,7 +1122,7 @@ app.get("*", async (c) => {
           linkPreviewPage({
             title: previewed.title || slug,
             description: previewed.description ?? null,
-            image: `${(c.env.PUBLIC_BASE_URL || siteOrigin(c.env)).replace(/\/+$/, "")}/logo.png`,
+            image: `${(c.env.PUBLIC_BASE_URL || siteOrigin(c.env)).replace(/\/+$/, "")}/logo-128.png`,
           }),
           200,
           { "Cache-Control": "private, no-store", "X-Robots-Tag": "noindex, nofollow, noarchive" }

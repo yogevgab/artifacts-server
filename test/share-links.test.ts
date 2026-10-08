@@ -409,7 +409,8 @@ describe("share-link previews for link-card crawlers", () => {
       expect(html, ua).toContain('<meta property="og:title" content="Dorai &lt;Raz&gt; Portfolio">');
       expect(html, ua).toContain('<meta name="twitter:description" content="Product work &amp; &quot;drawings&quot;">');
       expect(html, ua).toContain('<meta name="twitter:card" content="summary">');
-      expect(html, ua).toContain("/logo.png");
+      expect(html, ua).toContain("/logo-128.png");
+      expect(html, ua).toContain('<meta property="og:image:width" content="128">');
       // The key is already in the message; it is not repeated as a canonical URL.
       expect(html, ua).not.toContain("og:url");
       expect(html, ua).not.toContain(k);

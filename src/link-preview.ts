@@ -41,7 +41,7 @@ const MAX_DESCRIPTION = 300;
 export function linkPreviewPage(input: {
   title: string;
   description: string | null;
-  /** Absolute URL of a small square image (the rtfx mark). */
+  /** Absolute URL of a small (128px) square image: the rtfx mark. Kept small on purpose — see LOGO_SMALL_PNG_BASE64. */
   image: string;
 }): string {
   const title = input.title.trim() || "Shared on rtfx.pro";
@@ -63,6 +63,9 @@ export function linkPreviewPage(input: {
 <meta property="og:title" content="${esc(title)}">
 <meta property="og:description" content="${esc(description)}">
 <meta property="og:image" content="${esc(input.image)}">
+<meta property="og:image:width" content="128">
+<meta property="og:image:height" content="128">
+<meta property="og:image:type" content="image/png">
 <meta property="og:image:alt" content="rtfx.pro">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="${esc(title)}">
