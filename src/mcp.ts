@@ -167,6 +167,18 @@ export const MAX_MCP_BODY_BYTES = Math.ceil(MAX_INLINE_BYTES * (4 / 3)) + 512 * 
  * pins that every other tool the stdio server exposes is absent here.
  */
 /** Same shape the stdio server enforces, so a slug valid there is valid here. */
+
+/**
+ * What to tell a claude.ai user whose code sandbox cannot reach rtfx.pro. The
+ * connector cannot carry a big site (its bytes would have to be typed into the
+ * tool call), so the real fix is letting Claude's sandbox upload it — one
+ * setting, once — rather than turning the person into the courier.
+ * Labels as they appear on claude.ai/settings/capabilities (2026-10-08).
+ */
+const UPLOAD_SETTING_HINT =
+  'in Claude, open Settings → Capabilities → "Code execution and file creation", turn on "Allow network egress" ' +
+  'and set "Domain allowlist" to "All domains" (or allow rtfx.pro), then start a new chat and ask again';
+
 const REMOTE_SLUG = {
   type: "string",
   minLength: 1,
@@ -271,22 +283,21 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
   },
   {
     name: "create_upload_link",
-    title: "Get a link to upload a large or binary site",
+    title: "Publish a large or binary site from your code sandbox",
     description:
-      "Reserve a destination for a site that is TOO BIG for `publish` (more than a few MB or " + MAX_INLINE_FILES + " files) " +
-      "or that contains images, video or other binary files, and get back a single-use upload link valid for 30 minutes. " +
-      "Nothing is published by this call. Do NOT base64 large or binary files into `publish`; call this instead. " +
-      "It resolves the target exactly like `publish` (an existing slug you own becomes a new version; a slug that " +
-      "belongs to someone else is refused with 409; a new slug needs a `title`). " +
-      "It returns `upload_url` (for you) and `page_url` (for the person). Then: " +
-      "(1) FIRST, if you have a code-execution sandbox that holds the site's files, zip them with index.html at the " +
-      "zip's root and upload it yourself: `curl -sS -F bundle=@site.zip <upload_url>` — the JSON response contains the " +
-      "published `url`; give that to the person. " +
-      "(2) If that fails (for example the sandbox has no network access), give the person the `page_url` as a clickable " +
-      "link AND give them the site as a downloadable .zip, and tell them: open the link and drop the zip (or the " +
-      "whole folder) onto the page. Never ask them to use a terminal, curl or any command. " +
-      "The link works once; if the upload is refused (for example no index.html) it can be retried until it expires, " +
-      "and after that you just call this tool again.",
+      "Use this to publish a site that is TOO BIG for `publish` (more than a few MB or " + MAX_INLINE_FILES + " files) " +
+      "or that contains images, video or other binary files. Do NOT base64 such files into `publish`. " +
+      "It reserves the destination exactly like `publish` (an existing slug you own becomes a new version; a slug that " +
+      "belongs to someone else is refused with 409; a new slug needs a `title`) and returns a single-use `upload_url`, " +
+      "valid 30 minutes. Nothing is published by this call. " +
+      "Then YOU upload the site from your code-execution sandbox: zip the files with index.html at the zip's root and run " +
+      "`curl -sS -F bundle=@site.zip <upload_url>`. The JSON response contains the published `url`; give that to the " +
+      "person. The person should not have to do anything. " +
+      "If the upload does not work (for example the sandbox's network access is off or rtfx.pro is not allowed), keep it " +
+      "short and friendly and give the person both: (a) the returned `page_url` as a clickable link plus the site as a " +
+      "downloadable .zip, telling them to open the link and drop the zip (or the folder) onto the page — that publishes it " +
+      "now; and (b) one line on how to let you do it for them next time: " + UPLOAD_SETTING_HINT + ". " +
+      "Never ask them to use a terminal or run a command. If the link expires, call this tool again.",
     inputSchema: {
       type: "object",
       properties: {
@@ -536,12 +547,12 @@ rather than silently dropped.
 
 LARGE SITES AND IMAGES/VIDEO: if the site is larger than the inline limit, or contains images, video
 or any binary file, do NOT base64 it into "publish". Call "create_upload_link" (same slug/title rules
-as publish; it publishes nothing yet). It returns an "upload_url" and a "page_url". First, if you have
-a code-execution sandbox holding the files, zip them (index.html at the zip root) and upload it
-yourself: curl -sS -F bundle=@site.zip <upload_url>  — the response carries the published URL. If that
-fails (e.g. the sandbox has no network), give the person the page_url as a clickable link AND the site
-as a downloadable .zip, and tell them: open the link and drop the zip (or the whole folder) onto the
-page. Never ask them to use a terminal. The link is single-use and expires in 30 minutes.
+as publish; it publishes nothing yet), then upload the zip yourself from your code sandbox:
+curl -sS -F bundle=@site.zip <upload_url>  (index.html at the zip root) — the response carries the
+published URL. The person should not have to do anything. If that does not work, give them the
+"page_url" as a clickable link plus the site as a downloadable .zip to drop onto it (that publishes it
+now), and one line on letting you do it next time — ${UPLOAD_SETTING_HINT}.
+Never ask them to use a terminal.
 
 Artifact management is also available here: use "list_artifacts" to find existing work,
 "artifact_details" before sharing or rollback, "artifact_statistics" for counts, and — with a
@@ -1086,8 +1097,8 @@ async function createUploadLink(c: Context<Vars>, args: any): Promise<ToolCallRe
         `upload link ready for ${target.slug} (${target.existing ? "new version of an existing artifact" : "new artifact"}); valid ${minutes} minutes, single use`,
         `upload_url: ${uploadUrl}`,
         `page_url: ${pageUrl}`,
-        "next: if you have a code sandbox with the files, zip them (index.html at the root) and run: curl -sS -F bundle=@site.zip <upload_url>",
-        "otherwise give the person page_url as a clickable link plus the site as a downloadable .zip, and tell them to open the link and drop the zip (or the folder) onto the page. Never ask them to use a terminal.",
+        "next: zip the site in your code sandbox (index.html at the root) and run: curl -sS -F bundle=@site.zip <upload_url> — then give the person the published url from the response.",
+        `if that does not work, give the person page_url as a clickable link plus the site as a downloadable .zip to drop onto it, and one line on letting you do it next time: ${UPLOAD_SETTING_HINT}. Never ask them to use a terminal.`,
       ],
       {
         command: "create_upload_link",

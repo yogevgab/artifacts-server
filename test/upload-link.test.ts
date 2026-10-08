@@ -135,6 +135,12 @@ describe("create_upload_link", () => {
     for (const text of [desc, HTTP_INSTRUCTIONS]) {
       expect(text).toContain("curl -sS -F bundle=@site.zip");
       expect(text).toContain("Never ask them to use a terminal");
+      // Sandbox first; when it can't connect, the link + zip AND the one-time
+      // setting that lets Claude publish by itself next time.
+      expect(text).toContain("page_url");
+      expect(text).toContain("downloadable .zip");
+      expect(text).toContain('"Allow network egress"');
+      expect(text).toContain('"All domains"');
     }
     expect(REMOTE_TOOLS.find((t) => t.name === "publish")!.description).toContain("create_upload_link");
   });
