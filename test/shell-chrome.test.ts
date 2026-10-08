@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { initDb, clearR2, req, as } from "./fixtures";
+import { initDb, clearR2, req, as, openViewer } from "./fixtures";
 
 const OWNER = "owner@rtfx.pro";
 
@@ -14,11 +14,7 @@ beforeEach(async () => {
   await req("/api/artifacts", { method: "POST", body, ...as(OWNER) });
 });
 
-const nav = (who: string) =>
-  req("/demo/", {
-    ...as(who),
-    headers: { ...(as(who).headers as Record<string, string>), "Sec-Fetch-Dest": "document" },
-  });
+const nav = (who: string) => openViewer("demo", who);
 
 /**
  * The shell inlines exactly one stylesheet, so its layout rules are the only
@@ -365,9 +361,11 @@ describe("artifact content can actually be framed by the shell", () => {
     expect(res.headers.get("x-frame-options")).not.toBe("DENY");
   });
 
-  it("allows same-origin framing explicitly", async () => {
+  it("sends no X-Frame-Options on content: CSP frame-ancestors is the one framing policy", async () => {
+    // The viewer is on the app origin and the content on another, which XFO
+    // cannot express; every current browser lets frame-ancestors decide.
     const res = await req("/demo/?raw=1", as(OWNER));
-    expect(res.headers.get("x-frame-options")).toBe("SAMEORIGIN");
+    expect(res.headers.get("x-frame-options")).toBeNull();
     expect(res.headers.get("content-security-policy")).toContain("frame-ancestors 'self'");
   });
 

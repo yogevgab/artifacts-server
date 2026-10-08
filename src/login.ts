@@ -340,7 +340,7 @@ export function magicLinkConfirmPage(env: Env, token: string): string {
  * never says whether that address holds a grant — the answer is identical
  * either way, because otherwise this page enumerates who can see what.
  */
-export function guestSigninPage(env: Env, slug: string): string {
+export function guestSigninPage(env: Env, slug: string, next?: string | null): string {
   return layout(
     "Open a shared page \u00b7 rtfx.pro",
     sheet(
@@ -359,7 +359,7 @@ export function guestSigninPage(env: Env, slug: string): string {
        </form>
        <p class="status" data-auth-status role="status" aria-live="polite" hidden></p>
        <hr class="divider">
-       <p class="hint">Have an rtfx.pro account? <a href="/login">Sign in</a> instead and it will
+       <p class="hint">Have an rtfx.pro account? <a href="${esc(next ? `/login?next=${encodeURIComponent(next)}` : "/login")}">Sign in</a> instead and it will
          open directly.</p>
        <script>${GUEST_SCRIPT}</script>`
     ),

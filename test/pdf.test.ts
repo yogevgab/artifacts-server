@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { singlePdf, sniffKind, UploadError } from "../src/upload";
-import { initDb, clearR2, req, as } from "./fixtures";
+import { initDb, clearR2, req, as, openViewer } from "./fixtures";
 
 const OWNER = "admin@test.com";
 
@@ -75,13 +75,22 @@ describe("publishing a PDF", () => {
 
   it("shows the PDF in the shell rather than downloading it", async () => {
     await publishPdf();
-    const res = await req("/deck/", {
-      ...as(OWNER),
-      headers: { ...(as(OWNER).headers as Record<string, string>), "Sec-Fetch-Dest": "document" },
-    });
+    const res = await openViewer("deck", OWNER);
     const html = await res.text();
     expect(html).toContain("<iframe");
     expect(html).toContain("document.pdf");
+    // The PDF frame stays unsandboxed (Chrome refuses its viewer otherwise) and
+    // the viewer page itself carries no PDF bytes.
+    const tag = /<iframe[^>]*>/.exec(html)?.[0] ?? "";
+    expect(tag).not.toContain("sandbox=");
+    expect(html).not.toContain("%PDF-");
+  });
+
+  it("frames a PDF's entry document, not index.html", async () => {
+    await publishPdf();
+    const html = await (await openViewer("deck", OWNER)).text();
+    const src = /<iframe[^>]*\ssrc="([^"]+)"/.exec(html)?.[1] ?? "";
+    expect(src).toMatch(/\/deck\/document\.pdf\?raw=1$/);
   });
 });
 
@@ -94,11 +103,7 @@ describe("the frame sandbox is chosen per content type", () => {
     body.set("file", file);
     await req("/api/artifacts", { method: "POST", body, ...as(OWNER) });
   }
-  const nav = (slug: string) =>
-    req(`/${slug}/`, {
-      ...as(OWNER),
-      headers: { ...(as(OWNER).headers as Record<string, string>), "Sec-Fetch-Dest": "document" },
-    });
+  const nav = (slug: string) => openViewer(slug, OWNER);
 
   beforeEach(async () => {
     await initDb();

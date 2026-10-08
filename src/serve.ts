@@ -3,6 +3,7 @@ import type { Env } from "./env";
 import { contentType } from "./util";
 import { notFoundPage } from "./pages";
 import { siteOrigin } from "./seo";
+import { frameAncestorsDirective } from "./canonical";
 
 /**
  * Serve a file for an artifact from R2. `path` is the portion after the slug
@@ -121,15 +122,17 @@ export async function serveArtifact<E extends { Bindings: Env }>(
   // somehow holds a session must still not index or archive what it sees.
   headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
   headers.set("X-Content-Type-Options", "nosniff");
-  // Set explicitly so the app-wide middleware does not stamp DENY here. The
-  // viewer shell frames this content from the same origin; DENY blocked it
-  // outright and the shell rendered neatly around an empty box. Kept alongside
-  // `frame-ancestors 'self'` because the two disagree about precedence across
-  // browsers, and both must say the same thing.
-  headers.set("X-Frame-Options", "SAMEORIGIN");
+  // NO X-Frame-Options, deliberately. The viewer that frames this content runs
+  // on the APP origin, a different origin from this one. XFO cannot express that
+  // (SAMEORIGIN would refuse it, DENY more so, ALLOW-FROM is dead), and every
+  // current browser lets CSP `frame-ancestors` override it anyway, so the CSP
+  // below is the one and only framing policy. The app-wide header middleware in
+  // src/index.ts leaves XFO off any response that declares frame-ancestors.
   headers.set("Referrer-Policy", "no-referrer");
-  // frame-ancestors is 'self', not 'none' and never '*': the viewer shell must be able
-  // to frame this content, and nothing else on the internet may. See src/shell.ts.
+  // frame-ancestors is an exact allowlist ('self' plus the canonical app origin and
+  // APP_ORIGINS), never 'none' and never '*': the viewer must be able to frame this
+  // content, and nothing else on the internet may. See src/canonical.ts.
+  const ancestors = frameAncestorsDirective(c.env);
   // Keep artifact pages working: AI-built pages often load CDNs, fonts, images or iframes.
   // This CSP hardens the browser boundary that matters for the shared content origin
   // (no framing, no hostile <base>) without blocking those artifact subresources.
@@ -144,8 +147,8 @@ export async function serveArtifact<E extends { Bindings: Env }>(
     headers.set(
       "Content-Security-Policy",
       headers.get("Content-Type")?.startsWith("image/svg+xml")
-        ? `frame-ancestors 'self'; sandbox ${ARTIFACT_SANDBOX}`
-        : "frame-ancestors 'self'"
+        ? `${ancestors}; sandbox ${ARTIFACT_SANDBOX}`
+        : ancestors
     );
     headers.set("ETag", obj.httpEtag);
     headers.set("Accept-Ranges", "bytes");
@@ -171,7 +174,7 @@ export async function serveArtifact<E extends { Bindings: Env }>(
       "script-src * data: blob: 'unsafe-inline' 'unsafe-eval'; " +
       "style-src * 'unsafe-inline'; img-src * data: blob:; font-src * data:; " +
       "connect-src *; media-src * data: blob:; frame-src *; worker-src * blob:; " +
-      "frame-ancestors 'self'; base-uri 'none'; " +
+      `${ancestors}; base-uri 'none'; ` +
       // The same sandbox the viewer frame applies, as a header, so it holds
       // however the document is reached. Opened directly (e.g. `?raw=1` as a
       // top-level page), an artifact used to run AS the content origin, with

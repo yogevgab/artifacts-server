@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
-import type { ViewOutcome, ViewRow, ArtifactRow, Env, VersionRow } from "./env";
-import { api, brandedUrl } from "./api";
+import type { ArtifactRow, Env, VersionRow } from "./env";
+import { api, viewUrl } from "./api";
 import { mcpRoutes } from "./mcp";
 import { oauthRoutes } from "./oauth-routes";
 import { waitlist } from "./waitlist";
@@ -44,42 +44,37 @@ import type { Identity } from "./auth";
 import { listApiTokens, toPublicToken, type PublicApiToken } from "./tokens";
 import { describeUsers, listUsers, privilegedEmails } from "./users";
 import { notFoundPage } from "./pages";
-import { isLinkPreviewCrawler, linkPreviewPage } from "./link-preview";
-import { shellPage, sharePage, FRAME_TOKEN_SEGMENT } from "./shell";
-import { viewLimitStatus, blocksOnViewLimit, blocksOnSuspension } from "./quota";
-import { overViewLimitPage, suspendedContentPage } from "./view-limit-page";
+import { sharePage, FRAME_TOKEN_SEGMENT } from "./shell";
+import { viewLimitStatus, blocksOnSuspension } from "./quota";
+import { suspendedContentPage } from "./view-limit-page";
 export { ChatRoom } from "./chat";
-import { redeemShareLink, inspectShareLink } from "./share";
-import { captureViewContext } from "./view-context";
+import { redeemShareLink } from "./share";
 import { accountSlugRoutes, addressNotice, brandedBase } from "./account-slug-routes";
-import { brandedPathParts } from "./account-slugs";
+import { viewerRoute, redirectToViewer } from "./viewer-routes";
+import {
+  callerIsInWorkspace,
+  decideAccess,
+  GUEST_COOKIE,
+  guestIdentityFor,
+  linkCookie,
+  linkCookieName,
+  linkPreviewResponse,
+  logDeadLinkAttempt,
+  logViewInBackground,
+  presentedKey,
+} from "./viewing";
+import { isAllowedOrigin } from "./cors";
+import { canonicalPath } from "./canonical";
 
-/**
- * Carries a redeemed share key.
- *
- * Scoped by NAME rather than by path: the chat socket lives at `/_chat/<slug>`,
- * which a cookie pathed to `/<slug>/` can never match, so path scoping silently
- * broke chat for link holders. A per-slug name keeps two links held at once
- * from overwriting each other, and the server still checks the key resolves to
- * the slug being requested — so a cookie sent to another artifact does nothing.
- */
-const linkCookieName = (slug: string) => `rtfx_link_${slug}`;
 import { shareRoutes } from "./share-routes";
 import { billingRoutes } from "./billing-routes";
 import { membersRoutes } from "./members-routes";
 import { receiptsRoutes } from "./receipts-routes";
 import { accessRequestRoutes } from "./access-request-routes";
-import { recordViewAndMaybeNotify } from "./read-receipts";
 import { membersPage } from "./members";
 import { billingPage } from "./billing-page";
 import { workspaceBilling } from "./plan-copy";
-import {
-  verifyHandoff,
-  mintSession,
-  SESSION_TTL_SECONDS,
-  mintFrameToken,
-  verifyFrameToken,
-} from "./session";
+import { verifyFrameToken } from "./session";
 import { landingPage } from "./landing";
 import { proPage, teamPage, enterprisePage } from "./plan-pages";
 import { contactRoutes, contactPage, normalizePlan } from "./contact";
@@ -100,7 +95,7 @@ import { viewerOf, type PortalContext } from "./viewer";
 import { peoplePage, type UsersInfo } from "./people";
 import { integrationsPage } from "./integrations";
 import { canSeeSection, portalNotFound } from "./portal";
-import { isContentHost, isManagementPath, isPerOriginPath, firstContentHostname } from "./host";
+import { isContentHost, isContentPrefix, isManagementPath, isPerOriginPath, firstContentHostname } from "./host";
 import { uploadRoutes } from "./upload-routes";
 import {
   robotsTxt,
@@ -136,22 +131,18 @@ app.use("*", async (c, next) => {
       return;
     }
     if (isManagementPath(c.req.path)) return c.html(notFoundPage(), 404);
-  } else if (!isManagementPath(c.req.path) && !isPerOriginPath(c.req.path)) {
-    // A branded workspace address (`/yogev/q3-board-report`) is an APP-host
-    // route, so it must not be blanket-redirected to the content host the way
-    // every other unknown path is. Only GET, and only the exact two-segment
-    // shape — see `brandedPathParts`. The route itself falls back to this same
-    // redirect when the first segment is not a claimed address, so a
-    // two-segment path that is really an artifact's own sub-path keeps behaving
-    // exactly as it did before branded addresses existed.
-    if (c.req.method === "GET" && brandedPathParts(c.req.path)) {
+  } else if (
+    !isManagementPath(c.req.path) &&
+    !isPerOriginPath(c.req.path) &&
+    !isContentPrefix(c.req.path)
+  ) {
+    // Everything else on the APP host is a viewer address (`/<workspace>/<slug>`,
+    // any depth) or one of the old forms that redirect to it. Those are GETs and
+    // are answered by `viewerRoute` below, which on a two-host deployment never
+    // serves artifact bytes. Any other method has nothing to do here.
+    if (c.req.method === "GET" || c.req.method === "HEAD") {
       await next();
       return;
-    }
-    if (c.req.method === "GET" || c.req.method === "HEAD") {
-      const target = new URL(c.req.url);
-      target.host = contentHost;
-      return c.redirect(target.toString(), 302);
     }
     return c.html(notFoundPage(), 404);
   }
@@ -164,7 +155,14 @@ app.use("*", async (c, next) => {
   await next();
   if (!c.res.headers.has("X-Content-Type-Options")) c.header("X-Content-Type-Options", "nosniff");
   if (!c.res.headers.has("Referrer-Policy")) c.header("Referrer-Policy", "strict-origin-when-cross-origin");
-  if (!c.res.headers.has("X-Frame-Options")) c.header("X-Frame-Options", "DENY");
+  // A response that declares its own `frame-ancestors` (artifact content, which the
+  // viewer on the app origin frames) owns its framing policy; XFO: DENY would fight it.
+  if (
+    !c.res.headers.has("X-Frame-Options") &&
+    !(c.res.headers.get("Content-Security-Policy") ?? "").includes("frame-ancestors")
+  ) {
+    c.header("X-Frame-Options", "DENY");
+  }
 });
 
 app.get("/health", (c) => c.text("ok"));
@@ -200,8 +198,7 @@ async function brandedLinks(c: PortalContext, rows: readonly ArtifactRow[]): Pro
   const addresses = new Map<string, Promise<string | null>>();
   const links = new Map<string, string>();
   for (const row of rows) {
-    const url = await brandedUrl(c, row.account_id, row.slug, addresses);
-    if (url) links.set(row.slug, url);
+    links.set(row.slug, await viewUrl(c, row.account_id, row.slug, addresses));
   }
   return links;
 }
@@ -309,7 +306,7 @@ app.get("/admin", requireUser, async (c) => {
     usersInfoFor(c),
     tokensFor(c),
   ]);
-  return c.html(overviewPage({ viewer, rows, grants, versions, views, tokens, users }));
+  return c.html(overviewPage({ viewer, rows, grants, versions, views, tokens, users, links: await brandedLinks(c, rows) }));
 });
 
 app.get("/admin/artifacts", requireUser, async (c) => {
@@ -337,7 +334,7 @@ app.get("/share/:slug", requireUser, async (c) => {
       title: row.title || slug,
       visibility: row.visibility,
       grantCount: grants.length,
-      viewUrl: (await brandedUrl(c, row.account_id, slug)) ?? `/${encodeURIComponent(slug)}/`,
+      viewUrl: await viewUrl(c, row.account_id, slug),
     }),
     200,
     { "Cache-Control": "no-store" }
@@ -381,7 +378,7 @@ app.get("/admin/artifacts/:slug", requireUser, async (c) => {
       // Pre-0023 this is [] and the panel falls back to the old recent list.
       events: events.length ? events : undefined,
       mailStatus,
-      brandedUrl: await brandedUrl(c, row.account_id, slug),
+      brandedUrl: await viewUrl(c, row.account_id, slug),
     })
   );
 });
@@ -708,18 +705,24 @@ app.get("/signup", async (c) => {
 });
 
 /**
- * Where the content host sends a visitor it cannot identify. `slug` is only used
- * to address the guest challenge and is never confirmed to exist — this page
- * looks the same for a real artifact and an invented one.
+ * Where the viewer sends a visitor it cannot identify. `slug` is only used to
+ * address the guest challenge and is never confirmed to exist — this page looks
+ * the same for a real artifact and an invented one.
+ *
+ * `?next=` is the canonical viewer address to come back to. Already signed in,
+ * the visitor goes straight there (`safeNextPath` keeps it a path on this
+ * origin, so this cannot be an open redirect).
  */
 app.get("/shared/:slug", async (c) => {
   const { identity } = await resolveAuth(c);
   const slug = c.req.param("slug");
+  const next = safeNextPath(c.req.query("next"));
   if (identity?.email) {
-    const host = firstContentHostname(c.env);
-    if (host) return c.redirect(`https://${host}/${encodeURIComponent(slug)}/`, 302);
+    if (next) return c.redirect(next, 302);
+    const art = await getArtifact(c.env, slug);
+    if (art) return redirectToViewer(c, art, "");
   }
-  return c.html(guestSigninPage(c.env, slug));
+  return c.html(guestSigninPage(c.env, slug, next));
 });
 
 /**
@@ -766,6 +769,10 @@ app.get("/logout", () =>
       [
         "Set-Cookie",
         `${SESSION_COOKIE}=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; HttpOnly; SameSite=Lax`,
+      ],
+      [
+        "Set-Cookie",
+        `${GUEST_COOKIE}=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; HttpOnly; SameSite=Lax`,
       ],
       [
         "Set-Cookie",
@@ -817,16 +824,6 @@ async function manages(
   return atLeast(await memberRole(env, art.account_id, identity.email), MANAGE_ARTIFACTS);
 }
 
-/** True when the caller belongs to the artifact's workspace/account. */
-async function callerIsInWorkspace(
-  env: Env,
-  art: ArtifactRow,
-  identity: Identity | null
-): Promise<boolean> {
-  if (!art.account_id || !identity?.email) return false;
-  return (await memberRole(env, art.account_id, identity.email)) !== null;
-}
-
 // Version preview for people who manage the artifact (admin or owner):
 // /v/<slug>/<n>/<path> serves a specific version. Relative assets resolve within
 // this prefix. Everyone else gets 404 (existence stays hidden).
@@ -873,14 +870,26 @@ function wantsShell(c: Context<{ Bindings: Env; Variables: AuthVars }>): boolean
  * cannot be reached any other way. If you cannot open the document, you cannot
  * open its conversation; there is one rule, not two.
  *
- * Lives on the content host because the shell does: the app origin's session
- * cookie is host-only, so a cross-origin socket would arrive with nothing.
+ * Lives on the APP host, where the viewer is: the session cookie and the
+ * per-artifact link cookie are host-only, so the socket has to be opened from
+ * the page that holds them. A guest credential is its own cookie (see
+ * `GUEST_COOKIE`) and only ever opens the room of the artifact it was minted for.
+ *
+ * A browser always sends `Origin` on a WebSocket handshake. If it names an
+ * origin that is not ours the handshake is refused, so a page on another site
+ * (or a sandboxed artifact, whose origin is the opaque `null`) cannot open a
+ * room using a visitor's cookies.
  */
 app.get("/_chat/:slug", async (c) => {
   if (c.req.header("Upgrade") !== "websocket") {
     return c.json({ error: "expected_websocket" }, 426);
   }
   if (!c.env.CHAT) return c.json({ error: "not_configured" }, 503);
+
+  const origin = c.req.header("Origin");
+  if (origin !== undefined && !isAllowedOrigin(c.env, c.req.url, origin)) {
+    return c.json({ error: "forbidden_origin" }, 403);
+  }
 
   const slug = c.req.param("slug");
   const art = await getArtifact(c.env, slug);
@@ -890,7 +899,7 @@ app.get("/_chat/:slug", async (c) => {
   const link = key ? await redeemShareLink(c.env, key, new Date().toISOString()) : null;
   const viaLink = !!link && link.slug === slug;
 
-  const identity = await getIdentity(c);
+  const identity = (await getIdentity(c)) ?? (await guestIdentityFor(c, slug));
   // A guest session is bound to one artifact; it must not open another's room.
   if (identity?.kind === "guest" && identity.slug !== slug) {
     return c.json({ error: "not_found" }, 404);
@@ -929,145 +938,42 @@ app.get("/_chat/:slug", async (c) => {
 });
 
 /**
- * The branded workspace link: `https://rtfx.pro/yogev/q3-board-report`.
- *
- * A LINK, not a second copy of the artifact. It authorizes nothing itself and
- * renders nothing itself: it answers one question — does this workspace address
- * own this artifact slug — and then redirects to the artifact's real URL on the
- * content origin, where every existing rule (sign-in bounce, share key, guest
- * session, workspace membership, view limit, suspension) runs exactly as it
- * does for a link somebody pasted from the API. That is deliberate and is the
- * whole security story: uploaded HTML is still only ever served from the origin
- * that serves files and nothing else, so nothing here can put somebody's page
- * same-origin with the dashboard, the API or /admin.
- *
- * The query string survives the redirect, so `?k=<share key>` keeps working on
- * a branded link exactly as it does on a content-origin one.
- *
- * Three outcomes, and the difference between them is the point:
- *
- *  - **Address claimed, artifact belongs to it** → 302 to the content origin.
- *  - **Address claimed, artifact missing OR owned by another workspace** →
- *    the same 404 page, byte for byte. A branded namespace must never become an
- *    oracle for "does maya have an artifact called client-proposal", and it must
- *    never front another workspace's content, which is why the `account_id`
- *    comparison is not optional.
- *  - **Address not claimed by anybody** → precisely what this path did before
- *    branded addresses existed: the app host's redirect to the content origin
- *    (or, on a single-host deployment, the catch-all below). `/report/preview`
- *    is a real artifact sub-path, and links already sent must not start 404ing
- *    because a two-segment URL now *looks* like somebody's namespace.
- *
- * Registered before the catch-all so it wins, and it is a wildcard rather than
- * `/:a/:b` so there is no routing-precedence question against `/_chat/:slug` or
- * anything else already registered — a request it does not own falls straight
- * through with `next()`.
+ * The canonical viewer and the old URL forms that lead to it. See
+ * src/viewer-routes.ts for the model; it is a wildcard registered after every
+ * named route so it can never shadow one, and it falls through (`next()`) only
+ * on a single-host deployment, where the content route below also lives here.
  */
-app.get("*", async (c, next) => {
-  const parts = brandedPathParts(c.req.path);
-  if (!parts) return next();
-  // On the content origin `/a/b` is an artifact's own asset path, never an
-  // address. The isolation middleware already keeps app routes off that host;
-  // this keeps the branded route off it too.
-  if (isContentHost(c.env, c.req.url)) return next();
-
-  const contentHost = firstContentHostname(c.env);
-  const account = await getAccountByPublicSlug(c.env, parts.accountSlug);
-  if (!account) {
-    if (!contentHost) return next();
-    const target = new URL(c.req.url);
-    target.host = contentHost;
-    return c.redirect(target.toString(), 302);
-  }
-
-  const art = await getArtifact(c.env, parts.artifactSlug);
-  if (!art || !art.account_id || art.account_id !== account.id) {
-    return c.html(notFoundPage(parts.artifactSlug, siteOrigin(c.env)), 404);
-  }
-
-  // Deliberately NOT plan-gated on read. An address is claimed under a plan;
-  // links sent while it was held must not break when a subscription lapses.
-  const target = new URL(c.req.url);
-  if (contentHost) target.host = contentHost;
-  target.pathname = `/${encodeURIComponent(art.slug)}/`;
-  return c.redirect(target.toString(), 302);
-});
+app.get("*", viewerRoute);
 
 /**
- * Records a view and, on somebody's FIRST view of an artifact shared with them,
- * emails the owner. Fire-and-forget in production (awaited in tests) — a mail
- * failure must never affect serving the page.
+ * Raw content. Reached on the CONTENT host (and, on a single-host deployment,
+ * on the one host there is).
+ *
+ * Browsers never read content from here as a page: a top-level navigation is
+ * sent to the canonical viewer on the app host, which frames the bytes served
+ * by the `~t` branch below. What remains is the machine path — curl, the CLI,
+ * the MCP server, a bearer-token fetch — and the frame itself.
  */
-async function logViewInBackground(
-  c: Context<{ Bindings: Env; Variables: AuthVars }>,
-  art: ArtifactRow,
-  email: string,
-  path: string
-): Promise<void> {
-  await inBackground(c, recordViewAndMaybeNotify(c.env, viewFor(c, art, path, { email }), art));
-}
-
-type AppContext = Context<{ Bindings: Env; Variables: AuthVars }>;
-
-/** Hand a promise to waitUntil in production; await it where there is no execution context (tests). */
-async function inBackground(c: AppContext, p: Promise<unknown>): Promise<void> {
-  let ctx: { waitUntil(promise: Promise<unknown>): void } | undefined;
-  try {
-    ctx = c.executionCtx;
-  } catch {
-    ctx = undefined;
-  }
-  if (ctx) ctx.waitUntil(p);
-  else await p;
-}
-
-/** A view-log row for this request: where it came from and what device opened it. */
-function viewFor(
-  c: AppContext,
-  art: ArtifactRow,
-  path: string,
-  o: { email?: string | null; linkId?: string | null; outcome?: ViewOutcome; device?: string } = {}
-): ViewRow {
-  const vc = captureViewContext(c.req.raw);
-  return {
-    slug: art.slug,
-    version: art.current_version,
-    email: o.email ?? null,
-    path,
-    country: vc.country,
-    referrer: (c.req.header("Referer") ?? "").slice(0, 500) || null,
-    viewed_at: new Date().toISOString(),
-    ip: vc.ip,
-    region: vc.region,
-    city: vc.city,
-    device: o.device ?? vc.device,
-    os: vc.os,
-    browser: vc.browser,
-    user_agent: vc.user_agent,
-    link_id: o.linkId ?? null,
-    outcome: o.outcome ?? "viewed",
-  };
-}
-
-/** Record a share-link event (open, preview, or attempt with a dead link). Never notifies the owner. */
-async function logLinkEvent(
-  c: AppContext,
-  art: ArtifactRow,
-  path: string,
-  o: { email?: string | null; linkId: string; outcome: ViewOutcome; device?: string }
-): Promise<void> {
-  await inBackground(c, logView(c.env, viewFor(c, art, path, o)));
-}
-
 app.get("*", async (c) => {
+  // A two-host deployment never serves artifact bytes from the app host.
+  if (firstContentHostname(c.env) !== undefined && !isContentHost(c.env, c.req.url)) {
+    return c.html(notFoundPage(undefined, siteOrigin(c.env)), 404);
+  }
+
   const rest = c.req.path.replace(/^\/+/, "");
   const idx = rest.indexOf("/");
-  const slug = decodeURIComponent(idx === -1 ? rest : rest.slice(0, idx));
-  const filePath = idx === -1 ? "" : decodeURIComponent(rest.slice(idx + 1));
+  let slug: string;
+  let filePath: string;
+  try {
+    slug = decodeURIComponent(idx === -1 ? rest : rest.slice(0, idx));
+    filePath = idx === -1 ? "" : decodeURIComponent(rest.slice(idx + 1));
+  } catch {
+    return c.html(notFoundPage(undefined, siteOrigin(c.env)), 404);
+  }
 
-  // The viewer shell's frame, and everything the framed artifact loads by a
-  // relative URL. See `mintFrameToken` (src/session.ts) for why the credential
-  // rides in the path: the sandboxed frame sends no cookies at all.
+  // The viewer's frame, and everything the framed artifact loads by a relative
+  // URL. See `mintFrameToken` (src/session.ts) for why the credential rides in
+  // the path: the sandboxed frame sends no cookies at all.
   const framePrefix = `${FRAME_TOKEN_SEGMENT}/`;
   if (filePath.startsWith(framePrefix)) {
     const afterPrefix = filePath.slice(framePrefix.length);
@@ -1077,12 +983,11 @@ app.get("*", async (c) => {
 
     // Somebody opened a frame URL directly (copied it, or "open frame in new
     // tab"). Never serve artifact HTML as a top-level document on this origin;
-    // send them to the shell, which runs its own access check and re-frames.
+    // send them to the viewer, which runs its own access check and re-frames.
     if (c.req.header("Sec-Fetch-Dest") === "document") {
-      const clean = new URL(c.req.url);
-      clean.pathname = `/${encodeURIComponent(slug)}/${framedPath}`;
-      clean.searchParams.delete("raw");
-      return c.redirect(clean.pathname + clean.search, 302);
+      const art = await getArtifact(c.env, slug);
+      if (art) return redirectToViewer(c, art, framedPath);
+      return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
     }
     if (c.req.method !== "GET" && c.req.method !== "HEAD") {
       return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
@@ -1112,101 +1017,34 @@ app.get("*", async (c) => {
     return res;
   }
 
-  // Crossing from the app host: exchange the one-shot handoff for a cookie of
-  // this origin's own, then redirect to the clean URL so the token stops riding
-  // in the address bar, history and any referrer.
-  const handoff = new URL(c.req.url).searchParams.get("ct");
-  if (handoff && c.env.SESSION_SECRET) {
-    const claims = await verifyHandoff(c.env.SESSION_SECRET, handoff, new Date().toISOString());
-    if (claims) {
-      const token = await mintSession(c.env.SESSION_SECRET, claims, new Date().toISOString());
-      const clean = new URL(c.req.url);
-      clean.searchParams.delete("ct");
-      return new Response(null, {
-        status: 302,
-        headers: {
-          Location: clean.pathname + clean.search,
-          // Host-only: no Domain attribute, so this never travels back to the
-          // app host. Each origin holds its own credential.
-          "Set-Cookie": `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_TTL_SECONDS}`,
-        },
-      });
-    }
+  // A top-level browser navigation to the content origin — an old link, a
+  // bookmark, `?raw=1` pasted into the address bar — goes to the canonical
+  // viewer. Share keys (`?k=`) ride along and are redeemed there. If there is no
+  // such artifact the request falls through to the same 404 as before.
+  if (c.req.method === "GET" && c.req.header("Sec-Fetch-Dest") === "document") {
+    const known = await getArtifact(c.env, slug);
+    if (known) return redirectToViewer(c, known, filePath);
   }
 
-  // A share link is a capability: whoever holds the URL may open this one
-  // artifact, with no identity involved. Checked before identity so a link
-  // works for somebody who has never signed in and never will.
-  //
-  // The key is accepted from the query once, then exchanged for a cookie scoped
-  // to this artifact's path. Without that, the shell's frame URL and every
-  // relative asset inside the artifact arrive with no credential and 404 — a
-  // link would open index.html and nothing it references.
-  const url = new URL(c.req.url);
-  const queryKey = url.searchParams.get("k");
-  const cookieKey = readCookie(c.req.header("Cookie") ?? c.req.header("cookie"), linkCookieName(slug));
-  const shareKey = queryKey ?? cookieKey;
-  const viaLink = shareKey ? await redeemShareLink(c.env, shareKey, new Date().toISOString()) : null;
+  // From here on this is the machine path: no viewer, no frame, no redirect to
+  // one. A share key (`?k=`) is still accepted, and exchanged for a per-artifact
+  // cookie, for a client that keeps cookies.
+  const key = await presentedKey(c, slug);
+  await logDeadLinkAttempt(c, slug, key);
+  const linkGrantsThis = !!key.viaLink;
 
-  // A browser navigation (or a link-card crawler) presenting a key that no
-  // longer works: record it if — and only if — the key really belonged to THIS
-  // artifact. Garbage keys write nothing, so this cannot be used to fill the
-  // table. What the visitor sees below is unchanged. Repeats are deduplicated
-  // inside `logView`.
-  if (
-    queryKey &&
-    !viaLink &&
-    c.req.method === "GET" &&
-    (c.req.header("Sec-Fetch-Dest") === "document" || isLinkPreviewCrawler(c.req.raw.headers))
-  ) {
-    try {
-      const found = await inspectShareLink(c.env, queryKey, new Date().toISOString());
-      if (found && found.link.slug === slug && found.state !== "valid") {
-        const dead = await getArtifact(c.env, slug);
-        if (dead) {
-          await logLinkEvent(c, dead, "", {
-            linkId: found.link.id,
-            outcome: found.state === "revoked" ? "link_revoked" : "link_expired",
-          });
-        }
-      }
-    } catch (e) {
-      console.error("link attempt log failed", e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  if (queryKey && viaLink && viaLink.slug === slug) {
-    // A link-card crawler (X, WhatsApp, iMessage, Slack…) gets the artifact's
-    // title and description instead of a redirect it cannot use. See
-    // src/link-preview.ts for why this is limited to a valid key.
-    if (c.req.method === "GET" && isLinkPreviewCrawler(c.req.raw.headers)) {
-      const previewed = await getArtifact(c.env, slug);
-      const status = previewed?.account_id
-        ? await viewLimitStatus(c.env, previewed.account_id, undefined, undefined, true)
-        : null;
-      if (previewed && !blocksOnSuspension(status, false)) {
-        // The crawler is a bot, not a reader: record the preview, not a view.
-        await logLinkEvent(c, previewed, "", { linkId: viaLink.id, outcome: "preview", device: "bot" });
-        return c.html(
-          linkPreviewPage({
-            title: previewed.title || slug,
-            description: previewed.description ?? null,
-            image: `${(c.env.PUBLIC_BASE_URL || siteOrigin(c.env)).replace(/\/+$/, "")}/logo-128.png`,
-          }),
-          200,
-          { "Cache-Control": "private, no-store", "X-Robots-Tag": "noindex, nofollow, noarchive" }
-        );
-      }
-    }
+  if (key.queryKey && key.viaLink) {
+    // A link-card crawler gets the artifact's title and description instead of a
+    // redirect it cannot use.
+    const preview = await linkPreviewResponse(c, slug, key);
+    if (preview) return preview;
     const clean = new URL(c.req.url);
     clean.searchParams.delete("k");
     return new Response(null, {
       status: 302,
       headers: {
         Location: clean.pathname + clean.search,
-        // Path-scoped to this artifact, which is exactly the capability's
-        // scope: the cookie cannot open anything the link could not.
-        "Set-Cookie": `${linkCookieName(slug)}=${encodeURIComponent(queryKey)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=86400`,
+        "Set-Cookie": linkCookie(slug, key.queryKey),
       },
     });
   }
@@ -1215,136 +1053,20 @@ app.get("*", async (c) => {
   const art = await getArtifact(c.env, slug);
   // 404 for both missing and unauthorized, so probing a slug can't reveal it exists.
   if (!art) return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
-  // A guest session is minted for one artifact. Holding a grant on another does
-  // not widen it: the credential was issued against a specific share, and a
-  // person can always re-authenticate for the other one.
-  if (identity?.kind === "guest" && identity.slug !== slug) {
+  const decision = await decideAccess(c.env, art, identity);
+  if (!linkGrantsThis && !decision.allowed) {
     return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
   }
 
-  let owned = isOwner(identity, art);
-  let granted = false;
-  if (art.visibility === "restricted" && !identity?.isAdmin && !owned && identity?.email) {
-    granted = await hasGrant(c.env, slug, identity.email);
-  }
-  // Workspace membership is the last thing tried, and only on a request that
-  // would otherwise be refused — so serving a page costs no extra read in any
-  // case that already worked before #27. Any role qualifies, `viewer` included.
-  if (
-    !canView(identity, art.visibility, granted, owned) &&
-    art.account_id &&
-    identity?.email &&
-    (await memberRole(c.env, art.account_id, identity.email))
-  ) {
-    owned = true;
-  }
-  // No identity on the content host is the normal first visit, not a refusal:
-  // the session cookie is host-only and lives on the app host. Send a browser
-  // there to be identified and come back. A machine client (no Sec-Fetch-Dest)
-  // is never bounced — it gets the same 404 it always did.
-  const linkGrantsThis = !!viaLink && viaLink.slug === slug;
-
-  if (!identity && !linkGrantsThis && wantsShell(c) && c.env.SESSION_SECRET && isContentHost(c.env, c.req.url)) {
-    const app_origin = c.env.PUBLIC_BASE_URL || siteOrigin(c.env);
-    // Ask the app host who this is. If it knows them, it hands them straight
-    // back; if not, that route shows the guest sign-in for this artifact.
-    const back = `${app_origin}/auth/content?next=${encodeURIComponent(c.req.url)}&slug=${encodeURIComponent(slug)}`;
-    return c.redirect(back, 302);
-  }
-
-  if (!linkGrantsThis && !canView(identity, art.visibility, granted, owned)) {
-    return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
-  }
-
-  // A top-level navigation gets the viewer shell; everything else — subresources,
-  // the shell's own framed request (?raw=1), curl, the CLI — gets the bytes.
-  // Sec-Fetch-Dest is absent on non-browser clients, which is why its absence
-  // means "raw" rather than "shell": the machine path must not change.
-  // The account's monthly view allowance. Checked only for a real browser
-  // navigation: the shell's own iframe fetch, curl, the CLI and the MCP server
-  // all take the raw path and are untouched. A blocked browser never receives
-  // the shell, so it never issues the iframe request either — the block
-  // cascades without serveArtifact needing to know about plans.
-  //
-  // `owned` here is deliberately the route's existing notion, which includes a
-  // workspace member: somebody inside the account can always still reach their
-  // own content, which is what lets them see the message and act on it.
-  //
-  // Suspension is checked off the same status object but is deliberately not
-  // subject to either of those narrowings: it applies to raw requests as well
-  // as navigations, and the owner does not bypass it. An operator who suspends
-  // a workspace for phishing has to have its content actually stop serving,
-  // including to `curl` and including to the person who published it. See
-  // `blocksOnSuspension` in src/quota.ts for the reasoning. This read bypasses
-  // the ~60s view-limit cache on purpose: suspension is an abuse/takedown
-  // control, so a still-warm "active" cache entry must not keep a phishing page
-  // serving to share-link holders after an operator has flipped the account.
+  // Suspension applies to raw requests as well as navigations, and the owner
+  // does not bypass it: an operator who suspends a workspace for phishing has to
+  // have its content actually stop serving, including to `curl` and including to
+  // the person who published it. This read bypasses the ~60s view-limit cache
+  // on purpose (see `blocksOnSuspension` in src/quota.ts). The monthly view
+  // allowance is a browser-navigation limit and is enforced by the viewer.
   const status = art.account_id ? await viewLimitStatus(c.env, art.account_id, undefined, undefined, true) : null;
   if (blocksOnSuspension(status, !!identity?.isAdmin)) {
     return c.html(suspendedContentPage(slug, siteOrigin(c.env)), 403);
-  }
-  if (wantsShell(c) && blocksOnViewLimit(status, owned || !!identity?.isAdmin)) {
-    return c.html(overViewLimitPage(slug, siteOrigin(c.env)), 503);
-  }
-
-  // `?raw=1` is how the viewer frames content; as a top-level navigation it
-  // would put the bare artifact on screen as its own page. Send it to the
-  // viewer instead (the CSP sandbox in serveArtifact is the backstop).
-  if (
-    c.req.method === "GET" &&
-    c.req.header("Sec-Fetch-Dest") === "document" &&
-    new URL(c.req.url).searchParams.has("raw")
-  ) {
-    const clean = new URL(c.req.url);
-    clean.searchParams.delete("raw");
-    return c.redirect(clean.pathname + clean.search, 302);
-  }
-
-  if (wantsShell(c)) {
-    const grants = art.visibility === "restricted" ? await listGrants(c.env, slug) : [];
-    const frameToken = c.env.SESSION_SECRET
-      ? await mintFrameToken(c.env.SESSION_SECRET, slug, new Date().toISOString())
-      : undefined;
-    // With a frame token the framed request carries no identity, so the view is
-    // recorded here, where the viewer is known. Without one (no secret) the
-    // frame's own ?raw=1 request still records it below, as it always did.
-    if (linkGrantsThis && viaLink) {
-      // A share-link open: logged here, at the shell render of the top-level
-      // document, and not on the ?k= redirect hop (which would double count)
-      // or the framed ?raw=1 request (which carries no credential). No email
-      // unless the visitor also holds a session, and never a read-receipt mail.
-      await logLinkEvent(c, art, filePath || art.entry || "index.html", {
-        linkId: viaLink.id,
-        email: identity?.email ?? null,
-        outcome: "viewed",
-      });
-    } else if (frameToken && identity?.email) {
-      await logViewInBackground(c, art, identity.email, filePath || art.entry || "index.html");
-    }
-    return c.html(
-      shellPage({
-        slug,
-        title: art.title || slug,
-        version: art.current_version,
-        // Holding a link is not ownership. Even if the same person could manage
-        // this artifact when signed in, arriving by link means they are here as
-        // a reader — and the banner would otherwise appear for anyone the URL
-        // was forwarded to.
-        // A share-link visitor sees the artifact alone, with no rtfx chrome.
-        chromeless: linkGrantsThis,
-        canManage:
-          !linkGrantsThis &&
-          canManage(identity, art, (await resolveAccountContext(c.env, identity)).roles),
-        visibility: art.visibility,
-        grantCount: grants.length,
-        filePath,
-        entry: art.entry,
-        isDocument: art.entry?.toLowerCase().endsWith(".pdf") ?? false,
-        appBaseUrl: siteOrigin(c.env),
-        brandedUrl: (await brandedUrl(c, art.account_id, slug)) ?? undefined,
-        frameToken,
-      })
-    );
   }
 
   const res = await serveArtifact(c, slug, art.current_version, filePath);

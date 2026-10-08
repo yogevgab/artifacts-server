@@ -144,17 +144,17 @@ const PRO_FACTS: readonly PlanFact[] = [
   {
     title: "Dedicated URL for every artifact.",
     detail:
-      "Every artifact gets a stable rtfx.pro/a.rtfx.pro URL you can keep sending after republish or rollback. " +
+      "Every artifact gets a stable rtfx.pro/<workspace>/<name> URL you can keep sending after republish or rollback. " +
       "This is not a custom domain; those are not built yet.",
   },
   {
     title: "A branded address for your workspace.",
     detail:
-      "Claim a name and every artifact gains a second, human link: " +
-      "<span class=\"mono\">rtfx.pro/yogev/q3-board-report</span>, " +
-      "<span class=\"mono\">rtfx.pro/maya/client-proposal</span>. Claim it in Settings, change it " +
-      "or give it up whenever you like — the original URL never changes, so nothing you have " +
-      "already sent can break. It is a path on rtfx.pro, not a domain of your own.",
+      "Every workspace has an address, and every artifact link starts with it. Claim a name and the links " +
+      "read like <span class=\"mono\">rtfx.pro/yogev/q3-board-report</span> or " +
+      "<span class=\"mono\">rtfx.pro/maya/client-proposal</span>. Claim it in Settings; change it " +
+      "or give it up whenever you like — share links you have already sent keep working. " +
+      "It is a path on rtfx.pro, not a domain of your own.",
   },
   {
     title: `${num(PLANS.pro.maxArtifacts)} artifacts, ${bytes(PLANS.pro.maxStorageBytes)} of storage.`,
@@ -196,7 +196,7 @@ const PRO_NOT_INCLUDED: readonly PlanFact[] = [
     title: "Custom domains for artifacts.",
     flag: "Not built",
     detail:
-      "Artifacts are served from the shared content origin on every plan. The branded workspace " +
+      "Artifact bytes are served from a shared, sandboxed content origin on every plan. The workspace " +
       "address above is a path on rtfx.pro, not your own hostname.",
   },
   {

@@ -312,11 +312,13 @@ free plan plus two paid ones. Source: ${SOURCE_URL} (MIT).
 - Four public tiers: a free tier, Pro, Team and Enterprise. See ${origin}/#pricing for the
   comparison, and ${origin}/pro, ${origin}/team and ${origin}/enterprise for each one.
 - Pro, Team and Enterprise include a dedicated URL for every artifact, plus a branded workspace
-  address: the workspace claims a name and every artifact in it also answers at
-  rtfx.pro/yogev/q3-board-report or rtfx.pro/maya/client-proposal. Both mean a stable URL on
-  rtfx.pro/a.rtfx.pro, NOT a custom domain owned by the customer — custom domains are not built
-  (see "Not shipped yet"). The free plan cannot claim a workspace address; every artifact still
-  gets its permanent content-origin URL on every plan.
+  address: the workspace claims a name and every artifact in it is addressed at
+  rtfx.pro/yogev/q3-board-report or rtfx.pro/maya/client-proposal. That is a stable URL on
+  rtfx.pro, NOT a custom domain owned by the customer — custom domains are not built
+  (see "Not shipped yet"). The free plan cannot claim a custom workspace address; every
+  workspace still has a generated one (rtfx.pro/w-xxxxxxxx/<artifact>), so every artifact has
+  a canonical rtfx.pro/<workspace>/<artifact> URL on every plan. Always share that URL; never
+  guess or construct a different one.
 - **Free and Pro are self-serve.** Signup is at ${origin}/signup: verify an email address and
   you have a personal workspace on the free plan; no invitation and no human review. Pro is a
   hosted checkout from Settings inside that workspace.
@@ -479,8 +481,8 @@ product:
 - Optionally, a share link for one artifact: a capability URL with no sign-in, an optional
   expiry of 1–365 days (or none), immediate revocation, and only a hash stored. It opens that
   artifact and nothing else, and confers no management rights.
-- Artifact content is served from a separate origin (a.rtfx.pro) so uploaded HTML can never
-  run in the same origin as the dashboard or API. All artifacts share that content origin, so
+- Artifact content is framed from a separate, sandboxed content origin so uploaded HTML can never
+  run in the same origin as the dashboard or API; that origin is not an address anyone shares. All artifacts share that content origin, so
   it isolates published content from the app rather than artifacts from each other. It is
   not a per-artifact browser sandbox between mutually distrusting publishers: access control,
   not the browser's origin boundary, is what keeps one person's artifact away from another's.

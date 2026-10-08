@@ -98,9 +98,7 @@ import {
   getViews,
   listViewEvents,
 } from "./db";
-import { firstContentHostname } from "./host";
-import { brandedArtifactUrl } from "./account-slugs";
-import { siteOrigin } from "./seo";
+import { appOriginFor, canonicalArtifactLink } from "./canonical";
 import { apiCors } from "./cors";
 
 type Vars = { Variables: AuthVars; Bindings: Env };
@@ -229,28 +227,15 @@ export async function suspendedDenial(c: Context<Vars>, accountId: string | null
 }
 
 /**
- * The origin artifacts are actually served from — the content host when one is
- * configured, otherwise whatever host this request arrived on. Every route that
- * reports a link derives it here rather than letting the client assemble one:
- * an agent that guesses `https://a.rtfx.pro/<slug>/` is right on rtfx.pro and
- * wrong on every self-hosted instance, and a wrong link is worse than none.
- */
-export function contentBase(c: Context<Vars>): string {
-  const url = new URL(c.req.url);
-  return `${url.protocol}//${firstContentHostname(c.env) ?? url.host}`;
-}
-
-export const artifactUrl = (c: Context<Vars>, slug: string): string => `${contentBase(c)}/${slug}/`;
-
-/**
- * The BRANDED link for an artifact — `https://rtfx.pro/yogev/q3-board-report` —
- * or null only when the artifact belongs to no workspace at all.
+ * The URL a person is SHOWN for an artifact — the one and only address the
+ * product advertises: `https://rtfx.pro/<workspace>/<artifact>`.
  *
  * Every workspace has an address (a custom one, or an auto `w-xxxxxxxx`), so
- * this is the link a person is SHOWN. It is additive in the API: `url` stays
- * the content-origin URL, always correct, always anonymous, and unaffected by
- * anything the workspace later does with its address. A client that only knows
- * `url` keeps working forever.
+ * this is always the canonical form. The only exception is an artifact that
+ * belongs to no workspace at all (legacy, owner-less rows): it has no
+ * `<workspace>` to put in front of its slug, so it is addressed `/<slug>` on the
+ * same origin, which the viewer serves directly. The content origin
+ * (`a.rtfx.pro`) is never returned: it is an invisible sandboxed byte server.
  *
  * Looked up by the artifact's `account_id` directly rather than from the
  * caller's memberships: the address is public information (it is in the link),
@@ -258,24 +243,25 @@ export const artifactUrl = (c: Context<Vars>, slug: string): string => `${conten
  * shown the link. `ensureAccountPublicSlug` assigns an auto address if the row
  * somehow still has none.
  */
-export async function brandedUrl(
-  c: Context<Vars>,
+export async function viewUrl(
+  c: { env: Env; req: { url: string } },
   accountId: string | null | undefined,
   slug: string,
   cache?: Map<string, Promise<string | null>>
-): Promise<string | null> {
-  if (!accountId) return null;
-  // The promise is cached, not the value: callers resolve rows concurrently
-  // (Promise.all), and caching only after the await let every row miss and
-  // issue its own read.
-  let pending = cache?.get(accountId);
-  if (!pending) {
-    pending = ensureAccountPublicSlug(c.env, accountId);
-    cache?.set(accountId, pending);
+): Promise<string> {
+  let address: string | null = null;
+  if (accountId) {
+    // The promise is cached, not the value: callers resolve rows concurrently
+    // (Promise.all), and caching only after the await let every row miss and
+    // issue its own read.
+    let pending = cache?.get(accountId);
+    if (!pending) {
+      pending = ensureAccountPublicSlug(c.env, accountId);
+      cache?.set(accountId, pending);
+    }
+    address = await pending;
   }
-  const address = await pending;
-  if (!address) return null;
-  return brandedArtifactUrl(c.env.PUBLIC_BASE_URL || siteOrigin(c.env), address, slug);
+  return canonicalArtifactLink(appOriginFor(c.env, c.req.url), address, slug);
 }
 
 // Multipart overhead (boundaries/headers) is small, so a modest margin over
@@ -309,18 +295,19 @@ export function limitBodyBytes(body: ReadableStream<Uint8Array>, maxBytes: numbe
 
 artifactRoutes.get("/artifacts", requireScope("read"), async (c) => {
   const rows = await visibleArtifacts(c);
-  // `content_base` and `branded_url` are both additive: every field a row had
-  // before is still there and still means the same thing, and a machine client
-  // gets the two pieces it cannot derive — where artifacts are served, and the
-  // branded link (present whenever the artifact belongs to a workspace).
+  // Every row carries its canonical `url`. `branded_url` is a DEPRECATED alias of
+  // `url` (they are the same string), kept for one release for clients that
+  // were written against the interim field. `content_base` is gone: nothing
+  // first-party needs the content origin, and handing it out invites clients to
+  // build a.rtfx.pro links, which are no longer an address anyone should use.
   const addresses = new Map<string, Promise<string | null>>();
   const artifacts = await Promise.all(
     rows.map(async (row) => {
-      const branded = await brandedUrl(c, row.account_id, row.slug, addresses);
-      return branded ? { ...row, branded_url: branded } : row;
+      const url = await viewUrl(c, row.account_id, row.slug, addresses);
+      return { ...row, url, branded_url: url };
     })
   );
-  return c.json({ artifacts, content_base: contentBase(c) });
+  return c.json({ artifacts });
 });
 
 /**
@@ -529,13 +516,13 @@ export async function storeUpload(
   }
 
 
-  const branded = await brandedUrl(c, row.account_id, slug);
+  const url = await viewUrl(c, row.account_id, slug);
   return c.json({
     slug,
-    url: artifactUrl(c, slug),
-    // Always present when the artifact has a workspace; `url` stays the
-    // content-origin URL for clients that predate branded links.
-    ...(branded ? { branded_url: branded } : {}),
+    // The canonical address — the only one to show a person. `branded_url` is a
+    // deprecated alias of it, kept for one release.
+    url,
+    branded_url: url,
     type: processed.type,
     file_count: processed.files.length,
     version,
@@ -1134,11 +1121,11 @@ artifactRoutes.get("/artifacts/:slug/versions", requireScope("read"), async (c) 
   const art = await manageableArtifact(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
   const rows = await listVersions(c.env, slug);
-  const branded = await brandedUrl(c, art.account_id, slug);
+  const url = await viewUrl(c, art.account_id, slug);
   return c.json({
     current: art.current_version,
-    url: artifactUrl(c, slug),
-    ...(branded ? { branded_url: branded } : {}),
+    url,
+    branded_url: url,
     // `expired` is surfaced rather than the raw timestamp because that is the
     // only thing a caller can act on: an expired version cannot be rolled back
     // to. Showing it identically to a live one would invite exactly that.
@@ -1202,13 +1189,8 @@ artifactRoutes.post("/artifacts/:slug/current", requireScope("publish"), async (
   }
   const rolled = await rollbackArtifact(c.env, slug, version);
   if (!rolled.ok) return c.json({ error: rolled.error, detail: rolled.detail }, rolled.status as 404 | 409);
-  const branded = await brandedUrl(c, art.account_id, slug);
-  return c.json({
-    slug,
-    current: version,
-    url: artifactUrl(c, slug),
-    ...(branded ? { branded_url: branded } : {}),
-  });
+  const url = await viewUrl(c, art.account_id, slug);
+  return c.json({ slug, current: version, url, branded_url: url });
 });
 
 artifactRoutes.get("/artifacts/:slug/access", requireScope("read"), async (c) => {

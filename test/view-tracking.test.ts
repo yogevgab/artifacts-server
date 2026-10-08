@@ -6,11 +6,13 @@ import { mintSession } from "../src/session";
 import { createShareLink, revokeShareLink, inspectShareLink } from "../src/share";
 import { eraseOldIps, listViewEvents, logView, ipCutoff } from "../src/db";
 import { IP_RETENTION_DAYS, parseUserAgent, captureViewContext } from "../src/view-context";
-import { initDb, clearR2, req, as } from "./fixtures";
+import { initDb, clearR2, req, as, viewerPath } from "./fixtures";
 
 const SECRET = "test-secret-at-least-32-bytes-long-for-hs256!!";
 const OWNER = "owner@rtfx.pro";
 const DAY = 86_400_000;
+/** The canonical viewer URL of `report`, set once it is published (see beforeEach). */
+let CANON = "";
 
 function e(extra: Record<string, unknown> = {}) {
   return {
@@ -37,10 +39,10 @@ async function mint(opts: { expiresAt?: string | null } = {}) {
 /** Open a link the way a browser does: the ?k= hop, then the clean URL with the cookie. */
 async function openLink(key: string, headers: Record<string, string> = {}) {
   const h = { "Sec-Fetch-Dest": "document", "User-Agent": IPHONE, "CF-Connecting-IP": "203.0.113.7", ...headers };
-  const first = await app.request(`https://a.rtfx.pro/report/?k=${key}`, { headers: h }, e());
+  const first = await app.request(`${CANON}?k=${key}`, { headers: h }, e());
   const cookie = (first.headers.get("set-cookie") ?? "").split(";")[0];
   const second = cookie
-    ? await app.request("https://a.rtfx.pro/report/", { headers: { ...h, Cookie: cookie } }, e())
+    ? await app.request(CANON, { headers: { ...h, Cookie: cookie } }, e())
     : null;
   return { first, second };
 }
@@ -64,6 +66,7 @@ beforeEach(async () => {
   body.set("visibility", "restricted");
   body.set("file", new File(["<h1>secret</h1>"], "index.html", { type: "text/html" }));
   await req("/api/artifacts", { method: "POST", body, ...as(OWNER) });
+  CANON = `https://rtfx.pro${await viewerPath("report")}`;
 });
 
 describe("user-agent parsing", () => {
@@ -156,7 +159,7 @@ describe("share-link views", () => {
     const cookie = (first.headers.get("set-cookie") ?? "").split(";")[0];
     for (let i = 0; i < 5; i++) {
       await app.request(
-        "https://a.rtfx.pro/report/",
+        CANON,
         { headers: { Cookie: cookie, "Sec-Fetch-Dest": "document", "CF-Connecting-IP": "203.0.113.7", "User-Agent": IPHONE } },
         e()
       );
@@ -169,6 +172,8 @@ describe("share-link views", () => {
     const { first } = await openLink(link.key);
     const cookie = (first.headers.get("set-cookie") ?? "").split(";")[0];
     await app.request("https://a.rtfx.pro/report/?raw=1", { headers: { Cookie: cookie } }, e());
+    // The same on the canonical address: bounced to the raw path, and still no extra row.
+    await app.request(`${CANON}?raw=1`, { headers: { Cookie: cookie } }, e());
     expect(await rows()).toHaveLength(1); // still just the shell render from openLink
   });
 
@@ -177,7 +182,7 @@ describe("share-link views", () => {
     const { first } = await openLink(link.key);
     const cookie = (first.headers.get("set-cookie") ?? "").split(";")[0];
     await app.request(
-      "https://a.rtfx.pro/report/",
+      CANON,
       { headers: { "Sec-Fetch-Dest": "document", Cookie: `${cookie}; ${await cookieFor("dana@x.com")}` } },
       e()
     );
@@ -209,7 +214,7 @@ describe("link-card previews", () => {
     const link = await mint();
     const h = { "User-Agent": "WhatsApp/2.23.20.0 A", "CF-Connecting-IP": "198.51.100.9" };
     for (let i = 0; i < 3; i++) {
-      const res = await app.request(`https://a.rtfx.pro/report/?k=${link.key}`, { headers: h }, e());
+      const res = await app.request(`${CANON}?k=${link.key}`, { headers: h }, e());
       expect(res.status).toBe(200);
       expect(await res.text()).toContain("og:title");
     }
@@ -224,9 +229,11 @@ describe("attempts with a dead link", () => {
 
   it("records 'link_expired' with the link id, and the visitor's experience is unchanged", async () => {
     const link = await mint({ expiresAt: new Date(Date.now() - DAY).toISOString() });
-    const res = await app.request(`https://a.rtfx.pro/report/?k=${link.key}`, { headers: nav }, e());
+    const res = await app.request(`${CANON}?k=${link.key}`, { headers: nav }, e());
     expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toContain("/auth/content"); // still the sign-in bounce
+    // Still the sign-in bounce, and the dead key is not carried along.
+    expect(res.headers.get("location")).toMatch(/^\/shared\/report\?next=/);
+    expect(res.headers.get("location")).not.toContain("k%3D");
     expect(res.headers.get("set-cookie")).toBeNull();
     const r = await rows();
     expect(r).toHaveLength(1);
@@ -236,14 +243,14 @@ describe("attempts with a dead link", () => {
   it("records 'link_revoked'", async () => {
     const link = await mint();
     await revokeShareLink(env as any, "report", link.id, NOW());
-    await app.request(`https://a.rtfx.pro/report/?k=${link.key}`, { headers: nav }, e());
+    await app.request(`${CANON}?k=${link.key}`, { headers: nav }, e());
     expect((await rows())[0]).toMatchObject({ outcome: "link_revoked", link_id: link.id });
   });
 
   it("records a crawler hitting an expired link, too", async () => {
     const link = await mint({ expiresAt: new Date(Date.now() - DAY).toISOString() });
     await app.request(
-      `https://a.rtfx.pro/report/?k=${link.key}`,
+      `${CANON}?k=${link.key}`,
       { headers: { "User-Agent": "Twitterbot/1.0", "CF-Connecting-IP": "192.0.2.1" } },
       e()
     );
@@ -253,9 +260,9 @@ describe("attempts with a dead link", () => {
   it("records nothing for an unknown key, a wrong secret on a real id, or a key for another artifact", async () => {
     const link = await mint({ expiresAt: new Date(Date.now() - DAY).toISOString() });
     const [id] = link.key.split(".");
-    await app.request(`https://a.rtfx.pro/report/?k=garbage`, { headers: nav }, e());
-    await app.request(`https://a.rtfx.pro/report/?k=${id}.wrongsecret`, { headers: nav }, e());
-    await app.request(`https://a.rtfx.pro/report/?k=nodot`, { headers: nav }, e());
+    await app.request(`${CANON}?k=garbage`, { headers: nav }, e());
+    await app.request(`${CANON}?k=${id}.wrongsecret`, { headers: nav }, e());
+    await app.request(`${CANON}?k=nodot`, { headers: nav }, e());
     expect(await rows()).toHaveLength(0);
     expect(await inspectShareLink(env as any, `${id}.wrongsecret`, NOW())).toBeNull();
     // Right key, wrong artifact.
@@ -265,24 +272,25 @@ describe("attempts with a dead link", () => {
     body.set("visibility", "restricted");
     body.set("file", new File(["<p>x</p>"], "index.html", { type: "text/html" }));
     await req("/api/artifacts", { method: "POST", body, ...as(OWNER) });
-    await app.request(`https://a.rtfx.pro/other/?k=${link.key}`, { headers: nav }, e());
+    await app.request(`https://rtfx.pro${await viewerPath("other")}?k=${link.key}`, { headers: nav }, e());
     expect(await rows()).toHaveLength(0);
   });
 
   it("ignores a plain machine request (no Sec-Fetch-Dest, not a crawler)", async () => {
     const link = await mint({ expiresAt: new Date(Date.now() - DAY).toISOString() });
     await app.request(`https://a.rtfx.pro/report/?k=${link.key}`, { headers: { "User-Agent": "curl/8.4" } }, e());
+    await app.request(`${CANON}?k=${link.key}`, { headers: { "User-Agent": "curl/8.4" } }, e());
     expect(await rows()).toHaveLength(0);
   });
 
   it("dedupes the same link + ip + outcome inside the window, but not a different ip", async () => {
     const link = await mint({ expiresAt: new Date(Date.now() - DAY).toISOString() });
     for (let i = 0; i < 5; i++) {
-      await app.request(`https://a.rtfx.pro/report/?k=${link.key}`, { headers: nav }, e());
+      await app.request(`${CANON}?k=${link.key}`, { headers: nav }, e());
     }
     expect(await rows()).toHaveLength(1);
     await app.request(
-      `https://a.rtfx.pro/report/?k=${link.key}`,
+      `${CANON}?k=${link.key}`,
       { headers: { ...nav, "CF-Connecting-IP": "203.0.113.99" } },
       e()
     );
@@ -314,7 +322,7 @@ describe("signed-in views", () => {
       ...as(OWNER),
     });
     const res = await app.request(
-      "https://a.rtfx.pro/report/",
+      CANON,
       {
         headers: {
           "Sec-Fetch-Dest": "document",
@@ -390,7 +398,7 @@ describe("owner-facing endpoints", () => {
     await openLink(live.key, { "CF-Connecting-IP": "203.0.113.20" });
     const dead = await mint({ expiresAt: new Date(Date.now() - DAY).toISOString() });
     await app.request(
-      `https://a.rtfx.pro/report/?k=${dead.key}`,
+      `${CANON}?k=${dead.key}`,
       { headers: { "Sec-Fetch-Dest": "document", "CF-Connecting-IP": "203.0.113.30" } },
       e()
     );
@@ -477,21 +485,21 @@ describe("before migration 0023 (fail soft)", () => {
 
     const dead = await mint({ expiresAt: new Date(Date.now() - DAY).toISOString() });
     const d = await app.request(
-      `https://a.rtfx.pro/report/?k=${dead.key}`,
+      `${CANON}?k=${dead.key}`,
       { headers: { "Sec-Fetch-Dest": "document" } },
       e()
     );
     expect(d.status).toBe(302);
 
     const p = await app.request(
-      `https://a.rtfx.pro/report/?k=${live.key}`,
+      `${CANON}?k=${live.key}`,
       { headers: { "User-Agent": "WhatsApp/2.23" } },
       e()
     );
     expect(p.status).toBe(200);
 
     const s = await app.request(
-      "https://a.rtfx.pro/report/",
+      CANON,
       { headers: { "Sec-Fetch-Dest": "document", Cookie: await cookieFor(OWNER) } },
       e()
     );

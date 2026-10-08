@@ -96,9 +96,7 @@ import {
   viewsByVersion,
 } from "./db";
 import {
-  artifactUrl,
-  brandedUrl,
-  contentBase,
+  viewUrl,
   manageableArtifact,
   normalizeAccessInput,
   purgeArtifact,
@@ -200,8 +198,8 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
       "a small multi-file site (which must contain a file whose path is exactly \"index.html\"). " +
       "A new slug creates the artifact at v1, private to its owner; publishing again to a slug you " +
       "own appends an immutable version, live at the same URL — so updating something means calling " +
-      "this with the SAME slug, never a new one. Show the person the returned `branded_url` (falling back to `url`); never assemble it yourself, " +
-      "because the content host differs per instance. " +
+      "this with the SAME slug, never a new one. Show the person the returned `url` exactly as given — it is the canonical address (rtfx.pro/<workspace>/<slug>); never assemble it yourself, " +
+      "because the workspace address is chosen per account. " +
       "SIZE LIMIT: inline content is for small, text-only sites (a few MB, at most " + MAX_INLINE_FILES + " files). " +
       "If the site is larger than that, or contains images, video or other binary files, do NOT base64 it " +
       "into this call — use `create_upload_link` instead.",
@@ -529,8 +527,8 @@ server runs beside your files and takes a path.
 Publishing to a NEW slug creates the artifact at v1, private to its owner. Publishing again to a
 slug you own appends an immutable version, live at the same URL — so updating something means
 calling publish with the SAME slug, never inventing a new one. Publishing to someone else's slug is
-refused with 409. Read the returned URL from the result; never assemble it yourself, because the
-content host differs per instance.
+refused with 409. Read the returned "url" from the result and show it exactly as given; never assemble it yourself,
+because the workspace part of the address is chosen per account.
 
 Inline content is capped (a few MB, a few dozen files) because every byte travels as base64 inside
 a JSON-RPC message. Credential-looking files, dotfiles and build directories are refused outright
@@ -722,7 +720,6 @@ async function doctor(c: Context<Vars>): Promise<ToolCallResult> {
   const identity = c.get("identity");
   const token = identity.token!;
   const endpoint = siteOrigin(c.env);
-  const contentOrigin = contentBase(c);
 
   let artifactCount: number | null = null;
   if (token.scopes.includes("read")) {
@@ -733,7 +730,6 @@ async function doctor(c: Context<Vars>): Promise<ToolCallResult> {
     command: "doctor",
     transport: "http",
     endpoint,
-    content_base: contentOrigin,
     /** Presentation only — the id, never the secret. */
     token: `rtfx_${token.id}_…`,
     token_id: token.id,
@@ -768,7 +764,6 @@ async function doctor(c: Context<Vars>): Promise<ToolCallResult> {
   return result(
     [
       `endpoint  ${facts.endpoint}`,
-      `content   ${facts.content_base}`,
       `token     ${facts.token}  (scopes: ${facts.scopes.join(", ") || "none"})`,
       `transport http (remote) — bearer token; OAuth sign-in is available (authorization_code + PKCE)`,
       `tools     ${facts.tools.join(", ")}`,
@@ -1028,7 +1023,7 @@ async function publish(c: Context<Vars>, args: any): Promise<ToolCallResult> {
     return result(
       [
         `published ${data.slug} v${data.version} (${data.type}, ${data.file_count} file(s))`,
-        data.branded_url ?? data.url,
+        data.url,
         data.version === 1
           ? "private to you until you share it — set access from the dashboard"
           : "same URL as before; the previous version is still retrievable",
@@ -1124,13 +1119,13 @@ async function artifactSummary(
   row: ArtifactRow,
   addresses?: Map<string, Promise<string | null>>
 ): Promise<Record<string, unknown>> {
-  const branded = await brandedUrl(c, row.account_id, row.slug, addresses);
+  const url = await viewUrl(c, row.account_id, row.slug, addresses);
   return {
     slug: row.slug,
     title: row.title,
     description: row.description,
-    url: artifactUrl(c, row.slug),
-    ...(branded ? { branded_url: branded } : {}),
+    url,
+    branded_url: url, // deprecated alias of `url`, kept for one release
     type: row.type,
     visibility: row.visibility,
     current_version: row.current_version,
@@ -1191,7 +1186,7 @@ async function listArtifactsTool(c: Context<Vars>, args: any): Promise<ToolCallR
       `listed ${page.length} of ${total} artifact(s) visible to this token`,
       nextOffset === null ? "end of list" : `next_offset ${nextOffset}`,
     ],
-    { command: "list_artifacts", transport: "http", content_base: contentBase(c), limit, offset, next_offset: nextOffset, total, artifacts }
+    { command: "list_artifacts", transport: "http", limit, offset, next_offset: nextOffset, total, artifacts }
   );
 }
 
@@ -1209,7 +1204,7 @@ async function artifactDetailsTool(c: Context<Vars>, args: any): Promise<ToolCal
   return result(
     [
       `${art.slug} — ${art.title}`,
-      (summary.branded_url as string | undefined) ?? artifactUrl(c, slug),
+      summary.url as string,
       `${versions.length} version(s); current v${art.current_version}; ${views.total} view(s); ${grants.length} explicit grant(s)`,
     ],
     {
@@ -1234,11 +1229,11 @@ async function artifactStatisticsTool(c: Context<Vars>, args: any): Promise<Tool
     const art = await manageableArtifact(c, slug);
     if (!art) return failure(new ToolError("artifact not found", { error: "not_found", status: 404 }));
     const [versions, grants, views] = await Promise.all([listVersions(c.env, slug), listGrants(c.env, slug), getViews(c.env, slug, 0)]);
-    const branded = await brandedUrl(c, art.account_id, slug);
+    const url = await viewUrl(c, art.account_id, slug);
     const totals = {
       slug,
-      url: artifactUrl(c, slug),
-      ...(branded ? { branded_url: branded } : {}),
+      url,
+      branded_url: url,
       versions: versions.length,
       expired_versions: versions.filter((v) => v.expired_at).length,
       files: versions.reduce((n, v) => n + v.file_count, 0),
@@ -1306,13 +1301,13 @@ async function shareArtifactTool(c: Context<Vars>, args: any): Promise<ToolCallR
   const emails = parsed.visibility === "everyone" ? [] : parsed.emails;
   await setAccess(c.env, slug, parsed.visibility, emails, new Date().toISOString());
   const grants = await listGrants(c.env, slug);
-  const branded = await brandedUrl(c, art.account_id, slug);
+  const url = await viewUrl(c, art.account_id, slug);
   return result([`${slug} access set to ${parsed.visibility}`, `${grants.length} explicit grant(s)`], {
     command: "share_artifact",
     transport: "http",
     slug,
-    url: artifactUrl(c, slug),
-    ...(branded ? { branded_url: branded } : {}),
+    url,
+    branded_url: url,
     visibility: parsed.visibility,
     emails: grants,
   });
@@ -1330,14 +1325,14 @@ async function rollbackArtifactTool(c: Context<Vars>, args: any): Promise<ToolCa
   }
   const rolled = await rollbackArtifact(c.env, slug, version);
   if (!rolled.ok) return failure(new ToolError(rolled.detail, { error: rolled.error, status: rolled.status }));
-  const branded = await brandedUrl(c, art.account_id, slug);
-  return result([`${slug} is now serving v${version}`, branded ?? artifactUrl(c, slug)], {
+  const url = await viewUrl(c, art.account_id, slug);
+  return result([`${slug} is now serving v${version}`, url], {
     command: "rollback_artifact",
     transport: "http",
     slug,
     current: version,
-    url: artifactUrl(c, slug),
-    ...(branded ? { branded_url: branded } : {}),
+    url,
+    branded_url: url,
   });
 }
 

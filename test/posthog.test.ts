@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { env } from "cloudflare:test";
 import { strToU8 } from "fflate";
 import app from "../src/index";
-import { initDb, clearR2, req, as, htmlForm } from "./fixtures";
+import { initDb, clearR2, req, as, htmlForm, viewerPath } from "./fixtures";
 import type { Env } from "../src/env";
 import { posthogConfig, posthogCsp, type PostHogConfig } from "../src/posthog";
 import {
@@ -128,7 +128,7 @@ describe("PostHog never appears outside the dashboard", () => {
     const withKey = { ...env, POSTHOG_KEY: CFG.key } as unknown as Env;
     await app.request("/api/artifacts", { method: "POST", body: form, ...as(SUPER) }, withKey as any);
     const res = await app.request(
-      "/ph-demo/",
+      await viewerPath("ph-demo"),
       { ...as(SUPER), headers: { ...(as(SUPER).headers as Record<string, string>), "Sec-Fetch-Dest": "document" } },
       withKey as any
     );

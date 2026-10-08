@@ -706,7 +706,7 @@ export function landingPage(env: Env): string {
 
 <b>/rtfx:login</b>     browser sign-in — no token to copy
 <b>/rtfx:publish</b> ./out client-demo
-  <span class="rt-ok">https://rtfx.pro/client-demo/ · v1</span></code></pre>
+  <span class="rt-ok">https://rtfx.pro/w-3f9a0c12/client-demo · v1</span></code></pre>
             <p>After that, <i>publish this</i> is an ordinary sentence in the session.
               <a href="/docs#start">Full Claude Code steps &rarr;</a></p>
           </div>

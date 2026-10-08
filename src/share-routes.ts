@@ -8,11 +8,11 @@
  */
 
 import { Hono, type Context } from "hono";
-import type { AppBindings, Env } from "./env";
+import type { AppBindings, ArtifactRow, Env } from "./env";
 import { requireUser, requireScope, accountsFor, type AuthVars } from "./auth";
 import { canManage } from "./authz";
 import { getArtifact } from "./db";
-import { firstContentHostname } from "./host";
+import { viewUrl } from "./api";
 import { createShareLink, listShareLinks, revokeShareLink, shareLinkStats } from "./share";
 
 type ShareApp = { Bindings: Env; Variables: AuthVars };
@@ -31,10 +31,12 @@ async function manageable(c: ShareContext, slug: string) {
   return canManage(identity, art, (await accountsFor(c)).roles) ? art : null;
 }
 
-/** The URL a person actually pastes. Built from the content host, never guessed. */
-function linkUrl(env: Env, slug: string, key: string): string {
-  const host = firstContentHostname(env) ?? new URL(env.PUBLIC_BASE_URL ?? "https://rtfx.pro").host;
-  return `https://${host}/${encodeURIComponent(slug)}/?k=${encodeURIComponent(key)}`;
+/**
+ * The URL a person actually pastes: the artifact's canonical address with the
+ * key in `?k=`. Never the content host — that origin is not an address.
+ */
+async function linkUrl(c: ShareContext, art: ArtifactRow, key: string): Promise<string> {
+  return `${await viewUrl(c, art.account_id, art.slug)}?k=${encodeURIComponent(key)}`;
 }
 
 shareRoutes.get("/api/artifacts/:slug/links", requireScope("read"), async (c) => {
@@ -53,7 +55,8 @@ shareRoutes.get("/api/artifacts/:slug/links", requireScope("read"), async (c) =>
 
 shareRoutes.post("/api/artifacts/:slug/links", requireScope("manage"), async (c) => {
   const slug = c.req.param("slug");
-  if (!(await manageable(c, slug))) return c.json({ error: "not_found" }, 404);
+  const art = await manageable(c, slug);
+  if (!art) return c.json({ error: "not_found" }, 404);
 
   const body = (await c.req.json().catch(() => null)) as { expires_in_days?: unknown } | null;
   let expiresAt: string | null = null;
@@ -73,7 +76,7 @@ shareRoutes.post("/api/artifacts/:slug/links", requireScope("manage"), async (c)
   });
 
   // The key is returned exactly once. It is not stored and cannot be shown again.
-  return c.json({ id: link.id, url: linkUrl(c.env, slug, link.key), expires_at: link.expiresAt }, 201);
+  return c.json({ id: link.id, url: await linkUrl(c, art, link.key), expires_at: link.expiresAt }, 201);
 });
 
 shareRoutes.delete("/api/artifacts/:slug/links/:id", requireScope("manage"), async (c) => {

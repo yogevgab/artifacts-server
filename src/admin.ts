@@ -176,7 +176,8 @@ function recentPanel(
   views: ViewsInfo,
   versions: Map<string, VersionRow[]>,
   grants: Map<string, string[]>,
-  showOwner: boolean
+  showOwner: boolean,
+  links?: BrandedLinks
 ): string {
   const recent = [...rows]
     .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
@@ -192,7 +193,7 @@ function recentPanel(
           <div class="art-badges">${artifactBadges(r, emails, versionCount, viewCount, showOwner)}</div>
         </div>
         <div class="row-actions">
-          <a href="/${esc(r.slug)}/" target="_blank" rel="noopener">Open ↗</a>
+          <a href="${esc(shownLink(links, r.slug))}" target="_blank" rel="noopener">Open ↗</a>
         </div>
       </div>`;
     })
@@ -255,6 +256,8 @@ export interface OverviewInput {
   tokens: PublicApiToken[] | null;
   /** Null for anyone who is not an admin with an interactive sign-in. */
   users: UsersInfo | null;
+  /** Canonical URL per slug, so "Open" never points at a bare `/slug/`. */
+  links?: BrandedLinks;
 }
 
 export function overviewPage(o: OverviewInput): string {
@@ -369,7 +372,7 @@ export function overviewPage(o: OverviewInput): string {
     body: `${usageWarningBanner(viewer.workspace?.billing)}
       ${statsRow(rows, versions, views)}
       ${nextActionsPanel(actions)}
-      ${recentPanel(rows, views, versions, grants, viewer.isAdmin)}
+      ${recentPanel(rows, views, versions, grants, viewer.isAdmin, o.links)}
       ${healthPanel(health)}`,
     style: OVERVIEW_STYLE,
   });
@@ -963,7 +966,7 @@ export interface ArtifactDetailInput {
    * rather than the whole page failing to compile or render.
    */
   mailStatus?: Map<string, MailStatusSummary>;
-  /** The artifact's branded URL, shown as its share link when present. */
+  /** The artifact's canonical URL, shown as its share link. */
   brandedUrl?: string | null;
 }
 
@@ -1015,7 +1018,7 @@ export function artifactDetailPage(o: ArtifactDetailInput): string {
       { label: "Artifacts", href: "/admin/artifacts" },
       { label: row.title },
     ],
-    actions: `<a class="ghost link-button" href="/${esc(row.slug)}/" target="_blank" rel="noopener">Open ↗</a>`,
+    actions: `<a class="ghost link-button" href="${esc(shareLink)}" target="_blank" rel="noopener">Open ↗</a>`,
     body: `${summary}
       <div class="pcols">
         ${versionsPanel(row, versions)}
@@ -1166,16 +1169,16 @@ function addressRow(address?: WorkspaceAddress): string {
     : `<span class="badge is-locked" data-badge="workspace-address">Not set</span>`;
 
   const example = isAuto
-    ? `This address was generated for your workspace. Artifacts here answer at <span class="mono">${esc(
+    ? `This address was generated for your workspace. Artifacts here are addressed at <span class="mono">${esc(
         `${origin.replace(/^https?:\/\//, "")}/${slug}/q3-board-report`
-      )}</span> as well as their content-origin URL. Both keep working.${
+      )}</span>.${
         planAllows ? " Pick a custom one below." : " A custom address, like <span class=\"mono\">yogev</span>, needs Pro."
       }`
     : slug
-    ? `Artifacts here answer at <span class="mono">${esc(
+    ? `Artifacts here are addressed at <span class="mono">${esc(
         `${origin.replace(/^https?:\/\//, "")}/${slug}/q3-board-report`
-      )}</span> as well as their content-origin URL. Both keep working.`
-    : `Claim one and every artifact in this workspace gets a second, human link —
+      )}</span>. Changing the address changes those links; share links already sent keep working.`
+    : `Claim one and every artifact in this workspace is addressed under a name you can read out loud —
        <span class="mono">${esc(origin.replace(/^https?:\/\//, ""))}/yogev/q3-board-report</span>,
        <span class="mono">${esc(origin.replace(/^https?:\/\//, ""))}/maya/client-proposal</span>.
        It is a path on ${esc(origin.replace(/^https?:\/\//, ""))}, not a domain of your own.`;
@@ -1190,7 +1193,7 @@ function addressRow(address?: WorkspaceAddress): string {
       ? `<p class="addr-note" data-address-locked>A workspace address is a
          <a href="/pro">Pro</a> feature${
            isAuto ? "; until then the generated address above is the one in your links" : ""
-         }. Every artifact keeps its existing URL either way.</p>`
+         }.</p>`
       : `<form class="addr-form" method="post" action="/admin/workspace/address"
           data-form="workspace-address">
         <label for="ws-address">Workspace address</label>
@@ -1647,7 +1650,7 @@ if(upForm){
 }
 function showPublished(data){
   if(!success) return;
-  var url = data.branded_url || data.url || (location.origin + '/' + data.slug + '/');
+  var url = data.url || (location.origin + '/' + data.slug + '/');
   var input = $('[data-artifact-url]', success);
   input.value = url;
   $('[data-open-link]', success).href = url;

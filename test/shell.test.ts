@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { initDb, clearR2, req, as } from "./fixtures";
+import { initDb, clearR2, req, as, openViewer, viewerPath, NAV_HEADERS } from "./fixtures";
 
 const OWNER = "owner@rtfx.pro";
 const OTHER = "someone-else@example.com";
@@ -20,11 +20,15 @@ async function publish(slug = "demo") {
   expect(res.status).toBeLessThan(300);
 }
 
-const navigate = (path: string, who: string) =>
-  req(path, {
+/** A browser navigation to `/<slug>/`, sent to the artifact's canonical viewer address. */
+const navigate = async (path: string, who: string) => {
+  const slug = /^\/([a-z0-9-]+)\/$/.exec(path)?.[1];
+  if (slug) return openViewer(slug, who);
+  return req(path, {
     ...as(who),
-    headers: { ...(as(who).headers as Record<string, string>), "Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "navigate" },
+    headers: { ...(as(who).headers as Record<string, string>), ...NAV_HEADERS },
   });
+};
 
 describe("viewer shell", () => {
   it("serves the shell for a top-level navigation", async () => {
@@ -86,12 +90,11 @@ describe("viewer shell", () => {
     expect(html).toContain("data-share-banner");
   });
 
-  it("links the rtfx.pro mark back to the app origin, not the content origin", async () => {
+  it("links the rtfx.pro mark home; the viewer is on the app origin so the link is origin-relative", async () => {
     await publish();
     const html = await (await navigate("/demo/", OWNER)).text();
     const mark = /<a class="mark"[^>]*>/.exec(html)?.[0] ?? "";
-    expect(mark).toContain('href="https://rtfx.pro/"');
-    expect(mark).not.toContain('href="/"');
+    expect(mark).toContain('href="/"');
   });
 
   it("shows no banner markup at all to a plain viewer", async () => {

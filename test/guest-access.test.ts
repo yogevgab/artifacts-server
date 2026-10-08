@@ -3,10 +3,13 @@ import { env } from "cloudflare:test";
 import app from "../src/index";
 import { SESSION_COOKIE } from "../src/auth";
 import { mintSession } from "../src/session";
-import { initDb, clearR2, req, as } from "./fixtures";
+import { createChallenge } from "../src/otp";
+import { GUEST_COOKIE } from "../src/viewing";
+import { initDb, clearR2, req, as, viewerPath } from "./fixtures";
 
 const SECRET = "test-secret-at-least-32-bytes-long-for-hs256!!";
 const CONTENT = "https://a.rtfx.pro";
+const APP = "https://rtfx.pro";
 const OWNER = "owner@rtfx.pro";
 const GUEST = "dana@acme.com";
 const NOW = () => new Date().toISOString();
@@ -47,25 +50,28 @@ beforeEach(async () => {
   });
 });
 
+/** The canonical viewer URL for `report`. */
+const viewerUrl = async () => `${APP}${await viewerPath("report")}`;
+
 async function guestSession(email = GUEST, slug = "report") {
   return mintSession(SECRET, { email, kind: "guest", slug }, NOW());
 }
 
 describe("guests view what they were granted", () => {
-  it("lets a granted guest open the artifact", async () => {
-    const res = await app.request(
-      `${CONTENT}/report/`,
-      nav(`${SESSION_COOKIE}=${await guestSession()}`),
-      e()
-    );
+  it("lets a granted guest open the artifact, on the app host", async () => {
+    const res = await app.request(await viewerUrl(), nav(`${GUEST_COOKIE}=${await guestSession()}`), e());
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("<iframe");
   });
 
-  it("refuses a guest for an artifact they were not granted", async () => {
+  it("refuses a guest credential minted for a different artifact", async () => {
     const other = await mintSession(SECRET, { email: GUEST, kind: "guest", slug: "something-else" }, NOW());
-    const res = await app.request(`${CONTENT}/report/`, nav(`${SESSION_COOKIE}=${other}`), e());
-    expect(res.status).toBe(404);
+    const res = await app.request(await viewerUrl(), nav(`${GUEST_COOKIE}=${other}`), e());
+    // Not a credential for THIS artifact, so it is no credential: the visitor is sent to sign in.
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location") ?? "").toContain("/shared/report");
+    const inSession = await app.request(await viewerUrl(), nav(`${SESSION_COOKIE}=${other}`), e());
+    expect(inSession.status).toBe(404);
   });
 
   it("refuses a guest whose grant was revoked", async () => {
@@ -75,12 +81,29 @@ describe("guests view what they were granted", () => {
       body: JSON.stringify({ visibility: "restricted", emails: [] }),
       ...as(OWNER),
     });
+    const res = await app.request(await viewerUrl(), nav(`${GUEST_COOKIE}=${await guestSession()}`), e());
+    expect(res.status).toBe(404);
+  });
+
+  it("does not replace a signed-in member: the guest cookie is separate", async () => {
+    const member = await mintSession(SECRET, { email: OWNER, kind: "member" }, NOW());
     const res = await app.request(
-      `${CONTENT}/report/`,
-      nav(`${SESSION_COOKIE}=${await guestSession()}`),
+      await viewerUrl(),
+      nav(`${SESSION_COOKIE}=${member}; ${GUEST_COOKIE}=${await guestSession()}`),
       e()
     );
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("data-share-banner"); // the member (owner) won
+  });
+
+  it("falls back to the guest credential when the signed-in member has no access", async () => {
+    const member = await mintSession(SECRET, { email: "stranger@example.com", kind: "member" }, NOW());
+    const res = await app.request(
+      await viewerUrl(),
+      nav(`${SESSION_COOKIE}=${member}; ${GUEST_COOKIE}=${await guestSession()}`),
+      e()
+    );
+    expect(res.status).toBe(200);
   });
 
   it("never lets a guest reach the dashboard", async () => {
@@ -94,17 +117,41 @@ describe("guests view what they were granted", () => {
 
   it("shows a guest no share banner", async () => {
     const html = await (
-      await app.request(`${CONTENT}/report/`, nav(`${SESSION_COOKIE}=${await guestSession()}`), e())
+      await app.request(await viewerUrl(), nav(`${GUEST_COOKIE}=${await guestSession()}`), e())
     ).text();
     expect(html).not.toContain("data-share-banner");
   });
 });
 
-describe("guest sign-in on the content host", () => {
-  it("sends an unknown visitor to a guest sign-in for that artifact", async () => {
-    const res = await app.request(`${CONTENT}/report/`, nav(), e());
+describe("guest sign-in", () => {
+  it("sends an unknown visitor to a guest sign-in that returns to the canonical address", async () => {
+    const res = await app.request(await viewerUrl(), nav(), e());
     expect(res.status).toBe(302);
-    expect(res.headers.get("location") ?? "").toContain("/auth/content");
+    const loc = res.headers.get("location") ?? "";
+    expect(loc.startsWith("/shared/report?next=")).toBe(true);
+    expect(decodeURIComponent(loc.split("next=")[1])).toBe(await viewerPath("report"));
+  });
+
+  it("redeeming the emailed link sets a guest cookie on the app host and lands on the canonical address", async () => {
+    const issued = await createChallenge(env as any, { email: GUEST, purpose: "guest", slug: "report", now: NOW() });
+    const res = await app.request(`${APP}/auth/m/${issued.token}`, { method: "POST" }, e());
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(await viewerPath("report"));
+    const cookies = res.headers.getSetCookie();
+    const guest = cookies.find((c) => c.startsWith(`${GUEST_COOKIE}=`)) ?? "";
+    expect(guest).toContain("HttpOnly");
+    expect(guest).toContain("Secure");
+    expect(guest).toContain("SameSite=Lax");
+    // Never a member session: redeeming an invitation does not create an account.
+    expect(cookies.some((c) => c.startsWith(`${SESSION_COOKIE}=`))).toBe(false);
+
+    const opened = await app.request(await viewerUrl(), nav(guest.split(";")[0]), e());
+    expect(opened.status).toBe(200);
+  });
+
+  it("retired the content-host handoff", async () => {
+    const res = await app.request(`${APP}/auth/content?next=${encodeURIComponent(`${CONTENT}/report/`)}`, {}, e());
+    expect(res.status).toBe(404);
   });
 
   it("mints a guest session for someone holding a grant but no account", async () => {
@@ -151,7 +198,7 @@ describe("the shared-link landing page", () => {
     expect(fake.replace(/no-such-thing/g, "report")).toBe(real);
   });
 
-  it("sends a signed-in member straight to the artifact", async () => {
+  it("sends a signed-in member straight to the artifact's canonical address", async () => {
     const session = await mintSession(SECRET, { email: OWNER, kind: "member" }, NOW());
     const res = await app.request(
       "https://rtfx.pro/shared/report",
@@ -159,11 +206,22 @@ describe("the shared-link landing page", () => {
       e()
     );
     expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe("https://a.rtfx.pro/report/");
+    expect(res.headers.get("location")).toBe(await viewerUrl());
   });
 
-  it("bounces the content host to the guest page, carrying the slug", async () => {
-    const res = await app.request(`${CONTENT}/report/`, nav(), e());
-    expect(res.headers.get("location") ?? "").toContain("slug=report");
+  it("honours ?next= for a signed-in member, but only a local path", async () => {
+    const session = await mintSession(SECRET, { email: OWNER, kind: "member" }, NOW());
+    const headers = { Cookie: `${SESSION_COOKIE}=${session}` };
+    const ok = await app.request("https://rtfx.pro/shared/report?next=%2Fabc%2Freport", { headers }, e());
+    expect(ok.headers.get("location")).toBe("/abc/report");
+    const evil = await app.request("https://rtfx.pro/shared/report?next=https%3A%2F%2Fevil.example", { headers }, e());
+    expect(evil.headers.get("location")).toBe(await viewerUrl());
+  });
+
+  it("carries next into the guest page's sign-in link", async () => {
+    const html = await (
+      await app.request("https://rtfx.pro/shared/report?next=%2Fabc%2Freport", {}, e())
+    ).text();
+    expect(html).toContain("/login?next=%2Fabc%2Freport");
   });
 });

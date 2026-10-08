@@ -73,69 +73,77 @@ beforeEach(async () => {
   await env.DB.prepare("DELETE FROM share_links").run();
 });
 
+const NAV = { "Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "navigate" };
+const navAs = (email: string) => ({
+  ...as(email),
+  headers: { ...(as(email).headers as Record<string, string>), ...NAV },
+});
+
 describe("rtfx.pro/:account/:artifact", () => {
-  it("sends a branded link to the artifact's real URL on the content origin", async () => {
+  it("renders the viewer on the app origin, framing the content origin", async () => {
     await publish("q3-board-report", OWNER);
     await claim(OWNER, "yogev");
 
-    const res = await appReq("/yogev/q3-board-report", as(OWNER));
-    expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe(`https://${CONTENT_HOST}/q3-board-report/`);
+    const res = await appReq("/yogev/q3-board-report", navAs(OWNER));
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("<iframe");
+    // The bytes are NOT in this page; the frame points at the content origin.
+    expect(html).not.toContain("<h1>q3-board-report</h1>");
+    expect(html).toMatch(new RegExp(`<iframe[^>]* src="https://${CONTENT_HOST}/q3-board-report/`));
   });
 
   it("works for a second workspace with its own address", async () => {
     await publish("client-proposal", OTHER);
     await claim(OTHER, "maya");
-    const res = await appReq("/maya/client-proposal", as(OTHER));
-    expect(res.headers.get("Location")).toBe(`https://${CONTENT_HOST}/client-proposal/`);
+    const res = await appReq("/maya/client-proposal", navAs(OTHER));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("<iframe");
   });
 
-  it("resolves for a trailing slash and a mixed-case address", async () => {
+  it("resolves for a trailing slash, a sub-path and a mixed-case address", async () => {
     await publish("q3-board-report", OWNER);
     await claim(OWNER, "yogev");
-    for (const path of ["/yogev/q3-board-report/", "/YOGEV/q3-board-report"]) {
-      const res = await appReq(path, as(OWNER));
-      expect(res.status, path).toBe(302);
-      expect(res.headers.get("Location"), path).toBe(`https://${CONTENT_HOST}/q3-board-report/`);
+    for (const path of ["/yogev/q3-board-report/", "/YOGEV/q3-board-report", "/yogev/q3-board-report/deck/p1.html"]) {
+      const res = await appReq(path, navAs(OWNER));
+      expect(res.status, path).toBe(200);
+      expect(await res.text(), path).toContain("<iframe");
     }
   });
 
-  /**
-   * The redirect is the entire implementation of "does this person get to see
-   * it": the branded route hands off to the content origin, which applies the
-   * artifact's own rules. A signed-out browser therefore meets exactly the
-   * sign-in bounce it would have met had the link been the content URL.
-   */
-  it("hands authorization to the content origin rather than deciding it twice", async () => {
+  /** The viewer decides access ON THE APP HOST; the content origin never sees the visitor. */
+  it("applies the artifact's own access rules at the viewer", async () => {
     await publish("q3-board-report", OWNER);
     await claim(OWNER, "yogev");
 
-    // Somebody with no relationship to the artifact gets the same redirect…
-    const stranger = await appReq("/yogev/q3-board-report", as(OTHER));
-    expect(stranger.status).toBe(302);
-    // …and is refused at the origin that actually serves it, exactly as they
-    // would have been by the URL they'd have been sent before this feature.
+    const stranger = await appReq("/yogev/q3-board-report", navAs(OTHER));
+    expect(stranger.status).toBe(404);
     const refused = await contentReq("/q3-board-report/", as(OTHER));
     expect(refused.status).toBe(404);
   });
 
-  it("carries a share key through, so a branded capability URL opens the page", async () => {
+  it("redeems a share key into a cookie and drops it from the address", async () => {
     await publish("q3-board-report", OWNER);
     await claim(OWNER, "yogev");
     const link = await createShareLink(env as any, { slug: "q3-board-report", createdBy: OWNER, now: AT });
 
-    const res = await appReq(`/yogev/q3-board-report?k=${encodeURIComponent(link.key)}`);
-    expect(res.status).toBe(302);
-    const target = new URL(res.headers.get("Location")!);
-    expect(target.host).toBe(CONTENT_HOST);
-    expect(target.pathname).toBe("/q3-board-report/");
-    expect(target.searchParams.get("k")).toBe(link.key);
-
-    // And the key still opens the artifact at the end of that redirect.
-    const opened = await contentReq(`/q3-board-report/?k=${encodeURIComponent(link.key)}`, {
-      headers: { "X-Dev-Anonymous": "true" },
+    const res = await appReq(`/yogev/q3-board-report?k=${encodeURIComponent(link.key)}`, {
+      headers: { ...NAV, "X-Dev-Anonymous": "true" },
     });
-    expect([200, 302]).toContain(opened.status);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/yogev/q3-board-report");
+    const cookie = res.headers.get("Set-Cookie") ?? "";
+    expect(cookie).toContain("rtfx_link_q3-board-report=");
+    expect(cookie).toContain("HttpOnly");
+    expect(cookie).toContain("Secure");
+    expect(cookie).toContain("SameSite=Lax");
+
+    // And the cookie opens the viewer, chromeless, at the clean address.
+    const opened = await appReq("/yogev/q3-board-report", {
+      headers: { ...NAV, "X-Dev-Anonymous": "true", Cookie: cookie.split(";")[0] },
+    });
+    expect(opened.status).toBe(200);
+    expect(await opened.text()).not.toContain("data-bar");
   });
 });
 
@@ -190,19 +198,22 @@ describe("what a branded namespace must not reveal", () => {
   it("never serves artifact bytes from the app origin", async () => {
     await publish("q3-board-report", OWNER);
     await claim(OWNER, "yogev");
-    for (const path of ["/yogev/q3-board-report", "/yogev/q3-board-report/"]) {
-      const res = await appReq(path, {
-        ...as(OWNER),
-        headers: { ...(as(OWNER).headers as Record<string, string>), "Sec-Fetch-Dest": "document" },
-      });
-      expect(res.status, path).toBe(302);
-      expect(await res.text()).not.toContain("<h1>q3-board-report</h1>");
+    for (const path of ["/yogev/q3-board-report", "/yogev/q3-board-report/", "/yogev/q3-board-report?raw=1"]) {
+      for (const headers of [NAV, {}, { "Sec-Fetch-Dest": "iframe" }]) {
+        const res = await appReq(path, { ...as(OWNER), headers: { ...(as(OWNER).headers as Record<string, string>), ...(headers as Record<string, string>) } });
+        expect(await res.text(), path).not.toContain("<h1>q3-board-report</h1>");
+        if (!("Sec-Fetch-Dest" in headers) || headers["Sec-Fetch-Dest"] !== "document") {
+          // Machines and subresources are bounced to the content origin's raw path.
+          expect(res.status, path).toBe(302);
+          expect(res.headers.get("Location"), path).toMatch(new RegExp(`^https://${CONTENT_HOST}/q3-board-report/`));
+        }
+      }
     }
   });
 });
 
-describe("nothing that worked before stops working", () => {
-  it("keeps the content-origin URL as the artifact's real address", async () => {
+describe("old URL forms keep working", () => {
+  it("serves raw bytes to a machine client on the content origin, as always", async () => {
     await publish("q3-board-report", OWNER);
     await claim(OWNER, "yogev");
     const res = await contentReq("/q3-board-report/", as(OWNER));
@@ -210,32 +221,45 @@ describe("nothing that worked before stops working", () => {
     expect(await res.text()).toContain("<h1>q3-board-report</h1>");
   });
 
-  it("still redirects a two-segment app-host path when nobody holds that address", async () => {
+  it("sends a browser at the content origin to the canonical address", async () => {
+    await publish("q3-board-report", OWNER);
+    await claim(OWNER, "yogev");
+    const res = await contentReq("/q3-board-report/", navAs(OWNER));
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe(`${APP}/yogev/q3-board-report`);
+  });
+
+  it("sends a browser at the old app-host form to the canonical address", async () => {
     await publish("report", OWNER);
-    // `/report/preview` is an artifact sub-path, not a namespace — and it must
-    // behave exactly as it did before branded addresses existed.
+    await claim(OWNER, "yogev");
+    for (const [path, expected] of [
+      ["/report/", "/yogev/report"],
+      ["/report", "/yogev/report"],
+      ["/report/preview/a.html", "/yogev/report/preview/a.html"],
+    ]) {
+      const res = await appReq(path, navAs(OWNER));
+      expect(res.status, path).toBe(302);
+      expect(res.headers.get("Location"), path).toBe(`${APP}${expected}`);
+    }
+  });
+
+  it("sends a machine at the old app-host form straight to the raw bytes", async () => {
+    await publish("report", OWNER);
     const res = await appReq("/report/preview", as(OWNER));
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe(`https://${CONTENT_HOST}/report/preview`);
-  });
-
-  it("still redirects a single-segment app-host artifact path", async () => {
-    await publish("report", OWNER);
-    const res = await appReq("/report/", as(OWNER));
-    expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe(`https://${CONTENT_HOST}/report/`);
   });
 
   it("leaves the content origin's own two-segment paths alone", async () => {
     await publish("q3-board-report", OWNER);
     await claim(OWNER, "yogev");
     // On the content host this is an asset lookup inside artifact `yogev`,
-    // which does not exist — never a branded address.
+    // which does not exist — never a workspace address.
     const res = await contentReq("/yogev/q3-board-report", as(OWNER));
     expect(res.status).toBe(404);
   });
 
-  it("keeps the public pages and management routes off the branded route", async () => {
+  it("keeps the public pages and management routes off the viewer route", async () => {
     await publish("q3-board-report", OWNER);
     await claim(OWNER, "yogev");
     for (const [path, status] of [
@@ -254,14 +278,15 @@ describe("the branded link in API responses", () => {
   it("is always reported on publish: auto address first, custom once claimed", async () => {
     const before = await publish("q3-board-report", OWNER);
     const first = (await before.json()) as any;
-    expect(first.url).toBe(`https://${CONTENT_HOST}/q3-board-report/`);
-    expect(first.branded_url).toMatch(new RegExp(`^${APP}/w-[0-9a-f]{8}/q3-board-report$`));
+    expect(first.url).toMatch(new RegExp(`^${APP}/w-[0-9a-f]{8}/q3-board-report$`));
+    // The deprecated alias is the very same string.
+    expect(first.branded_url).toBe(first.url);
 
     await claim(OWNER, "yogev");
     const after = await publish("q3-board-report", OWNER);
     const body = (await after.json()) as any;
-    expect(body.url).toBe(`https://${CONTENT_HOST}/q3-board-report/`);
-    expect(body.branded_url).toBe(`${APP}/yogev/q3-board-report`);
+    expect(body.url).toBe(`${APP}/yogev/q3-board-report`);
+    expect(body.branded_url).toBe(body.url);
   });
 
   it("is reported to a caller who is not a member of the workspace (platform admin)", async () => {
@@ -269,7 +294,8 @@ describe("the branded link in API responses", () => {
     await claim(OWNER, "yogev");
     const res = await appReq("/api/artifacts", as("admin@test.com"));
     const row = ((await res.json()) as any).artifacts.find((a: any) => a.slug === "q3-board-report");
-    expect(row.branded_url).toBe(`${APP}/yogev/q3-board-report`);
+    expect(row.url).toBe(`${APP}/yogev/q3-board-report`);
+    expect(row.branded_url).toBe(row.url);
   });
 
   it("lazily assigns an address when the owning workspace somehow has none", async () => {
@@ -278,16 +304,16 @@ describe("the branded link in API responses", () => {
     await env.DB.prepare("UPDATE accounts SET public_slug = NULL WHERE id = ?").bind(account!.id).run();
     const res = await appReq("/api/artifacts", as(OWNER));
     const row = ((await res.json()) as any).artifacts.find((a: any) => a.slug === "q3-board-report");
-    expect(row.branded_url).toMatch(new RegExp(`^${APP}/w-[0-9a-f]{8}/q3-board-report$`));
+    expect(row.url).toMatch(new RegExp(`^${APP}/w-[0-9a-f]{8}/q3-board-report$`));
     expect((await personalAccountFor(env as any, OWNER))!.public_slug).not.toBeNull();
   });
 
-  it("302s an auto-address branded link to the content origin", async () => {
+  it("renders the viewer at an auto address too", async () => {
     await publish("q3-board-report", OWNER);
     const account = await personalAccountFor(env as any, OWNER);
-    const res = await appReq(`/${account!.public_slug}/q3-board-report`, as(OWNER));
-    expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe(`https://${CONTENT_HOST}/q3-board-report/`);
+    const res = await appReq(`/${account!.public_slug}/q3-board-report`, navAs(OWNER));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("<iframe");
   });
 
   it("is what the dashboard shows: card copy link, detail share link, gallery link", async () => {
@@ -303,19 +329,16 @@ describe("the branded link in API responses", () => {
     expect(gallery).toContain(`href="${branded}"`);
   });
 
-  it("makes the viewer shell's Copy link copy the branded URL", async () => {
+  it("makes the viewer shell's Copy link copy the canonical URL", async () => {
     await publish("q3-board-report", OWNER);
     await claim(OWNER, "yogev");
-    const res = await contentReq("/q3-board-report/", {
-      ...as(OWNER),
-      headers: { ...(as(OWNER).headers as Record<string, string>), "Sec-Fetch-Dest": "document" },
-    });
+    const res = await appReq("/yogev/q3-board-report", navAs(OWNER));
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain(`data-copy-link data-branded-url="${APP}/yogev/q3-board-report"`);
   });
 
-  it("shows the branded URL in the remote MCP publish text, keeping url in the facts", async () => {
+  it("shows the canonical URL in the remote MCP publish text and facts", async () => {
     const created = await appReq(
       "/api/tokens",
       as(OWNER, {
@@ -344,18 +367,22 @@ describe("the branded link in API responses", () => {
     const text = body.result.content.map((c: any) => c.text).join("\n");
     expect(text).toContain(`${APP}/yogev/mcp-page`);
     const facts = JSON.parse(body.result.content[body.result.content.length - 1].text);
-    expect(facts.branded_url).toBe(`${APP}/yogev/mcp-page`);
-    expect(facts.url).toBe(`https://${CONTENT_HOST}/mcp-page/`);
+    expect(facts.url).toBe(`${APP}/yogev/mcp-page`);
+    expect(facts.branded_url).toBe(facts.url);
+    expect(text).not.toContain(CONTENT_HOST);
   });
 
-  it("appears on the artifact list without disturbing anything already there", async () => {
+  it("appears on the artifact list, and the content origin does not", async () => {
     await publish("q3-board-report", OWNER);
     await claim(OWNER, "yogev");
     const res = await appReq("/api/artifacts", as(OWNER));
     const body = (await res.json()) as any;
     const row = body.artifacts.find((a: any) => a.slug === "q3-board-report");
-    expect(body.content_base).toBe(`https://${CONTENT_HOST}`);
-    expect(row.branded_url).toBe(`${APP}/yogev/q3-board-report`);
+    // The content origin is not part of any response any more.
+    expect(body.content_base).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain(CONTENT_HOST);
+    expect(row.url).toBe(`${APP}/yogev/q3-board-report`);
+    expect(row.branded_url).toBe(row.url);
     // The fields a client already reads are untouched.
     expect(row.title).toBe("q3-board-report");
     expect(row.current_version).toBe(1);

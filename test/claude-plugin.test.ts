@@ -593,17 +593,18 @@ describe("artifact URLs come from the API, never from the client", () => {
     expect(rolled.url).toBe(first.url);
   });
 
-  it("the list carries the content origin, so any slug's URL is derivable", async () => {
+  it("the list carries each artifact's canonical url, and no content origin", async () => {
     await seed("listed", "<p>hi</p>");
     const data = (await (await req("/api/artifacts", as("admin@test.com"))).json()) as {
-      artifacts: { slug: string }[];
-      content_base: string;
+      artifacts: { slug: string; url: string }[];
+      content_base?: string;
     };
     expect(data.artifacts).toHaveLength(1);
-    expect(data.content_base).toMatch(/^https?:\/\//);
-    expect(`${data.content_base}/listed/`).toBe(
+    expect(data.content_base).toBeUndefined();
+    expect(data.artifacts[0].url).toBe(
       ((await (await req("/api/artifacts/listed/versions", as("admin@test.com"))).json()) as { url: string }).url
     );
+    expect(data.artifacts[0].url).toMatch(/\/w-[0-9a-f]{8}\/listed$/);
   });
 
   it("a publish-scoped API token — what the plugin uses — gets the URL too", async () => {
@@ -626,7 +627,7 @@ describe("artifact URLs come from the API, never from the client", () => {
       })
     );
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { url: string }).url).toContain("/via-token/");
+    expect(((await res.json()) as { url: string }).url).toMatch(/\/w-[0-9a-f]{8}\/via-token$/);
   });
 });
 

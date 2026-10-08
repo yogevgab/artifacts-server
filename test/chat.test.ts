@@ -2,12 +2,14 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { env } from "cloudflare:test";
 import app from "../src/index";
 import { SESSION_COOKIE } from "../src/auth";
+import { GUEST_COOKIE } from "../src/viewing";
 import { mintSession } from "../src/session";
 import { createShareLink } from "../src/share";
-import { initDb, clearR2, req, as } from "./fixtures";
+import { initDb, clearR2, req, as, viewerPath } from "./fixtures";
 
 const SECRET = "test-secret-at-least-32-bytes-long-for-hs256!!";
 const CONTENT = "https://a.rtfx.pro";
+const APP = "https://rtfx.pro";
 const OWNER = "owner@rtfx.pro";
 const GRANTEE = "dana@acme.com";
 const NOW = () => new Date().toISOString();
@@ -28,8 +30,9 @@ const ws = (cookie?: string) => ({
   headers: { Upgrade: "websocket", ...(cookie ? { Cookie: cookie } : {}) },
 });
 
+/** A member session, or a guest credential (which has its own cookie on the app host). */
 const session = async (email: string, kind: "member" | "guest", slug?: string) =>
-  `${SESSION_COOKIE}=${await mintSession(SECRET, { email, kind, ...(slug ? { slug } : {}) }, NOW())}`;
+  `${kind === "guest" ? GUEST_COOKIE : SESSION_COOKIE}=${await mintSession(SECRET, { email, kind, ...(slug ? { slug } : {}) }, NOW())}`;
 
 beforeEach(async () => {
   await initDb();
@@ -61,18 +64,18 @@ beforeEach(async () => {
  */
 describe("who may open a chat socket", () => {
   it("lets the owner in", async () => {
-    const res = await app.request(`${CONTENT}/_chat/report`, ws(await session(OWNER, "member")), e());
+    const res = await app.request(`${APP}/_chat/report`, ws(await session(OWNER, "member")), e());
     expect(res.status).toBe(101);
   });
 
   it("lets a granted member in", async () => {
-    const res = await app.request(`${CONTENT}/_chat/report`, ws(await session(GRANTEE, "member")), e());
+    const res = await app.request(`${APP}/_chat/report`, ws(await session(GRANTEE, "member")), e());
     expect(res.status).toBe(101);
   });
 
   it("lets a guest bound to this artifact in", async () => {
     const res = await app.request(
-      `${CONTENT}/_chat/report`,
+      `${APP}/_chat/report`,
       ws(await session(GRANTEE, "guest", "report")),
       e()
     );
@@ -81,7 +84,7 @@ describe("who may open a chat socket", () => {
 
   it("refuses a stranger", async () => {
     const res = await app.request(
-      `${CONTENT}/_chat/report`,
+      `${APP}/_chat/report`,
       ws(await session("nobody@example.com", "member")),
       e()
     );
@@ -89,13 +92,13 @@ describe("who may open a chat socket", () => {
   });
 
   it("refuses somebody with no credential at all", async () => {
-    const res = await app.request(`${CONTENT}/_chat/report`, ws(), e());
+    const res = await app.request(`${APP}/_chat/report`, ws(), e());
     expect(res.status).toBe(404);
   });
 
   it("refuses a guest bound to a DIFFERENT artifact", async () => {
     const res = await app.request(
-      `${CONTENT}/_chat/report`,
+      `${APP}/_chat/report`,
       ws(await session(GRANTEE, "guest", "something-else")),
       e()
     );
@@ -109,24 +112,55 @@ describe("who may open a chat socket", () => {
       body: JSON.stringify({ visibility: "restricted", emails: [] }),
       ...as(OWNER),
     });
-    const res = await app.request(`${CONTENT}/_chat/report`, ws(await session(GRANTEE, "member")), e());
+    const res = await app.request(`${APP}/_chat/report`, ws(await session(GRANTEE, "member")), e());
     expect(res.status).toBe(404);
   });
 
   it("refuses a room for an artifact that does not exist", async () => {
-    const res = await app.request(`${CONTENT}/_chat/no-such-thing`, ws(await session(OWNER, "member")), e());
+    const res = await app.request(`${APP}/_chat/no-such-thing`, ws(await session(OWNER, "member")), e());
     expect(res.status).toBe(404);
   });
 
   it("refuses a plain GET that is not an upgrade", async () => {
-    const res = await app.request(`${CONTENT}/_chat/report`, { headers: { Cookie: await session(OWNER, "member") } }, e());
+    const res = await app.request(`${APP}/_chat/report`, { headers: { Cookie: await session(OWNER, "member") } }, e());
     expect(res.status).toBe(426);
+  });
+
+  it("is an app-host route: the content host does not answer it", async () => {
+    const res = await app.request(`${CONTENT}/_chat/report`, ws(await session(OWNER, "member")), e());
+    expect(res.status).toBe(404);
+  });
+
+  it("refuses a handshake whose Origin is not an app origin", async () => {
+    for (const origin of ["https://evil.example", "null", CONTENT]) {
+      const res = await app.request(
+        `${APP}/_chat/report`,
+        { headers: { Upgrade: "websocket", Origin: origin, Cookie: await session(OWNER, "member") } },
+        e()
+      );
+      expect(res.status, origin).toBe(403);
+    }
+    const ok = await app.request(
+      `${APP}/_chat/report`,
+      { headers: { Upgrade: "websocket", Origin: APP, Cookie: await session(OWNER, "member") } },
+      e()
+    );
+    expect(ok.status).toBe(101);
+  });
+
+  it("keeps a guest minted into the member cookie bound to its artifact", async () => {
+    const forged = `${SESSION_COOKIE}=${await mintSession(SECRET, { email: GRANTEE, kind: "guest", slug: "report" }, NOW())}`;
+    // A guest minted into the member cookie is still bound to its artifact and still granted.
+    const res = await app.request(`${APP}/_chat/report`, ws(forged), e());
+    expect(res.status).toBe(101);
+    const other = await app.request(`${APP}/_chat/no-such`, ws(forged), e());
+    expect(other.status).toBe(404);
   });
 
   it("lets a share-link holder in", async () => {
     const link = await createShareLink(env as any, { slug: "report", createdBy: OWNER, now: NOW() });
     const res = await app.request(
-      `${CONTENT}/_chat/report`,
+      `${APP}/_chat/report`,
       { headers: { Upgrade: "websocket", Cookie: `rtfx_link_report=${link.key}` } },
       e()
     );
@@ -151,14 +185,17 @@ describe("the chat UI appears for everyone who can see the artifact", () => {
   });
 
   it("offers chat to the owner", async () => {
-    const html = await (await app.request(`${CONTENT}/report/`, nav(await session(OWNER, "member")), e())).text();
+    const html = await (await app.request(`${APP}${await viewerPath("report")}`, nav(await session(OWNER, "member")), e())).text();
     expect(html).toContain("data-open-chat");
     expect(html).toContain("data-chat-form");
+    // The socket connects to the page's own (app) origin, for this artifact.
+    expect(html).toContain('data-slug="report"');
+    expect(html).toContain("location.host+'/_chat/'");
   });
 
   it("offers chat to a guest — being sent a document is enough to talk about it", async () => {
     const html = await (
-      await app.request(`${CONTENT}/report/`, nav(await session(GRANTEE, "guest", "report")), e())
+      await app.request(`${APP}${await viewerPath("report")}`, nav(await session(GRANTEE, "guest", "report")), e())
     ).text();
     expect(html).toContain("data-open-chat");
     // ...but never the share controls.

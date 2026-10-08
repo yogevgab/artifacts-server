@@ -255,9 +255,11 @@ describe("branded workspace addresses are claimed, and not confused with custom 
     }
   });
 
-  it("says the original artifact URL is unaffected, so nobody reads it as a migration", async () => {
+  it("says earlier share links keep working when the address changes, so nobody reads it as a trap", async () => {
     const lower = (await publicHtml("/docs")).toLowerCase();
-    expect(lower).toMatch(/both keep working|as well as at its original url/);
+    expect(lower).toMatch(/share links you have already sent keep working/);
+    // The content origin is not presented as a second address.
+    expect(lower).not.toMatch(/as well as at its original url|both keep working/);
   });
 });
 
@@ -716,7 +718,7 @@ describe("content-origin isolation is claimed with its limit attached", () => {
 
   it("states the same limit in llms.txt, where an answer engine will read it", () => {
     const lower = llmsTxt({ PUBLIC_BASE_URL: LOCAL }).toLowerCase();
-    expect(lower).toContain("separate origin (a.rtfx.pro)");
+    expect(lower).toContain("separate, sandboxed content origin");
     expect(lower).toContain("all artifacts share that content origin");
     expect(lower).toContain("not a per-artifact browser sandbox");
   });

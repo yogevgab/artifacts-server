@@ -681,12 +681,15 @@ describe("content host isolation", () => {
     expect((await appReq("/gallery", { redirect: "manual" })).status).toBe(302);
   });
 
-  it("returns content-host share URLs and redirects app-host artifact requests there", async () => {
+  it("returns canonical URLs, and sends machine requests for the old app-host form to the raw bytes", async () => {
     const publish = await appReq("/api/artifacts", {
       method: "POST",
       body: htmlForm({ title: "Solo3", slug: "solo3" }, "x.html", strToU8("<h1>solo3-secret</h1>")),
     });
-    expect((await publish.json<any>()).url).toBe(`https://${CONTENT_HOST}/solo3/`);
+    const published = await publish.json<any>();
+    // The content host is never an address that is returned.
+    expect(published.url).toMatch(/^https:\/\/rtfx\.pro\/w-[0-9a-f]{8}\/solo3$/);
+    expect(JSON.stringify(published)).not.toContain(CONTENT_HOST);
 
     const res = await appReq("/solo3/?foo=bar");
     expect(res.status).toBe(302);

@@ -3,7 +3,7 @@ import { env } from "cloudflare:test";
 import { zipSync, strToU8 } from "fflate";
 import app from "../src/index";
 import { SESSION_COOKIE } from "../src/auth";
-import { initDb, clearR2, req, as } from "./fixtures";
+import { initDb, clearR2, req, as, viewerPath } from "./fixtures";
 import { mintFrameToken, mintSession, verifySession } from "../src/session";
 
 /**
@@ -17,6 +17,7 @@ import { mintFrameToken, mintSession, verifySession } from "../src/session";
 const OWNER = "owner@rtfx.pro";
 const SECRET = "test-secret-at-least-32-bytes-long-for-hs256!!";
 const CONTENT = "https://a.rtfx.pro";
+const APP = "https://rtfx.pro";
 const NOW = () => new Date().toISOString();
 
 /** Production-shaped env: a real session secret and no dev-login shortcut. */
@@ -37,6 +38,16 @@ async function content(path: string, headers: Record<string, string> = {}, signe
     h.Cookie = `${SESSION_COOKIE}=${token}`;
   }
   return app.request(`${CONTENT}${path}`, { headers: h }, prod);
+}
+
+/** A request to the APP host (where the viewer lives), optionally as the signed-in owner. */
+async function appHost(path: string, headers: Record<string, string> = {}, signedIn = false) {
+  const h = { ...headers };
+  if (signedIn) {
+    const token = await mintSession(SECRET, { email: OWNER, kind: "member" }, NOW());
+    h.Cookie = `${SESSION_COOKIE}=${token}`;
+  }
+  return app.request(`${APP}${path}`, { headers: h }, prod);
 }
 
 beforeEach(async () => {
@@ -62,25 +73,40 @@ async function publishSite(slug = "site") {
   expect(res.status).toBeLessThan(300);
 }
 
-const navigate = (path: string, signedIn = false) =>
-  content(path, { "Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "navigate" }, signedIn);
+const NAV = { "Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "navigate" };
+
+/** A top-level navigation to the CONTENT host (an old link, or a pasted frame URL). */
+const navigate = (path: string, signedIn = false) => content(path, NAV, signedIn);
+
+/** A top-level navigation to the canonical viewer on the app host. */
+async function viewer(slug: string, rest = "", signedIn = true) {
+  return appHost(await viewerPath(slug, rest), NAV, signedIn);
+}
 
 /** What the sandboxed frame sends: a subresource request with no cookie. */
 const framed = (path: string, dest = "image", extra: Record<string, string> = {}) =>
   content(path, { "Sec-Fetch-Dest": dest, ...extra });
 
-async function frameSrc(slug = "site"): Promise<string> {
-  const html = await (await navigate(`/${slug}/`, true)).text();
+/** The iframe src exactly as rendered: absolute, on the content host. */
+async function frameSrcAbsolute(slug = "site"): Promise<string> {
+  const html = await (await viewer(slug)).text();
   const src = /<iframe[^>]*\ssrc="([^"]+)"/.exec(html)?.[1];
   expect(src).toBeTruthy();
   return src!.replace(/&amp;/g, "&");
 }
 
+/** The same, as a path on the content host (what the sandboxed frame requests). */
+async function frameSrc(slug = "site"): Promise<string> {
+  const src = await frameSrcAbsolute(slug);
+  expect(src.startsWith(`${CONTENT}/`)).toBe(true);
+  return src.slice(CONTENT.length);
+}
+
 describe("viewer frame token", () => {
   it("frames the artifact under a token path", async () => {
     await publishSite();
-    const src = await frameSrc();
-    expect(src).toMatch(/^\/site\/~t\/[^/]+\/\?raw=1$/);
+    const src = await frameSrcAbsolute();
+    expect(src).toMatch(/^https:\/\/a\.rtfx\.pro\/site\/~t\/[^/]+\/\?raw=1$/);
   });
 
   it("serves the frame and its relative assets with no cookie", async () => {
@@ -143,7 +169,7 @@ describe("viewer frame token", () => {
   /** The framed request has no identity now, so the shell must log the view. */
   it("records a view when a signed-in person opens the viewer", async () => {
     await publishSite();
-    await navigate("/site/", true);
+    await viewer("site");
     const row = await (env as any).DB.prepare(
       "SELECT email FROM artifact_views WHERE slug = ?"
     ).bind("site").first();
@@ -161,7 +187,7 @@ describe("viewer frame token", () => {
     const base = (await frameSrc()).replace(/\?raw=1$/, "");
     const res = await navigate(`${base}work.html?raw=1`);
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/site/work.html");
+    expect(res.headers.get("Location")).toBe(`${APP}${await viewerPath("site", "work.html")}`);
     // And the raw bytes were not served on the way.
     expect(await res.text()).not.toContain("<h1>work</h1>");
   });
@@ -252,7 +278,12 @@ describe("artifact documents are sandboxed however they are reached", () => {
     await publishSite();
     const res = await navigate("/site/work.html?raw=1", true);
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/site/work.html");
+    expect(res.headers.get("Location")).toBe(`${APP}${await viewerPath("site", "work.html")}`);
+    // ...and the app host does the same for a top-level ?raw=1: never the bare artifact.
+    const onApp = await appHost(`${await viewerPath("site", "work.html")}?raw=1`, NAV, true);
+    expect(onApp.status).toBe(302);
+    expect(onApp.headers.get("Location")).toBe(await viewerPath("site", "work.html"));
+    expect(await onApp.text()).not.toContain("<h1>work</h1>");
   });
 
   it("serves HTML with a CSP sandbox and no allow-same-origin", async () => {
@@ -266,7 +297,7 @@ describe("artifact documents are sandboxed however they are reached", () => {
   it("leaves images unsandboxed and keeps their framing rule", async () => {
     await publishSite();
     const res = await content("/site/img/a.png", {}, true);
-    expect(res.headers.get("Content-Security-Policy")).toBe("frame-ancestors 'self'");
+    expect(res.headers.get("Content-Security-Policy")).toBe("frame-ancestors 'self' https://rtfx.pro");
   });
 });
 
