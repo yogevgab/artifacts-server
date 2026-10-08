@@ -98,6 +98,7 @@ import { peoplePage, type UsersInfo } from "./people";
 import { integrationsPage } from "./integrations";
 import { canSeeSection, portalNotFound } from "./portal";
 import { isContentHost, isManagementPath, isPerOriginPath, firstContentHostname } from "./host";
+import { uploadRoutes } from "./upload-routes";
 import {
   robotsTxt,
   sitemapXml,
@@ -500,6 +501,11 @@ app.route("/", billingRoutes);
 app.route("/", membersRoutes);
 app.route("/", receiptsRoutes);
 app.route("/", accessRequestRoutes);
+
+// Browser/CLI upload by single-use link (GET /u/:token, POST /api/uploads/:token).
+// The path token is the credential, so this is mounted BEFORE /api, whose
+// requireUser gate would refuse it. See src/upload-routes.ts.
+app.route("/", uploadRoutes);
 
 app.route("/api", api);
 

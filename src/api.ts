@@ -281,7 +281,7 @@ export async function brandedUrl(
 // the file-size cap is enough headroom for the request body as a whole.
 const MAX_BODY_BYTES = MAX_UPLOAD_BYTES + 64 * 1024;
 
-class PayloadTooLargeError extends Error {}
+export class PayloadTooLargeError extends Error {}
 
 /**
  * Wrap a request body so it errors once more than `maxBytes` has streamed
@@ -290,7 +290,7 @@ class PayloadTooLargeError extends Error {}
  * cap against bytes actually read, so formData() can't be made to buffer an
  * unbounded body into memory before any size check runs.
  */
-function limitBodyBytes(body: ReadableStream<Uint8Array>, maxBytes: number): ReadableStream<Uint8Array> {
+export function limitBodyBytes(body: ReadableStream<Uint8Array>, maxBytes: number): ReadableStream<Uint8Array> {
   let seen = 0;
   return body.pipeThrough(
     new TransformStream<Uint8Array, Uint8Array>({

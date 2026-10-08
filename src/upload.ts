@@ -10,6 +10,13 @@ export type UploadFile = { path: string; bytes: Uint8Array };
 
 export class UploadError extends Error {}
 
+/**
+ * The site has no index.html at its root. A distinct class (same message as
+ * before) so the browser upload page can tell a person "drop the whole site
+ * folder" instead of echoing a developer-facing sentence.
+ */
+export class MissingIndexError extends UploadError {}
+
 export interface ProcessedUpload {
   files: UploadFile[];
   entry: string;
@@ -223,7 +230,7 @@ export function processZip(buf: Uint8Array, limits: ZipLimits = DEFAULT_ZIP_LIMI
   }
 
   if (!files.some((f) => f.path === "index.html")) {
-    throw new UploadError("Bundle must contain an index.html at its root");
+    throw new MissingIndexError("Bundle must contain an index.html at its root");
   }
   return { files, entry: "index.html", type: "bundle" };
 }
@@ -241,6 +248,40 @@ export function processZip(buf: Uint8Array, limits: ZipLimits = DEFAULT_ZIP_LIMI
 export const MAX_INLINE_FILES = 50;
 export const MAX_INLINE_BYTES = 5 * 1024 * 1024; // 5 MiB decoded, across all files
 
+export interface FileLimits {
+  maxFiles: number;
+  maxBytes: number;
+  /** Where the files came from, for the error wording ("sent inline", "uploaded"). */
+  via: string;
+}
+
+const INLINE_LIMITS: FileLimits = { maxFiles: MAX_INLINE_FILES, maxBytes: MAX_INLINE_BYTES, via: "sent inline" };
+
+/**
+ * Limits for files that arrive as a browser/CLI upload (src/upload-routes.ts)
+ * rather than inside a JSON-RPC message: the zip entry count, and the same
+ * 50 MiB the raw upload is capped at.
+ */
+export const UPLOAD_FILE_LIMITS: FileLimits = {
+  maxFiles: DEFAULT_ZIP_LIMITS.maxEntries,
+  maxBytes: MAX_UPLOAD_BYTES,
+  via: "uploaded",
+};
+
+/**
+ * If every file sits under one shared top-level directory, remove it. Only
+ * when `index.html` is inside it — a folder dropped whole carries its own name
+ * as a prefix, and nothing else justifies rewriting the caller's paths.
+ */
+export function stripSingleTopDir(files: UploadFile[]): UploadFile[] {
+  if (files.length === 0) return files;
+  const tops = new Set(files.map((f) => (f.path.includes("/") ? f.path.split("/")[0] : "")));
+  if (tops.size !== 1 || tops.has("")) return files;
+  const prefix = `${[...tops][0]}/`;
+  if (!files.some((f) => f.path === `${prefix}index.html`)) return files;
+  return files.map((f) => ({ path: f.path.slice(prefix.length), bytes: f.bytes }));
+}
+
 /**
  * Turn an explicit list of `{ path, bytes }` into a bundle.
  *
@@ -253,10 +294,10 @@ export const MAX_INLINE_BYTES = 5 * 1024 * 1024; // 5 MiB decoded, across all fi
  * the result a lie about what was published, and there is no such thing as an
  * accidental `.env` in a hand-authored array. So every rejection here is loud.
  */
-export function processFiles(files: UploadFile[]): ProcessedUpload {
+export function processFiles(files: UploadFile[], limits: FileLimits = INLINE_LIMITS): ProcessedUpload {
   if (files.length === 0) throw new UploadError("no files were supplied");
-  if (files.length > MAX_INLINE_FILES) {
-    throw new UploadError(`too many files (${files.length}); at most ${MAX_INLINE_FILES} may be sent inline`);
+  if (files.length > limits.maxFiles) {
+    throw new UploadError(`too many files (${files.length}); at most ${limits.maxFiles} may be ${limits.via}`);
   }
 
   const out: UploadFile[] = [];
@@ -279,14 +320,14 @@ export function processFiles(files: UploadFile[]): ProcessedUpload {
     seen.add(path);
 
     totalBytes += file.bytes.byteLength;
-    if (totalBytes > MAX_INLINE_BYTES) {
-      throw new UploadError(`inline files exceed the max total size of ${MAX_INLINE_BYTES} bytes`);
+    if (totalBytes > limits.maxBytes) {
+      throw new UploadError(`${limits.via === "sent inline" ? "inline" : "uploaded"} files exceed the max total size of ${limits.maxBytes} bytes`);
     }
     out.push({ path, bytes: file.bytes });
   }
 
   if (!out.some((f) => f.path === "index.html")) {
-    throw new UploadError(
+    throw new MissingIndexError(
       'a multi-file artifact must include a file whose path is exactly "index.html" (no leading directory)'
     );
   }

@@ -251,9 +251,13 @@ onboarding path. The remote tool surface is now useful for both creation and lif
 `doctor`, content-based `publish`, `list_artifacts`, `artifact_details`, `artifact_statistics`,
 `share_artifact`, `rollback_artifact` and `delete_artifact`.
 
+Sites too big for the inline `publish` (or containing images/video) use the HTTP-only
+`create_upload_link` tool, which returns a single-use 30-minute upload URL and a drop page for the
+person; see [`REMOTE_MCP_OAUTH.md`](REMOTE_MCP_OAUTH.md).
+
 | | stdio (the plugin) | HTTP (`/mcp`) |
 |---|---|---|
-| Tools | publish, list_artifacts, get_versions, rollback, doctor (+ update_access, gated) | doctor, publish-by-content, list_artifacts, artifact_details, artifact_statistics, share_artifact, rollback_artifact, delete_artifact |
+| Tools | publish, list_artifacts, get_versions, rollback, doctor (+ update_access, gated) | doctor, publish-by-content, create_upload_link, list_artifacts, artifact_details, artifact_statistics, share_artifact, rollback_artifact, delete_artifact |
 | Credential | `RTFX_API_TOKEN` or local browser sign-in | `Authorization: Bearer rtfx_…`, hand-minted or OAuth-issued |
 | Sign-in | local browser sign-in via `rtfx.mjs login` | OAuth authorization-code + PKCE, plus manual bearer-token header |
 | Runs | on the user's machine | on the instance |

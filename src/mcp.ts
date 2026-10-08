@@ -120,6 +120,7 @@ import {
   type UploadFile,
 } from "./upload";
 import { siteOrigin } from "./seo";
+import { createUploadSession, UPLOAD_SESSION_TTL_MS } from "./upload-sessions";
 import { AS_METADATA_PATH, PROTECTED_RESOURCE_PATH } from "./oauth";
 import {
   SERVER_INFO,
@@ -200,7 +201,10 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
       "A new slug creates the artifact at v1, private to its owner; publishing again to a slug you " +
       "own appends an immutable version, live at the same URL — so updating something means calling " +
       "this with the SAME slug, never a new one. Show the person the returned `branded_url` (falling back to `url`); never assemble it yourself, " +
-      "because the content host differs per instance.",
+      "because the content host differs per instance. " +
+      "SIZE LIMIT: inline content is for small, text-only sites (a few MB, at most " + MAX_INLINE_FILES + " files). " +
+      "If the site is larger than that, or contains images, video or other binary files, do NOT base64 it " +
+      "into this call — use `create_upload_link` instead.",
     inputSchema: {
       type: "object",
       properties: {
@@ -262,6 +266,42 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
             "A multi-file site, as [{path, content_text | content_base64}]. Paths are artifact-relative and must use \"/\" — one of them must be exactly \"index.html\". Credential-looking files, dotfiles and build directories are refused outright, not silently dropped. At most " +
             `${MAX_INLINE_FILES} files and ${Math.round(MAX_INLINE_BYTES / (1024 * 1024))}MB decoded in total; publish a larger build with the local rtfx plugin.`,
         },
+      },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  },
+  {
+    name: "create_upload_link",
+    title: "Get a link to upload a large or binary site",
+    description:
+      "Reserve a destination for a site that is TOO BIG for `publish` (more than a few MB or " + MAX_INLINE_FILES + " files) " +
+      "or that contains images, video or other binary files, and get back a single-use upload link valid for 30 minutes. " +
+      "Nothing is published by this call. Do NOT base64 large or binary files into `publish`; call this instead. " +
+      "It resolves the target exactly like `publish` (an existing slug you own becomes a new version; a slug that " +
+      "belongs to someone else is refused with 409; a new slug needs a `title`). " +
+      "It returns `upload_url` (for you) and `page_url` (for the person). Then: " +
+      "(1) FIRST, if you have a code-execution sandbox that holds the site's files, zip them with index.html at the " +
+      "zip's root and upload it yourself: `curl -sS -F bundle=@site.zip <upload_url>` — the JSON response contains the " +
+      "published `url`; give that to the person. " +
+      "(2) If that fails (for example the sandbox has no network access), give the person the `page_url` as a clickable " +
+      "link AND give them the site as a downloadable .zip, and tell them: open the link and drop the zip (or the " +
+      "whole folder) onto the page. Never ask them to use a terminal, curl or any command. " +
+      "The link works once; if the upload is refused (for example no index.html) it can be retried until it expires, " +
+      "and after that you just call this tool again.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: REMOTE_SLUG,
+        title: {
+          type: "string",
+          minLength: 1,
+          maxLength: 200,
+          description:
+            "Human-readable title, shown to the person on the upload page. Required for a brand-new artifact. Omit when adding a version to an existing slug.",
+        },
+        description: { type: "string", maxLength: 500, description: "Optional one-line description shown in the dashboard." },
+        note: { type: "string", maxLength: 200, description: "Optional note attached to this version only, e.g. what changed." },
       },
       additionalProperties: false,
     },
@@ -443,6 +483,7 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
  */
 const TOOL_SCOPE: Record<string, Scope> = {
   publish: "publish",
+  create_upload_link: "publish",
   list_artifacts: "read",
   artifact_details: "read",
   artifact_statistics: "read",
@@ -495,6 +536,15 @@ Inline content is capped (a few MB, a few dozen files) because every byte travel
 a JSON-RPC message. Credential-looking files, dotfiles and build directories are refused outright
 rather than silently dropped.
 
+LARGE SITES AND IMAGES/VIDEO: if the site is larger than the inline limit, or contains images, video
+or any binary file, do NOT base64 it into "publish". Call "create_upload_link" (same slug/title rules
+as publish; it publishes nothing yet). It returns an "upload_url" and a "page_url". First, if you have
+a code-execution sandbox holding the files, zip them (index.html at the zip root) and upload it
+yourself: curl -sS -F bundle=@site.zip <upload_url>  — the response carries the published URL. If that
+fails (e.g. the sandbox has no network), give the person the page_url as a clickable link AND the site
+as a downloadable .zip, and tell them: open the link and drop the zip (or the whole folder) onto the
+page. Never ask them to use a terminal. The link is single-use and expires in 30 minutes.
+
 Artifact management is also available here: use "list_artifacts" to find existing work,
 "artifact_details" before sharing or rollback, "artifact_statistics" for counts, and — with a
 "manage" scoped credential — "share_artifact", "rollback_artifact" and "delete_artifact". Delete is
@@ -515,7 +565,8 @@ share, roll back or delete. It can still run "doctor", "list_artifacts", "artifa
 "artifact_statistics" for artifacts this credential can reach.
 
 Remote HTTP publishing is available only to a token with the "publish" scope and only by sending
-content in the tool call ("content_text", "content_base64", or "files"). It never takes a filesystem
+content in the tool call ("content_text", "content_base64", or "files"), or by "create_upload_link"
+for large sites. It never takes a filesystem
 path: this server runs in Cloudflare's network and cannot read the machine your client runs on. To
 publish a directory that exists on disk, install the local rtfx plugin, whose stdio MCP server runs
 beside your files.`;
@@ -991,6 +1042,75 @@ async function publish(c: Context<Vars>, args: any): Promise<ToolCallResult> {
   }
 }
 
+/**
+ * The remote `create_upload_link`: reserve a destination and mint a single-use
+ * upload URL. Stores nothing about the site itself.
+ *
+ * The target is resolved by the same `resolvePublishTarget` `publish` uses, so
+ * "may this caller publish to that slug?" has one answer. The bytes arrive later
+ * at POST /api/uploads/:token (src/upload-routes.ts), which re-checks it.
+ */
+async function createUploadLink(c: Context<Vars>, args: any): Promise<ToolCallResult> {
+  const identity = c.get("identity");
+  if (!hasScope(identity, "publish")) {
+    return failure(
+      new ToolError('this token lacks the "publish" scope', {
+        error: "insufficient_scope",
+        status: 403,
+        hint: "mint a token with the publish scope at /admin/integrations, or sign in again and grant it",
+      })
+    );
+  }
+  try {
+    if (!identity?.email) {
+      throw new ToolError("an upload link needs a credential tied to a person", {
+        error: "bad_request",
+        hint: "use a token issued to a user, or sign in with OAuth",
+      });
+    }
+    const target = await resolvePublishTarget(c, { slug: args?.slug, title: args?.title });
+    if (target instanceof Response) throw await responseError(target);
+
+    const title = String(args?.title ?? "").trim() || target.existing?.title || "";
+    const session = await createUploadSession(c.env, {
+      accountId: target.accounts.active?.id ?? identity.accountId ?? null,
+      email: identity.email,
+      isAdmin: identity.isAdmin,
+      slug: target.slug,
+      title,
+      description: typeof args?.description === "string" ? args.description.trim() : undefined,
+      note: typeof args?.note === "string" ? args.note.trim() : undefined,
+    });
+
+    const base = (c.env.PUBLIC_BASE_URL || siteOrigin(c.env)).replace(/\/+$/, "");
+    const pageUrl = `${base}/u/${session.token}`;
+    const uploadUrl = `${base}/api/uploads/${session.token}`;
+    const minutes = Math.round(UPLOAD_SESSION_TTL_MS / 60000);
+    return result(
+      [
+        `upload link ready for ${target.slug} (${target.existing ? "new version of an existing artifact" : "new artifact"}); valid ${minutes} minutes, single use`,
+        `upload_url: ${uploadUrl}`,
+        `page_url: ${pageUrl}`,
+        "next: if you have a code sandbox with the files, zip them (index.html at the root) and run: curl -sS -F bundle=@site.zip <upload_url>",
+        "otherwise give the person page_url as a clickable link plus the site as a downloadable .zip, and tell them to open the link and drop the zip (or the folder) onto the page. Never ask them to use a terminal.",
+      ],
+      {
+        command: "create_upload_link",
+        transport: "http",
+        slug: target.slug,
+        title,
+        new_version: !!target.existing,
+        page_url: pageUrl,
+        upload_url: uploadUrl,
+        expires_at: session.expiresAt,
+      }
+    );
+  } catch (e) {
+    if (e instanceof ToolError) return failure(e);
+    return failure(new ToolError(e instanceof Error ? e.message : String(e), { error: "internal_error" }));
+  }
+}
+
 function pageArgs(args: any): { limit: number; offset: number } {
   const rawLimit = Number(args?.limit ?? 25);
   const rawOffset = Number(args?.offset ?? 0);
@@ -1247,6 +1367,8 @@ async function callTool(c: Context<Vars>, name: string, args: any): Promise<Tool
       return doctor(c);
     case "publish":
       return publish(c, args ?? {});
+    case "create_upload_link":
+      return createUploadLink(c, args ?? {});
     case "list_artifacts":
       return listArtifactsTool(c, args ?? {});
     case "artifact_details":
