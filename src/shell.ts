@@ -44,6 +44,13 @@ export interface ShellInput {
   /** Canonical app origin. Artifact chrome often renders on a.rtfx.pro. */
   appBaseUrl?: string;
   /**
+   * Show the artifact alone — no rtfx bar, chat or controls. Used for somebody
+   * who arrived through a share link: they are a reader of one artifact, and
+   * the product chrome is noise to them (and the controls are not theirs).
+   * The frame, its sandbox and the frame token are unchanged.
+   */
+  chromeless?: boolean;
+  /**
    * The artifact's branded URL (`rtfx.pro/<workspace>/<slug>`). When present the
    * toolbar's "Copy link" copies this instead of the address bar's URL.
    */
@@ -339,7 +346,14 @@ export function shellPage(i: ShellInput): string {
 <meta name="robots" content="noindex, nofollow">
 <title>${esc(i.title)} · rtfx.pro</title>
 <style>${SHELL_STYLE}</style>
-</head><body>
+</head><body>${
+  i.chromeless
+    ? `
+<iframe class="frame" title="${esc(i.title)}"
+  ${sandboxFor(i) === null ? "" : `sandbox="${sandboxFor(i)}"`}
+  src="${esc(src)}"></iframe>
+</body></html>`
+    : `
 <button class="peek" data-show-bar hidden aria-label="Show toolbar">${CHEVRON_DOWN}rtfx.pro</button>
 <header class="bar" data-bar>
   <a class="mark" href="${esc(appHome)}" aria-label="rtfx.pro home">rtfx<span class="dot">.</span>pro</a>
@@ -376,7 +390,8 @@ export function shellPage(i: ShellInput): string {
   ${sandboxFor(i) === null ? "" : `sandbox="${sandboxFor(i)}"`}
   src="${esc(src)}"></iframe>
 <script>${SHELL_SCRIPT}</script>
-</body></html>`;
+</body></html>`
+}`;
 }
 
 const SHELL_SCRIPT = `(function(){

@@ -1227,6 +1227,8 @@ app.get("*", async (c) => {
         // this artifact when signed in, arriving by link means they are here as
         // a reader — and the banner would otherwise appear for anyone the URL
         // was forwarded to.
+        // A share-link visitor sees the artifact alone, with no rtfx chrome.
+        chromeless: linkGrantsThis,
         canManage:
           !linkGrantsThis &&
           canManage(identity, art, (await resolveAccountContext(c.env, identity)).roles),

@@ -322,6 +322,39 @@ describe("a share link authorizes the whole artifact, not just its entry", () =>
     expect(res.status).not.toBe(200);
   });
 
+  /** Somebody who came by link is a reader of one artifact: no rtfx chrome. */
+  it("shows a link visitor the artifact alone, with no rtfx bar", async () => {
+    const k = (await createShareLink(env as any, { slug: "report", createdBy: OWNER, now: new Date().toISOString() })).key;
+    const first = await app.request(`https://a.rtfx.pro/report/?k=${k}`, {}, e());
+    const cookie = (first.headers.get("set-cookie") ?? "").split(";")[0];
+    const html = await (
+      await app.request(
+        "https://a.rtfx.pro/report/",
+        { headers: { "Sec-Fetch-Dest": "document", Cookie: cookie } },
+        e()
+      )
+    ).text();
+    for (const hook of ["data-bar", "data-open-chat", "data-copy-link", "data-share-banner", "rtfx<span"]) {
+      expect(html, `${hook} should not be shown to a link visitor`).not.toContain(hook);
+    }
+    const frame = /<iframe[^>]*>/.exec(html)?.[0] ?? "";
+    expect(frame).toContain("sandbox=");
+    expect(frame).not.toContain("allow-same-origin");
+    expect(frame).toMatch(/src="\/report\/~t\/[^/]+\/\?raw=1"/);
+  });
+
+  it("keeps the rtfx bar for a signed-in viewer who did not come by link", async () => {
+    const cookie = `${SESSION_COOKIE}=${await mintSession(SECRET, { email: OWNER, kind: "member" }, new Date().toISOString())}`;
+    const html = await (
+      await app.request(
+        "https://a.rtfx.pro/report/",
+        { headers: { "Sec-Fetch-Dest": "document", Cookie: cookie } },
+        e()
+      )
+    ).text();
+    expect(html).toContain("data-bar");
+  });
+
   it("stops working the moment the link is revoked", async () => {
     const link = await createShareLink(env as any, { slug: "report", createdBy: OWNER, now: new Date().toISOString() });
     const first = await app.request(`https://a.rtfx.pro/report/?k=${link.key}`, {}, e());
