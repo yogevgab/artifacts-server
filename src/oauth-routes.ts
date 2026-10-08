@@ -302,6 +302,8 @@ interface PageFailure {
   detail: string;
   status: 400 | 403;
   retryHref?: string | null;
+  /** Only the expired-form refusal can be caused by an old or parallel tab. */
+  staleTab?: boolean;
 }
 
 type AuthorizeOutcome =
@@ -332,50 +334,81 @@ function redirectMatchesCimd(registered: string, presented: string): boolean {
   return registered === presented;
 }
 
-async function fetchCimdClient(clientId: string, now: string): Promise<OAuthClient | null> {
+type CimdFetch = { client: OAuthClient } | { reason: string };
+
+/**
+ * Fetch and validate a Client ID Metadata Document. Every refusal carries a
+ * short reason so the error page can say which check failed — the document is
+ * public, so naming the check leaks nothing, and "could not be validated" on
+ * its own sends people hunting for a stale tab instead of the real cause.
+ */
+async function fetchCimdClient(clientId: string, now: string): Promise<CimdFetch> {
   const metadataUrl = normalizeClientMetadataUrl(clientId);
-  if (!metadataUrl) return null;
-  const res = await fetch(metadataUrl, { headers: { Accept: "application/json" } });
-  if (!res.ok) return null;
+  if (!metadataUrl) return { reason: "the client_id is not an https URL" };
+  let res: Response;
+  try {
+    res = await fetch(metadataUrl, { headers: { Accept: "application/json" } });
+  } catch {
+    return { reason: "the document could not be fetched" };
+  }
+  if (!res.ok) return { reason: `fetching the document returned HTTP ${res.status}` };
   const body = await res.json().catch(() => null);
-  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return { reason: "the document is not a JSON object" };
+  }
   const input = body as Record<string, unknown>;
-  if (normalizeClientMetadataUrl(String(input.client_id ?? "")) !== metadataUrl) return null;
+  if (normalizeClientMetadataUrl(String(input.client_id ?? "")) !== metadataUrl) {
+    return { reason: "the document's client_id does not match its URL" };
+  }
 
   const redirects = normalizeRedirectUris(input.redirect_uris);
-  if ("error" in redirects) return null;
+  if ("error" in redirects) return { reason: `redirect_uris: ${redirects.detail}` };
   const authMethod = input.token_endpoint_auth_method;
-  if (authMethod !== undefined && authMethod !== "none") return null;
+  if (authMethod !== undefined && authMethod !== "none") {
+    return { reason: "token_endpoint_auth_method must be \"none\"" };
+  }
   if (input.response_types !== undefined) {
     const types = input.response_types;
-    if (!Array.isArray(types) || types.some((t) => t !== "code")) return null;
+    if (!Array.isArray(types) || types.some((t) => t !== "code")) {
+      return { reason: "response_types must be [\"code\"]" };
+    }
   }
+  // A published document describes the client, not this server, so it may
+  // list grants we never issue — claude.ai's lists the JWT-bearer grant. Those
+  // are ignored (the token endpoint refuses them anyway); what matters is that
+  // the client does the authorization-code flow this endpoint is for.
   if (input.grant_types !== undefined) {
     const grants = input.grant_types;
-    const allowed = ["authorization_code", "refresh_token"];
-    if (!Array.isArray(grants) || grants.some((g) => typeof g !== "string" || !allowed.includes(g))) return null;
+    if (!Array.isArray(grants) || grants.some((g) => typeof g !== "string")) {
+      return { reason: "grant_types must be an array of strings" };
+    }
+    if (!grants.includes("authorization_code")) {
+      return { reason: "grant_types must include \"authorization_code\"" };
+    }
   }
   const rawName = typeof input.client_name === "string" ? input.client_name.trim() : "";
   let clientName = new URL(metadataUrl).hostname;
   if (rawName && rawName.length <= MAX_CLIENT_NAME_LENGTH) clientName = `${clientName} (${rawName})`;
   return {
-    client_id: metadataUrl,
-    client_name: clientName.slice(0, MAX_CLIENT_NAME_LENGTH),
-    redirectUris: redirects.uris,
-    scope: typeof input.scope === "string" ? input.scope : null,
-    created_at: now,
-    last_used_at: null,
+    client: {
+      client_id: metadataUrl,
+      client_name: clientName.slice(0, MAX_CLIENT_NAME_LENGTH),
+      redirectUris: redirects.uris,
+      scope: typeof input.scope === "string" ? input.scope : null,
+      created_at: now,
+      last_used_at: null,
+    },
   };
 }
 
 async function resolveOAuthClient(c: Ctx, clientId: string, now: string): Promise<ClientResolution> {
   if (normalizeClientMetadataUrl(clientId)) {
-    const client = await fetchCimdClient(clientId, now);
-    if (client) return { client, cimd: true };
+    const fetched = await fetchCimdClient(clientId, now);
+    if ("client" in fetched) return { client: fetched.client, cimd: true };
     return {
       page: {
         error: "invalid_client",
-        detail: "That client metadata document could not be fetched or validated.",
+        detail: `That client metadata document could not be used: ${fetched.reason}.`,
         status: 400,
       },
     };
@@ -491,6 +524,7 @@ function renderFailure(c: Ctx, failure: PageFailure) {
       error: failure.error,
       detail: failure.detail,
       retryHref: failure.retryHref,
+      staleTab: failure.staleTab,
     }),
     failure.status
   );
@@ -677,6 +711,7 @@ oauthRoutes.post("/oauth/authorize", async (c) => {
         "That consent form has expired or did not come from this browser. Start the sign-in again.",
       status: 403,
       retryHref: restartAuthorizeHref(params),
+      staleTab: true,
     });
   }
 
