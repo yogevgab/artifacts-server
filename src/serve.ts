@@ -20,6 +20,9 @@ import { siteOrigin } from "./seo";
  * decision — an artifact that forges the message can hide or show a toolbar,
  * and that is the whole blast radius.
  */
+/** Kept identical to the viewer frame's `sandbox` attribute (src/shell.ts). */
+export const ARTIFACT_SANDBOX = "allow-scripts allow-forms allow-popups allow-downloads allow-modals";
+
 const SCROLL_REPORTER = `<script>(function(){
   if(window.parent===window) return;
   var last=-1, queued=false;
@@ -35,17 +38,78 @@ const SCROLL_REPORTER = `<script>(function(){
   },{passive:true});
 })();</script>`;
 
+/**
+ * A minimal stand-in for the claude.ai Artifacts runtime's downloads
+ * capability, injected ahead of the page's own scripts in framed HTML.
+ *
+ * Claude routinely writes pages against `window.claude.use('downloads')`, and
+ * those pages hide their download buttons when it is absent — so a site built
+ * as a claude.ai artifact and published here silently lost every "Download PDF"
+ * button (2026-10-08, drportfolio). Only `downloads` is provided: it is the one
+ * capability that is pure browser behaviour. Every other name resolves to null,
+ * which is how such pages already detect "not available" and degrade. A page
+ * that defines its own `window.claude` keeps it.
+ *
+ * The save itself is a blob URL on a temporary <a download>: the frame has
+ * `allow-downloads`, and a blob URL minted by the document is the one download
+ * the browser honours `download=` for from an opaque-origin frame.
+ */
+const CLAUDE_DOWNLOADS_SHIM = `<script>(function(){
+  if(window.claude) return;
+  function toBlob(data,mime){
+    if(data instanceof Blob) return data;
+    if(typeof data==='string') return new Blob([data],{type:mime||'text/plain;charset=utf-8'});
+    if(data instanceof ArrayBuffer||ArrayBuffer.isView(data)) return new Blob([data],{type:mime||'application/octet-stream'});
+    throw Object.assign(new Error('unsupported data'),{code:'invalid'});
+  }
+  var downloads={
+    save:function(o){
+      return new Promise(function(resolve,reject){
+        try{
+          o=o||{};
+          var url=URL.createObjectURL(toBlob(o.data,o.mimeType||o.type));
+          var a=document.createElement('a');
+          a.href=url; a.download=String(o.filename||'download'); a.rel='noopener'; a.style.display='none';
+          (document.body||document.documentElement).appendChild(a);
+          a.click(); a.remove();
+          setTimeout(function(){URL.revokeObjectURL(url)},60000);
+          resolve();
+        }catch(e){reject(e)}
+      });
+    }
+  };
+  var api={use:function(name){return Promise.resolve(name==='downloads'?downloads:null)}};
+  try{Object.defineProperty(window,'claude',{value:api,configurable:true,writable:true})}catch(e){window.claude=api}
+})();</script>`;
+
 export async function serveArtifact<E extends { Bindings: Env }>(
   c: Context<E>,
   slug: string,
   version: number,
-  path: string
+  path: string,
+  opts: { framed?: boolean } = {}
 ): Promise<Response> {
   let rel = path.replace(/^\/+/, "");
   if (rel === "" || rel.endsWith("/")) rel += "index.html";
 
   const key = `${slug}/v${version}/${rel}`;
-  const obj = await c.env.FILES.get(key);
+  // Byte ranges for everything but HTML (which may be rewritten below, so a
+  // range over it would not line up). Safari will not play a <video> or
+  // <audio> whose server answers a Range request with a plain 200.
+  const isHtmlPath = contentType(rel).startsWith("text/html");
+  // One well-formed range only. Anything else (multiple ranges, junk) is
+  // ignored and the whole file sent, which RFC 9110 permits.
+  let wantsRange = !isHtmlPath && /^bytes=(\d+-\d*|-\d+)$/.test(c.req.header("Range") ?? "");
+  let obj: R2ObjectBody | null = null;
+  if (wantsRange) {
+    try {
+      obj = await c.env.FILES.get(key, { range: c.req.raw.headers });
+    } catch {
+      // A malformed or unsatisfiable Range: serve the whole file instead.
+      wantsRange = false;
+    }
+  }
+  if (!wantsRange) obj = await c.env.FILES.get(key);
   if (!obj) {
     return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
   }
@@ -74,8 +138,30 @@ export async function serveArtifact<E extends { Bindings: Env }>(
   // executes nothing, so the script/style directives buy no safety and can
   // interfere with the browser's own viewers. Framing control still applies.
   if (!headers.get("Content-Type")?.startsWith("text/html")) {
-    headers.set("Content-Security-Policy", "frame-ancestors 'self'");
+    // SVG is a document that runs script when opened directly, so it gets the
+    // same sandbox as HTML. Other types execute nothing, and a PDF must NOT be
+    // sandboxed (Chrome refuses to render it — see src/shell.ts sandboxFor).
+    headers.set(
+      "Content-Security-Policy",
+      headers.get("Content-Type")?.startsWith("image/svg+xml")
+        ? `frame-ancestors 'self'; sandbox ${ARTIFACT_SANDBOX}`
+        : "frame-ancestors 'self'"
+    );
     headers.set("ETag", obj.httpEtag);
+    headers.set("Accept-Ranges", "bytes");
+    const range = wantsRange ? (obj as R2ObjectBody & { range?: R2Range }).range : undefined;
+    if (range && "offset" in range && typeof range.offset === "number") {
+      const length = Math.min(range.length ?? obj.size, obj.size - range.offset);
+      headers.set("Content-Range", `bytes ${range.offset}-${range.offset + length - 1}/${obj.size}`);
+      headers.set("Content-Length", String(length));
+      return new Response(obj.body, { status: 206, headers });
+    }
+    if (range && "suffix" in range && typeof range.suffix === "number") {
+      const length = Math.min(range.suffix, obj.size);
+      headers.set("Content-Range", `bytes ${obj.size - length}-${obj.size - 1}/${obj.size}`);
+      headers.set("Content-Length", String(length));
+      return new Response(obj.body, { status: 206, headers });
+    }
     return new Response(obj.body, { headers });
   }
 
@@ -85,7 +171,13 @@ export async function serveArtifact<E extends { Bindings: Env }>(
       "script-src * data: blob: 'unsafe-inline' 'unsafe-eval'; " +
       "style-src * 'unsafe-inline'; img-src * data: blob:; font-src * data:; " +
       "connect-src *; media-src * data: blob:; frame-src *; worker-src * blob:; " +
-      "frame-ancestors 'self'; base-uri 'none'"
+      "frame-ancestors 'self'; base-uri 'none'; " +
+      // The same sandbox the viewer frame applies, as a header, so it holds
+      // however the document is reached. Opened directly (e.g. `?raw=1` as a
+      // top-level page), an artifact used to run AS the content origin, with
+      // the visitor's cookie, and could read every other artifact they can
+      // open. Sandboxed, it gets an opaque origin wherever it runs.
+      `sandbox ${ARTIFACT_SANDBOX}`
   );
   headers.set("ETag", obj.httpEtag);
   const res = new Response(obj.body, { headers });
@@ -93,11 +185,22 @@ export async function serveArtifact<E extends { Bindings: Env }>(
   // Only a framed HTML page gets the reporter. An unframed request — the CLI, a
   // download, a machine fetch — receives the artifact exactly as published,
   // because "immutable version" has to mean the bytes too.
-  const framed = new URL(c.req.url).searchParams.has("raw");
+  const framed = opts.framed || new URL(c.req.url).searchParams.has("raw");
   if (framed && headers.get("Content-Type")?.startsWith("text/html")) {
+    // The shim must run before the page's scripts, so it goes first in <head>,
+    // or first in <body> when the document has no <head> tag.
+    let shimmed = false;
     return new HTMLRewriter()
+      .on("head", {
+        element(el) {
+          el.prepend(CLAUDE_DOWNLOADS_SHIM, { html: true });
+          shimmed = true;
+        },
+      })
       .on("body", {
         element(el) {
+          if (!shimmed) el.prepend(CLAUDE_DOWNLOADS_SHIM, { html: true });
+          shimmed = true;
           el.append(SCROLL_REPORTER, { html: true });
         },
       })

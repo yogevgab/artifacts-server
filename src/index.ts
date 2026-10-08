@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
-import type { ArtifactRow, Env, VersionRow } from "./env";
-import { api } from "./api";
+import type { ViewOutcome, ViewRow, ArtifactRow, Env, VersionRow } from "./env";
+import { api, brandedUrl } from "./api";
 import { mcpRoutes } from "./mcp";
 import { oauthRoutes } from "./oauth-routes";
 import { waitlist } from "./waitlist";
@@ -21,6 +21,7 @@ import {
   listGrants,
   listVersions,
   logView,
+  listViewEvents,
   viewCounts,
   recentViews,
   viewersFor,
@@ -33,6 +34,7 @@ import {
   listMembers,
   accountIdsWithAtLeast,
   atLeast,
+  ensureAccountPublicSlug,
   getAccountByPublicSlug,
   memberRole,
   resolveAccountContext,
@@ -42,11 +44,13 @@ import type { Identity } from "./auth";
 import { listApiTokens, toPublicToken, type PublicApiToken } from "./tokens";
 import { describeUsers, listUsers, privilegedEmails } from "./users";
 import { notFoundPage } from "./pages";
-import { shellPage } from "./shell";
+import { isLinkPreviewCrawler, linkPreviewPage } from "./link-preview";
+import { shellPage, sharePage, FRAME_TOKEN_SEGMENT } from "./shell";
 import { viewLimitStatus, blocksOnViewLimit, blocksOnSuspension } from "./quota";
 import { overViewLimitPage, suspendedContentPage } from "./view-limit-page";
 export { ChatRoom } from "./chat";
-import { redeemShareLink } from "./share";
+import { redeemShareLink, inspectShareLink } from "./share";
+import { captureViewContext } from "./view-context";
 import { accountSlugRoutes, addressNotice, brandedBase } from "./account-slug-routes";
 import { brandedPathParts } from "./account-slugs";
 
@@ -69,7 +73,13 @@ import { recordViewAndMaybeNotify } from "./read-receipts";
 import { membersPage } from "./members";
 import { billingPage } from "./billing-page";
 import { workspaceBilling } from "./plan-copy";
-import { verifyHandoff, mintSession, SESSION_TTL_SECONDS } from "./session";
+import {
+  verifyHandoff,
+  mintSession,
+  SESSION_TTL_SECONDS,
+  mintFrameToken,
+  verifyFrameToken,
+} from "./session";
 import { landingPage } from "./landing";
 import { proPage, teamPage, enterprisePage } from "./plan-pages";
 import { contactRoutes, contactPage, normalizePlan } from "./contact";
@@ -91,6 +101,7 @@ import { peoplePage, type UsersInfo } from "./people";
 import { integrationsPage } from "./integrations";
 import { canSeeSection, portalNotFound } from "./portal";
 import { isContentHost, isManagementPath, isPerOriginPath, firstContentHostname } from "./host";
+import { uploadRoutes } from "./upload-routes";
 import {
   robotsTxt,
   sitemapXml,
@@ -98,6 +109,7 @@ import {
   ogImageSvg,
   OG_IMAGE_PNG_BASE64,
   LOGO_PNG_BASE64,
+  LOGO_SMALL_PNG_BASE64,
   isCanonicalHost,
   siteOrigin,
   securityTxt,
@@ -183,6 +195,17 @@ function scope<T>(map: Map<string, T>, slugs: Set<string>): Map<string, T> {
 // belonging to a directory account that is not paused.
 
 /** The artifacts this caller manages, with everything the cards need. */
+/** Branded URL per slug for the artifacts a portal page is about to show. */
+async function brandedLinks(c: PortalContext, rows: readonly ArtifactRow[]): Promise<Map<string, string>> {
+  const addresses = new Map<string, Promise<string | null>>();
+  const links = new Map<string, string>();
+  for (const row of rows) {
+    const url = await brandedUrl(c, row.account_id, row.slug, addresses);
+    if (url) links.set(row.slug, url);
+  }
+  return links;
+}
+
 async function artifactContext(c: PortalContext): Promise<{
   rows: ArtifactRow[];
   grants: Map<string, string[]>;
@@ -292,12 +315,35 @@ app.get("/admin", requireUser, async (c) => {
 app.get("/admin/artifacts", requireUser, async (c) => {
   const viewer = await viewerOf(c);
   const { rows, grants, versions, views } = await artifactContext(c);
-  return c.html(artifactsPage({ viewer, rows, grants, versions, views }));
+  return c.html(artifactsPage({ viewer, rows, grants, versions, views, links: await brandedLinks(c, rows) }));
 });
 
 // One artifact, with its versions, view log, access list and danger zone.
 // 404 for both "no such artifact" and "not yours", so probing a slug here can
 // never reveal one exists — the same rule the public catch-all follows.
+// The share page (who can open it, share links). App host only: the viewer on
+// the content origin links here because that origin refuses /api by design.
+app.get("/share/:slug", requireUser, async (c) => {
+  const viewer = await viewerOf(c);
+  const slug = c.req.param("slug");
+  const row = await getArtifact(c.env, slug);
+  if (!row || !canManage(c.get("identity"), row, (await accountsFor(c)).roles)) {
+    return c.html(portalNotFound(viewer, `The artifact "${slug}"`), 404);
+  }
+  const grants = row.visibility === "restricted" ? await listGrants(c.env, slug) : [];
+  return c.html(
+    sharePage({
+      slug,
+      title: row.title || slug,
+      visibility: row.visibility,
+      grantCount: grants.length,
+      viewUrl: (await brandedUrl(c, row.account_id, slug)) ?? `/${encodeURIComponent(slug)}/`,
+    }),
+    200,
+    { "Cache-Control": "no-store" }
+  );
+});
+
 app.get("/admin/artifacts/:slug", requireUser, async (c) => {
   const viewer = await viewerOf(c);
   const slug = c.req.param("slug");
@@ -305,13 +351,14 @@ app.get("/admin/artifacts/:slug", requireUser, async (c) => {
   if (!row || !canManage(c.get("identity"), row, (await accountsFor(c)).roles)) {
     return c.html(portalNotFound(viewer, `The artifact "${slug}"`), 404);
   }
-  const [emails, versions, stats, viewers, versionViews, sources] = await Promise.all([
+  const [emails, versions, stats, viewers, versionViews, sources, events] = await Promise.all([
     listGrants(c.env, slug),
     listVersions(c.env, slug),
     getViews(c.env, slug),
     viewersFor(c.env, slug),
     viewsByVersion(c.env, slug),
     viewSources(c.env, slug),
+    listViewEvents(c.env, slug, { limit: 50 }),
   ]);
   // Delivery state per grantee, so "they never got the invitation" is answerable
   // in the panel instead of by reading mail_log. Needs the grant list first, so
@@ -322,7 +369,20 @@ app.get("/admin/artifacts/:slug", requireUser, async (c) => {
     recent: new Map([[slug, stats.recent]]),
   };
   return c.html(
-    artifactDetailPage({ viewer, row, emails, versions, views, viewers, versionViews, sources, mailStatus })
+    artifactDetailPage({
+      viewer,
+      row,
+      emails,
+      versions,
+      views,
+      viewers,
+      versionViews,
+      sources,
+      // Pre-0023 this is [] and the panel falls back to the old recent list.
+      events: events.length ? events : undefined,
+      mailStatus,
+      brandedUrl: await brandedUrl(c, row.account_id, slug),
+    })
   );
 });
 
@@ -395,7 +455,8 @@ app.get("/admin/billing", requireUser, async (c) => {
 
 app.get("/admin/gallery", requireUser, async (c) => {
   const viewer = await viewerOf(c);
-  return c.html(galleryPage(viewer, await readableArtifacts(c)));
+  const rows = await readableArtifacts(c);
+  return c.html(galleryPage(viewer, rows, await brandedLinks(c, rows)));
 });
 
 app.get("/admin/people", requireUser, async (c) => {
@@ -416,13 +477,16 @@ app.get("/admin/integrations", requireUser, async (c) => {
 app.get("/admin/settings", requireUser, async (c) => {
   const viewer = await viewerOf(c);
   const ws = viewer.workspace;
+  // Every workspace has an address; assign the auto one now if migration 0021's
+  // backfill has not reached this account yet.
+  const address = ws ? (ws.publicSlug ?? (await ensureAccountPublicSlug(c.env, ws.id))) : null;
   return c.html(
     settingsPage(
       viewer,
       ws
         ? {
             origin: c.env.PUBLIC_BASE_URL || siteOrigin(c.env),
-            slug: ws.publicSlug ?? null,
+            slug: address,
             canEdit: ws.role === "owner" || ws.role === "admin" || viewer.isAdmin,
             // Absent billing means "not computed", never "free" — so the row
             // shows the address without offering an upgrade it cannot price.
@@ -467,6 +531,11 @@ app.route("/", billingRoutes);
 app.route("/", membersRoutes);
 app.route("/", receiptsRoutes);
 app.route("/", accessRequestRoutes);
+
+// Browser/CLI upload by single-use link (GET /u/:token, POST /api/uploads/:token).
+// The path token is the credential, so this is mounted BEFORE /api, whose
+// requireUser gate would refuse it. See src/upload-routes.ts.
+app.route("/", uploadRoutes);
 
 app.route("/api", api);
 
@@ -621,6 +690,8 @@ app.get("/og.png", () => pngResponse(OG_IMAGE_PNG_BASE64));
 // like the rest of the crawler-facing files, so a legacy/self-host edge gate must
 // be told to let it through alongside /og.png (docs/DEPLOY_RTFX.md).
 app.get("/logo.png", () => pngResponse(LOGO_PNG_BASE64));
+// The small mark for share-link previews (src/link-preview.ts).
+app.get("/logo-128.png", () => pngResponse(LOGO_SMALL_PNG_BASE64));
 
 
 // Sign-up surface. Public on purpose: it explains how to get in, so it must stay
@@ -922,11 +993,124 @@ app.get("*", async (c, next) => {
   return c.redirect(target.toString(), 302);
 });
 
+/**
+ * Records a view and, on somebody's FIRST view of an artifact shared with them,
+ * emails the owner. Fire-and-forget in production (awaited in tests) — a mail
+ * failure must never affect serving the page.
+ */
+async function logViewInBackground(
+  c: Context<{ Bindings: Env; Variables: AuthVars }>,
+  art: ArtifactRow,
+  email: string,
+  path: string
+): Promise<void> {
+  await inBackground(c, recordViewAndMaybeNotify(c.env, viewFor(c, art, path, { email }), art));
+}
+
+type AppContext = Context<{ Bindings: Env; Variables: AuthVars }>;
+
+/** Hand a promise to waitUntil in production; await it where there is no execution context (tests). */
+async function inBackground(c: AppContext, p: Promise<unknown>): Promise<void> {
+  let ctx: { waitUntil(promise: Promise<unknown>): void } | undefined;
+  try {
+    ctx = c.executionCtx;
+  } catch {
+    ctx = undefined;
+  }
+  if (ctx) ctx.waitUntil(p);
+  else await p;
+}
+
+/** A view-log row for this request: where it came from and what device opened it. */
+function viewFor(
+  c: AppContext,
+  art: ArtifactRow,
+  path: string,
+  o: { email?: string | null; linkId?: string | null; outcome?: ViewOutcome; device?: string } = {}
+): ViewRow {
+  const vc = captureViewContext(c.req.raw);
+  return {
+    slug: art.slug,
+    version: art.current_version,
+    email: o.email ?? null,
+    path,
+    country: vc.country,
+    referrer: (c.req.header("Referer") ?? "").slice(0, 500) || null,
+    viewed_at: new Date().toISOString(),
+    ip: vc.ip,
+    region: vc.region,
+    city: vc.city,
+    device: o.device ?? vc.device,
+    os: vc.os,
+    browser: vc.browser,
+    user_agent: vc.user_agent,
+    link_id: o.linkId ?? null,
+    outcome: o.outcome ?? "viewed",
+  };
+}
+
+/** Record a share-link event (open, preview, or attempt with a dead link). Never notifies the owner. */
+async function logLinkEvent(
+  c: AppContext,
+  art: ArtifactRow,
+  path: string,
+  o: { email?: string | null; linkId: string; outcome: ViewOutcome; device?: string }
+): Promise<void> {
+  await inBackground(c, logView(c.env, viewFor(c, art, path, o)));
+}
+
 app.get("*", async (c) => {
   const rest = c.req.path.replace(/^\/+/, "");
   const idx = rest.indexOf("/");
   const slug = decodeURIComponent(idx === -1 ? rest : rest.slice(0, idx));
   const filePath = idx === -1 ? "" : decodeURIComponent(rest.slice(idx + 1));
+
+  // The viewer shell's frame, and everything the framed artifact loads by a
+  // relative URL. See `mintFrameToken` (src/session.ts) for why the credential
+  // rides in the path: the sandboxed frame sends no cookies at all.
+  const framePrefix = `${FRAME_TOKEN_SEGMENT}/`;
+  if (filePath.startsWith(framePrefix)) {
+    const afterPrefix = filePath.slice(framePrefix.length);
+    const cut = afterPrefix.indexOf("/");
+    const frameToken = cut === -1 ? afterPrefix : afterPrefix.slice(0, cut);
+    const framedPath = cut === -1 ? "" : afterPrefix.slice(cut + 1);
+
+    // Somebody opened a frame URL directly (copied it, or "open frame in new
+    // tab"). Never serve artifact HTML as a top-level document on this origin;
+    // send them to the shell, which runs its own access check and re-frames.
+    if (c.req.header("Sec-Fetch-Dest") === "document") {
+      const clean = new URL(c.req.url);
+      clean.pathname = `/${encodeURIComponent(slug)}/${framedPath}`;
+      clean.searchParams.delete("raw");
+      return c.redirect(clean.pathname + clean.search, 302);
+    }
+    if (c.req.method !== "GET" && c.req.method !== "HEAD") {
+      return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
+    }
+    const valid =
+      !!c.env.SESSION_SECRET &&
+      (await verifyFrameToken(c.env.SESSION_SECRET, frameToken, slug, new Date().toISOString()));
+    const art = valid ? await getArtifact(c.env, slug) : null;
+    if (!art) return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
+    // Suspension is a takedown control and binds every path, this one included.
+    const status = art.account_id
+      ? await viewLimitStatus(c.env, art.account_id, undefined, undefined, true)
+      : null;
+    if (blocksOnSuspension(status, false)) {
+      return c.html(suspendedContentPage(slug, siteOrigin(c.env)), 403);
+    }
+    const served = await serveArtifact(c, slug, art.current_version, framedPath, { framed: true });
+    // The framed document has an opaque origin, so its own fetch()/XHR of a
+    // sibling file is cross-origin and the browser drops the response unless
+    // it is CORS-readable. (Images, media and scripts load without CORS, which
+    // is why only fetch broke — e.g. a "Download PDF" button that fetches the
+    // file first.) `*` is safe on this path alone: it never carries or honours
+    // a cookie, and the token in the URL is already the whole credential.
+    const res = new Response(served.body, served);
+    res.headers.set("Access-Control-Allow-Origin", "*");
+    res.headers.set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Content-Type, ETag");
+    return res;
+  }
 
   // Crossing from the app host: exchange the one-shot handoff for a cookie of
   // this origin's own, then redirect to the clean URL so the token stops riding
@@ -964,7 +1148,56 @@ app.get("*", async (c) => {
   const shareKey = queryKey ?? cookieKey;
   const viaLink = shareKey ? await redeemShareLink(c.env, shareKey, new Date().toISOString()) : null;
 
+  // A browser navigation (or a link-card crawler) presenting a key that no
+  // longer works: record it if — and only if — the key really belonged to THIS
+  // artifact. Garbage keys write nothing, so this cannot be used to fill the
+  // table. What the visitor sees below is unchanged. Repeats are deduplicated
+  // inside `logView`.
+  if (
+    queryKey &&
+    !viaLink &&
+    c.req.method === "GET" &&
+    (c.req.header("Sec-Fetch-Dest") === "document" || isLinkPreviewCrawler(c.req.raw.headers))
+  ) {
+    try {
+      const found = await inspectShareLink(c.env, queryKey, new Date().toISOString());
+      if (found && found.link.slug === slug && found.state !== "valid") {
+        const dead = await getArtifact(c.env, slug);
+        if (dead) {
+          await logLinkEvent(c, dead, "", {
+            linkId: found.link.id,
+            outcome: found.state === "revoked" ? "link_revoked" : "link_expired",
+          });
+        }
+      }
+    } catch (e) {
+      console.error("link attempt log failed", e instanceof Error ? e.message : String(e));
+    }
+  }
+
   if (queryKey && viaLink && viaLink.slug === slug) {
+    // A link-card crawler (X, WhatsApp, iMessage, Slack…) gets the artifact's
+    // title and description instead of a redirect it cannot use. See
+    // src/link-preview.ts for why this is limited to a valid key.
+    if (c.req.method === "GET" && isLinkPreviewCrawler(c.req.raw.headers)) {
+      const previewed = await getArtifact(c.env, slug);
+      const status = previewed?.account_id
+        ? await viewLimitStatus(c.env, previewed.account_id, undefined, undefined, true)
+        : null;
+      if (previewed && !blocksOnSuspension(status, false)) {
+        // The crawler is a bot, not a reader: record the preview, not a view.
+        await logLinkEvent(c, previewed, "", { linkId: viaLink.id, outcome: "preview", device: "bot" });
+        return c.html(
+          linkPreviewPage({
+            title: previewed.title || slug,
+            description: previewed.description ?? null,
+            image: `${(c.env.PUBLIC_BASE_URL || siteOrigin(c.env)).replace(/\/+$/, "")}/logo-128.png`,
+          }),
+          200,
+          { "Cache-Control": "private, no-store", "X-Robots-Tag": "noindex, nofollow, noarchive" }
+        );
+      }
+    }
     const clean = new URL(c.req.url);
     clean.searchParams.delete("k");
     return new Response(null, {
@@ -1054,8 +1287,40 @@ app.get("*", async (c) => {
     return c.html(overViewLimitPage(slug, siteOrigin(c.env)), 503);
   }
 
+  // `?raw=1` is how the viewer frames content; as a top-level navigation it
+  // would put the bare artifact on screen as its own page. Send it to the
+  // viewer instead (the CSP sandbox in serveArtifact is the backstop).
+  if (
+    c.req.method === "GET" &&
+    c.req.header("Sec-Fetch-Dest") === "document" &&
+    new URL(c.req.url).searchParams.has("raw")
+  ) {
+    const clean = new URL(c.req.url);
+    clean.searchParams.delete("raw");
+    return c.redirect(clean.pathname + clean.search, 302);
+  }
+
   if (wantsShell(c)) {
     const grants = art.visibility === "restricted" ? await listGrants(c.env, slug) : [];
+    const frameToken = c.env.SESSION_SECRET
+      ? await mintFrameToken(c.env.SESSION_SECRET, slug, new Date().toISOString())
+      : undefined;
+    // With a frame token the framed request carries no identity, so the view is
+    // recorded here, where the viewer is known. Without one (no secret) the
+    // frame's own ?raw=1 request still records it below, as it always did.
+    if (linkGrantsThis && viaLink) {
+      // A share-link open: logged here, at the shell render of the top-level
+      // document, and not on the ?k= redirect hop (which would double count)
+      // or the framed ?raw=1 request (which carries no credential). No email
+      // unless the visitor also holds a session, and never a read-receipt mail.
+      await logLinkEvent(c, art, filePath || art.entry || "index.html", {
+        linkId: viaLink.id,
+        email: identity?.email ?? null,
+        outcome: "viewed",
+      });
+    } else if (frameToken && identity?.email) {
+      await logViewInBackground(c, art, identity.email, filePath || art.entry || "index.html");
+    }
     return c.html(
       shellPage({
         slug,
@@ -1065,6 +1330,8 @@ app.get("*", async (c) => {
         // this artifact when signed in, arriving by link means they are here as
         // a reader — and the banner would otherwise appear for anyone the URL
         // was forwarded to.
+        // A share-link visitor sees the artifact alone, with no rtfx chrome.
+        chromeless: linkGrantsThis,
         canManage:
           !linkGrantsThis &&
           canManage(identity, art, (await resolveAccountContext(c.env, identity)).roles),
@@ -1074,6 +1341,8 @@ app.get("*", async (c) => {
         entry: art.entry,
         isDocument: art.entry?.toLowerCase().endsWith(".pdf") ?? false,
         appBaseUrl: siteOrigin(c.env),
+        brandedUrl: (await brandedUrl(c, art.account_id, slug)) ?? undefined,
+        frameToken,
       })
     );
   }
@@ -1081,30 +1350,10 @@ app.get("*", async (c) => {
   const res = await serveArtifact(c, slug, art.current_version, filePath);
 
   // Log a view for an HTML page load by a signed-in person (not assets, not
-  // machine/service-token fetches). Non-blocking in production; awaited in tests.
+  // machine/service-token fetches).
   const isHtml = (res.headers.get("Content-Type") ?? "").startsWith("text/html");
   if (res.ok && isHtml && identity?.email) {
-    const cf = (c.req.raw as { cf?: { country?: string } }).cf;
-    // Records the view and, on somebody's FIRST view of an artifact shared with
-    // them, emails the owner. Same view object, same fire-and-forget handling —
-    // a mail failure must never affect serving the page.
-    const p = recordViewAndMaybeNotify(c.env, {
-      slug,
-      version: art.current_version,
-      email: identity.email,
-      path: filePath,
-      country: cf?.country ?? null,
-      referrer: (c.req.header("Referer") ?? "").slice(0, 500) || null,
-      viewed_at: new Date().toISOString(),
-    }, art);
-    let ctx: { waitUntil(promise: Promise<unknown>): void } | undefined;
-    try {
-      ctx = c.executionCtx;
-    } catch {
-      ctx = undefined;
-    }
-    if (ctx) ctx.waitUntil(p);
-    else await p;
+    await logViewInBackground(c, art, identity.email, filePath);
   }
 
   return res;

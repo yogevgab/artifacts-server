@@ -456,5 +456,5 @@ export function describeApiError(status, body = {}) {
 /** The line every publish exists to produce. */
 export function publishSummary(data) {
   const files = data.file_count === 1 ? "1 file" : `${data.file_count} files`;
-  return `published ${data.slug} v${data.version} (${data.type}, ${files})\n${data.url}`;
+  return `published ${data.slug} v${data.version} (${data.type}, ${files})\n${data.branded_url ?? data.url}`;
 }

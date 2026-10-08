@@ -497,7 +497,61 @@ describe("the authorization endpoint", () => {
     );
     const res = await req(authorizeQuery(url), as(BOB));
     expect(res.status).toBe(400);
-    expect(await res.text()).toContain("invalid_client");
+    const html = await res.text();
+    expect(html).toContain("invalid_client");
+    expect(html).toContain("client_id does not match its URL");
+    // Not a stale-tab problem, so the page must not say it is.
+    expect(html).not.toContain("already says the rtfx connection is active");
+  });
+
+  /**
+   * claude.ai's live document (https://claude.ai/oauth/mcp-oauth-client-metadata)
+   * lists the JWT-bearer grant alongside the two we support. Refusing it made
+   * every claude.ai connector sign-in end on an invalid_client page.
+   */
+  it("accepts a CIMD document that also lists grants this server never issues", async () => {
+    const url = "https://claude.ai/oauth/mcp-oauth-client-metadata";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({
+        client_id: url,
+        client_name: "Claude",
+        client_uri: "https://claude.ai",
+        redirect_uris: [CB],
+        grant_types: [
+          "authorization_code",
+          "refresh_token",
+          "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        ],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+      })
+    );
+    const res = await req(authorizeQuery(url), as(BOB));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("Claude");
+  });
+
+  it("refuses a CIMD document whose grants leave out authorization_code", async () => {
+    const url = "https://claude.ai/oauth/mcp-oauth-client-metadata";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({
+        client_id: url,
+        redirect_uris: [CB],
+        grant_types: ["urn:ietf:params:oauth:grant-type:jwt-bearer"],
+        token_endpoint_auth_method: "none",
+      })
+    );
+    const res = await req(authorizeQuery(url), as(BOB));
+    expect(res.status).toBe(400);
+    expect(await res.text()).toContain("grant_types must include");
+  });
+
+  it("names the HTTP status when the CIMD document cannot be fetched", async () => {
+    const url = "https://claude.ai/oauth/missing-client-metadata";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("nope", { status: 404 }));
+    const res = await req(authorizeQuery(url), as(BOB));
+    expect(res.status).toBe(400);
+    expect(await res.text()).toContain("returned HTTP 404");
   });
 
   /**

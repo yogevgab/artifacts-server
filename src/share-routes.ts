@@ -13,7 +13,7 @@ import { requireUser, requireScope, accountsFor, type AuthVars } from "./auth";
 import { canManage } from "./authz";
 import { getArtifact } from "./db";
 import { firstContentHostname } from "./host";
-import { createShareLink, listShareLinks, revokeShareLink } from "./share";
+import { createShareLink, listShareLinks, revokeShareLink, shareLinkStats } from "./share";
 
 type ShareApp = { Bindings: Env; Variables: AuthVars };
 type ShareContext = Context<ShareApp>;
@@ -40,7 +40,15 @@ function linkUrl(env: Env, slug: string, key: string): string {
 shareRoutes.get("/api/artifacts/:slug/links", requireScope("read"), async (c) => {
   const slug = c.req.param("slug");
   if (!(await manageable(c, slug))) return c.json({ error: "not_found" }, 404);
-  return c.json({ links: await listShareLinks(c.env, slug) });
+  const [links, stats] = await Promise.all([listShareLinks(c.env, slug), shareLinkStats(c.env, slug)]);
+  return c.json({
+    links: links.map((l) => ({
+      ...l,
+      views: stats.get(l.id)?.views ?? 0,
+      lastViewedAt: stats.get(l.id)?.lastViewedAt ?? null,
+      expiredAttempts: stats.get(l.id)?.expiredAttempts ?? 0,
+    })),
+  });
 });
 
 shareRoutes.post("/api/artifacts/:slug/links", requireScope("manage"), async (c) => {

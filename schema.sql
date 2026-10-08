@@ -56,10 +56,24 @@ CREATE TABLE IF NOT EXISTS artifact_views (
   path       TEXT,
   country    TEXT,
   referrer   TEXT,
-  viewed_at  TEXT NOT NULL
+  viewed_at  TEXT NOT NULL,
+  -- Migration 0023: where and what the view came from.
+  ip         TEXT,
+  region     TEXT,
+  city       TEXT,
+  device     TEXT,
+  os         TEXT,
+  browser    TEXT,
+  user_agent TEXT,
+  link_id    TEXT,
+  outcome    TEXT NOT NULL DEFAULT 'viewed'
 );
 
 CREATE INDEX IF NOT EXISTS idx_views_slug ON artifact_views (slug, viewed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_views_link ON artifact_views (link_id);
+-- Rows that still hold an IP, so the lazy 90-day erasure never rescans rows it
+-- already cleared.
+CREATE INDEX IF NOT EXISTS idx_views_ip_pending ON artifact_views (slug, viewed_at) WHERE ip IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS waitlist (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -167,10 +181,11 @@ CREATE TABLE IF NOT EXISTS accounts (
   suspended_at             TEXT,
   suspended_by             TEXT,
   suspended_reason         TEXT,
-  -- The workspace's branded address (migration 0020): the `yogev` in
-  -- rtfx.pro/yogev/q3-board-report. NULL until an owner claims one, and nothing
-  -- backfills it — an address nobody asked for is a namespace published by
-  -- accident. Globally unique across accounts via the partial index below.
+  -- The workspace's address (migration 0020, auto-assigned by 0021): the `yogev`
+  -- in rtfx.pro/yogev/q3-board-report. Every workspace has one — a custom name
+  -- (paid plans) or a generated `w-` + 8 hex chars. NULL only transiently, before
+  -- the lazy `ensureAccountPublicSlug` or 0021's backfill reaches a row.
+  -- Globally unique across accounts via the partial index below.
   public_slug              TEXT
 );
 
@@ -359,3 +374,23 @@ CREATE INDEX IF NOT EXISTS idx_oauth_refresh_client ON oauth_refresh_tokens (cli
 -- nothing, and an ALTER against a table it just created with those columns would
 -- fail with "duplicate column name". The migration file has the ALTER form,
 -- because it is applied to a database that already has the table.
+
+-- Single-use browser/CLI upload sessions behind the remote MCP
+-- `create_upload_link` tool (migration 0022). Only the SHA-256 of the token is
+-- stored; `used_at` is set after a successful store, by a conditional UPDATE.
+CREATE TABLE IF NOT EXISTS upload_sessions (
+  id          TEXT PRIMARY KEY,
+  token_hash  TEXT NOT NULL UNIQUE,
+  account_id  TEXT,
+  email       TEXT NOT NULL,
+  is_admin    INTEGER NOT NULL DEFAULT 0,
+  slug        TEXT NOT NULL,
+  title       TEXT NOT NULL,
+  description TEXT,
+  note        TEXT,
+  created_at  TEXT NOT NULL,
+  expires_at  TEXT NOT NULL,
+  used_at     TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_upload_sessions_expires ON upload_sessions (expires_at);

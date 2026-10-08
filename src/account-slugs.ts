@@ -162,12 +162,32 @@ export function suggestAccountSlug(raw: string): string {
     .replace(/^-+|-+$/g, "")
     .slice(0, MAX_ACCOUNT_SLUG_LENGTH)
     .replace(/-+$/, "");
-  return isAccountSlugShape(base) && !isReservedAccountSlug(base) ? base : "";
+  return isAccountSlugShape(base) && !isReservedAccountSlug(base) && !isAutoAccountSlug(base) ? base : "";
 }
 
 /** Shape only — says nothing about reservation or uniqueness. */
 export function isAccountSlugShape(slug: string): boolean {
   return ACCOUNT_SLUG_RE.test(slug);
+}
+
+/**
+ * The shape of an AUTO-generated address: `w-` plus 8 lowercase hex characters,
+ * e.g. `w-3f9a0c12`. Every workspace has an address; one that never chose a name
+ * holds one of these. "Is this address auto?" is answered by this regex alone —
+ * there is deliberately no column for it — which is also why nobody may CLAIM a
+ * name of this shape: a custom address that looked auto would be unreleasable
+ * in spirit and could collide with a future generated one.
+ */
+export const AUTO_ACCOUNT_SLUG_RE = /^w-[0-9a-f]{8}$/;
+
+export function isAutoAccountSlug(slug: string | null | undefined): boolean {
+  return !!slug && AUTO_ACCOUNT_SLUG_RE.test(slug);
+}
+
+/** A fresh random auto address. Uniqueness is the database's job, not this function's. */
+export function generateAutoAccountSlug(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(4));
+  return "w-" + Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 export type SlugRejection = "shape" | "reserved";
@@ -177,7 +197,8 @@ export const SLUG_REJECTION_DETAIL: Record<SlugRejection, string> = {
   shape:
     `a workspace address is ${MIN_ACCOUNT_SLUG_LENGTH}–${MAX_ACCOUNT_SLUG_LENGTH} characters, ` +
     "lowercase letters, numbers and hyphens, and cannot start or end with a hyphen",
-  reserved: "that address is reserved for the product's own pages and cannot be claimed",
+  reserved:
+    "that address is reserved — product page names and the automatic w-xxxxxxxx form cannot be claimed",
 };
 
 export type SlugCheck =
@@ -194,7 +215,7 @@ export function checkAccountSlug(raw: unknown): SlugCheck {
   if (!isAccountSlugShape(slug)) {
     return { ok: false, reason: "shape", detail: SLUG_REJECTION_DETAIL.shape };
   }
-  if (isReservedAccountSlug(slug)) {
+  if (isReservedAccountSlug(slug) || isAutoAccountSlug(slug)) {
     return { ok: false, reason: "reserved", detail: SLUG_REJECTION_DETAIL.reserved };
   }
   return { ok: true, slug };

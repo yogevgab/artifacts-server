@@ -1,5 +1,6 @@
 import type { ArtifactRow, VersionRow, ViewRow } from "./env";
-import type { ViewerSummary, VersionViewSummary, ViewSources, MailStatusSummary } from "./db";
+import { isAutoAccountSlug } from "./account-slugs";
+import type { ViewerSummary, VersionViewSummary, ViewSources, MailStatusSummary, ViewEvent } from "./db";
 import { esc } from "./pages";
 import { MAX_UPLOAD_BYTES } from "./upload";
 import { tokenState } from "./integrations";
@@ -468,13 +469,23 @@ function publishPanel(viewer: PortalViewer): string {
   </section>`;
 }
 
+/**
+ * The link a person is SHOWN for an artifact: its branded URL when the caller
+ * computed one (src/index.ts), else the plain `/slug/` path.
+ */
+export type BrandedLinks = ReadonlyMap<string, string>;
+const shownLink = (links: BrandedLinks | undefined, slug: string): string =>
+  links?.get(slug) ?? `/${slug}/`;
+
 function artifactCard(
   r: ArtifactRow,
   emails: string[],
   versionCount: number,
   viewCount: number,
-  showOwner: boolean
+  showOwner: boolean,
+  links?: BrandedLinks
 ): string {
+  const shown = shownLink(links, r.slug);
   const search = `${r.title} ${r.slug} ${r.description ?? ""} ${showOwner ? (r.owner_email ?? "") : ""}`.toLowerCase();
   const href = `/admin/artifacts/${encodeURIComponent(r.slug)}`;
   return `<article class="artifact" data-artifact="${esc(r.slug)}" data-search="${esc(search)}">
@@ -487,8 +498,8 @@ function artifactCard(
       <span class="art-badges">${artifactBadges(r, emails, versionCount, viewCount, showOwner)}</span>
     </a>
     <div class="art-actions">
-      <a href="/${esc(r.slug)}/" target="_blank" rel="noopener">Open ↗</a>
-      <button class="ghost small" data-copy="/${esc(r.slug)}/">Copy link</button>
+      <a href="${esc(shown)}" target="_blank" rel="noopener">Open ↗</a>
+      <button class="ghost small" data-copy="${esc(shown)}">Copy link</button>
       <a class="ghost link-button small-link" href="${esc(href)}">Manage</a>
     </div>
   </article>`;
@@ -500,10 +511,12 @@ export interface ArtifactsInput {
   grants: Map<string, string[]>;
   versions: Map<string, VersionRow[]>;
   views: ViewsInfo;
+  /** Branded URL per slug; absent entries fall back to the plain path. */
+  links?: BrandedLinks;
 }
 
 export function artifactsPage(o: ArtifactsInput): string {
-  const { viewer, rows, grants, versions, views } = o;
+  const { viewer, rows, grants, versions, views, links } = o;
   const list = rows
     .map((r) =>
       artifactCard(
@@ -511,7 +524,8 @@ export function artifactsPage(o: ArtifactsInput): string {
         grants.get(r.slug) ?? [],
         versions.get(r.slug)?.length ?? 1,
         views.counts.get(r.slug)?.total ?? 0,
-        viewer.isAdmin
+        viewer.isAdmin,
+        links
       )
     )
     .join("");
@@ -573,10 +587,10 @@ export function artifactsPage(o: ArtifactsInput): string {
  * Read-only by design. A card links to the artifact itself; the management
  * affordances live in Artifacts, and only for artifacts this person owns.
  */
-export function galleryPage(viewer: PortalViewer, rows: ArtifactRow[]): string {
+export function galleryPage(viewer: PortalViewer, rows: ArtifactRow[], links?: BrandedLinks): string {
   const cards = rows
     .map(
-      (r) => `<a class="card" href="/${esc(r.slug)}/" data-artifact="${esc(r.slug)}">
+      (r) => `<a class="card" href="${esc(shownLink(links, r.slug))}" data-artifact="${esc(r.slug)}">
       <h3>${esc(r.title)}</h3>
       ${r.description ? `<p>${esc(r.description)}</p>` : `<p class="hint">/${esc(r.slug)}/</p>`}
       <div class="meta"><span class="tag">${esc(r.type)}</span>
@@ -667,22 +681,63 @@ function versionsPanel(r: ArtifactRow, versions: VersionRow[]): string {
   </section>`;
 }
 
-function viewsPanel(slug: string, info: ViewsInfo): string {
+/** "Mobile · iOS · Safari" — whatever of the three we could read from the User-Agent. */
+function deviceLabel(v: Pick<ViewEvent, "device" | "os" | "browser">): string {
+  const d = v.device === "bot" ? "Bot" : v.device ? v.device[0].toUpperCase() + v.device.slice(1) : "";
+  return [d, v.os, v.browser].filter(Boolean).join(" · ");
+}
+
+function placeLabel(v: Pick<ViewEvent, "city" | "region" | "country">): string {
+  return v.city && v.country ? `${v.city}, ${v.country}` : [v.city, v.region, v.country].filter(Boolean).join(", ");
+}
+
+/** The tag a row carries when it was not an ordinary signed-in open. */
+function outcomeTag(v: Pick<ViewEvent, "outcome" | "link_id">): string {
+  if (v.outcome === "preview") return "link preview";
+  if (v.outcome === "link_expired") return "expired link";
+  if (v.outcome === "link_revoked") return "revoked link";
+  return v.link_id ? "via link" : "";
+}
+
+function viewsPanel(slug: string, info: ViewsInfo, events?: ViewEvent[]): string {
   const c = info.counts.get(slug) ?? { total: 0, unique: 0 };
   const recent = info.recent.get(slug) ?? [];
-  const rows = recent
-    .map(
-      (v) => `<div class="row"><div class="info">${esc(v.email ?? "anonymous")}
+  const rows = events
+    ? events
+        .map((v) => {
+          const who = v.email ?? (v.link_id ? "Someone with a link" : "anonymous");
+          const tag = outcomeTag(v);
+          const bits = [
+            stamp(v.viewed_at),
+            `v${v.version}`,
+            placeLabel(v),
+            deviceLabel(v),
+            v.ip ? `IP ${v.ip}` : "",
+            v.path ? `/${v.path}` : "",
+          ]
+            .filter(Boolean)
+            .map((b) => esc(b))
+            .join(" · ");
+          return `<div class="row" data-view-outcome="${esc(v.outcome)}"><div class="info">${esc(who)}${
+            tag ? ` <span class="hint">[${esc(tag)}]</span>` : ""
+          }
+        <span class="hint">${bits}</span></div></div>`;
+        })
+        .join("")
+    : recent
+        .map(
+          (v) => `<div class="row"><div class="info">${esc(v.email ?? "anonymous")}
         <span class="hint">${stamp(v.viewed_at)} · v${v.version}${v.country ? " · " + esc(v.country) : ""}${v.path ? " · /" + esc(v.path) : ""}</span></div></div>`
-    )
-    .join("");
+        )
+        .join("");
+  const any = events ? events.length > 0 : recent.length > 0;
   return `<section class="panel sub-panel" data-panel="views" aria-labelledby="views-h">
     <div class="panel-head"><div>
       <h2 id="views-h">Views <span class="hint">${plural(c.total, "view")} · ${plural(c.unique, "viewer")}</span></h2>
-      <p class="hint">Who opened it, when, and which version they saw.</p>
+      <p class="hint">Who opened it, when, from where, on what, and which version they saw. Share-link opens, link previews and attempts with an expired or revoked link are included. IP addresses are erased after 90 days.</p>
     </div></div>
     ${
-      recent.length
+      any
         ? rows
         : `<p class="note">No views yet — copy the share link above and send it to someone who has access.</p>`
     }
@@ -698,7 +753,7 @@ function viewsPanel(slug: string, info: ViewsInfo): string {
 function viewersPanel(slug: string, viewers: ViewerSummary[]): string {
   const rows = viewers
     .map(
-      (v) => `<div class="row"><div class="info">${esc(v.email ?? "Signed out")}
+      (v) => `<div class="row"><div class="info">${esc(v.email ?? "Someone with a link or signed out")}
         <span class="hint">${plural(v.views, "view")} · last ${stamp(v.lastViewedAt)} · v${v.lastVersion}</span></div></div>`
     )
     .join("");
@@ -899,6 +954,8 @@ export interface ArtifactDetailInput {
   viewers: ViewerSummary[];
   versionViews: VersionViewSummary[];
   sources: ViewSources;
+  /** The full event log (previews and dead-link attempts included); falls back to `views.recent` when absent. */
+  events?: ViewEvent[];
   /**
    * Most recent mail_log entry per granted address (src/db.ts `mailStatusFor`).
    * Optional and defaulted to empty: a caller that hasn't wired the lookup yet
@@ -906,10 +963,13 @@ export interface ArtifactDetailInput {
    * rather than the whole page failing to compile or render.
    */
   mailStatus?: Map<string, MailStatusSummary>;
+  /** The artifact's branded URL, shown as its share link when present. */
+  brandedUrl?: string | null;
 }
 
 export function artifactDetailPage(o: ArtifactDetailInput): string {
-  const { viewer, row, emails, versions, views, viewers, versionViews, sources, mailStatus = new Map() } = o;
+  const { viewer, row, emails, versions, views, viewers, versionViews, sources, mailStatus = new Map(), events } = o;
+  const shareLink = o.brandedUrl || `/${row.slug}/`;
   const viewCount = views.counts.get(row.slug)?.total ?? 0;
   const badges = artifactBadges(row, emails, versions.length, viewCount, viewer.isAdmin);
 
@@ -922,8 +982,8 @@ export function artifactDetailPage(o: ArtifactDetailInput): string {
     </div></div>
     <label for="share-url">Share link</label>
     <div class="linkrow">
-      <input id="share-url" data-share-url readonly spellcheck="false" value="/${esc(row.slug)}/">
-      <button type="button" data-copy="/${esc(row.slug)}/">Copy link</button>
+      <input id="share-url" data-share-url readonly spellcheck="false" value="${esc(shareLink)}">
+      <button type="button" data-copy="${esc(shareLink)}">Copy link</button>
     </div>
     <p class="hint">${
       row.visibility === "everyone"
@@ -965,7 +1025,7 @@ export function artifactDetailPage(o: ArtifactDetailInput): string {
         ${versionViewsPanel(row.slug, versionViews)}
         ${sourcesPanel(row.slug, sources)}
       </div>
-      ${viewsPanel(row.slug, views)}
+      ${viewsPanel(row.slug, views, events)}
       ${accessPanel(row, emails, viewers, mailStatus)}
       ${danger}`,
     style: ARTIFACTS_STYLE,
@@ -1067,7 +1127,10 @@ function workspacePanel(viewer: PortalViewer, address?: WorkspaceAddress): strin
 export interface WorkspaceAddress {
   /** The app origin, so the examples are this deployment's real URLs. */
   origin: string;
-  /** The claimed address, or null when the workspace has not claimed one. */
+  /**
+   * The workspace's address: a custom one, or an auto `w-xxxxxxxx` it was
+   * generated. Null only on an instance that has not run migration 0021 yet.
+   */
   slug: string | null;
   /** Owner, admin, or a platform admin: everybody else sees it read-only. */
   canEdit: boolean;
@@ -1092,13 +1155,23 @@ export interface WorkspaceAddress {
 function addressRow(address?: WorkspaceAddress): string {
   if (!address) return "";
   const { origin, slug, canEdit, planAllows, notice } = address;
+  // An auto address is one the workspace never chose; it can be replaced but
+  // there is nothing to "release" — releasing a custom one lands back on a new auto.
+  const isAuto = isAutoAccountSlug(slug);
+  const state = !slug ? "unclaimed" : isAuto ? "auto" : "claimed";
   const shown = slug
     ? `<a class="mono" href="${esc(`${origin}/${slug}`)}" data-branded-base>${esc(
         `${origin.replace(/^https?:\/\//, "")}/${slug}`
       )}</a>`
     : `<span class="badge is-locked" data-badge="workspace-address">Not set</span>`;
 
-  const example = slug
+  const example = isAuto
+    ? `This address was generated for your workspace. Artifacts here answer at <span class="mono">${esc(
+        `${origin.replace(/^https?:\/\//, "")}/${slug}/q3-board-report`
+      )}</span> as well as their content-origin URL. Both keep working.${
+        planAllows ? " Pick a custom one below." : " A custom address, like <span class=\"mono\">yogev</span>, needs Pro."
+      }`
+    : slug
     ? `Artifacts here answer at <span class="mono">${esc(
         `${origin.replace(/^https?:\/\//, "")}/${slug}/q3-board-report`
       )}</span> as well as their content-origin URL. Both keep working.`
@@ -1115,31 +1188,33 @@ function addressRow(address?: WorkspaceAddress): string {
     ? `<p class="addr-note">Only an owner or admin of this workspace can change its address.</p>`
     : !planAllows
       ? `<p class="addr-note" data-address-locked>A workspace address is a
-         <a href="/pro">Pro</a> feature. Every artifact keeps its existing URL either way.</p>`
+         <a href="/pro">Pro</a> feature${
+           isAuto ? "; until then the generated address above is the one in your links" : ""
+         }. Every artifact keeps its existing URL either way.</p>`
       : `<form class="addr-form" method="post" action="/admin/workspace/address"
           data-form="workspace-address">
         <label for="ws-address">Workspace address</label>
         <div class="addr-line">
           <span class="mono addr-prefix">${esc(origin.replace(/^https?:\/\//, ""))}/</span>
-          <input id="ws-address" name="slug" value="${esc(slug ?? "")}" autocomplete="off"
+          <input id="ws-address" name="slug" value="${esc(isAuto ? "" : (slug ?? ""))}" autocomplete="off"
             spellcheck="false" placeholder="yogev" minlength="3" maxlength="63"
             pattern="[a-z0-9][a-z0-9-]{1,61}[a-z0-9]"
             aria-describedby="ws-address-help">
-          <button type="submit" class="small">${slug ? "Change" : "Claim"}</button>
+          <button type="submit" class="small">${slug && !isAuto ? "Change" : "Claim"}</button>
           ${
-            slug
+            slug && !isAuto
               ? `<button type="submit" name="release" value="1" class="ghost small"
                   data-address-release>Release</button>`
               : ""
           }
         </div>
         <p class="hint" id="ws-address-help">Lowercase letters, numbers and hyphens, 3–63
-          characters. Changing it does not break anything you have already sent: an artifact's
-          content-origin URL never changes.</p>
+          characters. Changing it changes every link that starts with your old address —
+          links already sent with it stop working.</p>
       </form>`;
 
   return `<div class="row is-stacked" data-setting="workspace-address"
-    data-address-state="${slug ? "claimed" : "unclaimed"}">
+    data-address-state="${state}">
     <div class="info"><b>Workspace address</b><span class="hint">${example}</span></div>
     <div class="row-actions">${shown}</div>
     ${noticeHtml}${form}
@@ -1572,7 +1647,7 @@ if(upForm){
 }
 function showPublished(data){
   if(!success) return;
-  var url = data.url || (location.origin + '/' + data.slug + '/');
+  var url = data.branded_url || data.url || (location.origin + '/' + data.slug + '/');
   var input = $('[data-artifact-url]', success);
   input.value = url;
   $('[data-open-link]', success).href = url;

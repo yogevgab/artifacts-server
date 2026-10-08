@@ -258,7 +258,7 @@ describe("the share panel offers links", () => {
     const cookie = `${SESSION_COOKIE}=${await mintSession(SECRET, { email: OWNER, kind: "member" }, new Date().toISOString())}`;
     const html = await (
       await app.request(
-        "https://a.rtfx.pro/report/",
+        "https://rtfx.pro/share/report",
         { headers: { "Sec-Fetch-Dest": "document", Cookie: cookie } },
         e()
       )
@@ -322,6 +322,39 @@ describe("a share link authorizes the whole artifact, not just its entry", () =>
     expect(res.status).not.toBe(200);
   });
 
+  /** Somebody who came by link is a reader of one artifact: no rtfx chrome. */
+  it("shows a link visitor the artifact alone, with no rtfx bar", async () => {
+    const k = (await createShareLink(env as any, { slug: "report", createdBy: OWNER, now: new Date().toISOString() })).key;
+    const first = await app.request(`https://a.rtfx.pro/report/?k=${k}`, {}, e());
+    const cookie = (first.headers.get("set-cookie") ?? "").split(";")[0];
+    const html = await (
+      await app.request(
+        "https://a.rtfx.pro/report/",
+        { headers: { "Sec-Fetch-Dest": "document", Cookie: cookie } },
+        e()
+      )
+    ).text();
+    for (const hook of ["data-bar", "data-open-chat", "data-copy-link", "data-share-banner", "rtfx<span"]) {
+      expect(html, `${hook} should not be shown to a link visitor`).not.toContain(hook);
+    }
+    const frame = /<iframe[^>]*>/.exec(html)?.[0] ?? "";
+    expect(frame).toContain("sandbox=");
+    expect(frame).not.toContain("allow-same-origin");
+    expect(frame).toMatch(/src="\/report\/~t\/[^/]+\/\?raw=1"/);
+  });
+
+  it("keeps the rtfx bar for a signed-in viewer who did not come by link", async () => {
+    const cookie = `${SESSION_COOKIE}=${await mintSession(SECRET, { email: OWNER, kind: "member" }, new Date().toISOString())}`;
+    const html = await (
+      await app.request(
+        "https://a.rtfx.pro/report/",
+        { headers: { "Sec-Fetch-Dest": "document", Cookie: cookie } },
+        e()
+      )
+    ).text();
+    expect(html).toContain("data-bar");
+  });
+
   it("stops working the moment the link is revoked", async () => {
     const link = await createShareLink(env as any, { slug: "report", createdBy: OWNER, now: new Date().toISOString() });
     const first = await app.request(`https://a.rtfx.pro/report/?k=${link.key}`, {}, e());
@@ -348,3 +381,77 @@ describe("deleting an artifact takes its share links with it", () => {
     expect(await listShareLinks(env as any, "report")).toHaveLength(0);
   });
 })
+
+/**
+ * Pasting a share link into X / WhatsApp / iMessage / Slack used to preview as a
+ * bare URL: the crawler got a redirect and a cookie it never keeps.
+ */
+describe("share-link previews for link-card crawlers", () => {
+  const CRAWLERS = [
+    "Twitterbot/1.0",
+    "facebookexternalhit/1.1 Facebot Twitterbot/1.0", // iMessage
+    "WhatsApp/2.23.20.0",
+    "Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)",
+    "LinkedInBot/1.0 (compatible; Mozilla/5.0)",
+  ];
+  const describeArtifact = (text: string) =>
+    env.DB.prepare("UPDATE artifacts SET title = ?, description = ? WHERE slug = 'report'")
+      .bind("Dorai <Raz> Portfolio", text)
+      .run();
+
+  it("gives each crawler the artifact's title and description", async () => {
+    await describeArtifact('Product work & "drawings"');
+    const k = (await createShareLink(env as any, { slug: "report", createdBy: OWNER, now: new Date().toISOString() })).key;
+    for (const ua of CRAWLERS) {
+      const res = await app.request(`https://a.rtfx.pro/report/?k=${k}`, { headers: { "User-Agent": ua } }, e());
+      expect(res.status, ua).toBe(200);
+      const html = await res.text();
+      expect(html, ua).toContain('<meta property="og:title" content="Dorai &lt;Raz&gt; Portfolio">');
+      expect(html, ua).toContain('<meta name="twitter:description" content="Product work &amp; &quot;drawings&quot;">');
+      expect(html, ua).toContain('<meta name="twitter:card" content="summary">');
+      expect(html, ua).toContain("/logo-128.png");
+      expect(html, ua).toContain('<meta property="og:image:width" content="128">');
+      // The key is already in the message; it is not repeated as a canonical URL.
+      expect(html, ua).not.toContain("og:url");
+      expect(html, ua).not.toContain(k);
+    }
+  });
+
+  it("falls back to a neutral description when the artifact has none", async () => {
+    await env.DB.prepare("UPDATE artifacts SET description = NULL WHERE slug = 'report'").run();
+    const k = (await createShareLink(env as any, { slug: "report", createdBy: OWNER, now: new Date().toISOString() })).key;
+    const html = await (
+      await app.request(`https://a.rtfx.pro/report/?k=${k}`, { headers: { "User-Agent": "Twitterbot/1.0" } }, e())
+    ).text();
+    expect(html).toContain('content="Shared with you on rtfx.pro."');
+  });
+
+  it("keeps the redirect for a browser and for a non-crawler client", async () => {
+    const k = (await createShareLink(env as any, { slug: "report", createdBy: OWNER, now: new Date().toISOString() })).key;
+    const browser = await app.request(
+      `https://a.rtfx.pro/report/?k=${k}`,
+      { headers: { "Sec-Fetch-Dest": "document", "User-Agent": "Mozilla/5.0 Twitterbot-lookalike" } },
+      e()
+    );
+    expect(browser.status).toBe(302);
+    const cli = await app.request(`https://a.rtfx.pro/report/?k=${k}`, { headers: { "User-Agent": "curl/8.4" } }, e());
+    expect(cli.status).toBe(302);
+  });
+
+  it("reveals nothing without a valid key", async () => {
+    await describeArtifact("secret plans");
+    const link = await createShareLink(env as any, { slug: "report", createdBy: OWNER, now: new Date().toISOString() });
+    await revokeShareLink(env as any, "report", link.id, new Date().toISOString());
+    for (const url of [
+      `https://a.rtfx.pro/report/?k=${link.key}`,
+      "https://a.rtfx.pro/report/",
+      "https://a.rtfx.pro/report/?k=not-a-real-key",
+    ]) {
+      const res = await app.request(url, { headers: { "User-Agent": "Twitterbot/1.0" } }, e());
+      const html = await res.text();
+      expect(res.status, url).not.toBe(200);
+      expect(html, url).not.toContain("secret plans");
+      expect(html, url).not.toContain("Dorai");
+    }
+  });
+});

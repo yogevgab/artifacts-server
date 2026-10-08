@@ -118,7 +118,10 @@ const FAQS: readonly Faq[] = [
       "as text, a PDF as base64, or a small explicit file list; it rejects path, folder and zip-path " +
       "arguments because a server-side endpoint cannot read the client's local filesystem. Use the " +
       "Claude Code plugin or local MCP server for large folders and build outputs that already exist " +
-      "on disk.",
+      "on disk. For a big site or one with images and video, ask Claude to use the upload link: " +
+      "the connector's create_upload_link tool reserves the address and returns a single-use, " +
+      "30-minute link. Claude uploads a zip from its own sandbox when it can; otherwise you open the " +
+      "link and drop the .zip or the whole folder onto the page (up to 50 MB). No terminal needed.",
   },
   {
     q: "Do I still have to copy an API token to use Claude Code?",
@@ -170,8 +173,9 @@ const FAQS: readonly Faq[] = [
       "and you can revoke it immediately from the same panel. Only a hash of the link is stored, " +
       "so it cannot be re-displayed after it is created and it cannot leak from our database. " +
       "It carries no password. The trade is attribution: a share-link visitor holds no identity, " +
-      "so their view is not attributed to anybody in the view log — if you need to know exactly " +
-      "who read it, grant access by email instead.",
+      "so their view is not attributed to a person: it is logged as \"someone with a link\" — with when, the approximate place, the " +
+      "device and browser, and the IP address (erased after 90 days) — rather than a name. If you " +
+      "need to know exactly who read it, grant access by email instead.",
   },
   {
     q: "Will I know when somebody opens what I sent?",
@@ -521,6 +525,11 @@ tools: publish · list_artifacts · artifact_details · artifact_statistics · s
           server-side endpoint asked for a path could only ever read the server's disk, not the
           client's. Large build outputs and local directories still belong to the plugin and the
           local MCP server.</p>
+        <p><b>Big sites, images and video: the upload link.</b> Inline content is capped at a few MB.
+          For anything larger, <code>create_upload_link</code> reserves the address and returns a
+          single-use link that works for 30 minutes. Claude uploads a zip from its own sandbox when
+          it can (<code>curl -F bundle=@site.zip</code>); if not, you open the link and drop the zip
+          or the whole folder onto the page, up to 50 MB, with no terminal involved.</p>
         <div class="callout">
           <p><b>Why a token, not your login.</b> An API token is bound to its owner, carries only the
             scopes you give it (<code>read</code>, <code>publish</code>, <code>manage</code>), and can
@@ -566,10 +575,13 @@ tools: publish · list_artifacts · artifact_details · artifact_statistics · s
             expiry and revocation the controls that matter, and why a link you can't take back
             would be the wrong design.</li>
         </ul>
-        <p>The trade is attribution. A share-link visitor holds no identity, so their view is not
-          attributed to anybody in the view log — the link records when it was last used, and that
-          is all. If you need to know exactly who read something, grant access by email
-          instead.</p>
+        <p>The trade is attribution. A share-link visitor holds no identity, so their view is
+          not attributed to a person — it is logged as <b>someone with a link</b>: when, the approximate city and
+          country, the device and browser, the IP address, and which link was used. The share
+          panel shows each link's view count and last-viewed date, link-card previews fetched by
+          chat apps, and any attempts made after a link expired or was revoked. IP addresses are
+          erased after 90 days. If you need to know exactly who read something, grant access by
+          email instead.</p>
         <p>Worth being precise about what the content origin does and doesn't do: it separates published
           content from rtfx.pro, and all artifacts share it. It is not a per-artifact browser
           sandbox, so two pages published by people who don't trust each other are kept apart by the
@@ -592,8 +604,9 @@ tools: publish · list_artifacts · artifact_details · artifact_statistics · s
           artifact, and rollback is a single action. Nothing is overwritten, so a bad revision is a
           click to undo rather than a re-run of whatever produced it.</p>
         <p>The view log answers the question client work always ends with: who opened it, when, from
-          where, and which version they saw. Views are recorded for signed-in people opening a page —
-          not for asset requests or machine tokens.</p>
+          where, and which version they saw. Views are recorded for signed-in people opening a page and
+          for share-link opens (with IP address, approximate location and device) — not for asset
+          requests or machine tokens.</p>
         <p>The artifact's page in the dashboard reads that log three ways, because "has the client
           seen it?" and "can I safely roll back?" are different questions: <b>Views</b> is the raw
           event list, <b>Viewers</b> is one row per person with how often they came back and which
@@ -664,8 +677,10 @@ tools: publish · list_artifacts · artifact_details · artifact_statistics · s
             Members carry a role — owner, admin, member or viewer — and instance privilege is
             re-derived from configuration on every request, so no database write can escalate
             anyone.</li>
-          <li><b>A branded address for the workspace, on a URL you can read out loud.</b> A paid
-            workspace can claim an address &mdash; <code>yogev</code>, <code>maya</code>, your
+          <li><b>A branded address for the workspace, on a URL you can read out loud.</b> Every
+            workspace has an address (a generated one like <code>w-3f9a0c12</code> until you pick
+            your own), and the links rtfx.pro shows you use it. A paid workspace can claim a custom
+            address &mdash; <code>yogev</code>, <code>maya</code>, your
             company &mdash; and every artifact in it answers at
             <span class="mono">rtfx.pro/yogev/q3-board-report</span> and
             <span class="mono">rtfx.pro/maya/client-proposal</span> as well as at its original URL.

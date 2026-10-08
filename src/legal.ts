@@ -243,9 +243,16 @@ const privacyParts = (analytics: boolean): readonly Part[] => [
           <td>You, when you share an artifact.</td>
           <td>The email addresses you granted access to, per artifact.</td></tr>
         <tr><th scope="row">View log</th>
-          <td>Recorded when a signed-in person opens an artifact page.</td>
-          <td>Viewer's email, artifact and version, path, timestamp, referring page, and the
-            approximate country Cloudflare reports. Shown to the artifact's owner.</td></tr>
+          <td>Recorded when a signed-in person opens an artifact page, when anyone opens it
+            through a share link, when a chat or social app fetches a share link to build a
+            preview card, and when someone follows a share link that has expired or been
+            revoked.</td>
+          <td>Viewer's email (signed-in views only; a share-link visit is recorded as
+            "someone with a link", not as a person), artifact and version, path, timestamp,
+            referring page, IP address, the approximate country, region and city Cloudflare
+            derives from that address, a device type, operating system and browser read from the
+            User-Agent header (and the header itself, truncated), and which share link was used.
+            Shown to the artifact's owner.</td></tr>
         <tr><th scope="row">API tokens</th>
           <td>You, when you mint one.</td>
           <td>Name, scopes, owner, created/last-used timestamps. The token itself is stored only
@@ -373,7 +380,8 @@ const privacyParts = (analytics: boolean): readonly Part[] => [
     heading: "Who can see what",
     html: `<ul>
       <li><b>An artifact's owner</b> sees its view log, including the email address of every
-        signed-in person who opened it. If you open something shared with you, the person who
+        signed-in person who opened it, and the IP address, approximate location and device of
+        everyone who opened it through a share link. If you open something shared with you, the person who
         shared it can see that you did.</li>
       <li><b>People you grant access to</b> see that artifact and nothing else. A grant never
         reveals your other artifacts and never confers any management rights.</li>
@@ -402,7 +410,8 @@ const privacyParts = (analytics: boolean): readonly Part[] => [
     html: `<ul>
       <li><b>Artifacts and their versions</b> — until you delete them. Deleting an artifact
         deletes its versions, its files and its access list.</li>
-      <li><b>View log entries</b> — kept with the artifact, and deleted with it.</li>
+      <li><b>View log entries</b> — kept with the artifact, and deleted with it. The
+        <b>IP address</b> on an entry is erased after 90 days; the rest of the entry stays.</li>
       <li><b>Your account record</b> — for as long as you have access. Pausing an account keeps
         it; deletion removes it.</li>
       <li><b>API tokens</b> — until revoked or expired.</li>

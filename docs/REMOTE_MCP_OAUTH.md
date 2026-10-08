@@ -66,6 +66,27 @@ The inline route is intentionally smaller than the multipart REST upload: every 
 JSON-RPC message, often base64-expanded, so large build folders still belong to the local plugin whose
 stdio MCP server runs beside the user's files.
 
+### Large or binary sites: `create_upload_link`
+
+For a site over the inline limit, or containing images/video, the model calls
+`create_upload_link` (same `publish` scope; same slug/title/ownership rules, including `409` for a
+slug somebody else owns). It publishes nothing: it records a row in `upload_sessions` (migration
+`0022`, only the SHA-256 of a random 32-byte token is stored) and returns:
+
+- `upload_url` — `POST /api/uploads/<token>` — for programmatic upload. The token in the path is the
+  whole credential (no cookie or bearer, so `Access-Control-Allow-Origin: *`). Accepts a multipart
+  `bundle` (zip), a raw `application/zip` body, or multipart `file` fields with a parallel `path`
+  field per file (a folder drop). A single shared top-level directory is stripped; `index.html` must
+  be at the root afterwards. Same sensitive-file screening, 50 MiB cap and plan quota as REST publish.
+- `page_url` — `GET /u/<token>` — a drop page for a non-technical person: drag a zip, a folder or
+  several files, with progress and plain-language errors.
+
+The link is single-use and expires in 30 minutes. It is claimed atomically just before the store
+and handed back if the upload is refused, so a typo'd folder does not burn it. Intended flow: the
+model uploads a zip itself from a code sandbox (`curl -sS -F bundle=@site.zip <upload_url>`); if the
+network is blocked it gives the person the `page_url` plus a downloadable zip. `/u` and
+`/api/uploads` are app-host only (`MANAGEMENT_PREFIXES` in `src/host.ts`).
+
 **No `list_artifacts`, `get_versions` or `rollback`.** These have no filesystem problem; they are
 ordinary API calls. They are held back on a narrower rule: this endpoint's reach should stay at
 "reports on the credential you already hold" until OAuth has decided how a remote credential is

@@ -23,6 +23,7 @@ import {
   accountIdsWithAtLeast,
   createAccount,
   effectivePlan,
+  ensureAccountPublicSlug,
   ensurePersonalAccount,
   getAccount,
   isSuspended,
@@ -95,6 +96,7 @@ import {
   getVersion,
   setCurrentVersion,
   getViews,
+  listViewEvents,
 } from "./db";
 import { firstContentHostname } from "./host";
 import { brandedArtifactUrl } from "./account-slugs";
@@ -242,26 +244,36 @@ export const artifactUrl = (c: Context<Vars>, slug: string): string => `${conten
 
 /**
  * The BRANDED link for an artifact — `https://rtfx.pro/yogev/q3-board-report` —
- * or null when its workspace has not claimed an address (which is most of them).
+ * or null only when the artifact belongs to no workspace at all.
  *
- * Additive everywhere it appears, and deliberately never a replacement for
- * `url`: the content-origin URL is the one that is always correct, always
- * anonymous, and unaffected by anything the workspace later does with its
- * address. A client that only knows `url` keeps working forever.
+ * Every workspace has an address (a custom one, or an auto `w-xxxxxxxx`), so
+ * this is the link a person is SHOWN. It is additive in the API: `url` stays
+ * the content-origin URL, always correct, always anonymous, and unaffected by
+ * anything the workspace later does with its address. A client that only knows
+ * `url` keeps working forever.
  *
- * Resolved from the memberships already loaded for this request, so reporting
- * it costs no extra query. A caller with no membership in the artifact's
- * workspace (a platform token, an un-migrated instance) simply gets null —
- * an absent branded link is never wrong, and a guessed one would be.
+ * Looked up by the artifact's `account_id` directly rather than from the
+ * caller's memberships: the address is public information (it is in the link),
+ * and a platform token or admin who is a member of nothing should still be
+ * shown the link. `ensureAccountPublicSlug` assigns an auto address if the row
+ * somehow still has none.
  */
-export function brandedUrl(
+export async function brandedUrl(
   c: Context<Vars>,
-  memberships: readonly { account: AccountRow }[],
   accountId: string | null | undefined,
-  slug: string
-): string | null {
+  slug: string,
+  cache?: Map<string, Promise<string | null>>
+): Promise<string | null> {
   if (!accountId) return null;
-  const address = memberships.find((m) => m.account.id === accountId)?.account.public_slug;
+  // The promise is cached, not the value: callers resolve rows concurrently
+  // (Promise.all), and caching only after the await let every row miss and
+  // issue its own read.
+  let pending = cache?.get(accountId);
+  if (!pending) {
+    pending = ensureAccountPublicSlug(c.env, accountId);
+    cache?.set(accountId, pending);
+  }
+  const address = await pending;
   if (!address) return null;
   return brandedArtifactUrl(c.env.PUBLIC_BASE_URL || siteOrigin(c.env), address, slug);
 }
@@ -270,7 +282,7 @@ export function brandedUrl(
 // the file-size cap is enough headroom for the request body as a whole.
 const MAX_BODY_BYTES = MAX_UPLOAD_BYTES + 64 * 1024;
 
-class PayloadTooLargeError extends Error {}
+export class PayloadTooLargeError extends Error {}
 
 /**
  * Wrap a request body so it errors once more than `maxBytes` has streamed
@@ -279,7 +291,7 @@ class PayloadTooLargeError extends Error {}
  * cap against bytes actually read, so formData() can't be made to buffer an
  * unbounded body into memory before any size check runs.
  */
-function limitBodyBytes(body: ReadableStream<Uint8Array>, maxBytes: number): ReadableStream<Uint8Array> {
+export function limitBodyBytes(body: ReadableStream<Uint8Array>, maxBytes: number): ReadableStream<Uint8Array> {
   let seen = 0;
   return body.pipeThrough(
     new TransformStream<Uint8Array, Uint8Array>({
@@ -297,15 +309,17 @@ function limitBodyBytes(body: ReadableStream<Uint8Array>, maxBytes: number): Rea
 
 artifactRoutes.get("/artifacts", requireScope("read"), async (c) => {
   const rows = await visibleArtifacts(c);
-  const { memberships } = await accountsFor(c);
   // `content_base` and `branded_url` are both additive: every field a row had
   // before is still there and still means the same thing, and a machine client
   // gets the two pieces it cannot derive — where artifacts are served, and the
-  // branded link when the workspace has an address.
-  const artifacts = rows.map((row) => {
-    const branded = brandedUrl(c, memberships, row.account_id, row.slug);
-    return branded ? { ...row, branded_url: branded } : row;
-  });
+  // branded link (present whenever the artifact belongs to a workspace).
+  const addresses = new Map<string, Promise<string | null>>();
+  const artifacts = await Promise.all(
+    rows.map(async (row) => {
+      const branded = await brandedUrl(c, row.account_id, row.slug, addresses);
+      return branded ? { ...row, branded_url: branded } : row;
+    })
+  );
   return c.json({ artifacts, content_base: contentBase(c) });
 });
 
@@ -515,12 +529,12 @@ export async function storeUpload(
   }
 
 
-  const branded = brandedUrl(c, accounts.memberships, row.account_id, slug);
+  const branded = await brandedUrl(c, row.account_id, slug);
   return c.json({
     slug,
     url: artifactUrl(c, slug),
-    // Present only when the workspace has claimed an address, so a publish into
-    // a workspace without one answers exactly as it did before.
+    // Always present when the artifact has a workspace; `url` stays the
+    // content-origin URL for clients that predate branded links.
     ...(branded ? { branded_url: branded } : {}),
     type: processed.type,
     file_count: processed.files.length,
@@ -1120,9 +1134,11 @@ artifactRoutes.get("/artifacts/:slug/versions", requireScope("read"), async (c) 
   const art = await manageableArtifact(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
   const rows = await listVersions(c.env, slug);
+  const branded = await brandedUrl(c, art.account_id, slug);
   return c.json({
     current: art.current_version,
     url: artifactUrl(c, slug),
+    ...(branded ? { branded_url: branded } : {}),
     // `expired` is surfaced rather than the raw timestamp because that is the
     // only thing a caller can act on: an expired version cannot be rolled back
     // to. Showing it identically to a live one would invite exactly that.
@@ -1136,7 +1152,35 @@ artifactRoutes.get("/artifacts/:slug/views", requireScope("read"), async (c) => 
   if (!art) return c.json({ error: "not_found" }, 404);
   const raw = Number(c.req.query("limit"));
   const limit = Number.isInteger(raw) && raw > 0 ? Math.min(raw, 200) : 50;
-  return c.json(await getViews(c.env, slug, limit));
+  const rawBefore = Number(c.req.query("before"));
+  const before = Number.isInteger(rawBefore) && rawBefore > 0 ? rawBefore : null;
+  const [stats, events] = await Promise.all([
+    getViews(c.env, slug, limit),
+    listViewEvents(c.env, slug, { limit, before }),
+  ]);
+  // `total`/`unique`/`recent` keep their original shape (signed-in and link
+  // opens only). `views` is the full event log — previews and attempts with an
+  // expired/revoked link included — paged by `before` (an event `id`). An IP
+  // older than the retention window comes back null.
+  return c.json({
+    ...stats,
+    views: events.map((e) => ({
+      id: e.id,
+      viewed_at: e.viewed_at,
+      outcome: e.outcome,
+      email: e.email,
+      link_id: e.link_id,
+      ip: e.ip,
+      country: e.country,
+      region: e.region,
+      city: e.city,
+      device: e.device,
+      os: e.os,
+      browser: e.browser,
+      path: e.path,
+    })),
+    next_before: events.length === limit ? events[events.length - 1].id : null,
+  });
 });
 
 // Rollback: pointing a slug at an existing version is a publish operation —
@@ -1158,7 +1202,13 @@ artifactRoutes.post("/artifacts/:slug/current", requireScope("publish"), async (
   }
   const rolled = await rollbackArtifact(c.env, slug, version);
   if (!rolled.ok) return c.json({ error: rolled.error, detail: rolled.detail }, rolled.status as 404 | 409);
-  return c.json({ slug, current: version, url: artifactUrl(c, slug) });
+  const branded = await brandedUrl(c, art.account_id, slug);
+  return c.json({
+    slug,
+    current: version,
+    url: artifactUrl(c, slug),
+    ...(branded ? { branded_url: branded } : {}),
+  });
 });
 
 artifactRoutes.get("/artifacts/:slug/access", requireScope("read"), async (c) => {

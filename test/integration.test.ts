@@ -62,7 +62,8 @@ describe("gallery", () => {
     res = await req("/admin/gallery");
     const body = await res.text();
     expect(body).toContain("Hello Page");
-    expect(body).toContain('href="/hello-page/"');
+    // Links shown to a person are the branded ones (auto workspace address).
+    expect(body).toMatch(/href="[^"]*\/w-[0-9a-f]{8}\/hello-page"/);
     // premium list markers: each card carries visibility + version badges
     expect(body).toContain('data-artifact="hello-page"');
     expect(body).toMatch(/data-badge="visibility">restricted</);
@@ -337,7 +338,7 @@ describe("admin dashboard UX", () => {
     const card = (await admin()).split('data-artifact="full"')[1];
     expect(card).toContain('data-manage="full"');
     expect(card).toContain('href="/admin/artifacts/full"');
-    expect(card).toContain('data-copy="/full/"'); // per-artifact copy link
+    expect(card).toMatch(/data-copy="[^"]*\/w-[0-9a-f]{8}\/full"/); // per-artifact copy link
     // Management itself moved to the detail page — the list stays a list.
     expect(card).not.toContain('data-panel="versions"');
     expect(card).not.toContain('data-del="full"');
@@ -354,7 +355,7 @@ describe("admin dashboard UX", () => {
     expect(page).not.toContain('data-current="1"'); // v1 is already live
     expect(page).toContain('href="/v/full/1/"'); // version preview link
     expect(page).toContain('data-save="full"'); // save access
-    expect(page).toContain('data-copy="/full/"'); // share-link copy control
+    expect(page).toMatch(/data-copy="[^"]*\/w-[0-9a-f]{8}\/full"/); // share-link copy control
     // Breadcrumb back to the list, so the detail view is not a dead end.
     expect(page).toContain("data-crumbs");
     expect(page).toContain('href="/admin/artifacts"');

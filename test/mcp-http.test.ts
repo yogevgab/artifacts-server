@@ -209,10 +209,11 @@ describe("the remote tool surface", () => {
       (await json(await rpc(token, { jsonrpc: "2.0", id: 1, method: "tools/list" }))).result.tools.map((t: any) => t.name);
 
     expect(await names(reader.token)).toEqual(["doctor", "list_artifacts", "artifact_details", "artifact_statistics"]);
-    expect(await names(publisher.token)).toEqual(["doctor", "publish", "list_artifacts", "artifact_details", "artifact_statistics"]);
+    expect(await names(publisher.token)).toEqual(["doctor", "publish", "create_upload_link", "list_artifacts", "artifact_details", "artifact_statistics"]);
     expect(await names(manager.token)).toEqual([
       "doctor",
       "publish",
+      "create_upload_link",
       "list_artifacts",
       "artifact_details",
       "artifact_statistics",
@@ -580,7 +581,7 @@ describe("doctor", () => {
       "/.well-known/oauth-authorization-server"
     );
     expect(facts.publish_supported).toBe(true);
-    expect(facts.tools).toEqual(["doctor", "publish", "list_artifacts", "artifact_details", "artifact_statistics"]);
+    expect(facts.tools).toEqual(["doctor", "publish", "create_upload_link", "list_artifacts", "artifact_details", "artifact_statistics"]);
     expect(facts.reachable).toBe(true);
     expect(facts.artifact_count).toBe(1);
     expect(facts.content_base).toBeTruthy();

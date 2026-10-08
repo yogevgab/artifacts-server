@@ -103,7 +103,7 @@ describe("the toolbar is a single quiet row", () => {
     const html = await (await nav(OWNER)).text();
     const actions = html.indexOf("data-actions");
     expect(actions).toBeGreaterThan(-1);
-    for (const control of ["data-open-chat", "data-copy-link", "data-open-share", "data-hide-bar"]) {
+    for (const control of ["data-open-chat", "data-copy-link", "data-share-banner", "data-hide-bar"]) {
       expect(html.indexOf(control), `${control} is outside the action cluster`).toBeGreaterThan(actions);
     }
     // …and the spacer that pushes the cluster there comes before it.
@@ -125,56 +125,30 @@ describe("the toolbar is a single quiet row", () => {
  * It is now a popover anchored to its own trigger, and the two panels are
  * mutually exclusive so they cannot stack even where both are bottom sheets.
  */
-describe("the share panel is anchored to the Share button", () => {
-  it("wraps the button and the panel in one positioned container", async () => {
+/**
+ * The viewer is served from the content origin, which refuses every /api route
+ * (it hosts untrusted uploads). Sharing therefore lives on the app host, and the
+ * viewer only links there — an in-page panel here looked like it worked and
+ * created nothing (2026-10-08).
+ */
+describe("sharing lives on the app host", () => {
+  it("links the Share button to the app-host share page, in a new tab", async () => {
     const html = await (await nav(OWNER)).text();
-    expect(html).toContain('class="share" data-share');
-    // The button opens it, so the button must be the anchor it hangs from.
-    expect(html.indexOf("data-share")).toBeLessThan(html.indexOf("data-open-share"));
-    expect(html.indexOf("data-open-share")).toBeLessThan(html.indexOf("data-share-panel"));
-    expect(rule(stylesheet(html), ".share")).toContain("position:relative");
+    const link = /<a[^>]*data-share-banner[^>]*>/.exec(html)?.[0] ?? "";
+    expect(link).toContain('/share/demo"');
+    expect(link).toContain('target="_blank"');
+    expect(link).toContain('rel="noopener"');
   });
 
-  it("hangs the panel under the button, right-aligned, not pinned to a corner", async () => {
-    const panel = rule(stylesheet(await (await nav(OWNER)).text()), ".panel");
-    expect(panel).toContain("position:absolute");
-    expect(panel).toContain("top:calc(100% + 6px)");
-    expect(panel).toContain("right:0");
-    expect(panel, "a wide-screen popover must not pin itself to the viewport").not.toContain(
-      "position:fixed"
-    );
-    expect(panel).not.toContain("bottom:");
-  });
-
-  it("wires the button to the panel for assistive tech", async () => {
+  it("never calls the API from the content-origin viewer", async () => {
     const html = await (await nav(OWNER)).text();
-    const button = /<button[^>]*data-open-share[^>]*>/.exec(html)?.[0] ?? "";
-    expect(button).toContain('aria-expanded="false"');
-    expect(button).toContain('aria-haspopup="dialog"');
-    expect(button).toContain('aria-controls="rtfx-share"');
-    const panel = /<section[^>]*data-share-panel[^>]*>/.exec(html)?.[0] ?? "";
-    expect(panel).toContain('id="rtfx-share"');
-    expect(panel).toContain('role="dialog"');
-    expect(panel).toContain('aria-label="Sharing"');
-    // Focus has somewhere to land when the popover opens.
-    expect(panel).toContain('tabindex="-1"');
+    expect(html).not.toContain("data-share-panel");
+    expect(html).not.toMatch(/fetch\(['"]\/api\//);
   });
 
-  it("gives the panel its own dismissal, and folds it away with the bar", async () => {
-    const html = await (await nav(OWNER)).text();
-    expect(html).toContain("data-close-share");
-    expect(/<button[^>]*data-close-share[^>]*>/.exec(html)?.[0]).toContain(
-      'aria-label="Close sharing"'
-    );
-    // A popover anchored to the bar cannot outlive the bar collapsing.
-    expect(html).toContain("closeShare()");
-  });
-
-  it("becomes a bottom sheet only where a popover will not fit", async () => {
-    const narrow = narrowScreen(stylesheet(await (await nav(OWNER)).text()));
-    expect(narrow).toContain(".panel{position:fixed");
-    expect(narrow).toContain("inset:auto 0 0 0");
-    expect(narrow).toContain("border-radius:20px 20px 0 0");
+  it("offers no Share control to somebody who cannot manage", async () => {
+    const html = await (await nav("someone-else@example.com")).text();
+    expect(html).not.toContain("data-share-banner");
   });
 });
 
@@ -314,15 +288,7 @@ describe("restyling the chrome kept every control", () => {
       "data-close-chat",
       "data-chat-log",
       "data-chat-form",
-      "data-open-share",
-      "data-share-panel",
-      "data-share-summary",
-      "data-share-list",
-      "data-share-add",
-      "data-link-expiry",
-      "data-link-days",
-      "data-make-link",
-      "data-link-list",
+      "data-share-banner",
     ]) {
       expect(html, `missing hook: ${hook}`).toContain(hook);
     }
@@ -334,7 +300,7 @@ describe("restyling the chrome kept every control", () => {
     expect(frame).toBeGreaterThan(-1);
     // Every piece of privileged UI is a sibling that precedes the frame, never
     // markup handed to the artifact.
-    for (const hook of ["data-bar", "data-chat", "data-share-panel", "data-scrim"]) {
+    for (const hook of ["data-bar", "data-chat", "data-share-banner", "data-scrim"]) {
       expect(html.indexOf(hook), `${hook} must live outside the frame`).toBeLessThan(frame);
     }
     const tag = /<iframe[^>]*>/.exec(html)?.[0] ?? "";

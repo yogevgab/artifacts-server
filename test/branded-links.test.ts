@@ -251,15 +251,101 @@ describe("nothing that worked before stops working", () => {
 });
 
 describe("the branded link in API responses", () => {
-  it("is reported on publish once the workspace has an address, and not before", async () => {
+  it("is always reported on publish: auto address first, custom once claimed", async () => {
     const before = await publish("q3-board-report", OWNER);
-    expect((await before.json() as any).branded_url).toBeUndefined();
+    const first = (await before.json()) as any;
+    expect(first.url).toBe(`https://${CONTENT_HOST}/q3-board-report/`);
+    expect(first.branded_url).toMatch(new RegExp(`^${APP}/w-[0-9a-f]{8}/q3-board-report$`));
 
     await claim(OWNER, "yogev");
     const after = await publish("q3-board-report", OWNER);
     const body = (await after.json()) as any;
     expect(body.url).toBe(`https://${CONTENT_HOST}/q3-board-report/`);
     expect(body.branded_url).toBe(`${APP}/yogev/q3-board-report`);
+  });
+
+  it("is reported to a caller who is not a member of the workspace (platform admin)", async () => {
+    await publish("q3-board-report", OWNER);
+    await claim(OWNER, "yogev");
+    const res = await appReq("/api/artifacts", as("admin@test.com"));
+    const row = ((await res.json()) as any).artifacts.find((a: any) => a.slug === "q3-board-report");
+    expect(row.branded_url).toBe(`${APP}/yogev/q3-board-report`);
+  });
+
+  it("lazily assigns an address when the owning workspace somehow has none", async () => {
+    await publish("q3-board-report", OWNER);
+    const account = await personalAccountFor(env as any, OWNER);
+    await env.DB.prepare("UPDATE accounts SET public_slug = NULL WHERE id = ?").bind(account!.id).run();
+    const res = await appReq("/api/artifacts", as(OWNER));
+    const row = ((await res.json()) as any).artifacts.find((a: any) => a.slug === "q3-board-report");
+    expect(row.branded_url).toMatch(new RegExp(`^${APP}/w-[0-9a-f]{8}/q3-board-report$`));
+    expect((await personalAccountFor(env as any, OWNER))!.public_slug).not.toBeNull();
+  });
+
+  it("302s an auto-address branded link to the content origin", async () => {
+    await publish("q3-board-report", OWNER);
+    const account = await personalAccountFor(env as any, OWNER);
+    const res = await appReq(`/${account!.public_slug}/q3-board-report`, as(OWNER));
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe(`https://${CONTENT_HOST}/q3-board-report/`);
+  });
+
+  it("is what the dashboard shows: card copy link, detail share link, gallery link", async () => {
+    await publish("q3-board-report", OWNER);
+    await claim(OWNER, "yogev");
+    const branded = `${APP}/yogev/q3-board-report`;
+    const list = await (await appReq("/admin/artifacts", as(OWNER))).text();
+    expect(list).toContain(`data-copy="${branded}"`);
+    const detail = await (await appReq("/admin/artifacts/q3-board-report", as(OWNER))).text();
+    expect(detail).toContain(`value="${branded}"`);
+    expect(detail).toContain(`data-copy="${branded}"`);
+    const gallery = await (await appReq("/admin/gallery", as(OWNER))).text();
+    expect(gallery).toContain(`href="${branded}"`);
+  });
+
+  it("makes the viewer shell's Copy link copy the branded URL", async () => {
+    await publish("q3-board-report", OWNER);
+    await claim(OWNER, "yogev");
+    const res = await contentReq("/q3-board-report/", {
+      ...as(OWNER),
+      headers: { ...(as(OWNER).headers as Record<string, string>), "Sec-Fetch-Dest": "document" },
+    });
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain(`data-copy-link data-branded-url="${APP}/yogev/q3-board-report"`);
+  });
+
+  it("shows the branded URL in the remote MCP publish text, keeping url in the facts", async () => {
+    const created = await appReq(
+      "/api/tokens",
+      as(OWNER, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "mcp", scopes: ["read", "publish"] }),
+      })
+    );
+    const { token } = (await created.json()) as any;
+    await publish("seed", OWNER); // creates the workspace
+    await claim(OWNER, "yogev");
+    const res = await appReq("/mcp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "publish",
+          arguments: { slug: "mcp-page", title: "MCP", content_text: "<!doctype html><h1>x</h1>" },
+        },
+      }),
+    });
+    const body = (await res.json()) as any;
+    const text = body.result.content.map((c: any) => c.text).join("\n");
+    expect(text).toContain(`${APP}/yogev/mcp-page`);
+    const facts = JSON.parse(body.result.content[body.result.content.length - 1].text);
+    expect(facts.branded_url).toBe(`${APP}/yogev/mcp-page`);
+    expect(facts.url).toBe(`https://${CONTENT_HOST}/mcp-page/`);
   });
 
   it("appears on the artifact list without disturbing anything already there", async () => {

@@ -5,7 +5,10 @@ import {
   ACCOUNT_SLUG_RE,
   brandedArtifactUrl,
   brandedPathParts,
+  AUTO_ACCOUNT_SLUG_RE,
   checkAccountSlug,
+  generateAutoAccountSlug,
+  isAutoAccountSlug,
   isReservedAccountSlug,
   normalizeAccountSlug,
   planAllowsBrandedSlug,
@@ -14,11 +17,17 @@ import {
 } from "../src/account-slugs";
 import { reservedTopLevelSegments } from "../src/host";
 import type { Env as AppEnv } from "../src/env";
-import { getAccountByPublicSlug, personalAccountFor, setAccountPublicSlug } from "../src/accounts";
+import {
+  ensureAccountPublicSlug,
+  getAccountByPublicSlug,
+  personalAccountFor,
+  setAccountPublicSlug,
+} from "../src/accounts";
 import { createApiToken } from "../src/tokens";
 import { initDb, clearR2, as, withToken } from "./fixtures";
 import schemaSql from "../schema.sql?raw";
 import migration0020 from "../migrations/0020_account_slugs.sql?raw";
+import migration0021 from "../migrations/0021_auto_account_slugs.sql?raw";
 import fixturesSource from "./fixtures.ts?raw";
 
 /**
@@ -196,12 +205,146 @@ describe("the column, the index, and the three places that declare them", () => 
     expect(fixturesSource).toContain("idx_accounts_public_slug");
   });
 
-  it("leaves the address null for a workspace that never asked for one", async () => {
+  it("gives a new personal workspace an auto address at creation", async () => {
     await initDb();
     await clearR2();
     await publish("report", OWNER);
     const account = await personalAccountFor(env as any, OWNER);
-    expect(account!.public_slug ?? null).toBeNull();
+    expect(account!.public_slug).toMatch(AUTO_ACCOUNT_SLUG_RE);
+  });
+});
+
+describe("auto addresses", () => {
+  beforeEach(async () => {
+    await initDb();
+    await clearR2();
+  });
+
+  it("generates w- plus 8 lowercase hex, and recognises only that shape as auto", () => {
+    for (let i = 0; i < 50; i++) expect(generateAutoAccountSlug()).toMatch(/^w-[0-9a-f]{8}$/);
+    expect(isAutoAccountSlug("w-3f9a0c12")).toBe(true);
+    for (const not of ["w-3F9A0C12", "w-3f9a0c1", "w-3f9a0c123", "w-3f9a0c1g", "yogev", "", null, undefined]) {
+      expect(isAutoAccountSlug(not as any), String(not)).toBe(false);
+    }
+    // An auto-shaped name is a valid slug shape and not on the router's list —
+    // only the explicit auto rule keeps it unclaimable.
+    expect(suggestAccountSlug("w-3f9a0c12@example.com")).toBe("");
+  });
+
+  it("refuses to let anyone claim a name of the auto shape", async () => {
+    const checked = checkAccountSlug("w-3f9a0c12");
+    expect(checked.ok).toBe(false);
+    if (!checked.ok) {
+      expect(checked.reason).toBe("reserved");
+      expect(checked.detail).toContain("w-xxxxxxxx");
+    }
+    await publish("report", OWNER);
+    const account = await setPlan(OWNER, "pro");
+    const res = await appReq(`/api/workspace/${account.id}/slug`, {
+      method: "PUT",
+      body: JSON.stringify({ slug: "w-3f9a0c12" }),
+      ...as(OWNER),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as any).detail).toContain("reserved");
+  });
+
+  it("lazily assigns an address to a workspace that has none, and keeps it stable", async () => {
+    await publish("report", OWNER);
+    const account = (await personalAccountFor(env as any, OWNER))!;
+    await env.DB.prepare("UPDATE accounts SET public_slug = NULL WHERE id = ?").bind(account.id).run();
+    const first = await ensureAccountPublicSlug(env as any, account.id);
+    expect(first).toMatch(AUTO_ACCOUNT_SLUG_RE);
+    expect(await ensureAccountPublicSlug(env as any, account.id)).toBe(first);
+    expect(await ensureAccountPublicSlug(env as any, "acct_missing")).toBeNull();
+  });
+
+  it("retries on a UNIQUE collision instead of failing", async () => {
+    await publish("report", OWNER);
+    const account = (await personalAccountFor(env as any, OWNER))!;
+    await env.DB.prepare("UPDATE accounts SET public_slug = NULL WHERE id = ?").bind(account.id).run();
+    // Force the first draw to collide with a slug another account holds.
+    const taken = "w-00000000";
+    await publish("other", OTHER);
+    await env.DB.prepare("UPDATE accounts SET public_slug = ? WHERE personal_email = ?").bind(taken, OTHER).run();
+    const original = crypto.getRandomValues.bind(crypto);
+    let calls = 0;
+    (crypto as any).getRandomValues = (arr: Uint8Array) => {
+      if (calls++ === 0) return arr.fill(0);
+      return original(arr);
+    };
+    try {
+      const got = await ensureAccountPublicSlug(env as any, account.id);
+      expect(got).toMatch(AUTO_ACCOUNT_SLUG_RE);
+      expect(got).not.toBe(taken);
+    } finally {
+      (crypto as any).getRandomValues = original;
+    }
+  });
+
+  it("migration 0021 backfills only NULL rows, with the auto shape, and is safe to re-run", async () => {
+    expect(migration0021).toContain("randomblob(4)");
+    expect(migration0021).toMatch(/wrangler d1 migrations apply/);
+    await publish("report", OWNER);
+    await publish("other", OTHER);
+    await env.DB.prepare("UPDATE accounts SET public_slug = NULL WHERE personal_email = ?").bind(OWNER).run();
+    await env.DB.prepare("UPDATE accounts SET public_slug = 'maya' WHERE personal_email = ?").bind(OTHER).run();
+    const update = migration0021.split("\n").filter((l) => !l.startsWith("--")).join("\n").trim();
+    await env.DB.prepare(update).run();
+    const mine = await personalAccountFor(env as any, OWNER);
+    const theirs = await personalAccountFor(env as any, OTHER);
+    expect(mine!.public_slug).toMatch(AUTO_ACCOUNT_SLUG_RE);
+    expect(theirs!.public_slug).toBe("maya");
+    await env.DB.prepare(update).run();
+    expect((await personalAccountFor(env as any, OWNER))!.public_slug).toBe(mine!.public_slug);
+  });
+
+  it("gives a team workspace an auto address at creation too", async () => {
+    const { createAccount } = await import("../src/accounts");
+    const team = await createAccount(env as any, {
+      name: "Acme",
+      kind: "team",
+      personalEmail: null,
+      createdBy: OWNER,
+      now: "2026-08-28T09:00:00.000Z",
+    });
+    expect(team.public_slug).toMatch(AUTO_ACCOUNT_SLUG_RE);
+  });
+
+  it("a free workspace still cannot claim a custom address", async () => {
+    await publish("report", OWNER);
+    const account = (await personalAccountFor(env as any, OWNER))!;
+    const before = account.public_slug;
+    const res = await appReq(`/api/workspace/${account.id}/slug`, {
+      method: "PUT",
+      body: JSON.stringify({ slug: "yogev" }),
+      ...as(OWNER),
+    });
+    expect(res.status).toBe(403);
+    expect((await personalAccountFor(env as any, OWNER))!.public_slug).toBe(before);
+  });
+
+  it("releasing a custom address reverts to a fresh auto one, never NULL", async () => {
+    await publish("report", OWNER);
+    const account = await setPlan(OWNER, "pro");
+    await setAccountPublicSlug(env as any, account.id, "yogev", "2026-08-28T09:00:00.000Z");
+    const res = await appReq(`/api/workspace/${account.id}/slug`, { method: "DELETE", ...as(OWNER) });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+    expect(body.public_slug).toMatch(AUTO_ACCOUNT_SLUG_RE);
+    expect(body.branded_base).toContain(`/${body.public_slug}`);
+    expect(await getAccountByPublicSlug(env as any, "yogev")).toBeNull();
+  });
+
+  it("shows the generated address in Settings, with an upgrade note on Free", async () => {
+    await publish("report", OWNER);
+    const account = (await personalAccountFor(env as any, OWNER))!;
+    const html = await (await appReq("/admin/settings", as(OWNER))).text();
+    expect(html).toContain('data-address-state="auto"');
+    expect(html).toContain(account.public_slug!);
+    expect(html).toContain("generated");
+    expect(html).toContain("needs Pro");
+    expect(html).not.toContain("data-address-release");
   });
 });
 
@@ -379,7 +522,7 @@ describe("claiming an address", () => {
     });
     const res = await appReq(`/api/workspace/${account.id}/slug`, { method: "DELETE", ...as(OWNER) });
     expect(res.status).toBe(200);
-    expect((await res.json() as any).public_slug).toBeNull();
+    expect((await res.json() as any).public_slug).toMatch(AUTO_ACCOUNT_SLUG_RE);
     expect(await getAccountByPublicSlug(env as any, "yogev")).toBeNull();
     // …and it is claimable again by somebody else.
     await publish("client-proposal", OTHER);
@@ -390,6 +533,24 @@ describe("claiming an address", () => {
       ...as(OTHER),
     });
     expect(reclaim.status).toBe(200);
+  });
+
+  /** Rotating a generated address would break every branded link already sent. */
+  it("never rotates an address that is already generated", async () => {
+    await publish("q3-board-report", OWNER);
+    const account = await setPlan(OWNER, "pro");
+    const before = (await env.DB.prepare("SELECT public_slug FROM accounts WHERE id = ?")
+      .bind(account.id).first<{ public_slug: string }>())!.public_slug;
+    expect(before).toMatch(AUTO_ACCOUNT_SLUG_RE);
+    for (const init of [
+      { method: "DELETE" },
+      { method: "PUT", body: JSON.stringify({ slug: null }) },
+      { method: "PUT", body: JSON.stringify({ slug: "" }) },
+    ]) {
+      const res = await appReq(`/api/workspace/${account.id}/slug`, { ...init, ...as(OWNER) });
+      expect(res.status).toBe(200);
+      expect((await res.json() as any).public_slug).toBe(before);
+    }
   });
 
   it("lets a downgraded workspace release an address, but not claim a new one", async () => {
@@ -409,7 +570,7 @@ describe("claiming an address", () => {
 
     const released = await appReq(`/api/workspace/${account.id}/slug`, { method: "DELETE", ...as(OWNER) });
     expect(released.status).toBe(200);
-    expect((await released.json() as any).public_slug).toBeNull();
+    expect((await released.json() as any).public_slug).toMatch(AUTO_ACCOUNT_SLUG_RE);
     expect(await getAccountByPublicSlug(env as any, "yogev")).toBeNull();
   });
 
@@ -485,7 +646,7 @@ describe("claiming an address", () => {
       ...withToken(manager.token),
     });
     expect(released.status).toBe(200);
-    expect((await released.json() as any).public_slug).toBeNull();
+    expect((await released.json() as any).public_slug).toMatch(AUTO_ACCOUNT_SLUG_RE);
   });
 
   it("answers 404 — never 403 — for a workspace the caller does not belong to", async () => {
@@ -534,10 +695,15 @@ describe("the address in the Settings page", () => {
     const html = await (await appReq("/admin/settings", as(OWNER))).text();
     expect(html).toContain('data-setting="workspace-address"');
     expect(html).toContain('action="/admin/workspace/address"');
-    expect(html).toContain(`${APP_HOST}/yogev/q3-board-report`);
-    expect(html).toContain(`${APP_HOST}/maya/client-proposal`);
-    // The one thing people will assume, said explicitly.
-    expect(html).toContain("not a domain of your own");
+    // Starts on the generated address, and invites choosing one.
+    expect(html).toContain('data-address-state="auto"');
+    expect(html).toContain("Pick a custom one below");
+    expect(html).not.toContain("data-address-release");
+    await setAccountPublicSlug(env as any, (await personalAccountFor(env as any, OWNER))!.id, "yogev", "2026-08-28T09:00:00.000Z");
+    const claimed = await (await appReq("/admin/settings", as(OWNER))).text();
+    expect(claimed).toContain('data-address-state="claimed"');
+    expect(claimed).toContain(`${APP_HOST}/yogev/q3-board-report`);
+    expect(claimed).toContain("data-address-release");
   });
 
   it("shows a free workspace what it would take, and no form", async () => {

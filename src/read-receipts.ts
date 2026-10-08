@@ -7,12 +7,10 @@
  * Scoped narrowly on purpose:
  *  - never for the owner's own view (they already know they opened it);
  *  - never for an anonymous or share-link view — there is no person to name.
- *    In practice this case never even reaches `recordViewAndMaybeNotify`,
- *    because its one call site (the artifact-serving route in src/index.ts)
- *    only logs a view at all when `identity?.email` is set; a share-link
- *    viewer holds no identity and never calls `logView` in the first place.
- *    The `viewerEmail` guard below exists anyway, so this module has no
- *    silent dependency on that upstream behaviour never changing;
+ *    A share-link open IS logged (migration 0023) but through `logView`
+ *    directly (src/index.ts `logLinkEvent`), never through this function, so
+ *    it cannot trigger a mail. The `viewerEmail` guard below exists anyway, so
+ *    this module has no silent dependency on that upstream behaviour;
  *  - only once per (artifact, person) — decided by checking history
  *    *before* the new view is recorded, not after;
  *  - only when the owner has not turned it off (`artifacts.read_receipts`).
