@@ -2,7 +2,7 @@
 
 A first-class Claude Code plugin lives in this repo at [`plugins/rtfx`](../plugins/rtfx). It turns
 "publish this" into an ordinary sentence in a session: the agent picks the build output, versions
-it under a slug, and hands back `https://a.rtfx.pro/<slug>/`.
+it under a slug, and hands back `https://rtfx.pro/<workspace>/<slug>`.
 
 This document is the operator's view — what ships, how it is installed, how it is tested, and why
 it is built the way it is. The user-facing README is
@@ -169,14 +169,14 @@ Three additive fields. No existing field changed shape, and no route changed sta
 
 | Route | Added |
 |---|---|
-| `GET /api/artifacts` | `content_base` — the origin artifacts are served from |
+| `GET /api/artifacts` | `url` on every row (the canonical address). `content_base` was removed |
 | `GET /api/artifacts/:slug/versions` | `url` |
 | `POST /api/artifacts/:slug/current` | `url` |
 
-All three come from one helper in `src/api.ts`, which resolves the content host from
-`CONTENT_HOSTNAMES` and falls back to the request host. The point is that a client never has to
-guess: hard-coding `https://a.rtfx.pro/<slug>/` is correct on rtfx.pro and wrong on every
-self-hosted instance, and a confidently wrong link is worse than no link.
+All three come from one helper, `viewUrl` in `src/api.ts`, which builds the canonical
+`https://<app origin>/<workspace>/<slug>` from the artifact's workspace address. The point is that a
+client never has to guess: the workspace part is chosen per account, and a confidently wrong link is
+worse than no link. `branded_url` is a deprecated alias of `url` (identical), kept for one release.
 
 Since the machine surface landed, the plugin calls those routes under **`/api/machine/…`** rather
 than `/api/…`. Same handlers, same responses; the difference is the gate in front of them.

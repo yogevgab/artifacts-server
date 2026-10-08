@@ -162,13 +162,13 @@ async function publish(path, flags) {
   }
 
   const data = await call("/api/artifacts", { method: "POST", body: form });
-  console.log(`published: ${data.branded_url ?? data.url}  (v${data.version}, ${data.type}, ${data.file_count} file(s))`);
+  console.log(`published: ${data.url}  (v${data.version}, ${data.type}, ${data.file_count} file(s))`);
 }
 
 async function versions(slug) {
   if (!slug) die("versions requires a <slug>");
   const data = await call(`/api/artifacts/${encodeURIComponent(slug)}/versions`);
-  if (data.branded_url ?? data.url) console.log(data.branded_url ?? data.url);
+  if (data.url) console.log(data.url);
   for (const v of data.versions) {
     const cur = v.version === data.current ? " (current)" : "";
     const note = v.note ? `  ${v.note}` : "";
@@ -183,7 +183,7 @@ async function rollback(slug, version) {
     asJson("POST", { version: Number(version) })
   );
   console.log(`${slug} is now live on v${data.current}`);
-  if (data.branded_url ?? data.url) console.log(data.branded_url ?? data.url);
+  if (data.url) console.log(data.url);
 }
 
 async function list() {

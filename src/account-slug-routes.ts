@@ -21,10 +21,13 @@
  *     and is pure; `setAccountPublicSlug` (src/accounts.ts) owns the third,
  *     because only the database can answer it.
  *
- * Releasing an address is deliberately as easy as claiming one, and deliberately
- * does NOT break anything: an artifact's real URL has always been its content
- * origin one (`a.rtfx.pro/q3-board-report/`), which is unaffected by anything in
- * this file. A branded link is a second, nicer way to reach it.
+ * The workspace address is part of every artifact's canonical URL
+ * (`rtfx.pro/<address>/<slug>`), so CHANGING or RELEASING it changes those URLs.
+ * Links that carry a share key (`?k=`) keep working across a change — the
+ * viewer sends a valid key to the artifact's current address — but a plain
+ * address-only link to the old one stops resolving. The Settings copy says so.
+ * Releasing is still as easy as claiming (letting a customer give a scarce
+ * namespace back is never an upsell gate).
  *
  * CSRF: the session cookie is `SameSite=Lax`, so a cross-site POST arrives with
  * no session and `requireUser` refuses it before any of this runs.
@@ -234,12 +237,12 @@ accountSlugRoutes.delete(API_PATH, requireScope("manage"), async (c) => {
 export type AddressNoticeCode = ApplyResult["code"];
 
 const NOTICE_TEXT: Record<string, { kind: "ok" | "error"; text: string }> = {
-  ok: { kind: "ok", text: "Workspace address saved. Every artifact here now has a branded link too." },
+  ok: { kind: "ok", text: "Workspace address saved. Every artifact here is now addressed under it. Share links you already sent keep working." },
   released: {
     kind: "ok",
     text:
       "Custom address released — the workspace is back on a generated one. " +
-      "Artifact URLs on the content origin are unchanged.",
+      "Artifact links now use the generated address; share links you already sent keep working.",
   },
   not_found: { kind: "error", text: "That workspace could not be found." },
   forbidden: { kind: "error", text: "Only an owner or admin of this workspace can change its address." },

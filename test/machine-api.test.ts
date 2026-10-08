@@ -87,13 +87,14 @@ describe("a bearer token alone is enough", () => {
 
     const list = await json(await req(`${MACHINE}/artifacts`, withToken(token)));
     expect(list.artifacts.map((a: any) => a.slug)).toEqual(["report"]);
-    // The one thing a client cannot derive: where artifacts are actually served.
-    expect(list.content_base).toBeTruthy();
+    // Each row carries its canonical url; there is no content origin to derive from.
+    expect(list.content_base).toBeUndefined();
+    expect(list.artifacts[0].url).toMatch(/\/w-[0-9a-f]{8}\/report$/);
 
     const versions = await json(await req(`${MACHINE}/artifacts/report/versions`, withToken(token)));
     expect(versions.current).toBe(2);
     expect(versions.versions).toHaveLength(2);
-    expect(versions.url).toContain("/report/");
+    expect(versions.url).toMatch(/\/w-[0-9a-f]{8}\/report$/);
 
     const rolledBack = await req(
       `${MACHINE}/artifacts/report/current`,

@@ -266,3 +266,36 @@ export function htmlForm(
   fd.set(field, new File([bytes], fileName, { type: "text/html" }));
   return fd;
 }
+
+/**
+ * The canonical viewer path for an artifact that has been published:
+ * `/<workspace>/<slug>[/<rest>]`. The workspace address is whatever the
+ * artifact's account currently holds (an auto `w-xxxxxxxx` unless claimed),
+ * resolved the same way the API does, so tests never hard-code it.
+ */
+export async function viewerPath(slug: string, rest = ""): Promise<string> {
+  const { ensureAccountPublicSlug } = await import("../src/accounts");
+  const row = await env.DB.prepare("SELECT account_id FROM artifacts WHERE slug = ?")
+    .bind(slug)
+    .first<{ account_id: string | null }>();
+  const ws = row?.account_id ? await ensureAccountPublicSlug(env as any, row.account_id) : null;
+  const head = ws ? `/${ws}/${slug}` : `/${slug}`;
+  return rest ? `${head}/${rest.replace(/^\/+/, "")}` : head;
+}
+
+/** Headers a browser sends for a top-level navigation. */
+export const NAV_HEADERS = { "Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "navigate" } as const;
+
+/** Navigate (as a browser would) to an artifact's canonical viewer address. */
+export async function openViewer(
+  slug: string,
+  who: string | null,
+  init: { rest?: string; query?: string; headers?: Record<string, string> } = {}
+): Promise<Response> {
+  const path = (await viewerPath(slug, init.rest)) + (init.query ?? "");
+  const base: RequestInit = who ? as(who) : { headers: { "X-Dev-Anonymous": "true" } };
+  return req(path, {
+    ...base,
+    headers: { ...(base.headers as Record<string, string>), ...NAV_HEADERS, ...(init.headers ?? {}) },
+  });
+}

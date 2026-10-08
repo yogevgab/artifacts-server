@@ -347,7 +347,7 @@ describe("publish", () => {
     expect(facts.version).toBe(1);
     expect(facts.type).toBe("single");
     expect(facts.files).toEqual(["index.html"]);
-    expect(facts.url).toContain("/remote-page/");
+    expect(facts.url).toMatch(/\/w-[0-9a-f]{8}\/remote-page$/);
 
     const row = await env.DB.prepare("SELECT slug, type, file_count, owner_email, current_version FROM artifacts WHERE slug = ?")
       .bind("remote-page")
@@ -584,7 +584,7 @@ describe("doctor", () => {
     expect(facts.tools).toEqual(["doctor", "publish", "create_upload_link", "list_artifacts", "artifact_details", "artifact_statistics"]);
     expect(facts.reachable).toBe(true);
     expect(facts.artifact_count).toBe(1);
-    expect(facts.content_base).toBeTruthy();
+    expect(facts.content_base).toBeUndefined();
     // A person-readable line first, JSON second — the stdio server's shape.
     expect(body.result.content[0].text).toContain("endpoint");
     expect(body.result.isError).toBeUndefined();
@@ -646,7 +646,7 @@ describe("artifact management tools", () => {
     expect(listed.command).toBe("list_artifacts");
     expect(listed.total).toBe(1);
     expect(listed.artifacts[0]).toMatchObject({ slug: "mcp-managed", title: "mcp-managed", current_version: 2, versions: 2, views: 1 });
-    expect(listed.artifacts[0].url).toContain("/mcp-managed/");
+    expect(listed.artifacts[0].url).toMatch(/\/w-[0-9a-f]{8}\/mcp-managed$/);
 
     const details = await payload(await callTool(token, "artifact_details", { slug: "mcp-managed" }));
     expect(details.artifact.slug).toBe("mcp-managed");

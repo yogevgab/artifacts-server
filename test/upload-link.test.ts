@@ -155,7 +155,8 @@ describe("POST /api/uploads/:token", () => {
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
     const data = (await res.json()) as any;
     expect(data).toMatchObject({ slug: "my-site", version: 1, file_count: 2 });
-    expect(data.url).toContain("/my-site/");
+    expect(data.url).toMatch(/\/w-[0-9a-f]{8}\/my-site$/);
+    expect(data.url).not.toContain("a.rtfx.pro");
 
     const row = await env.DB.prepare("SELECT owner_email, account_id, title FROM artifacts WHERE slug = 'my-site'").first<any>();
     const account = await env.DB.prepare("SELECT id FROM accounts WHERE personal_email = ?").bind(BOB).first<any>();
@@ -345,7 +346,7 @@ describe("GET /u/:token", () => {
     const html = await res.text();
     expect(html).toContain("Publish &lt;img src=x onerror=alert(1)&gt;");
     expect(html).not.toContain("<img src=x");
-    expect(html).toContain("/q3/");
+    expect(html).toMatch(/\/w-[0-9a-f]{8}\/q3\b/);
     expect(html).toContain("webkitdirectory");
     expect(html).toContain(`/api/uploads/${token}`);
     expect(html).toContain("Choose folder");

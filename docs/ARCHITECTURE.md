@@ -12,10 +12,64 @@ Three hostnames, two roles, one Worker and one code path (`wrangler.jsonc` → `
 |---|---|---|
 | `rtfx.pro` | **app** | the public product site, `/login` + `/auth/*`, `/admin`, `/api`, `/api/machine`, `/mcp`, `/oauth`, `/.well-known` |
 | `mcp.rtfx.pro` | **app** | the same management surface, under a hostname that says what it is for `claude mcp add --transport http rtfx https://mcp.rtfx.pro/mcp`. Its OAuth metadata is built from the origin the request arrived on, so issuer/resource identifiers agree with themselves (docs/REMOTE_MCP_OAUTH.md §3) |
-| `a.rtfx.pro` | **content** | uploaded artifact files and the viewer shell, and nothing else — no `/admin`, no `/api`, no `/mcp` |
+| `a.rtfx.pro` | **content** | uploaded artifact files and nothing else — no `/admin`, no `/api`, no `/mcp`. **Invisible**: it is never an address anyone is shown or sent to; the viewer on the app host frames it |
 
 `MANAGEMENT_PREFIXES` in `src/host.ts` is what keeps the split honest: the origin that serves
 untrusted uploaded HTML never routes to anything that terminates a credential.
+
+### The canonical address and the viewer
+
+The only URL the product shows, returns or emails is **`https://rtfx.pro/<workspace>/<artifact>`**
+— the workspace address (`accounts.public_slug`: an auto `w-xxxxxxxx` by default, a custom name on
+Pro/Team/Enterprise) followed by the artifact's globally unique slug. Built in one place:
+`src/canonical.ts` (`canonicalPath`, `canonicalArtifactLink`) and `viewUrl` in `src/api.ts`.
+
+The **viewer lives on the app host** at that address (`src/viewer-routes.ts`). A top-level browser
+navigation to `/<workspace>/<artifact>[/<path…>]` renders the viewer shell (`src/shell.ts`) — our
+toolbar, chat drawer and one `<iframe>` — and **nothing from the artifact**. Every access rule runs
+there, against the app-host identity: the `rtfx_session` cookie, a per-artifact guest cookie
+(`rtfx_guest`), or a per-artifact share-link cookie (`rtfx_link_<slug>`); grants, workspace
+membership, platform admins, view limit and suspension (`decideAccess` in `src/viewing.ts`). A
+signed-out visitor with no valid key is sent to `/shared/<slug>?next=<canonical path>`; a
+workspace/artifact mismatch is the same 404 as a missing artifact.
+
+The frame's `src` is **absolute on the content host**:
+`https://a.rtfx.pro/<slug>/~t/<frame-token>/<path>?raw=1`. The content host is a sandboxed byte
+server. Its responses:
+
+- carry `Content-Security-Policy: frame-ancestors 'self' <app origins>; …; sandbox allow-scripts …`
+  (`frameAncestorsDirective` in `src/canonical.ts`: the canonical app origin plus `APP_ORIGINS`,
+  an exact allowlist — never `*`, never a content host);
+- send **no `X-Frame-Options`** (XFO cannot name another origin; CSP `frame-ancestors` is the one
+  framing policy, and the app-wide header middleware leaves XFO off a response that declares it);
+- are authorized by the frame token (a short-lived path capability for one artifact) because the
+  frame is sandboxed without `allow-same-origin` and therefore sends no cookies.
+
+Neither host trusts the other with a credential: the app host never serves artifact bytes while a
+content host is configured (a non-navigation request to a canonical address is a `302` to the
+content host's raw path), and the content host refuses every management path, including the chat
+socket. The one exception to "no artifact bytes on the app host" is the owner-only `/v/<slug>/<n>/`
+version preview, which is unchanged and is served under the same CSP `sandbox` (opaque origin).
+
+**Old URLs redirect (browser navigations only; machine clients are unchanged):**
+
+| Old | Now |
+|---|---|
+| `a.rtfx.pro/<slug>/<path>` (navigation) | `302` → `rtfx.pro/<workspace>/<slug>/<path>`, `?k=` kept, `raw`/`ct` dropped |
+| `a.rtfx.pro/<slug>/…/~t/…` opened directly | `302` → the canonical viewer |
+| `rtfx.pro/<slug>/<path>` (navigation) | `302` → canonical; (machine) `302` → content raw path |
+| `rtfx.pro/<stale-ws>/<slug>?k=<valid key>` | `302` → current canonical, key kept (the address was renamed) |
+| `a.rtfx.pro/<slug>/` with no `Sec-Fetch-Dest`, bearer/cookie | unchanged: raw bytes (CLI, curl, MCP) |
+
+An artifact with no workspace (legacy, owner-less rows; admin-only) has no `<workspace>` to show:
+it is addressed `rtfx.pro/<slug>` and viewed directly there.
+
+**Chat** is a WebSocket on the app host, `/_chat/<slug>`, authorized by the same cookies as the
+viewer and refusing any handshake whose `Origin` is not an app origin (`src/index.ts`,
+`src/chat.ts`). **Sharing** stays an app-host page, `/share/<slug>`.
+
+**Two-host deployments must set `PUBLIC_BASE_URL`** to the app origin: it names the canonical
+origin the viewer redirects to (e.g. from `mcp.rtfx.pro`) and the `frame-ancestors` entry.
 
 ## Request flow
 
@@ -33,10 +87,15 @@ Worker (Hono router) — authenticates and authorizes every request itself
                               scripts/generate-brand-rasters.mjs — see docs/PUBLIC_SITE.md)
    POST /waitlist            join the waitlist (public; validates + dedupes by email)
    /auth/*                   sign-in: request a one-time code / magic link, verify it, sign out
-   GET /shared/<slug>        open a share link (the URL is the credential; see src/share.ts)
+   GET /shared/<slug>        guest / sign-in landing for a viewer address (?next=<canonical path>)
+   GET /<workspace>/<slug>/… the artifact VIEWER (src/viewer-routes.ts): shell + sandboxed frame;
+                              ?k=<key> redeems a share link (src/share.ts) into a cookie
+   GET /_chat/<slug>         chat WebSocket (same authorization as the viewer)
    GET /gallery              back-compat alias → 302 to /admin/gallery (signed-in only;
                               anonymous → 302 to /login, paused → the paused sheet)
-   GET /<slug>/…             serve the current version's files (per-artifact authz)
+   GET /<slug>/…             old form: browsers → 302 to the canonical address; machines → 302
+                              to the content host (a.rtfx.pro) raw path, which serves the bytes
+                              (per-artifact authz; frame token for the viewer's frame)
    GET /v/<slug>/<n>/…       preview a specific version (admin or the artifact's owner)
    GET /admin                portal — Overview. One server-rendered section per URL, no
                               client router (see docs/DESIGN.md §4)
@@ -118,7 +177,9 @@ if the person who owns it later joins others.
   either closes both (`src/otp.ts`; only SHA-256 hashes are stored, never the code or the token).
   Verifying it issues **`rtfx_session`**: a signed, stateless JWT cookie (`src/session.ts`), set
   `HttpOnly`, `Secure`, `SameSite=Lax` and **host-only** on the app origin, so it never reaches
-  the content host. There is no session table — revocation still works because the user's row in
+  the content host. A **guest** (someone holding only an artifact grant) redeems the emailed link
+  into a separate `rtfx_guest` cookie on the app origin, bound to that one artifact, read only by the
+  viewer and its chat socket — it never replaces a member's session. There is no session table — revocation still works because the user's row in
   D1 is read on every request, and `disabled` takes effect immediately. `rtfx_account`
   (`WORKSPACE_COOKIE`) rides beside it and is a *selector*, not a grant: it names an account id
   and is re-checked against `account_members` on every request, so forging it buys nothing.
@@ -257,8 +318,9 @@ same rows on first use, so an instance that never runs `0010` still ends up in t
 ## Storage layout (R2)
 
 Every version's files live under `<slug>/v<N>/…`. A single HTML upload becomes
-`<slug>/v<N>/index.html`; a `.zip` bundle is unzipped and each entry stored. The public URL
-`/<slug>/…` serves the artifact's `current_version`; `/v/<slug>/<n>/…` serves a specific one.
+`<slug>/v<N>/index.html`; a `.zip` bundle is unzipped and each entry stored. The canonical address
+`/<workspace>/<slug>/…` views the artifact's `current_version` (the content host serves its bytes
+at `/<slug>/…`); `/v/<slug>/<n>/…` serves a specific one.
 
 ## User management
 
@@ -282,6 +344,10 @@ does not touch who may sign in — see the table at the top of this document.
 |---|---|
 | `src/index.ts` | Routing; public vs. portal split; gallery filtering (`readableArtifacts`); version-aware serving; `/v/` preview. |
 | `src/host.ts` | App-host vs. content-host split: which paths each of the three hostnames answers. |
+| `src/canonical.ts` | The canonical address (`/<workspace>/<slug>`), the content origin, and the exact `frame-ancestors` allowlist. |
+| `src/viewer-routes.ts` | The viewer on the app host: address resolution, old-form redirects, access, view logging, the shell. |
+| `src/viewing.ts` | Shared viewing machinery: share-key handling, `decideAccess`, view logging, the link and guest cookies. |
+| `src/shell.ts` | The viewer shell page (toolbar, chat drawer, the cross-origin sandboxed frame). |
 | `src/auth.ts` | Authentication and its resolution order: bearer token, `rtfx_session`, dev impersonation, legacy Access JWT. `resolveAuth`/`getIdentity`, `requireAdmin`, `requireUser`, `requireApiToken`, `requireScope`, `denyApiToken`. |
 | `src/session.ts` | Signing and verifying the stateless `rtfx_session` cookie. |
 | `src/otp.ts` | Sign-in challenges: one-time codes and magic-link tokens (hashed, single-use). |

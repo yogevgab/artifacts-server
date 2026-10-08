@@ -84,8 +84,8 @@ file, or a .zip. Never point it at a project root or a home directory. Credentia
 containing any of them is refused outright rather than silently filtered.
 
 Use dry_run first when you are unsure what a directory contains — it reports every file that would
-be included and skipped without uploading anything. Show the person the returned branded_url (falling back to url) from the result; never
-assemble it yourself, because the content host differs per instance.`;
+be included and skipped without uploading anything. Show the person the returned url exactly as given; never
+assemble it yourself, because the workspace part of the address is chosen per account.`;
 
 // --- Tool schemas ------------------------------------------------------------
 
@@ -620,7 +620,7 @@ async function getVersions(ctx, args) {
   const data = await api(ctx, `/api/artifacts/${encodeURIComponent(args.slug)}/versions`);
   return toolResult(
     [
-      ...(data.branded_url || data.url ? [data.branded_url ?? data.url] : []),
+      ...(data.url ? [data.url] : []),
       ...(data.versions ?? []).map((v) => {
         const live = v.version === data.current ? " (live)" : "";
         return `  v${v.version}${live}  ${String(v.created_at).slice(0, 10)}  ${v.file_count} file(s)${v.note ? `  ${v.note}` : ""}`;
@@ -638,7 +638,7 @@ async function rollback(ctx, args) {
     body: JSON.stringify({ version: args.version }),
   });
   return toolResult(
-    [`${data.slug} is live on v${data.current}`, ...(data.branded_url || data.url ? [data.branded_url ?? data.url] : [])],
+    [`${data.slug} is live on v${data.current}`, ...(data.url ? [data.url] : [])],
     { command: "rollback", ...data },
     ctx.config
   );

@@ -39,7 +39,7 @@ import {
   type ProcessedUpload,
   type UploadFile,
 } from "./upload";
-import { PayloadTooLargeError, artifactUrl, limitBodyBytes, resolvePublishTarget, storeUpload } from "./api";
+import { PayloadTooLargeError, viewUrl, limitBodyBytes, resolvePublishTarget, storeUpload } from "./api";
 import { claimUploadSession, lookupUploadSession, releaseUploadSession, type UploadSessionRow } from "./upload-sessions";
 import { uploadGonePage, uploadPage } from "./upload-page";
 
@@ -91,7 +91,7 @@ uploadRoutes.get("/u/:token", async (c) => {
     uploadPage({
       token,
       title: session.title,
-      destination: artifactUrl(c, session.slug),
+      destination: await viewUrl(c, existing?.account_id ?? session.account_id, session.slug),
       isUpdate: !!existing,
       expiresAt: session.expires_at,
     }),

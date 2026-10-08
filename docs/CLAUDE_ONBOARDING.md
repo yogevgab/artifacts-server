@@ -54,7 +54,7 @@ Say it in words, or name the command:
 
 ```
 publish this dashboard and share the link
-→  https://a.rtfx.pro/sales-dashboard/   (v1, bundle, 14 files)
+→  https://rtfx.pro/w-3f9a0c12/sales-dashboard   (v1, bundle, 14 files)
 ```
 
 Re-publishing the same slug appends an immutable version and keeps the URL. `/rtfx:versions`
@@ -133,7 +133,7 @@ with `redacted@example.com` before being committed.
 | 4 | OAuth consent screen showing read + publish scopes | Browser, consent only | The user controls authorization |
 | 5 | Login success page / terminal success, token id redacted | Browser + terminal | Connected, with no secret on screen |
 | 6 | `/rtfx:setup` reporting browser sign-in + API reachable | Terminal | Ready to publish |
-| 7 | "publish this" → the returned `https://a.rtfx.pro/<slug>/` URL | Terminal, then the live page | The payoff, in the user's own words |
+| 7 | "publish this" → the returned `https://rtfx.pro/<workspace>/<slug>` URL | Terminal, then the live page | The payoff, in the user's own words |
 | 8 | Remote MCP `claude mcp login rtfx` + `publish`/`doctor` | Terminal | Hosted auth works; remote publishes inline content, not paths |
 
 Optional ninth: `/rtfx:versions` next to `/rtfx:rollback`, for the versioning story.

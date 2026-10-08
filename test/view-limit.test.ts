@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { env } from "cloudflare:test";
 import { ensurePersonalAccount } from "../src/accounts";
 import { upsertArtifact } from "../src/db";
-import { req, as, htmlForm } from "./fixtures";
+import { req, as, htmlForm, openViewer } from "./fixtures";
 import type { ArtifactRow } from "../src/env";
 import {
   PLANS,
@@ -338,14 +338,7 @@ describe("through the content route", () => {
     return acct.account_id;
   }
 
-  const navigate = (who?: string) =>
-    req("/busy/", {
-      ...(who ? as(who) : { headers: { "X-Dev-Anonymous": "true" } }),
-      headers: {
-        ...((who ? (as(who).headers as Record<string, string>) : { "X-Dev-Anonymous": "true" })),
-        "Sec-Fetch-Dest": "document",
-      },
-    });
+  const navigate = (who?: string) => openViewer("busy", who ?? null);
 
   it("lets the owner in regardless, so they can see what to do about it", async () => {
     const id = await seedOverLimit();
@@ -493,11 +486,7 @@ describe("suspension through the content route", () => {
     return acct.account_id;
   }
 
-  const navigate = (who: string) =>
-    req("/phishy/", {
-      ...as(who),
-      headers: { ...(as(who).headers as Record<string, string>), "Sec-Fetch-Dest": "document" },
-    });
+  const navigate = (who: string) => openViewer("phishy", who);
 
   it("shows a stranger the same 404 they always got — access control refuses them first", async () => {
     if (!(await seedSuspended())) return; // legacy schema without accounts
@@ -531,6 +520,13 @@ describe("suspension through the content route", () => {
     });
     expect(res.status).toBe(403);
     expect(await res.text()).not.toContain("<h1>phishy</h1>");
+
+    // ...and the viewer on the app host refuses the same link holder too.
+    const viewer = await openViewer("phishy", null, {
+      headers: { Cookie: `rtfx_link_phishy=${encodeURIComponent(key)}` },
+    });
+    expect(viewer.status).toBe(403);
+    expect(await viewer.text()).not.toContain("<iframe");
   });
 
   it("stops serving it to the owner too", async () => {

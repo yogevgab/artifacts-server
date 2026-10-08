@@ -1,22 +1,18 @@
 /**
- * Branded account addresses: `rtfx.pro/yogev/q3-board-report`.
+ * Workspace addresses: the `yogev` in `rtfx.pro/yogev/q3-board-report`.
  *
- * An artifact has always had one address — its slug on the content origin
- * (`a.rtfx.pro/q3-board-report/`). That address is correct, permanent and
- * completely anonymous: nothing in it says *who sent it*, which is exactly what
- * a consultant mailing a board report to a client wants it to say.
- *
- * A branded address adds a second, human one on the APP origin, made of two
- * parts that already exist: the workspace's public slug and the artifact's own
- * slug. It is a *link*, not a second copy of the content — the branded route
- * (src/index.ts) authorizes and then redirects to the content origin, so
- * uploaded HTML is still only ever served from the origin that hosts files and
- * nothing else. See docs/POSITIONING.md: this is emphatically NOT a custom
- * domain, and public copy must not let the two blur together.
+ * Every workspace has one — a generated `w-xxxxxxxx` until a paid plan claims a
+ * name — and it is the first half of EVERY artifact's canonical address:
+ * `rtfx.pro/<workspace>/<artifact>`. That is the only address the product shows
+ * or returns. The viewer that serves it runs on the app origin and frames the
+ * artifact's bytes from the sandboxed content origin (src/viewer-routes.ts), so
+ * uploaded HTML is still never same-origin with the dashboard or API. See
+ * docs/POSITIONING.md: this is emphatically NOT a custom domain, and public copy
+ * must not let the two blur together.
  *
  * This module is deliberately pure — no D1, no `Env` — so every rule about what
  * a workspace may call itself is exhaustively table-testable. The reads and
- * writes live in src/accounts.ts.
+ * writes live in src/accounts.ts; building the URL itself is src/canonical.ts.
  */
 
 import { reservedTopLevelSegments } from "./host";
@@ -229,8 +225,9 @@ export interface BrandedPath {
 }
 
 /**
- * Is this request path *shaped* like a branded artifact link, and if so, what
- * are its two halves?
+ * Is this request path *shaped* like an exact `/<workspace>/<artifact>` address
+ * (two segments, nothing deeper), and if so, what are its two halves? The viewer
+ * itself accepts any depth below the artifact; this is the strict shape check.
  *
  * Shape only: this never touches the database, so it is safe to call on the hot
  * path before deciding whether a lookup is worth doing at all. Exactly two

@@ -166,11 +166,11 @@ republish — an artifact cannot be moved into another workspace by publishing t
 
 ```json
 200 OK
-{ "slug": "my-page", "url": "https://a.rtfx.pro/my-page/", "type": "single",
+{ "slug": "my-page", "url": "https://rtfx.pro/w-3f9a0c12/my-page", "type": "single",
   "file_count": 1, "version": 3 }
 ```
 
-`url` points at the content host (`CONTENT_HOSTNAMES`), which is where artifacts are served.
+`url` is the canonical address, `https://rtfx.pro/<workspace>/<slug>`. (`branded_url` is a deprecated alias of it.)
 
 ```bash
 curl -sS -X POST "$ARTIFACTS_URL/api/machine/artifacts" \
@@ -189,19 +189,18 @@ Updating is just publishing to the same slug — every publish is a new immutabl
 ```bash
 # what versions exist, and which is live
 curl -sS "$ARTIFACTS_URL/api/machine/artifacts/my-page/versions" -H "Authorization: Bearer $RTFX_API_TOKEN"
-# {"current":3,"url":"https://a.rtfx.pro/my-page/","versions":[{"version":3,…},{"version":1,…}]}
+# {"current":3,"url":"https://rtfx.pro/w-3f9a0c12/my-page","versions":[{"version":3,…},{"version":1,…}]}
 
 # roll back to v2 (requires `publish` scope)
 curl -sS -X POST "$ARTIFACTS_URL/api/machine/artifacts/my-page/current" \
   -H "Authorization: Bearer $RTFX_API_TOKEN" -H "Content-Type: application/json" \
   -d '{"version": 2}'
-# {"slug":"my-page","current":2,"url":"https://a.rtfx.pro/my-page/"}
+# {"slug":"my-page","current":2,"url":"https://rtfx.pro/w-3f9a0c12/my-page"}
 ```
 
-Every route that reports on an artifact returns its `url`, and `GET /api/machine/artifacts` returns
-`content_base` alongside the list. Use them rather than assembling a link: the content host comes
-from `CONTENT_HOSTNAMES`, so a hard-coded `https://a.rtfx.pro/<slug>/` is right on rtfx.pro and
-wrong on every other deployment.
+Every route that reports on an artifact returns its `url` (the list carries one per row). Use it
+rather than assembling a link: the workspace part of the address is chosen per account. There is
+no `content_base` any more — the content host is not an address.
 
 Rollback is instant and non-destructive: v3's files stay in R2, so rolling forward again is
 another `current` call. Preview any version at `/v/<slug>/<n>/` (owner/admin only).

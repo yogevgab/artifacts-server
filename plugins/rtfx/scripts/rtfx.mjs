@@ -286,7 +286,7 @@ async function versions(slug) {
   const cfg = await config();
   const data = await call(cfg, `/api/artifacts/${encodeURIComponent(slug)}/versions`);
   succeed({ command: "versions", slug, ...data }, [
-    ...(data.branded_url || data.url ? [data.branded_url ?? data.url] : []),
+    ...(data.url ? [data.url] : []),
     ...(data.versions ?? []).map((v) => {
       const live = v.version === data.current ? " (live)" : "";
       return `  v${v.version}${live}  ${String(v.created_at).slice(0, 10)}  ${v.file_count} file(s)${v.note ? `  ${v.note}` : ""}`;
@@ -305,7 +305,7 @@ async function rollback(slug, version) {
   });
   succeed({ command: "rollback", ...data }, [
     `${data.slug} is live on v${data.current}`,
-    ...(data.branded_url || data.url ? [data.branded_url ?? data.url] : []),
+    ...(data.url ? [data.url] : []),
   ]);
 }
 

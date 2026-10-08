@@ -52,13 +52,14 @@ Content-Type: multipart/form-data
 | `note` | no | per-version changelog line |
 
 ```json
-{ "slug": "q3-report", "url": "https://a.rtfx.pro/q3-report/",
+{ "slug": "q3-report", "url": "https://rtfx.pro/w-3f9a0c12/q3-report",
   "type": "bundle", "file_count": 12, "version": 3 }
 ```
 
-`url` is authoritative — it points at the content host, which is a different origin from the API
-so uploaded HTML can never reach the app that manages it. Use what the response returns rather
-than assembling the URL yourself.
+`url` is authoritative — the canonical `rtfx.pro/<workspace>/<slug>` address, the only one to show
+a person. (`branded_url` is a deprecated alias of it.) Use what the response returns rather than
+assembling the URL yourself; uploaded HTML itself is served from a separate sandboxed origin that
+is never an address.
 
 ```bash
 curl -sS -X POST "$ARTIFACTS_URL/api/machine/artifacts" \
@@ -76,12 +77,12 @@ Ownership is never transferred by a re-publish, and publishing to somebody else'
 ```bash
 curl -sS "$ARTIFACTS_URL/api/machine/artifacts/q3-report/versions" \
   -H "Authorization: Bearer $RTFX_API_TOKEN"
-# {"current":3,"url":"https://a.rtfx.pro/q3-report/","versions":[{"version":3,…},…]}
+# {"current":3,"url":"https://rtfx.pro/w-3f9a0c12/q3-report","versions":[{"version":3,…},…]}
 
 curl -sS -X POST "$ARTIFACTS_URL/api/machine/artifacts/q3-report/current" \
   -H "Authorization: Bearer $RTFX_API_TOKEN" -H "Content-Type: application/json" \
   -d '{"version": 2}'
-# {"slug":"q3-report","current":2,"url":"https://a.rtfx.pro/q3-report/"}
+# {"slug":"q3-report","current":2,"url":"https://rtfx.pro/w-3f9a0c12/q3-report"}
 ```
 
 Rollback is non-destructive: v3's files stay in R2, so rolling forward is another `current` call.
@@ -90,11 +91,10 @@ Rollback is non-destructive: v3's files stay in R2, so rolling forward is anothe
 
 ```bash
 curl -sS "$ARTIFACTS_URL/api/machine/artifacts" -H "Authorization: Bearer $RTFX_API_TOKEN"
-# {"artifacts":[…],"content_base":"https://a.rtfx.pro"}
+# {"artifacts":[{"slug":"q3-report","url":"https://rtfx.pro/w-3f9a0c12/q3-report",…},…]}
 ```
 
-`content_base` is the origin artifacts are served from; `content_base + "/" + slug + "/"` is any
-artifact's URL.
+Each row carries its canonical `url`. (`content_base` was removed: there is no client-built URL.)
 
 ## Errors
 

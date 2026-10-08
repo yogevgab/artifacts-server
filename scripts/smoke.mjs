@@ -6,6 +6,9 @@
 //   1. X-Frame-Options: DENY was stamped on artifact content by app-wide
 //      middleware, so a browser refused to render the viewer shell's iframe.
 //      The shell rendered perfectly around an empty box.
+//   (The viewer now runs on the app host at the canonical URL and frames the
+//   content host, so the same checks are made across two origins, plus the
+//   frame-ancestors allowlist that lets that work.)
 //   2. A share link (?k=<key>) authorized the entry document but not its
 //      subresources — the iframe URL and relative assets arrived with no key
 //      and 404'd.
@@ -180,7 +183,7 @@ async function rawFetch(url, init = {}) {
   } catch (e) {
     throw new SmokeFailure(
       `reach ${url}`,
-      "the content host is unreachable — check DNS, TLS, and CONTENT_HOSTNAMES routing",
+      "the host is unreachable — check DNS, TLS, and CONTENT_HOSTNAMES routing (the content host serves the frame)",
       e.message
     );
   }
@@ -287,10 +290,24 @@ async function main() {
   );
   const htmlFrameXfo = htmlFrame.headers.get("x-frame-options");
   must(
-    !htmlFrameXfo || htmlFrameXfo.toUpperCase() !== "DENY",
-    "artifact content does not send X-Frame-Options: DENY",
-    "this is bug 1 exactly: app-wide middleware stamps DENY on any response that doesn't set its own XFO, and a framed DENY response never renders — the shell looks fine around an empty box",
-    htmlFrameXfo ? `got "${htmlFrameXfo}"` : "no X-Frame-Options header at all"
+    !htmlFrameXfo,
+    "artifact content sends no X-Frame-Options at all",
+    "this is bug 1's cousin: the viewer is on the APP origin and the content on another, which X-Frame-Options cannot express — SAMEORIGIN would refuse the viewer and DENY (stamped by app-wide middleware on any response that doesn't opt out) would too; CSP frame-ancestors is the one framing policy",
+    htmlFrameXfo ? `got "${htmlFrameXfo}"` : ""
+  );
+  const appOrigin = new URL(htmlArtifact.url).origin;
+  const htmlFrameCsp = htmlFrame.headers.get("content-security-policy") || "";
+  const ancestors = /frame-ancestors([^;]*)/.exec(htmlFrameCsp)?.[1]?.trim().split(/\s+/) ?? [];
+  must(
+    ancestors.includes(appOrigin) && !ancestors.includes("*"),
+    "frame-ancestors names the app origin and is not a wildcard",
+    "the viewer on the app origin must be allowed to frame the content origin's response, and nothing else on the internet may",
+    `frame-ancestors: ${ancestors.join(" ") || "(none)"} (app origin ${appOrigin})`
+  );
+  must(
+    new URL(htmlIframeUrl).origin !== appOrigin,
+    "the frame is served from a different origin than the viewer",
+    "uploaded HTML must never be same-origin with the app that holds the session — the whole point of the content origin"
   );
 
   // --- PDF: shell + iframe + CSP (bug 3) ----------------------------------
@@ -313,9 +330,9 @@ async function main() {
   );
   const pdfFrameXfo = pdfFrame.headers.get("x-frame-options");
   must(
-    !pdfFrameXfo || pdfFrameXfo.toUpperCase() !== "DENY",
-    "PDF content does not send X-Frame-Options: DENY",
-    "the DENY-by-default middleware bug applies to every content type, not just HTML"
+    !pdfFrameXfo,
+    "PDF content sends no X-Frame-Options",
+    "the framing-policy bug applies to every content type, not just HTML"
   );
   const pdfCsp = pdfFrame.headers.get("content-security-policy") || "";
   must(
@@ -323,6 +340,19 @@ async function main() {
     "PDF response does not carry the permissive script-src CSP",
     "bug 3 exactly: the CSP written for HTML artifacts (script-src * 'unsafe-inline'…) was also applied to PDFs, and that policy is what broke Chrome's built-in PDF viewer — this cannot prove the viewer works (only a real browser can, see the file header), but it proves the policy that broke it is gone",
     pdfCsp ? `got "${pdfCsp}"` : "no CSP header at all"
+  );
+
+  // --- old URL forms ------------------------------------------------------
+  step("an old content-host URL, opened by a browser, lands on the canonical address");
+  const contentOrigin = new URL(htmlIframeUrl).origin;
+  const oldUrl = `${contentOrigin}/${encodeURIComponent(SLUG_HTML)}/`;
+  const oldRes = await rawFetch(oldUrl, { redirect: "manual", headers: { "Sec-Fetch-Dest": "document" } });
+  must(oldRes.status === 302, "old content URL redirects a browser", "links already sent must keep working", `HTTP ${oldRes.status}`);
+  must(
+    new URL(oldRes.headers.get("location") || "", oldUrl).toString() === htmlArtifact.url,
+    "...to exactly the canonical URL the API returned",
+    "the content origin must not stay an address people can land on",
+    `Location: ${oldRes.headers.get("location")}`
   );
 
   // --- share link (bug 2) -------------------------------------------------
@@ -336,9 +366,14 @@ async function main() {
   created.linkId = link.id;
   created.linkSlug = SLUG_HTML;
   must(typeof link.url === "string" && link.url.includes("?k="), "share link URL carries a key", "the URL *is* the credential — no key, no capability");
+  must(
+    link.url.startsWith(`${new URL(htmlArtifact.url).origin}/`) && link.url.split("?")[0] === htmlArtifact.url,
+    "share link is the canonical URL plus ?k=",
+    "a share link must not point at the content origin — that is not an address"
+  );
 
   step("redeem the share link using ONLY the link — no bearer token, no prior session (catches bug 2)");
-  // Step A: present the key. The server must exchange it for a path-scoped
+  // Step A: present the key on the CANONICAL url. The server must exchange it for a per-artifact
   // cookie and redirect to the clean URL — no Authorization header is sent
   // here, deliberately: a real recipient's browser has none either.
   const redeemRes = await rawFetch(link.url, {
@@ -348,7 +383,7 @@ async function main() {
   must(
     redeemRes.status === 302,
     "share link exchanges the key for a cookie",
-    "the app strips ?k= from the URL and sets a path-scoped cookie so the key never lingers in history/referrers",
+    "the app strips ?k= from the URL and sets a per-artifact cookie so the key never lingers in history/referrers",
     `HTTP ${redeemRes.status}`
   );
   const setCookie = typeof redeemRes.headers.getSetCookie === "function"
@@ -371,6 +406,7 @@ async function main() {
   must(linkIframeSrc !== null, "shell (via link) still contains an <iframe src=…>", "same shell markup regardless of how the visitor arrived");
 
   step("fetch the iframe's src using ONLY the link cookie (this is exactly what bug 2 broke)");
+  // The src is absolute on the content origin (the frame token is its credential).
   const linkIframeUrl = new URL(linkIframeSrc, cleanShellUrl).toString();
   console.log(`      iframe src: ${linkIframeSrc}`);
   const linkFrame = await rawFetch(linkIframeUrl, { headers: { Cookie: linkCookie } });

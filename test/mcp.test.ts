@@ -656,7 +656,7 @@ describe("publish, list, versions and rollback against the real API", () => {
     expect(result.isError).toBeUndefined();
     const data = payload(result);
     expect(data).toMatchObject({ ok: true, slug: "quarterly", version: 1, type: "bundle", file_count: 2 });
-    expect(data.url).toContain("/quarterly/");
+    expect(data.url).toMatch(/\/w-[0-9a-f]{8}\/quarterly$/);
     expect(summary(result)).toContain("published quarterly v1");
 
     // The bytes really landed, and are really served.

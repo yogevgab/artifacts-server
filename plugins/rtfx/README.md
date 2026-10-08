@@ -5,7 +5,7 @@ version history, and real access control instead of an unlisted link.
 
 ```
 you: publish this dashboard and share the link
-→   https://a.rtfx.pro/sales-dashboard/   (v1, bundle, 14 files)
+→   https://rtfx.pro/w-3f9a0c12/sales-dashboard   (v1, bundle, 14 files)
 ```
 
 ## Install
@@ -156,8 +156,8 @@ No Cloudflare management token is involved anywhere. Browser login writes only
 - **`--json` everywhere**, so an agent parses results instead of scraping prose. Failures come
   back as `{ "ok": false, "error", "detail", "hint", "retryable" }` with exit code 1.
 - **The URL is never constructed client-side.** It comes from the API response, which knows the
-  content host — a separate origin from the API, so uploaded HTML can't reach the app that
-  manages it.
+  workspace address (`rtfx.pro/<workspace>/<slug>`). Uploaded HTML itself runs in a sandboxed
+  frame on a separate content origin, so it can't reach the app that manages it.
 
 ## Contract
 

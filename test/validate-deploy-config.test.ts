@@ -21,6 +21,7 @@ function baseConfig(overrides: Record<string, unknown> = {}) {
       ADMIN_EMAILS: "admin@rtfx.pro",
       MAIL_FROM: "no-reply@rtfx.pro",
       CONTENT_HOSTNAMES: "a.rtfx.pro",
+      PUBLIC_BASE_URL: "https://rtfx.pro",
       LEMONSQUEEZY_STORE_ID: "rtfxpro",
       LEMONSQUEEZY_VARIANT_FREE: "free",
       LEMONSQUEEZY_VARIANT_PRO: "pro",
@@ -111,6 +112,15 @@ describe("checkWranglerConfig", () => {
     const { errors, pending } = checkWranglerConfig(cfg);
     expect(errors).toEqual([]);
     expect(pending.some((p: string) => p.includes(EXPECTED_MCP_HOSTNAME))).toBe(true);
+  });
+
+  it("errors when PUBLIC_BASE_URL is missing or not the app origin: the viewer and frame-ancestors depend on it", () => {
+    for (const bad of ["", "http://rtfx.pro", "https://a.rtfx.pro", "not a url"]) {
+      const cfg = baseConfig();
+      (cfg.vars as Record<string, string>).PUBLIC_BASE_URL = bad;
+      const { errors } = checkWranglerConfig(cfg);
+      expect(errors.some((e: string) => e.includes("PUBLIC_BASE_URL")), bad).toBe(true);
+    }
   });
 
   it("errors when CONTENT_HOSTNAMES is empty", () => {

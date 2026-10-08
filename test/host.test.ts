@@ -5,6 +5,7 @@ import {
   isContentHost,
   isManagementPath,
   isPerOriginPath,
+  isContentPrefix,
   firstContentHostname,
 } from "../src/host";
 import type { Env } from "../src/env";
@@ -141,5 +142,17 @@ describe("isPerOriginPath", () => {
     expect(isPerOriginPath("/sitemap.xml")).toBe(false);
     expect(isPerOriginPath("/robots.txt/x")).toBe(false);
     expect(isPerOriginPath("/")).toBe(false);
+  });
+});
+
+describe("where the chat socket and the access-request form live", () => {
+  it("serves the chat socket from the app host only: the viewer is there", () => {
+    expect(isManagementPath("/_chat/report")).toBe(true);
+    expect(isContentPrefix("/_chat/report")).toBe(false);
+  });
+
+  it("serves the access-request form from both hosts: its 404 page renders on both", () => {
+    expect(isManagementPath("/_access-request/report")).toBe(false);
+    expect(isContentPrefix("/_access-request/report")).toBe(true);
   });
 });

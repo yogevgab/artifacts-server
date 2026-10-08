@@ -12,16 +12,18 @@
 import { Hono, type Context } from "hono";
 import type { AppBindings, Env } from "./env";
 import { SESSION_COOKIE } from "./auth";
-import { mintSession, mintHandoff, SESSION_TTL_SECONDS } from "./session";
+import { mintSession, SESSION_TTL_SECONDS } from "./session";
 import { createChallenge, redeemCode, redeemToken, CHALLENGE_TTL_MINUTES } from "./otp";
 import { sendMail } from "./mail";
 import { signinMail, guestMail } from "./mail-templates";
 import { normalizeEmail } from "./waitlist";
 import { incrementRateLimitBucket, clientAddress } from "./rate-limit";
 import { touchLastSeen, effectiveRole } from "./users";
-import { ensurePersonalAccount } from "./accounts";
+import { ensurePersonalAccount, ensureAccountPublicSlug } from "./accounts";
+import { canonicalPath } from "./canonical";
+import { GUEST_COOKIE } from "./viewing";
 import { siteOrigin } from "./seo";
-import { parseHostnames, firstContentHostname, isContentHost, requestHostname } from "./host";
+import { isContentHost, requestHostname } from "./host";
 import { getIdentity, readCookie } from "./auth";
 import { hasGrant, getArtifact } from "./db";
 import { magicLinkConfirmPage } from "./login";
@@ -51,6 +53,10 @@ function sessionCookie(token: string, maxAge: number): string {
     "SameSite=Lax",
     `Max-Age=${maxAge}`,
   ].join("; ");
+}
+
+function guestCookie(token: string, maxAge: number): string {
+  return [`${GUEST_COOKIE}=${token}`, "Path=/", "HttpOnly", "Secure", "SameSite=Lax", `Max-Age=${maxAge}`].join("; ");
 }
 
 /**
@@ -231,22 +237,25 @@ authRoutes.post("/auth/m/:token", async (c) => {
   const challenge = await redeemToken(c.env, c.req.param("token"), new Date().toISOString());
   if (!challenge) return c.json({ error: "invalid_link" }, 401);
 
-  // A guest challenge yields a guest credential on the content host, never a
-  // member session here: redeeming a share invitation must not create an
-  // account for somebody who never asked for one.
+  // A guest challenge yields a GUEST credential, never a member session:
+  // redeeming a share invitation must not create an account for somebody who
+  // never asked for one, and must not replace the session of a member who is
+  // already signed in. It is its own cookie, bound to this one artifact, and only
+  // the viewer and its chat socket ever read it. The visitor lands on the
+  // artifact's canonical address.
   if (challenge.purpose === "guest" && challenge.slug && c.env.SESSION_SECRET) {
-    const host = firstContentHostname(c.env);
-    if (host) {
-      const ct = await mintHandoff(
-        c.env.SESSION_SECRET,
-        { email: challenge.email, kind: "guest", slug: challenge.slug },
-        new Date().toISOString()
-      );
-      return c.redirect(
-        `https://${host}/${encodeURIComponent(challenge.slug)}/?ct=${encodeURIComponent(ct)}`,
-        302
-      );
-    }
+    const token = await mintSession(
+      c.env.SESSION_SECRET,
+      { email: challenge.email, kind: "guest", slug: challenge.slug },
+      new Date().toISOString()
+    );
+    const art = await getArtifact(c.env, challenge.slug);
+    const workspace = art?.account_id ? await ensureAccountPublicSlug(c.env, art.account_id) : null;
+    const headers = new Headers({
+      Location: art ? canonicalPath(workspace, art.slug) : "/",
+    });
+    headers.append("Set-Cookie", guestCookie(token, SESSION_TTL_SECONDS));
+    return new Response(null, { status: 302, headers });
   }
 
   const cookie = await establishSession(c.env, challenge.email);
@@ -302,49 +311,9 @@ authRoutes.post("/auth/guest", async (c) => {
   return c.json(ACCEPTED, 202);
 });
 
-authRoutes.post("/auth/signout", (c) =>
-  c.json({ ok: true }, 200, { "Set-Cookie": sessionCookie("", 0) })
-);
-
-/**
- * Hand a signed-in caller across to the content host.
- *
- * The session cookie is host-only so it never reaches the origin serving
- * uploaded HTML. That means the content host cannot identify anyone on its own,
- * and has to ask the app host — this route — for a short-lived token it can
- * exchange for a cookie of its own.
- *
- * `next` is validated against CONTENT_HOSTNAMES rather than merely checked for
- * a prefix: an open redirect here would hand a valid credential to whatever
- * host an attacker named.
- */
-authRoutes.get("/auth/content", async (c) => {
-  const next = c.req.query("next") ?? "";
-  let target: URL;
-  try {
-    target = new URL(next);
-  } catch {
-    return c.json({ error: "bad_request", detail: "next must be an absolute URL" }, 400);
-  }
-  const hosts = parseHostnames(c.env.CONTENT_HOSTNAMES);
-  if (target.protocol !== "https:" || !hosts.has(target.hostname)) {
-    return c.json({ error: "bad_request", detail: "next must be a content host" }, 400);
-  }
-
-  const identity = await getIdentity(c);
-  if (!identity?.email) {
-    // Somebody following a shared link is usually not a member. Send them to the
-    // guest page for this artifact rather than a sign-in they have no account for.
-    const slug = c.req.query("slug");
-    return c.redirect(slug ? `/shared/${encodeURIComponent(slug)}` : `/login`, 302);
-  }
-  if (!c.env.SESSION_SECRET) return c.json({ error: "not_configured" }, 503);
-
-  const ct = await mintHandoff(
-    c.env.SESSION_SECRET,
-    { email: identity.email, kind: identity.kind === "guest" ? "guest" : "member" },
-    new Date().toISOString()
-  );
-  target.searchParams.set("ct", ct);
-  return c.redirect(target.toString(), 302);
+authRoutes.post("/auth/signout", (c) => {
+  const headers = new Headers({ "Content-Type": "application/json" });
+  headers.append("Set-Cookie", sessionCookie("", 0));
+  headers.append("Set-Cookie", guestCookie("", 0));
+  return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
 });

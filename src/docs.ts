@@ -202,8 +202,10 @@ const FAQS: readonly Faq[] = [
   {
     q: "Where does the uploaded HTML actually run?",
     a:
-      "On a separate content origin (a.rtfx.pro) that serves artifact files and nothing else — " +
-      "no dashboard, no API, no admin. Uploaded HTML therefore can never run in the same origin " +
+      "In a sandboxed frame on a separate content origin that serves artifact files and nothing else — " +
+      "no dashboard, no API, no admin. You only ever see and share the rtfx.pro address; the " +
+      "page you open is rtfx.pro's viewer, and your artifact is framed inside it from the content origin. " +
+      "Uploaded HTML therefore can never run in the same origin " +
       "as the app that manages it. That boundary sits between your artifacts and rtfx.pro, not " +
       "between one artifact and the next: every artifact is served from the same content origin " +
       "today, so what keeps one publisher's page away from another's is the access list, not the " +
@@ -681,15 +683,16 @@ tools: publish · list_artifacts · artifact_details · artifact_statistics · s
             workspace has an address (a generated one like <code>w-3f9a0c12</code> until you pick
             your own), and the links rtfx.pro shows you use it. A paid workspace can claim a custom
             address &mdash; <code>yogev</code>, <code>maya</code>, your
-            company &mdash; and every artifact in it answers at
-            <span class="mono">rtfx.pro/yogev/q3-board-report</span> and
-            <span class="mono">rtfx.pro/maya/client-proposal</span> as well as at its original URL.
-            Both keep working, forever: the branded link is a second way in, never a move. It is a
+            company &mdash; and every artifact in it is addressed at
+            <span class="mono">rtfx.pro/yogev/q3-board-report</span> or
+            <span class="mono">rtfx.pro/maya/client-proposal</span> &mdash; the only link
+            rtfx.pro ever shows you. Share links you have already sent keep working if you later
+            change the address. It is a
             path on rtfx.pro, <b>not</b> a custom domain of your own &mdash; those are still not
             built, and are listed below.</li>
           <li><b>Uploaded HTML runs somewhere it can't reach us.</b> Artifact files are served from a
             dedicated content origin that hosts files and nothing else — no dashboard, no API, no
-            admin — so a page you publish can never touch the app that published it. Artifacts share
+            admin — and is only ever shown inside rtfx.pro's viewer, so a page you publish can never touch the app that published it. Artifacts share
             that one content origin, so it isolates published content from rtfx.pro rather than
             artifacts from each other.</li>
           <li><b>Nothing watches the visitor.</b> No analytics, advertising or third-party tracking

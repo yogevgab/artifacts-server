@@ -74,7 +74,7 @@ export function uploadGonePage(kind: "expired" | "used" | "unknown"): string {
 export interface UploadPageInput {
   token: string;
   title: string;
-  /** The address the site will be published at, e.g. https://a.rtfx.pro/my-site/. */
+  /** The address the site will be published at, e.g. https://rtfx.pro/w-3f9a0c12/my-site. */
   destination: string;
   /** True when this adds a version to something that already exists. */
   isUpdate: boolean;

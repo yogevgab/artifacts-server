@@ -80,7 +80,7 @@ the thing is (`checkout-prototype`, `q3-report`). It is the permanent address, s
 worth two seconds.
 
 Then **report the URL the command printed**, verbatim. That line —
-`https://a.rtfx.pro/<slug>/` — is the deliverable. Do not construct it yourself and do not
+`https://rtfx.pro/<workspace>/<slug>` — is the deliverable. Do not construct it yourself and do not
 paraphrase it.
 
 ### Updating something already published

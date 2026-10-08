@@ -52,6 +52,11 @@ const MANAGEMENT_PREFIXES = [
   "/shared",
   // `/share/<slug>`: the share page the content-origin viewer links to.
   "/share",
+  // The chat socket for the viewer (src/index.ts). It authorizes with the
+  // app-host session / link cookie exactly like the viewer, so it lives on the
+  // app host and a content host must 404 it. `_chat` can never be a slug
+  // (SLUG_RE needs a leading [a-z0-9]), so this is collision-free by construction.
+  "/_chat",
   "/mcp",
   // `/u/<token>` is the browser upload page behind the MCP `create_upload_link`
   // tool (src/upload-routes.ts). Its token is a credential, and `u` can never
@@ -62,20 +67,18 @@ const MANAGEMENT_PREFIXES = [
 ];
 
 /**
- * Paths the CONTENT host serves in addition to artifact files. The chat socket
- * has to live here: the viewer shell runs on the content origin, and the app
- * origin's session cookie is host-only, so a cross-origin socket would carry no
- * credential at all. `_chat` can never be a slug — SLUG_RE requires the first
- * character to be [a-z0-9] — so this prefix is collision-free by construction.
+ * Paths the CONTENT host serves in addition to artifact files — and the app
+ * host serves too.
  *
- * `/_access-request` joins it for the same structural reason: the "ask for
- * access" form lives on `notFoundPage` (src/pages.ts), which is rendered on
- * the content host too — that is the host somebody actually lands on when a
- * shared link 404s. Its POST target must resolve there, not just on the app
- * host where `/api/*` already lives (and is management-only, so it 404s on
- * a content host). See src/access-request-routes.ts.
+ * `/_access-request` is the "ask for access" form's POST target. The form lives
+ * on `notFoundPage` (src/pages.ts), which renders on both hosts (the viewer's
+ * 404 on the app host, and the content host's raw 404), so the target must
+ * resolve on both. See src/access-request-routes.ts.
+ *
+ * The chat socket (`/_chat`) is NOT here any more: the viewer runs on the app
+ * host, so the socket is an app-host route and is in MANAGEMENT_PREFIXES.
  */
-const CONTENT_PREFIXES = ["/_chat", "/_access-request"];
+const CONTENT_PREFIXES = ["/_access-request"];
 
 export function isContentPrefix(path: string): boolean {
   return CONTENT_PREFIXES.some((p) => path === p || path.startsWith(p + "/"));

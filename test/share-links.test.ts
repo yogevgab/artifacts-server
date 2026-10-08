@@ -6,12 +6,17 @@ import { mintSession } from "../src/session";
 import { createShareLink, redeemShareLink, revokeShareLink, listShareLinks } from "../src/share";
 import type { Env } from "../src/env";
 import { createApiToken } from "../src/tokens";
-import { initDb, clearR2, req, as, withToken } from "./fixtures";
+import { initDb, clearR2, req, as, withToken, viewerPath } from "./fixtures";
 
 const SECRET = "test-secret-at-least-32-bytes-long-for-hs256!!";
 const OWNER = "owner@rtfx.pro";
 const AT = "2026-08-14T12:00:00.000Z";
 const later = (h: number) => new Date(Date.parse(AT) + h * 3600_000).toISOString();
+
+const APP = "https://rtfx.pro";
+const NAV = { "Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "navigate" };
+/** The canonical viewer URL for an artifact (default `report`). */
+const canon = async (slug = "report") => `${APP}${await viewerPath(slug)}`;
 
 function e(extra: Record<string, unknown> = {}) {
   return {
@@ -100,29 +105,21 @@ describe("opening an artifact with a share link", () => {
   it("opens the artifact for somebody with no identity at all", async () => {
     // Two steps by design: the key is exchanged for a path-scoped cookie so the
     // frame and every asset inside the artifact are authorized too.
-    const first = await app.request(
-      `https://a.rtfx.pro/report/?k=${await key()}`,
-      { headers: { "Sec-Fetch-Dest": "document" } },
-      e()
-    );
+    const first = await app.request(`${await canon()}?k=${await key()}`, { headers: NAV }, e());
     expect(first.status).toBe(302);
+    // The key leaves the address bar: a clean canonical URL.
+    expect(first.headers.get("location")).toBe(await viewerPath("report"));
     const cookie = (first.headers.get("set-cookie") ?? "").split(";")[0];
 
-    const res = await app.request(
-      "https://a.rtfx.pro/report/",
-      { headers: { "Sec-Fetch-Dest": "document", Cookie: cookie } },
-      e()
-    );
+    const res = await app.request(await canon(), { headers: { ...NAV, Cookie: cookie } }, e());
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("<iframe");
   });
 
   it("gives that viewer no share banner — a link is not ownership", async () => {
-    const res = await app.request(
-      `https://a.rtfx.pro/report/?k=${await key()}`,
-      { headers: { "Sec-Fetch-Dest": "document" } },
-      e()
-    );
+    const first = await app.request(`${await canon()}?k=${await key()}`, { headers: NAV }, e());
+    const cookie = (first.headers.get("set-cookie") ?? "").split(";")[0];
+    const res = await app.request(await canon(), { headers: { ...NAV, Cookie: cookie } }, e());
     expect(await res.text()).not.toContain("data-share-banner");
   });
 
@@ -133,11 +130,7 @@ describe("opening an artifact with a share link", () => {
     body.set("visibility", "restricted");
     body.set("file", new File(["<p>x</p>"], "index.html", { type: "text/html" }));
     await req("/api/artifacts", { method: "POST", body, ...as(OWNER) });
-    const res = await app.request(
-      `https://a.rtfx.pro/other/?k=${await key()}`,
-      { headers: { "Sec-Fetch-Dest": "document" } },
-      e()
-    );
+    const res = await app.request(`${await canon("other")}?k=${await key()}`, { headers: NAV }, e());
     // A link for one artifact does not open another. It falls through to the
     // ordinary unidentified path — which offers a sign-in rather than a dead
     // end, and reveals nothing about whether the slug exists.
@@ -149,11 +142,7 @@ describe("opening an artifact with a share link", () => {
     const k = await key();
     const [id] = k.split(".");
     await revokeShareLink(env as any, "report", id, new Date().toISOString());
-    const res = await app.request(
-      `https://a.rtfx.pro/report/?k=${k}`,
-      { headers: { "Sec-Fetch-Dest": "document" } },
-      e()
-    );
+    const res = await app.request(`${await canon()}?k=${k}`, { headers: NAV }, e());
     expect(res.status).not.toBe(200);
     expect(await res.text()).not.toContain("<iframe");
     // Revocation is immediate: no grace period, no cache.
@@ -173,7 +162,11 @@ describe("managing share links over the API", () => {
     );
     expect(res.status).toBe(201);
     const j = (await res.json()) as any;
-    expect(j.url).toContain("a.rtfx.pro/report/?k=");
+    // The link is the canonical address plus the key — never the content host.
+    expect(j.url.split("?k=")[0]).toBe(await canon());
+    expect(j.url.startsWith(`${APP}/w-`)).toBe(true);
+    expect(j.url).toContain("/report?k=");
+    expect(j.url).not.toContain("a.rtfx.pro");
   });
 
   it("refuses somebody who cannot manage the artifact", async () => {
@@ -277,19 +270,17 @@ describe("a share link authorizes the whole artifact, not just its entry", () =>
    */
   it("sets a path-scoped cookie when the key is presented", async () => {
     const k = (await createShareLink(env as any, { slug: "report", createdBy: OWNER, now: new Date().toISOString() })).key;
-    const res = await app.request(
-      `https://a.rtfx.pro/report/?k=${k}`,
-      { headers: { "Sec-Fetch-Dest": "document" } },
-      e()
-    );
+    const res = await app.request(`${await canon()}?k=${k}`, { headers: NAV }, e());
     expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe("/report/");
+    expect(res.headers.get("location")).toBe(await viewerPath("report"));
     const cookie = res.headers.get("set-cookie") ?? "";
     // Named per slug rather than pathed per slug: the chat socket lives at
     // /_chat/<slug>, which a cookie pathed to /<slug>/ can never reach.
     expect(cookie).toContain("rtfx_link_report=");
     expect(cookie).toContain("Path=/");
     expect(cookie).toContain("HttpOnly");
+    expect(cookie).toContain("Secure");
+    expect(cookie).toContain("SameSite=Lax");
   });
 
   it("authorizes subresources from that cookie alone", async () => {
@@ -325,14 +316,10 @@ describe("a share link authorizes the whole artifact, not just its entry", () =>
   /** Somebody who came by link is a reader of one artifact: no rtfx chrome. */
   it("shows a link visitor the artifact alone, with no rtfx bar", async () => {
     const k = (await createShareLink(env as any, { slug: "report", createdBy: OWNER, now: new Date().toISOString() })).key;
-    const first = await app.request(`https://a.rtfx.pro/report/?k=${k}`, {}, e());
+    const first = await app.request(`${await canon()}?k=${k}`, { headers: NAV }, e());
     const cookie = (first.headers.get("set-cookie") ?? "").split(";")[0];
     const html = await (
-      await app.request(
-        "https://a.rtfx.pro/report/",
-        { headers: { "Sec-Fetch-Dest": "document", Cookie: cookie } },
-        e()
-      )
+      await app.request(await canon(), { headers: { ...NAV, Cookie: cookie } }, e())
     ).text();
     for (const hook of ["data-bar", "data-open-chat", "data-copy-link", "data-share-banner", "rtfx<span"]) {
       expect(html, `${hook} should not be shown to a link visitor`).not.toContain(hook);
@@ -340,28 +327,27 @@ describe("a share link authorizes the whole artifact, not just its entry", () =>
     const frame = /<iframe[^>]*>/.exec(html)?.[0] ?? "";
     expect(frame).toContain("sandbox=");
     expect(frame).not.toContain("allow-same-origin");
-    expect(frame).toMatch(/src="\/report\/~t\/[^/]+\/\?raw=1"/);
+    expect(frame).toMatch(/src="https:\/\/a\.rtfx\.pro\/report\/~t\/[^/]+\/\?raw=1"/);
   });
 
   it("keeps the rtfx bar for a signed-in viewer who did not come by link", async () => {
     const cookie = `${SESSION_COOKIE}=${await mintSession(SECRET, { email: OWNER, kind: "member" }, new Date().toISOString())}`;
     const html = await (
-      await app.request(
-        "https://a.rtfx.pro/report/",
-        { headers: { "Sec-Fetch-Dest": "document", Cookie: cookie } },
-        e()
-      )
+      await app.request(await canon(), { headers: { ...NAV, Cookie: cookie } }, e())
     ).text();
     expect(html).toContain("data-bar");
   });
 
   it("stops working the moment the link is revoked", async () => {
     const link = await createShareLink(env as any, { slug: "report", createdBy: OWNER, now: new Date().toISOString() });
-    const first = await app.request(`https://a.rtfx.pro/report/?k=${link.key}`, {}, e());
+    const first = await app.request(`${await canon()}?k=${link.key}`, { headers: NAV }, e());
     const cookie = (first.headers.get("set-cookie") ?? "").split(";")[0];
     await revokeShareLink(env as any, "report", link.id, new Date().toISOString());
-    const res = await app.request("https://a.rtfx.pro/report/", { headers: { Cookie: cookie } }, e());
+    const res = await app.request(await canon(), { headers: { ...NAV, Cookie: cookie } }, e());
     expect(res.status).not.toBe(200);
+    // ...and the raw path (a machine holding the cookie) is refused too.
+    const raw = await app.request("https://a.rtfx.pro/report/", { headers: { Cookie: cookie } }, e());
+    expect(raw.status).not.toBe(200);
   });
 });
 

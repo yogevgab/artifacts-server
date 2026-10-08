@@ -6,8 +6,9 @@
  * the CSP in `src/serve.ts`), so a share control in that document would be
  * privileged UI sitting same-origin with attacker-controlled code.
  *
- * So the chrome lives here, on our origin, and the artifact renders in a frame
- * with `sandbox` and deliberately WITHOUT `allow-same-origin`. That omission is
+ * So the chrome lives here, on OUR (app) origin at the artifact's canonical
+ * address, and the artifact renders in a frame — served from the separate
+ * content origin — with `sandbox` and deliberately WITHOUT `allow-same-origin`. That omission is
  * the entire security property: the browser hands the framed document an opaque
  * origin, so it cannot read cookies, cannot make credentialed same-origin
  * requests, and cannot reach `window.parent`.
@@ -41,8 +42,18 @@ export interface ShellInput {
   entry?: string;
   /** True when this artifact is a single document rather than a site. */
   isDocument?: boolean;
-  /** Canonical app origin. Artifact chrome often renders on a.rtfx.pro. */
+  /**
+   * Prefix for app-host links (home, Share). The shell now renders ON the app
+   * host, so this is normally omitted and those links are origin-relative.
+   */
   appBaseUrl?: string;
+  /**
+   * Origin of the content host that serves the framed bytes (`https://a.rtfx.pro`),
+   * or omitted on a single-host deployment, where the frame is same-origin.
+   * This is the only place the content host appears in the viewer: the address
+   * bar and every link a person copies stay on the canonical app URL.
+   */
+  contentOrigin?: string;
   /**
    * Show the artifact alone — no rtfx bar, chat or controls. Used for somebody
    * who arrived through a share link: they are a reader of one artifact, and
@@ -51,7 +62,7 @@ export interface ShellInput {
    */
   chromeless?: boolean;
   /**
-   * The artifact's branded URL (`rtfx.pro/<workspace>/<slug>`). When present the
+   * The artifact's canonical URL (`rtfx.pro/<workspace>/<slug>`). When present the
    * toolbar's "Copy link" copies this instead of the address bar's URL.
    */
   brandedUrl?: string;
@@ -262,11 +273,10 @@ const CHEVRON_DOWN = chevron("M2.5 4.5 6 8l3.5-3.5");
  */
 function banner(i: ShellInput): string {
   if (!i.canManage) return "";
-  // Sharing runs on the app host, not here. This page is served from the
-  // content origin, which refuses every /api route by design (it hosts
-  // untrusted uploads), so a share panel on this page could never reach the
-  // API — it looked like it worked and created nothing. The app-host page
-  // has the session and the same-origin API.
+  // Sharing is its own app-host page. The viewer used to run on the content
+  // origin, which refuses every /api route, so the panel could not live here;
+  // it is a separate page now and stays one (a popover would also have to sit
+  // above a cross-origin frame).
   const appBase = (i.appBaseUrl ?? "").replace(/\/+$/, "");
   const href = `${appBase}/share/${encodeURIComponent(i.slug)}`;
   return `<a class="btn primary" data-share-banner href="${esc(href)}" target="_blank"
@@ -345,10 +355,19 @@ export function shellPage(i: ShellInput): string {
   // An empty filePath means "the artifact itself", which is its entry — not
   // necessarily index.html.
   const target = i.filePath || (i.entry && i.entry !== "index.html" ? i.entry : "");
+  // Absolute on the content host (cross-origin frame); origin-relative when one
+  // origin serves everything. Each path segment is encoded so a filePath taken
+  // from the address bar can never add a query, a fragment or a `..`.
+  const origin = (i.contentOrigin ?? "").replace(/\/+$/, "");
   const base = i.frameToken
-    ? `/${encodeURIComponent(i.slug)}/${FRAME_TOKEN_SEGMENT}/${i.frameToken}/`
-    : `/${encodeURIComponent(i.slug)}/`;
-  const src = `${base}${target}${target.includes("?") ? "&" : "?"}raw=1`;
+    ? `${origin}/${encodeURIComponent(i.slug)}/${FRAME_TOKEN_SEGMENT}/${i.frameToken}/`
+    : `${origin}/${encodeURIComponent(i.slug)}/`;
+  const targetPath = target
+    .split("/")
+    .filter((seg) => seg !== "" && seg !== "." && seg !== "..")
+    .map(encodeURIComponent)
+    .join("/");
+  const src = `${base}${targetPath}?raw=1`;
   const appHome = i.appBaseUrl ? `${i.appBaseUrl.replace(/\/+$/, "")}/` : "/";
 
   return `<!doctype html>
@@ -383,7 +402,7 @@ export function shellPage(i: ShellInput): string {
   </div>
 </header>
 <div class="scrim" data-scrim hidden></div>
-<section class="chat" id="rtfx-chat" data-chat hidden role="dialog" aria-label="Conversation">
+<section class="chat" id="rtfx-chat" data-chat data-slug="${esc(i.slug)}" hidden role="dialog" aria-label="Conversation">
   <span class="grip" aria-hidden="true"></span>
   <header class="chat-head">
     <span class="chat-title">
@@ -474,7 +493,12 @@ const SHELL_SCRIPT = `(function(){
   /* The frame is cross-origin, so it tells us where it is rather than us
      reading it. Down hides, up reveals — the message is cosmetic only. */
   var lastY=0;
+  var frameEl=document.querySelector('iframe.frame');
   addEventListener('message',function(ev){
+    /* Only the artifact frame may speak here. Its origin is opaque (sandbox
+       without allow-same-origin), so the window identity is the check, not
+       ev.origin; nothing else is trusted to move the toolbar. */
+    if(!frameEl||ev.source!==frameEl.contentWindow) return;
     var d=ev.data;
     if(!d||d.type!=='rtfx:scroll'||typeof d.y!=='number') return;
     if(pinnedHidden) return;
@@ -485,12 +509,11 @@ const SHELL_SCRIPT = `(function(){
   });
 
   /* --- chat ---------------------------------------------------------------
-     The socket lives on this origin (/_chat/<slug>) because the app origin's
-     session cookie is host-only: a cross-origin socket would arrive with no
-     credential at all. Authorization happens in the Worker before the socket
-     is handed to the room. */
+     The socket lives on this (app) origin at /_chat/<slug>, where the session
+     and share-link cookies are. Authorization happens in the Worker before the
+     socket is handed to the room. */
   var log=document.querySelector('[data-chat-log]');
-  var slugForChat=location.pathname.split('/').filter(Boolean)[0];
+  var slugForChat=chat&&chat.getAttribute('data-slug');
   var sock=null;
 
   function stamp(m){

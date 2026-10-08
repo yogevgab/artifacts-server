@@ -284,7 +284,7 @@ content-only if it is listed there, and an app host otherwise (`isContentHost`, 
 |---|---|---|
 | `rtfx.pro` | app | everything: dashboard, `/api`, `/mcp`, `/oauth`, `/.well-known`, public pages. The canonical origin (`PUBLIC_BASE_URL`). |
 | `mcp.rtfx.pro` | app | the same Worker and the same code path. Named for the surface people point a client at. |
-| `a.rtfx.pro` | **content** | uploaded artifact files and the viewer shell. Never `/mcp`, `/oauth` or `/.well-known` — they are `MANAGEMENT_PREFIXES`, so it answers 404. |
+| `a.rtfx.pro` | **content** | uploaded artifact files (framed by the viewer on the app host). Never `/mcp`, `/oauth` or `/.well-known` — they are `MANAGEMENT_PREFIXES`, so it answers 404. |
 
 **`mcp.rtfx.pro` is an app host, and listing it in `CONTENT_HOSTNAMES` would be a bug**, not a
 tightening. It would 404 the three prefixes it exists to serve, and strike it from `appOrigins`
