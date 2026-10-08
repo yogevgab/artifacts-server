@@ -246,6 +246,10 @@ const IS_VIEW = "outcome = 'viewed'";
 
 /** Repeat attempts/previews by the same link + address inside this window are not re-recorded. */
 export const ATTEMPT_DEDUPE_MINUTES = 10;
+/** A share-link reload from the same IP within this window is one view. */
+export const LINK_VIEW_DEDUPE_MINUTES = 5;
+/** At most this many IPs erased per lazy pass. */
+const IP_ERASE_BATCH = 500;
 /** About one insert in this many also erases expired IPs for its artifact. */
 const IP_ERASE_ONE_IN = 50;
 
@@ -262,8 +266,13 @@ export function ipCutoff(now: Date | string = new Date()): string {
  */
 export async function eraseOldIps(env: Env, slug: string, now: Date | string = new Date()): Promise<number> {
   try {
+    // Bounded batch, driven by the partial index on rows that still hold an IP
+    // (migration 0023), so a call never rescans rows already erased.
     const res = await env.DB.prepare(
-      "UPDATE artifact_views SET ip = NULL WHERE slug = ? AND ip IS NOT NULL AND viewed_at < ?"
+      `UPDATE artifact_views SET ip = NULL WHERE id IN (
+         SELECT id FROM artifact_views
+          WHERE slug = ? AND ip IS NOT NULL AND viewed_at < ?
+          LIMIT ${IP_ERASE_BATCH})`
     )
       .bind(slug, ipCutoff(now))
       .run();
@@ -283,9 +292,14 @@ export async function eraseOldIps(env: Env, slug: string, now: Date | string = n
 export async function logView(env: Env, v: ViewRow): Promise<void> {
   const outcome = v.outcome ?? "viewed";
   try {
-    if (outcome === "link_expired" || outcome === "link_revoked" || outcome === "preview") {
-      // A crawler hammering a dead link must not write unbounded rows.
-      const since = new Date(Date.parse(v.viewed_at) - ATTEMPT_DEDUPE_MINUTES * 60_000).toISOString();
+    // Unauthenticated (or link-only) traffic must not write unbounded rows: a
+    // crawler hammering a dead link, or a link holder looping requests with
+    // a forged Sec-Fetch-Dest. One row per link + IP + outcome per window; a
+    // signed-in view (no link) is not deduped, as before.
+    const dedupe = outcome !== "viewed" || !!v.link_id;
+    if (dedupe) {
+      const minutes = outcome === "viewed" ? LINK_VIEW_DEDUPE_MINUTES : ATTEMPT_DEDUPE_MINUTES;
+      const since = new Date(Date.parse(v.viewed_at) - minutes * 60_000).toISOString();
       const dup = await env.DB.prepare(
         `SELECT 1 AS ok FROM artifact_views
           WHERE slug = ? AND link_id IS ? AND outcome = ? AND ip IS ? AND viewed_at > ? LIMIT 1`

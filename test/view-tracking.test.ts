@@ -149,6 +149,21 @@ describe("share-link views", () => {
     expect(r[0].user_agent).toBe(IPHONE);
   });
 
+  /** Sec-Fetch-Dest is client-controlled: a link holder looping requests must not flood the log. */
+  it("counts reloads of a link from the same IP within the window as one view", async () => {
+    const link = await mint();
+    const { first } = await openLink(link.key);
+    const cookie = (first.headers.get("set-cookie") ?? "").split(";")[0];
+    for (let i = 0; i < 5; i++) {
+      await app.request(
+        "https://a.rtfx.pro/report/",
+        { headers: { Cookie: cookie, "Sec-Fetch-Dest": "document", "CF-Connecting-IP": "203.0.113.7", "User-Agent": IPHONE } },
+        e()
+      );
+    }
+    expect(await rows()).toHaveLength(1);
+  });
+
   it("does not log the framed raw request again, only the top-level document", async () => {
     const link = await mint();
     const { first } = await openLink(link.key);
@@ -394,7 +409,8 @@ describe("owner-facing endpoints", () => {
 
   it("/views pages with limit and before", async () => {
     const link = await mint();
-    for (let i = 0; i < 3; i++) await openLink(link.key);
+    // Three different visitors: one IP reloading inside the window is one view.
+    for (let i = 0; i < 3; i++) await openLink(link.key, { "CF-Connecting-IP": `203.0.113.${10 + i}` });
     const get = async (qs: string) =>
       (await (
         await app.request(`https://rtfx.pro/api/artifacts/report/views${qs}`, { headers: { Cookie: await cookieFor(OWNER) } }, e())

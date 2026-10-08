@@ -71,6 +71,9 @@ CREATE TABLE IF NOT EXISTS artifact_views (
 
 CREATE INDEX IF NOT EXISTS idx_views_slug ON artifact_views (slug, viewed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_views_link ON artifact_views (link_id);
+-- Rows that still hold an IP, so the lazy 90-day erasure never rescans rows it
+-- already cleared.
+CREATE INDEX IF NOT EXISTS idx_views_ip_pending ON artifact_views (slug, viewed_at) WHERE ip IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS waitlist (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,

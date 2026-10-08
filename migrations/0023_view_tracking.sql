@@ -42,5 +42,8 @@ ALTER TABLE artifact_views ADD COLUMN link_id TEXT;
 ALTER TABLE artifact_views ADD COLUMN outcome TEXT NOT NULL DEFAULT 'viewed';
 
 CREATE INDEX IF NOT EXISTS idx_views_link ON artifact_views (link_id);
+-- Rows that still hold an IP, so the lazy 90-day erasure never rescans rows it
+-- already cleared.
+CREATE INDEX IF NOT EXISTS idx_views_ip_pending ON artifact_views (slug, viewed_at) WHERE ip IS NOT NULL;
 -- (slug, viewed_at) is already indexed by idx_views_slug (0003), which also serves
 -- the lazy IP-erasure UPDATE and the dedupe lookups, so no second index is added.
