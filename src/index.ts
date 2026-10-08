@@ -999,7 +999,17 @@ app.get("*", async (c) => {
     if (blocksOnSuspension(status, false)) {
       return c.html(suspendedContentPage(slug, siteOrigin(c.env)), 403);
     }
-    return serveArtifact(c, slug, art.current_version, framedPath, { framed: true });
+    const served = await serveArtifact(c, slug, art.current_version, framedPath, { framed: true });
+    // The framed document has an opaque origin, so its own fetch()/XHR of a
+    // sibling file is cross-origin and the browser drops the response unless
+    // it is CORS-readable. (Images, media and scripts load without CORS, which
+    // is why only fetch broke — e.g. a "Download PDF" button that fetches the
+    // file first.) `*` is safe on this path alone: it never carries or honours
+    // a cookie, and the token in the URL is already the whole credential.
+    const res = new Response(served.body, served);
+    res.headers.set("Access-Control-Allow-Origin", "*");
+    res.headers.set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Content-Type, ETag");
+    return res;
   }
 
   // Crossing from the app host: exchange the one-shot handoff for a cookie of

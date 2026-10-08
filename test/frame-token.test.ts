@@ -103,6 +103,18 @@ describe("viewer frame token", () => {
     expect(await work.text()).toContain("<h1>work</h1>");
   });
 
+  /** The framed page's own fetch() is cross-origin (opaque origin). */
+  it("makes token-path responses CORS-readable, and only those", async () => {
+    await publishSite();
+    const base = (await frameSrc()).replace(/\?raw=1$/, "");
+    const viaToken = await framed(`${base}img/a.png`, "empty", { Origin: "null" });
+    expect(viaToken.status).toBe(200);
+    expect(viaToken.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    const viaCookie = await content("/site/img/a.png", { Origin: "https://evil.example" }, true);
+    expect(viaCookie.status).toBe(200);
+    expect(viaCookie.headers.get("Access-Control-Allow-Origin")).toBeNull();
+  });
+
   it("still 404s the same assets with no cookie and no token", async () => {
     await publishSite();
     expect((await framed("/site/img/a.png")).status).toBe(404);
