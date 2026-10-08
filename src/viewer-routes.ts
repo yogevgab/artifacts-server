@@ -86,6 +86,14 @@ function cleanSearch(url: URL, drop: string[]): string {
  * and nothing else: the viewer ignores other parameters, `raw` must never
  * survive, and the retired `ct` handoff has no meaning any more.
  */
+/**
+ * This request's own path, for a same-page redirect, with leading slashes
+ * collapsed: `//ws/slug` would make a protocol-relative Location (host `ws`).
+ */
+function samePath(url: URL): string {
+  return url.pathname.replace(/^\/{2,}/, "/");
+}
+
 export async function redirectToViewer(
   c: AppContext,
   art: ArtifactRow,
@@ -255,7 +263,7 @@ async function viewArtifact(
   // `?raw=1` is how the frame asks for content; as a top-level page it would be
   // the bare artifact. Never here: send the browser to the viewer.
   if (c.req.method === "GET" && c.req.header("Sec-Fetch-Dest") === "document" && url.searchParams.has("raw")) {
-    return c.redirect(url.pathname + cleanSearch(url, ["raw"]), 302);
+    return c.redirect(samePath(url) + cleanSearch(url, ["raw"]), 302);
   }
 
   // Not a browser navigation: curl, the CLI, a subresource. Bytes live on the
@@ -270,7 +278,7 @@ async function viewArtifact(
     return new Response(null, {
       status: 302,
       headers: {
-        Location: url.pathname + cleanSearch(url, ["k"]),
+        Location: samePath(url) + cleanSearch(url, ["k"]),
         "Set-Cookie": linkCookie(slug, key.queryKey),
       },
     });

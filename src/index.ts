@@ -933,6 +933,13 @@ app.get("/_chat/:slug", async (c) => {
   headers.set("X-Chat-Kind", kind);
   headers.set("X-Chat-Version", String(art.current_version));
 
+  // A suspended workspace is a takedown: its conversation stops with its content.
+  const chatStatus = art.account_id
+    ? await viewLimitStatus(c.env, art.account_id, undefined, undefined, true)
+    : null;
+  if (blocksOnSuspension(chatStatus, !!identity?.isAdmin)) {
+    return c.json({ error: "suspended" }, 403);
+  }
   const stub = c.env.CHAT.get(c.env.CHAT.idFromName(slug));
   return stub.fetch(new Request(c.req.url, { headers, method: "GET" }));
 });

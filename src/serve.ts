@@ -141,14 +141,17 @@ export async function serveArtifact<E extends { Bindings: Env }>(
   // executes nothing, so the script/style directives buy no safety and can
   // interfere with the browser's own viewers. Framing control still applies.
   if (!headers.get("Content-Type")?.startsWith("text/html")) {
-    // SVG is a document that runs script when opened directly, so it gets the
-    // same sandbox as HTML. Other types execute nothing, and a PDF must NOT be
-    // sandboxed (Chrome refuses to render it — see src/shell.ts sandboxFor).
+    // Everything uploaded is sandboxed except a PDF, which must NOT be (Chrome
+    // refuses to render it — see src/shell.ts sandboxFor; `singlePdf` checks the
+    // bytes at publish). Not only HTML and SVG run script: an .xml file with an
+    // XHTML or SVG root is a live document too, and /v/ previews serve these on
+    // the APP origin, where unsandboxed script would ride the owner's session.
+    // A sandbox header changes nothing for an image, font or media file.
     headers.set(
       "Content-Security-Policy",
-      headers.get("Content-Type")?.startsWith("image/svg+xml")
-        ? `${ancestors}; sandbox ${ARTIFACT_SANDBOX}`
-        : ancestors
+      headers.get("Content-Type")?.startsWith("application/pdf")
+        ? ancestors
+        : `${ancestors}; sandbox ${ARTIFACT_SANDBOX}`
     );
     headers.set("ETag", obj.httpEtag);
     headers.set("Accept-Ranges", "bytes");

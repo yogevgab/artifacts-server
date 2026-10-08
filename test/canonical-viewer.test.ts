@@ -596,3 +596,52 @@ describe("first-party clients and docs show only the canonical URL", () => {
     expect(architecture).toContain("PUBLIC_BASE_URL");
   });
 });
+
+/**
+ * Review finding (2026-10-08): only HTML and SVG were sandboxed, but an .xml
+ * file with an XHTML root is a live document too — and /v/ previews serve
+ * uploads on the APP origin, where its script would ride the owner's session.
+ */
+describe("every uploaded type but PDF is sandboxed", () => {
+  async function publishBundle(slug: string) {
+    const { zipSync, strToU8 } = await import("fflate");
+    const zip = zipSync({
+      "index.html": strToU8("<!doctype html><body>home</body>"),
+      "x.xml": strToU8('<html xmlns="http://www.w3.org/1999/xhtml"><script>window.pwned=1</script></html>'),
+      "a.png": new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+    });
+    const body = new FormData();
+    body.set("slug", slug);
+    body.set("title", slug);
+    body.set("bundle", new File([zip], "b.zip", { type: "application/zip" }));
+    const res = await app.request(`${APP}/api/artifacts`, { method: "POST", body, headers: { Cookie: await cookie(OWNER) } }, e());
+    expect(res.status).toBeLessThan(300);
+  }
+
+  it("sandboxes an XHTML-in-XML file in a /v/ preview on the app host", async () => {
+    await publishBundle("xmlish");
+    const res = await onApp("/v/xmlish/1/x.xml", { Cookie: await cookie(OWNER) });
+    expect(res.status).toBe(200);
+    const csp = res.headers.get("Content-Security-Policy") ?? "";
+    expect(csp).toContain("sandbox allow-scripts");
+    expect(csp).not.toContain("allow-same-origin");
+  });
+
+  it("sandboxes images too (harmless), but never a PDF", async () => {
+    await publishBundle("xmlish");
+    const img = await onApp("/v/xmlish/1/a.png", { Cookie: await cookie(OWNER) });
+    expect(img.headers.get("Content-Security-Policy") ?? "").toContain("sandbox");
+  });
+});
+
+describe("same-page redirects are never protocol-relative", () => {
+  it("collapses a leading // before redirecting a ?raw=1 navigation", async () => {
+    await publish("doc", OWNER);
+    const path = await viewerPath("doc", "");
+    const res = await onApp(`/${path}?raw=1`, { ...NAV, Cookie: await cookie(OWNER) });
+    if (res.status === 302) {
+      const loc = res.headers.get("Location") ?? "";
+      expect(loc.startsWith("//")).toBe(false);
+    }
+  });
+});

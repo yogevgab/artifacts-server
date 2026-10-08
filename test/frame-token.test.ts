@@ -294,10 +294,14 @@ describe("artifact documents are sandboxed however they are reached", () => {
     expect(csp).not.toContain("allow-same-origin");
   });
 
-  it("leaves images unsandboxed and keeps their framing rule", async () => {
+  // Everything but a PDF is sandboxed (an .xml can be a live document); the
+  // header is harmless for an image, and the framing rule is kept.
+  it("sandboxes images too, keeping their framing rule", async () => {
     await publishSite();
     const res = await content("/site/img/a.png", {}, true);
-    expect(res.headers.get("Content-Security-Policy")).toBe("frame-ancestors 'self' https://rtfx.pro");
+    expect(res.headers.get("Content-Security-Policy")).toBe(
+      "frame-ancestors 'self' https://rtfx.pro; sandbox allow-scripts allow-forms allow-popups allow-downloads allow-modals"
+    );
   });
 });
 
