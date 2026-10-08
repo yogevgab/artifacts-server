@@ -179,13 +179,21 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,
 .add .field{flex:1 1 150px}
 .add input[type=number]{flex:0 0 82px}
 .sep{border:0;border-top:1px solid var(--sh-rule);margin:16px 0 12px}
-.link-row{display:flex;gap:8px;align-items:center;padding:7px 0;font-size:12px;
+.link-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:7px 0;font-size:12px;
   border-bottom:1px solid var(--sh-rule)}
 .link-row:last-child{border-bottom:0}
 .link-row code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--sh-muted)}
 .link-row .exp{flex:none;color:var(--sh-muted);white-space:nowrap}
 .link-row .exp.expired{color:var(--sh-danger);font-weight:600}
+.link-row .meta{flex:1 0 100%;color:var(--sh-muted);font-size:11.5px}
+.link-row .meta.warn{color:var(--sh-danger)}
+.vrow{display:flex;flex-wrap:wrap;gap:2px 8px;padding:7px 0;font-size:12px;border-bottom:1px solid var(--sh-rule)}
+.vrow:last-child{border-bottom:0}
+.vrow .when{color:var(--sh-fg);font-weight:600}
+.vrow .sub{flex:1 0 100%;color:var(--sh-muted);font-size:11.5px;overflow-wrap:anywhere}
+.vrow .tag{border:1px solid var(--sh-rule);border-radius:999px;padding:0 7px;font-size:11px;color:var(--sh-muted)}
+.vrow .tag.warn{color:var(--sh-danger);border-color:var(--sh-danger)}
 
 /* --- the chat drawer -----------------------------------------------------
    A floating card in the bottom-right corner, clear of the toolbar and clear
@@ -299,6 +307,10 @@ function sharePanel(i: { visibility: "restricted" | "everyone"; grantCount: numb
           <button type="button" class="btn" data-make-link>Create share link</button>
         </div>
         <div class="list" data-link-list></div>
+        <hr class="sep">
+        <h3>Recent views</h3>
+        <p class="hint">Who opened it lately, from where, on what. IP addresses are erased after 90 days.</p>
+        <div class="list" data-view-list></div>
       </section>`;
 }
 
@@ -620,7 +632,13 @@ const SHARE_SCRIPT = `(function(){
     return t<=Date.now() ? {text:'Expired '+ds,expired:true} : {text:'Expires '+ds,expired:false};
   }
 
-  function linkRow(id,url,expiresAt){
+  function fmtDate(iso){
+    var t=Date.parse(iso);
+    return isNaN(t)?'':new Date(t).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});
+  }
+  function plural(n,w){ return n+' '+w+(n===1?'':'s'); }
+
+  function linkRow(id,url,expiresAt,stats,revokedAt){
     var row=document.createElement('div'); row.className='link-row';
     var c=document.createElement('code'); c.textContent=url||'Share link';
     var exp=describeExpiry(expiresAt);
@@ -632,7 +650,18 @@ const SHARE_SCRIPT = `(function(){
       fetch('/api/artifacts/'+encodeURIComponent(slug)+'/links/'+encodeURIComponent(id),
         {method:'DELETE'}).then(function(){ row.remove(); });
     });
+    if(revokedAt){ c.textContent='Revoked link'; expEl.textContent='Revoked '+fmtDate(revokedAt); expEl.className='exp expired'; }
     row.appendChild(c); row.appendChild(expEl);
+    stats=stats||{};
+    var views=stats.views||0, attempts=stats.expiredAttempts||0;
+    var meta=document.createElement('span'); meta.className='meta';
+    meta.textContent=plural(views,'view')+(stats.lastViewedAt?' \u00b7 last viewed '+fmtDate(stats.lastViewedAt):'');
+    row.appendChild(meta);
+    if(attempts>0){
+      var warn=document.createElement('span'); warn.className='meta warn';
+      warn.textContent=plural(attempts,'attempt')+(revokedAt?' after it was revoked':' after expiry');
+      row.appendChild(warn);
+    }
     if(url){
       var cp=document.createElement('button');
       cp.type='button'; cp.className='btn sm'; cp.textContent='Copy';
@@ -643,9 +672,49 @@ const SHARE_SCRIPT = `(function(){
       });
       row.appendChild(cp);
     }
-    row.appendChild(rev);
+    if(!revokedAt) row.appendChild(rev);
     return row;
   }
+
+  var viewList=panel.querySelector('[data-view-list]');
+  function cap(x){ return x ? x.charAt(0).toUpperCase()+x.slice(1) : ''; }
+  function viewRow(v){
+    var row=document.createElement('div'); row.className='vrow';
+    var when=document.createElement('span'); when.className='when';
+    var t=Date.parse(v.viewed_at);
+    when.textContent=isNaN(t)?'':new Date(t).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+    row.appendChild(when);
+    var who=document.createElement('span');
+    who.textContent=v.email||(v.link_id?'Someone with a link':'Anonymous');
+    row.appendChild(who);
+    var tagText=v.outcome==='preview'?'link preview':v.outcome==='link_expired'?'expired link':v.outcome==='link_revoked'?'revoked link':v.link_id?'via link':'';
+    if(tagText){
+      var tag=document.createElement('span');
+      tag.className='tag'+(v.outcome==='link_expired'||v.outcome==='link_revoked'?' warn':'');
+      tag.textContent=tagText; row.appendChild(tag);
+    }
+    var place=[v.city,v.region,v.country].filter(Boolean);
+    var loc=v.city&&v.country?v.city+', '+v.country:place.join(', ');
+    var dev=[v.device==='bot'?'Bot':cap(v.device),v.os,v.browser].filter(Boolean).join(' \u00b7 ');
+    var sub=[loc,dev,v.ip].filter(Boolean).join(' \u00b7 ');
+    if(sub){ var s=document.createElement('span'); s.className='sub'; s.textContent=sub; row.appendChild(s); }
+    return row;
+  }
+  function loadViews(){
+    if(!viewList) return;
+    fetch('/api/artifacts/'+encodeURIComponent(slug)+'/views?limit=20')
+      .then(function(r){return r.ok?r.json():null;})
+      .then(function(j){
+        viewList.innerHTML='';
+        var vs=(j&&j.views)||[];
+        if(!vs.length){
+          var p=document.createElement('p'); p.className='hint'; p.textContent='No views yet.';
+          viewList.appendChild(p); return;
+        }
+        vs.forEach(function(v){ viewList.appendChild(viewRow(v)); });
+      });
+  }
+  loadViews();
 
   fetch('/api/artifacts/'+encodeURIComponent(slug)+'/access')
     .then(function(r){return r.ok?r.json():null;})
@@ -655,8 +724,8 @@ const SHARE_SCRIPT = `(function(){
     .then(function(j){
       linkList.innerHTML='';
       if(!j||!j.links) return;
-      j.links.filter(function(l){return !l.revokedAt;}).forEach(function(l){
-        linkList.appendChild(linkRow(l.id,null,l.expiresAt));
+      j.links.filter(function(l){return !l.revokedAt||l.expiredAttempts>0;}).forEach(function(l){
+        linkList.appendChild(linkRow(l.id,null,l.expiresAt,l,l.revokedAt));
       });
     });
 

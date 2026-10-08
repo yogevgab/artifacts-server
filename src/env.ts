@@ -160,7 +160,22 @@ export interface ViewRow {
   country: string | null;
   referrer: string | null;
   viewed_at: string;
+  // Migration 0023. Optional so a row read before it ran (or built by older
+  // code) is still a valid ViewRow; see `logView` in src/db.ts for the fallback.
+  ip?: string | null;
+  region?: string | null;
+  city?: string | null;
+  device?: string | null;
+  os?: string | null;
+  browser?: string | null;
+  user_agent?: string | null;
+  /** The share link this view came through, if any. */
+  link_id?: string | null;
+  /** 'viewed' (default) | 'preview' | 'link_expired' | 'link_revoked'. */
+  outcome?: ViewOutcome;
 }
+
+export type ViewOutcome = "viewed" | "preview" | "link_expired" | "link_revoked";
 
 export interface VersionRow {
   slug: string;

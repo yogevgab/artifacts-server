@@ -56,10 +56,21 @@ CREATE TABLE IF NOT EXISTS artifact_views (
   path       TEXT,
   country    TEXT,
   referrer   TEXT,
-  viewed_at  TEXT NOT NULL
+  viewed_at  TEXT NOT NULL,
+  -- Migration 0023: where and what the view came from.
+  ip         TEXT,
+  region     TEXT,
+  city       TEXT,
+  device     TEXT,
+  os         TEXT,
+  browser    TEXT,
+  user_agent TEXT,
+  link_id    TEXT,
+  outcome    TEXT NOT NULL DEFAULT 'viewed'
 );
 
 CREATE INDEX IF NOT EXISTS idx_views_slug ON artifact_views (slug, viewed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_views_link ON artifact_views (link_id);
 
 CREATE TABLE IF NOT EXISTS waitlist (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,

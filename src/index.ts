@@ -1,5 +1,5 @@
 import { Hono, type Context } from "hono";
-import type { ArtifactRow, Env, VersionRow } from "./env";
+import type { ViewOutcome, ViewRow, ArtifactRow, Env, VersionRow } from "./env";
 import { api, brandedUrl } from "./api";
 import { mcpRoutes } from "./mcp";
 import { oauthRoutes } from "./oauth-routes";
@@ -21,6 +21,7 @@ import {
   listGrants,
   listVersions,
   logView,
+  listViewEvents,
   viewCounts,
   recentViews,
   viewersFor,
@@ -48,7 +49,8 @@ import { shellPage, sharePage, FRAME_TOKEN_SEGMENT } from "./shell";
 import { viewLimitStatus, blocksOnViewLimit, blocksOnSuspension } from "./quota";
 import { overViewLimitPage, suspendedContentPage } from "./view-limit-page";
 export { ChatRoom } from "./chat";
-import { redeemShareLink } from "./share";
+import { redeemShareLink, inspectShareLink } from "./share";
+import { captureViewContext } from "./view-context";
 import { accountSlugRoutes, addressNotice, brandedBase } from "./account-slug-routes";
 import { brandedPathParts } from "./account-slugs";
 
@@ -349,13 +351,14 @@ app.get("/admin/artifacts/:slug", requireUser, async (c) => {
   if (!row || !canManage(c.get("identity"), row, (await accountsFor(c)).roles)) {
     return c.html(portalNotFound(viewer, `The artifact "${slug}"`), 404);
   }
-  const [emails, versions, stats, viewers, versionViews, sources] = await Promise.all([
+  const [emails, versions, stats, viewers, versionViews, sources, events] = await Promise.all([
     listGrants(c.env, slug),
     listVersions(c.env, slug),
     getViews(c.env, slug),
     viewersFor(c.env, slug),
     viewsByVersion(c.env, slug),
     viewSources(c.env, slug),
+    listViewEvents(c.env, slug, { limit: 50 }),
   ]);
   // Delivery state per grantee, so "they never got the invitation" is answerable
   // in the panel instead of by reading mail_log. Needs the grant list first, so
@@ -375,6 +378,8 @@ app.get("/admin/artifacts/:slug", requireUser, async (c) => {
       viewers,
       versionViews,
       sources,
+      // Pre-0023 this is [] and the panel falls back to the old recent list.
+      events: events.length ? events : undefined,
       mailStatus,
       brandedUrl: await brandedUrl(c, row.account_id, slug),
     })
@@ -999,16 +1004,13 @@ async function logViewInBackground(
   email: string,
   path: string
 ): Promise<void> {
-  const cf = (c.req.raw as { cf?: { country?: string } }).cf;
-  const p = recordViewAndMaybeNotify(c.env, {
-    slug: art.slug,
-    version: art.current_version,
-    email,
-    path,
-    country: cf?.country ?? null,
-    referrer: (c.req.header("Referer") ?? "").slice(0, 500) || null,
-    viewed_at: new Date().toISOString(),
-  }, art);
+  await inBackground(c, recordViewAndMaybeNotify(c.env, viewFor(c, art, path, { email }), art));
+}
+
+type AppContext = Context<{ Bindings: Env; Variables: AuthVars }>;
+
+/** Hand a promise to waitUntil in production; await it where there is no execution context (tests). */
+async function inBackground(c: AppContext, p: Promise<unknown>): Promise<void> {
   let ctx: { waitUntil(promise: Promise<unknown>): void } | undefined;
   try {
     ctx = c.executionCtx;
@@ -1017,6 +1019,44 @@ async function logViewInBackground(
   }
   if (ctx) ctx.waitUntil(p);
   else await p;
+}
+
+/** A view-log row for this request: where it came from and what device opened it. */
+function viewFor(
+  c: AppContext,
+  art: ArtifactRow,
+  path: string,
+  o: { email?: string | null; linkId?: string | null; outcome?: ViewOutcome; device?: string } = {}
+): ViewRow {
+  const vc = captureViewContext(c.req.raw);
+  return {
+    slug: art.slug,
+    version: art.current_version,
+    email: o.email ?? null,
+    path,
+    country: vc.country,
+    referrer: (c.req.header("Referer") ?? "").slice(0, 500) || null,
+    viewed_at: new Date().toISOString(),
+    ip: vc.ip,
+    region: vc.region,
+    city: vc.city,
+    device: o.device ?? vc.device,
+    os: vc.os,
+    browser: vc.browser,
+    user_agent: vc.user_agent,
+    link_id: o.linkId ?? null,
+    outcome: o.outcome ?? "viewed",
+  };
+}
+
+/** Record a share-link event (open, preview, or attempt with a dead link). Never notifies the owner. */
+async function logLinkEvent(
+  c: AppContext,
+  art: ArtifactRow,
+  path: string,
+  o: { email?: string | null; linkId: string; outcome: ViewOutcome; device?: string }
+): Promise<void> {
+  await inBackground(c, logView(c.env, viewFor(c, art, path, o)));
 }
 
 app.get("*", async (c) => {
@@ -1108,6 +1148,33 @@ app.get("*", async (c) => {
   const shareKey = queryKey ?? cookieKey;
   const viaLink = shareKey ? await redeemShareLink(c.env, shareKey, new Date().toISOString()) : null;
 
+  // A browser navigation (or a link-card crawler) presenting a key that no
+  // longer works: record it if — and only if — the key really belonged to THIS
+  // artifact. Garbage keys write nothing, so this cannot be used to fill the
+  // table. What the visitor sees below is unchanged. Repeats are deduplicated
+  // inside `logView`.
+  if (
+    queryKey &&
+    !viaLink &&
+    c.req.method === "GET" &&
+    (c.req.header("Sec-Fetch-Dest") === "document" || isLinkPreviewCrawler(c.req.raw.headers))
+  ) {
+    try {
+      const found = await inspectShareLink(c.env, queryKey, new Date().toISOString());
+      if (found && found.link.slug === slug && found.state !== "valid") {
+        const dead = await getArtifact(c.env, slug);
+        if (dead) {
+          await logLinkEvent(c, dead, "", {
+            linkId: found.link.id,
+            outcome: found.state === "revoked" ? "link_revoked" : "link_expired",
+          });
+        }
+      }
+    } catch (e) {
+      console.error("link attempt log failed", e instanceof Error ? e.message : String(e));
+    }
+  }
+
   if (queryKey && viaLink && viaLink.slug === slug) {
     // A link-card crawler (X, WhatsApp, iMessage, Slack…) gets the artifact's
     // title and description instead of a redirect it cannot use. See
@@ -1118,6 +1185,8 @@ app.get("*", async (c) => {
         ? await viewLimitStatus(c.env, previewed.account_id, undefined, undefined, true)
         : null;
       if (previewed && !blocksOnSuspension(status, false)) {
+        // The crawler is a bot, not a reader: record the preview, not a view.
+        await logLinkEvent(c, previewed, "", { linkId: viaLink.id, outcome: "preview", device: "bot" });
         return c.html(
           linkPreviewPage({
             title: previewed.title || slug,
@@ -1239,7 +1308,17 @@ app.get("*", async (c) => {
     // With a frame token the framed request carries no identity, so the view is
     // recorded here, where the viewer is known. Without one (no secret) the
     // frame's own ?raw=1 request still records it below, as it always did.
-    if (frameToken && identity?.email) {
+    if (linkGrantsThis && viaLink) {
+      // A share-link open: logged here, at the shell render of the top-level
+      // document, and not on the ?k= redirect hop (which would double count)
+      // or the framed ?raw=1 request (which carries no credential). No email
+      // unless the visitor also holds a session, and never a read-receipt mail.
+      await logLinkEvent(c, art, filePath || art.entry || "index.html", {
+        linkId: viaLink.id,
+        email: identity?.email ?? null,
+        outcome: "viewed",
+      });
+    } else if (frameToken && identity?.email) {
       await logViewInBackground(c, art, identity.email, filePath || art.entry || "index.html");
     }
     return c.html(

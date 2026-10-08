@@ -96,6 +96,7 @@ import {
   getVersion,
   setCurrentVersion,
   getViews,
+  listViewEvents,
 } from "./db";
 import { firstContentHostname } from "./host";
 import { brandedArtifactUrl } from "./account-slugs";
@@ -1151,7 +1152,35 @@ artifactRoutes.get("/artifacts/:slug/views", requireScope("read"), async (c) => 
   if (!art) return c.json({ error: "not_found" }, 404);
   const raw = Number(c.req.query("limit"));
   const limit = Number.isInteger(raw) && raw > 0 ? Math.min(raw, 200) : 50;
-  return c.json(await getViews(c.env, slug, limit));
+  const rawBefore = Number(c.req.query("before"));
+  const before = Number.isInteger(rawBefore) && rawBefore > 0 ? rawBefore : null;
+  const [stats, events] = await Promise.all([
+    getViews(c.env, slug, limit),
+    listViewEvents(c.env, slug, { limit, before }),
+  ]);
+  // `total`/`unique`/`recent` keep their original shape (signed-in and link
+  // opens only). `views` is the full event log — previews and attempts with an
+  // expired/revoked link included — paged by `before` (an event `id`). An IP
+  // older than the retention window comes back null.
+  return c.json({
+    ...stats,
+    views: events.map((e) => ({
+      id: e.id,
+      viewed_at: e.viewed_at,
+      outcome: e.outcome,
+      email: e.email,
+      link_id: e.link_id,
+      ip: e.ip,
+      country: e.country,
+      region: e.region,
+      city: e.city,
+      device: e.device,
+      os: e.os,
+      browser: e.browser,
+      path: e.path,
+    })),
+    next_before: events.length === limit ? events[events.length - 1].id : null,
+  });
 });
 
 // Rollback: pointing a slug at an existing version is a publish operation —

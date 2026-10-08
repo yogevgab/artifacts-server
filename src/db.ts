@@ -1,5 +1,6 @@
 import { versionsToExpire } from "./quota";
 import type { Env, ArtifactRow, VersionRow, ViewRow } from "./env";
+import { IP_RETENTION_DAYS } from "./view-context";
 
 function isMissingAccountColumn(e: unknown): boolean {
   const message = e instanceof Error ? e.message : String(e);
@@ -219,16 +220,112 @@ export async function deleteArtifactRow(env: Env, slug: string): Promise<void> {
 
 // --- Views log ---
 
-export async function logView(env: Env, v: ViewRow): Promise<void> {
+/** A deploy that predates migration 0023 has none of the view-tracking columns. */
+export function isMissingViewColumn(e: unknown): boolean {
+  const message = e instanceof Error ? e.message : String(e);
+  return /no such column|has no column named/i.test(message) &&
+    /\b(outcome|link_id|ip|region|city|device|os|browser|user_agent)\b/i.test(message);
+}
+
+/**
+ * Run a view query that wants the 0023 `outcome` column, and re-run it without
+ * when the column does not exist yet. `run(true)` may reference `outcome`;
+ * `run(false)` must not.
+ */
+async function withOutcome<T>(run: (hasOutcome: boolean) => Promise<T>): Promise<T> {
   try {
-    await env.DB.prepare(
-      `INSERT INTO artifact_views (slug, version, email, path, country, referrer, viewed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    return await run(true);
+  } catch (e) {
+    if (!isMissingViewColumn(e)) throw e;
+    return run(false);
+  }
+}
+
+/** Only real opens count as views: not link-card previews, not attempts with a dead link. */
+const IS_VIEW = "outcome = 'viewed'";
+
+/** Repeat attempts/previews by the same link + address inside this window are not re-recorded. */
+export const ATTEMPT_DEDUPE_MINUTES = 10;
+/** About one insert in this many also erases expired IPs for its artifact. */
+const IP_ERASE_ONE_IN = 50;
+
+/** ISO timestamp before which a stored IP must not be shown (or kept). */
+export function ipCutoff(now: Date | string = new Date()): string {
+  const t = typeof now === "string" ? Date.parse(now) : now.getTime();
+  return new Date(t - IP_RETENTION_DAYS * 86_400_000).toISOString();
+}
+
+/**
+ * Erase IP addresses older than the retention window for one artifact. There is
+ * no scheduler, so this runs lazily from `logView`; the read paths also hide
+ * old IPs, so correctness never depends on this having run.
+ */
+export async function eraseOldIps(env: Env, slug: string, now: Date | string = new Date()): Promise<number> {
+  try {
+    const res = await env.DB.prepare(
+      "UPDATE artifact_views SET ip = NULL WHERE slug = ? AND ip IS NOT NULL AND viewed_at < ?"
     )
-      .bind(v.slug, v.version, v.email, v.path, v.country, v.referrer, v.viewed_at)
+      .bind(slug, ipCutoff(now))
       .run();
+    return res.meta?.changes ?? 0;
   } catch {
-    // Logging must never break serving.
+    return 0; // pre-0023: no ip column, nothing to erase
+  }
+}
+
+/**
+ * Record one view event. Never throws: logging must never break serving.
+ *
+ * Fails soft before migration 0023: the full insert is tried first; if the new
+ * columns are missing, a plain 'viewed' event falls back to the old column list
+ * and everything else (share-link opens, previews, expired/revoked attempts) is dropped.
+ */
+export async function logView(env: Env, v: ViewRow): Promise<void> {
+  const outcome = v.outcome ?? "viewed";
+  try {
+    if (outcome === "link_expired" || outcome === "link_revoked" || outcome === "preview") {
+      // A crawler hammering a dead link must not write unbounded rows.
+      const since = new Date(Date.parse(v.viewed_at) - ATTEMPT_DEDUPE_MINUTES * 60_000).toISOString();
+      const dup = await env.DB.prepare(
+        `SELECT 1 AS ok FROM artifact_views
+          WHERE slug = ? AND link_id IS ? AND outcome = ? AND ip IS ? AND viewed_at > ? LIMIT 1`
+      )
+        .bind(v.slug, v.link_id ?? null, outcome, v.ip ?? null, since)
+        .first();
+      if (dup) return;
+    }
+    await env.DB.prepare(
+      `INSERT INTO artifact_views
+         (slug, version, email, path, country, referrer, viewed_at,
+          ip, region, city, device, os, browser, user_agent, link_id, outcome)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+      .bind(
+        v.slug, v.version, v.email, v.path, v.country, v.referrer, v.viewed_at,
+        v.ip ?? null, v.region ?? null, v.city ?? null, v.device ?? null, v.os ?? null,
+        v.browser ?? null, v.user_agent ? v.user_agent.slice(0, 300) : null, v.link_id ?? null, outcome
+      )
+      .run();
+    if (Math.random() < 1 / IP_ERASE_ONE_IN) await eraseOldIps(env, v.slug, v.viewed_at);
+  } catch (e) {
+    if (isMissingViewColumn(e)) {
+      // Only a plain signed-in view has a pre-0023 shape. A share-link open
+      // written without its link id would be an unattributable anonymous row
+      // that the old counters would then include, so it is skipped instead.
+      if (outcome !== "viewed" || v.link_id) return;
+      try {
+        await env.DB.prepare(
+          `INSERT INTO artifact_views (slug, version, email, path, country, referrer, viewed_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        )
+          .bind(v.slug, v.version, v.email, v.path, v.country, v.referrer, v.viewed_at)
+          .run();
+      } catch (e2) {
+        console.error("view log failed", e2 instanceof Error ? e2.message : String(e2));
+      }
+      return;
+    }
+    console.error("view log failed", e instanceof Error ? e.message : String(e));
   }
 }
 
@@ -239,17 +336,67 @@ export interface ViewStats {
 }
 
 export async function getViews(env: Env, slug: string, limit = 50): Promise<ViewStats> {
-  const counts = await env.DB.prepare(
-    "SELECT COUNT(*) AS total, COUNT(DISTINCT email) AS uniq FROM artifact_views WHERE slug = ?"
-  )
-    .bind(slug)
-    .first<{ total: number; uniq: number }>();
-  const { results } = await env.DB.prepare(
-    "SELECT slug, version, email, path, country, referrer, viewed_at FROM artifact_views WHERE slug = ? ORDER BY viewed_at DESC LIMIT ?"
-  )
-    .bind(slug, limit)
-    .all<ViewRow>();
-  return { total: counts?.total ?? 0, unique: counts?.uniq ?? 0, recent: results ?? [] };
+  return withOutcome(async (f) => {
+    const where = f ? `slug = ? AND ${IS_VIEW}` : "slug = ?";
+    const counts = await env.DB.prepare(
+      `SELECT COUNT(*) AS total, COUNT(DISTINCT email) AS uniq FROM artifact_views WHERE ${where}`
+    )
+      .bind(slug)
+      .first<{ total: number; uniq: number }>();
+    const { results } = await env.DB.prepare(
+      `SELECT slug, version, email, path, country, referrer, viewed_at FROM artifact_views WHERE ${where} ORDER BY viewed_at DESC LIMIT ?`
+    )
+      .bind(slug, limit)
+      .all<ViewRow>();
+    return { total: counts?.total ?? 0, unique: counts?.uniq ?? 0, recent: results ?? [] };
+  });
+}
+
+/** One row of the owner-facing view log, with the IP withheld once it is past retention. */
+export interface ViewEvent {
+  id: number;
+  viewed_at: string;
+  outcome: string;
+  email: string | null;
+  link_id: string | null;
+  ip: string | null;
+  country: string | null;
+  region: string | null;
+  city: string | null;
+  device: string | null;
+  os: string | null;
+  browser: string | null;
+  path: string | null;
+  version: number;
+}
+
+/**
+ * Newest-first events for one artifact, every outcome included. `before` is a
+ * row id (exclusive) for paging. Returns [] before migration 0023.
+ */
+export async function listViewEvents(
+  env: Env,
+  slug: string,
+  opts: { limit?: number; before?: number | null; now?: Date | string } = {}
+): Promise<ViewEvent[]> {
+  const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
+  const before = opts.before && opts.before > 0 ? opts.before : null;
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT id, viewed_at, outcome, email, link_id,
+              CASE WHEN viewed_at >= ?2 THEN ip END AS ip,
+              country, region, city, device, os, browser, path, version
+         FROM artifact_views
+        WHERE slug = ?1 AND (?3 IS NULL OR id < ?3)
+        ORDER BY id DESC LIMIT ?4`
+    )
+      .bind(slug, ipCutoff(opts.now), before, limit)
+      .all<ViewEvent>();
+    return results ?? [];
+  } catch (e) {
+    if (isMissingViewColumn(e)) return [];
+    throw e;
+  }
 }
 
 /**
@@ -274,9 +421,11 @@ export async function versionCounts(env: Env): Promise<Map<string, { versions: n
 
 /** Per-slug view counts (total + unique) for the dashboard, in one query. */
 export async function viewCounts(env: Env): Promise<Map<string, { total: number; unique: number }>> {
-  const { results } = await env.DB.prepare(
-    "SELECT slug, COUNT(*) AS total, COUNT(DISTINCT email) AS uniq FROM artifact_views GROUP BY slug"
-  ).all<{ slug: string; total: number; uniq: number }>();
+  const { results } = await withOutcome((f) =>
+    env.DB.prepare(
+      `SELECT slug, COUNT(*) AS total, COUNT(DISTINCT email) AS uniq FROM artifact_views ${f ? `WHERE ${IS_VIEW}` : ""} GROUP BY slug`
+    ).all<{ slug: string; total: number; uniq: number }>()
+  );
   const map = new Map<string, { total: number; unique: number }>();
   for (const r of results ?? []) map.set(r.slug, { total: r.total, unique: r.uniq });
   return map;
@@ -284,11 +433,13 @@ export async function viewCounts(env: Env): Promise<Map<string, { total: number;
 
 /** Most-recent views across all artifacts (bounded), grouped by slug. */
 export async function recentViews(env: Env, perSlug = 8, scan = 500): Promise<Map<string, ViewRow[]>> {
-  const { results } = await env.DB.prepare(
-    "SELECT slug, version, email, path, country, referrer, viewed_at FROM artifact_views ORDER BY viewed_at DESC LIMIT ?"
-  )
-    .bind(scan)
-    .all<ViewRow>();
+  const { results } = await withOutcome((f) =>
+    env.DB.prepare(
+      `SELECT slug, version, email, path, country, referrer, viewed_at FROM artifact_views ${f ? `WHERE ${IS_VIEW}` : ""} ORDER BY viewed_at DESC LIMIT ?`
+    )
+      .bind(scan)
+      .all<ViewRow>()
+  );
   const map = new Map<string, ViewRow[]>();
   for (const v of results ?? []) {
     const list = map.get(v.slug) ?? [];
@@ -325,21 +476,23 @@ export interface ViewerSummary {
  * group's most recent row".
  */
 export async function viewersFor(env: Env, slug: string, limit = 200): Promise<ViewerSummary[]> {
-  const { results } = await env.DB.prepare(
-    `SELECT v1.email AS email,
-            COUNT(*) AS views,
-            MAX(v1.viewed_at) AS last_viewed_at,
-            (SELECT v2.version FROM artifact_views v2
-               WHERE v2.slug = v1.slug AND v2.email IS v1.email
-               ORDER BY v2.viewed_at DESC, v2.id DESC LIMIT 1) AS last_version
-       FROM artifact_views v1
-      WHERE v1.slug = ?
-      GROUP BY v1.email
-      ORDER BY last_viewed_at DESC
-      LIMIT ?`
-  )
-    .bind(slug, limit)
-    .all<{ email: string | null; views: number; last_viewed_at: string; last_version: number }>();
+  const { results } = await withOutcome((f) =>
+    env.DB.prepare(
+      `SELECT v1.email AS email,
+              COUNT(*) AS views,
+              MAX(v1.viewed_at) AS last_viewed_at,
+              (SELECT v2.version FROM artifact_views v2
+                 WHERE v2.slug = v1.slug AND v2.email IS v1.email${f ? " AND v2.outcome = 'viewed'" : ""}
+                 ORDER BY v2.viewed_at DESC, v2.id DESC LIMIT 1) AS last_version
+         FROM artifact_views v1
+        WHERE v1.slug = ?${f ? " AND v1.outcome = 'viewed'" : ""}
+        GROUP BY v1.email
+        ORDER BY last_viewed_at DESC
+        LIMIT ?`
+    )
+      .bind(slug, limit)
+      .all<{ email: string | null; views: number; last_viewed_at: string; last_version: number }>()
+  );
   return (results ?? []).map((r) => ({
     email: r.email,
     views: r.views,
@@ -357,15 +510,17 @@ export interface VersionViewSummary {
 
 /** Views grouped by version — which ones are still being opened, so an owner can tell when a rollback is safe. */
 export async function viewsByVersion(env: Env, slug: string): Promise<VersionViewSummary[]> {
-  const { results } = await env.DB.prepare(
-    `SELECT version, COUNT(*) AS total, COUNT(DISTINCT email) AS uniq, MAX(viewed_at) AS last_viewed_at
-       FROM artifact_views
-      WHERE slug = ?
-      GROUP BY version
-      ORDER BY version DESC`
-  )
-    .bind(slug)
-    .all<{ version: number; total: number; uniq: number; last_viewed_at: string }>();
+  const { results } = await withOutcome((f) =>
+    env.DB.prepare(
+      `SELECT version, COUNT(*) AS total, COUNT(DISTINCT email) AS uniq, MAX(viewed_at) AS last_viewed_at
+         FROM artifact_views
+        WHERE slug = ?${f ? ` AND ${IS_VIEW}` : ""}
+        GROUP BY version
+        ORDER BY version DESC`
+    )
+      .bind(slug)
+      .all<{ version: number; total: number; uniq: number; last_viewed_at: string }>()
+  );
   return (results ?? []).map((r) => ({
     version: r.version,
     total: r.total,
@@ -385,20 +540,23 @@ export interface ViewSources {
  * its own "unknown" bucket rather than being excluded from the ranking.
  */
 export async function viewSources(env: Env, slug: string, limit = 8): Promise<ViewSources> {
-  const [referrers, countries] = await Promise.all([
-    env.DB.prepare(
-      `SELECT referrer, COUNT(*) AS count FROM artifact_views WHERE slug = ?
-       GROUP BY referrer ORDER BY count DESC, referrer LIMIT ?`
-    )
-      .bind(slug, limit)
-      .all<{ referrer: string | null; count: number }>(),
-    env.DB.prepare(
-      `SELECT country, COUNT(*) AS count FROM artifact_views WHERE slug = ?
-       GROUP BY country ORDER BY count DESC, country LIMIT ?`
-    )
-      .bind(slug, limit)
-      .all<{ country: string | null; count: number }>(),
-  ]);
+  const [referrers, countries] = await withOutcome((f) => {
+    const where = `slug = ?${f ? ` AND ${IS_VIEW}` : ""}`;
+    return Promise.all([
+      env.DB.prepare(
+        `SELECT referrer, COUNT(*) AS count FROM artifact_views WHERE ${where}
+         GROUP BY referrer ORDER BY count DESC, referrer LIMIT ?`
+      )
+        .bind(slug, limit)
+        .all<{ referrer: string | null; count: number }>(),
+      env.DB.prepare(
+        `SELECT country, COUNT(*) AS count FROM artifact_views WHERE ${where}
+         GROUP BY country ORDER BY count DESC, country LIMIT ?`
+      )
+        .bind(slug, limit)
+        .all<{ country: string | null; count: number }>(),
+    ]);
+  });
   return {
     referrers: referrers.results ?? [],
     countries: countries.results ?? [],

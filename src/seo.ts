@@ -353,7 +353,9 @@ free plan plus two paid ones. Source: ${SOURCE_URL} (MIT).
   is stored only as a hash, so it can be shown once and never redisplayed. **This is not a
   password and must never be described as one** — the URL is the entire credential, which is
   why expiry and revocation are the controls that exist. A share-link view is not attributed
-  to a person in the view log; only the link's \`last_used_at\` moves.
+  to a person in the view log: it is recorded as "someone with a link" (with approximate
+  location, device and IP address, the IP erased after 90 days) and the link's \`last_used_at\`
+  moves.
 
 ## Who it is for
 

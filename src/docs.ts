@@ -173,8 +173,9 @@ const FAQS: readonly Faq[] = [
       "and you can revoke it immediately from the same panel. Only a hash of the link is stored, " +
       "so it cannot be re-displayed after it is created and it cannot leak from our database. " +
       "It carries no password. The trade is attribution: a share-link visitor holds no identity, " +
-      "so their view is not attributed to anybody in the view log — if you need to know exactly " +
-      "who read it, grant access by email instead.",
+      "so their view is not attributed to a person: it is logged as \"someone with a link\" — with when, the approximate place, the " +
+      "device and browser, and the IP address (erased after 90 days) — rather than a name. If you " +
+      "need to know exactly who read it, grant access by email instead.",
   },
   {
     q: "Will I know when somebody opens what I sent?",
@@ -574,10 +575,13 @@ tools: publish · list_artifacts · artifact_details · artifact_statistics · s
             expiry and revocation the controls that matter, and why a link you can't take back
             would be the wrong design.</li>
         </ul>
-        <p>The trade is attribution. A share-link visitor holds no identity, so their view is not
-          attributed to anybody in the view log — the link records when it was last used, and that
-          is all. If you need to know exactly who read something, grant access by email
-          instead.</p>
+        <p>The trade is attribution. A share-link visitor holds no identity, so their view is
+          not attributed to a person — it is logged as <b>someone with a link</b>: when, the approximate city and
+          country, the device and browser, the IP address, and which link was used. The share
+          panel shows each link's view count and last-viewed date, link-card previews fetched by
+          chat apps, and any attempts made after a link expired or was revoked. IP addresses are
+          erased after 90 days. If you need to know exactly who read something, grant access by
+          email instead.</p>
         <p>Worth being precise about what the content origin does and doesn't do: it separates published
           content from rtfx.pro, and all artifacts share it. It is not a per-artifact browser
           sandbox, so two pages published by people who don't trust each other are kept apart by the
@@ -600,8 +604,9 @@ tools: publish · list_artifacts · artifact_details · artifact_statistics · s
           artifact, and rollback is a single action. Nothing is overwritten, so a bad revision is a
           click to undo rather than a re-run of whatever produced it.</p>
         <p>The view log answers the question client work always ends with: who opened it, when, from
-          where, and which version they saw. Views are recorded for signed-in people opening a page —
-          not for asset requests or machine tokens.</p>
+          where, and which version they saw. Views are recorded for signed-in people opening a page and
+          for share-link opens (with IP address, approximate location and device) — not for asset
+          requests or machine tokens.</p>
         <p>The artifact's page in the dashboard reads that log three ways, because "has the client
           seen it?" and "can I safely roll back?" are different questions: <b>Views</b> is the raw
           event list, <b>Viewers</b> is one row per person with how often they came back and which

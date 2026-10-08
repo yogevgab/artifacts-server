@@ -5,10 +5,11 @@
  * survives them changing devices; a link names nobody and works for whoever
  * holds it. Both are legitimate — "send this to the client" and "let Dana in"
  * are different asks — but they must never be confused, which is why they live
- * in separate tables and why a link view is never attributed to a person: the
- * artifact route only logs a view when an identity carries an email
- * (src/index.ts), so a link visitor leaves `last_used_at` on the link and
- * nothing in the view log. Public copy must say so — see /docs#access.
+ * in separate tables and why a link view is never attributed to a person: it is
+ * logged in the view log with `link_id` set and no email (unless the visitor
+ * happens to hold a session too), and the owner sees it as "Someone with a
+ * link". The read-receipt email is for named people only and never fires for a
+ * link. Public copy must say so — see /docs#access and /privacy.
  *
  * The URL *is* the credential. So: only a hash is stored, revocation is
  * immediate, expiry is optional but supported, and a link opens exactly one
@@ -128,6 +129,66 @@ export async function redeemShareLink(
   }
 
   return toLink(row);
+}
+
+export type ShareLinkState = "valid" | "expired" | "revoked";
+
+/**
+ * Look a presented key up by hash REGARDLESS of validity, so a dead link can be
+ * told apart from garbage. Unknown or malformed keys return null. Read-only —
+ * unlike `redeemShareLink` it never touches `last_used_at`, and it grants
+ * nothing: callers use it only to record an attempt.
+ */
+export async function inspectShareLink(
+  env: Env,
+  key: string,
+  now: string
+): Promise<{ link: ShareLink; state: ShareLinkState } | null> {
+  const dot = key.indexOf(".");
+  if (dot <= 0) return null;
+  const row = await env.DB.prepare(
+    `SELECT id, slug, created_by, created_at, expires_at, revoked_at, last_used_at
+       FROM share_links WHERE id = ? AND token_hash = ?`
+  )
+    .bind(key.slice(0, dot), await hashToken(key))
+    .first<Row>();
+  if (!row) return null;
+  const state: ShareLinkState = row.revoked_at
+    ? "revoked"
+    : row.expires_at && row.expires_at <= now
+      ? "expired"
+      : "valid";
+  return { link: toLink(row), state };
+}
+
+export interface ShareLinkStats {
+  /** Opens through the link (outcome 'viewed'); link-card previews are not counted. */
+  views: number;
+  lastViewedAt: string | null;
+  /** Attempts after the link expired or was revoked. */
+  expiredAttempts: number;
+}
+
+/** Per-link view stats for one artifact. Empty before migration 0023. */
+export async function shareLinkStats(env: Env, slug: string): Promise<Map<string, ShareLinkStats>> {
+  const map = new Map<string, ShareLinkStats>();
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT link_id,
+              SUM(CASE WHEN outcome = 'viewed' THEN 1 ELSE 0 END) AS views,
+              MAX(CASE WHEN outcome = 'viewed' THEN viewed_at END) AS last_viewed_at,
+              SUM(CASE WHEN outcome IN ('link_expired', 'link_revoked') THEN 1 ELSE 0 END) AS attempts
+         FROM artifact_views WHERE slug = ? AND link_id IS NOT NULL GROUP BY link_id`
+    )
+      .bind(slug)
+      .all<{ link_id: string; views: number; last_viewed_at: string | null; attempts: number }>();
+    for (const r of results ?? []) {
+      map.set(r.link_id, { views: r.views ?? 0, lastViewedAt: r.last_viewed_at, expiredAttempts: r.attempts ?? 0 });
+    }
+  } catch {
+    /* pre-0023: no link_id column, so no stats */
+  }
+  return map;
 }
 
 /** Revoke immediately. Scoped by slug so a caller can only revoke their own artifact's links. */

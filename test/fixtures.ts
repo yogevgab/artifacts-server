@@ -55,7 +55,9 @@ export async function initDb() {
   await env.DB.prepare(
     `CREATE TABLE artifact_views (
       id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL, version INTEGER NOT NULL,
-      email TEXT, path TEXT, country TEXT, referrer TEXT, viewed_at TEXT NOT NULL)`
+      email TEXT, path TEXT, country TEXT, referrer TEXT, viewed_at TEXT NOT NULL,
+      ip TEXT, region TEXT, city TEXT, device TEXT, os TEXT, browser TEXT, user_agent TEXT,
+      link_id TEXT, outcome TEXT NOT NULL DEFAULT 'viewed')`
   ).run();
   await env.DB.prepare(
     `CREATE TABLE waitlist (

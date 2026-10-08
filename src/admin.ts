@@ -1,6 +1,6 @@
 import type { ArtifactRow, VersionRow, ViewRow } from "./env";
 import { isAutoAccountSlug } from "./account-slugs";
-import type { ViewerSummary, VersionViewSummary, ViewSources, MailStatusSummary } from "./db";
+import type { ViewerSummary, VersionViewSummary, ViewSources, MailStatusSummary, ViewEvent } from "./db";
 import { esc } from "./pages";
 import { MAX_UPLOAD_BYTES } from "./upload";
 import { tokenState } from "./integrations";
@@ -681,22 +681,63 @@ function versionsPanel(r: ArtifactRow, versions: VersionRow[]): string {
   </section>`;
 }
 
-function viewsPanel(slug: string, info: ViewsInfo): string {
+/** "Mobile · iOS · Safari" — whatever of the three we could read from the User-Agent. */
+function deviceLabel(v: Pick<ViewEvent, "device" | "os" | "browser">): string {
+  const d = v.device === "bot" ? "Bot" : v.device ? v.device[0].toUpperCase() + v.device.slice(1) : "";
+  return [d, v.os, v.browser].filter(Boolean).join(" · ");
+}
+
+function placeLabel(v: Pick<ViewEvent, "city" | "region" | "country">): string {
+  return v.city && v.country ? `${v.city}, ${v.country}` : [v.city, v.region, v.country].filter(Boolean).join(", ");
+}
+
+/** The tag a row carries when it was not an ordinary signed-in open. */
+function outcomeTag(v: Pick<ViewEvent, "outcome" | "link_id">): string {
+  if (v.outcome === "preview") return "link preview";
+  if (v.outcome === "link_expired") return "expired link";
+  if (v.outcome === "link_revoked") return "revoked link";
+  return v.link_id ? "via link" : "";
+}
+
+function viewsPanel(slug: string, info: ViewsInfo, events?: ViewEvent[]): string {
   const c = info.counts.get(slug) ?? { total: 0, unique: 0 };
   const recent = info.recent.get(slug) ?? [];
-  const rows = recent
-    .map(
-      (v) => `<div class="row"><div class="info">${esc(v.email ?? "anonymous")}
+  const rows = events
+    ? events
+        .map((v) => {
+          const who = v.email ?? (v.link_id ? "Someone with a link" : "anonymous");
+          const tag = outcomeTag(v);
+          const bits = [
+            stamp(v.viewed_at),
+            `v${v.version}`,
+            placeLabel(v),
+            deviceLabel(v),
+            v.ip ? `IP ${v.ip}` : "",
+            v.path ? `/${v.path}` : "",
+          ]
+            .filter(Boolean)
+            .map((b) => esc(b))
+            .join(" · ");
+          return `<div class="row" data-view-outcome="${esc(v.outcome)}"><div class="info">${esc(who)}${
+            tag ? ` <span class="hint">[${esc(tag)}]</span>` : ""
+          }
+        <span class="hint">${bits}</span></div></div>`;
+        })
+        .join("")
+    : recent
+        .map(
+          (v) => `<div class="row"><div class="info">${esc(v.email ?? "anonymous")}
         <span class="hint">${stamp(v.viewed_at)} · v${v.version}${v.country ? " · " + esc(v.country) : ""}${v.path ? " · /" + esc(v.path) : ""}</span></div></div>`
-    )
-    .join("");
+        )
+        .join("");
+  const any = events ? events.length > 0 : recent.length > 0;
   return `<section class="panel sub-panel" data-panel="views" aria-labelledby="views-h">
     <div class="panel-head"><div>
       <h2 id="views-h">Views <span class="hint">${plural(c.total, "view")} · ${plural(c.unique, "viewer")}</span></h2>
-      <p class="hint">Who opened it, when, and which version they saw.</p>
+      <p class="hint">Who opened it, when, from where, on what, and which version they saw. Share-link opens, link previews and attempts with an expired or revoked link are included. IP addresses are erased after 90 days.</p>
     </div></div>
     ${
-      recent.length
+      any
         ? rows
         : `<p class="note">No views yet — copy the share link above and send it to someone who has access.</p>`
     }
@@ -712,7 +753,7 @@ function viewsPanel(slug: string, info: ViewsInfo): string {
 function viewersPanel(slug: string, viewers: ViewerSummary[]): string {
   const rows = viewers
     .map(
-      (v) => `<div class="row"><div class="info">${esc(v.email ?? "Signed out")}
+      (v) => `<div class="row"><div class="info">${esc(v.email ?? "Someone with a link or signed out")}
         <span class="hint">${plural(v.views, "view")} · last ${stamp(v.lastViewedAt)} · v${v.lastVersion}</span></div></div>`
     )
     .join("");
@@ -913,6 +954,8 @@ export interface ArtifactDetailInput {
   viewers: ViewerSummary[];
   versionViews: VersionViewSummary[];
   sources: ViewSources;
+  /** The full event log (previews and dead-link attempts included); falls back to `views.recent` when absent. */
+  events?: ViewEvent[];
   /**
    * Most recent mail_log entry per granted address (src/db.ts `mailStatusFor`).
    * Optional and defaulted to empty: a caller that hasn't wired the lookup yet
@@ -925,7 +968,7 @@ export interface ArtifactDetailInput {
 }
 
 export function artifactDetailPage(o: ArtifactDetailInput): string {
-  const { viewer, row, emails, versions, views, viewers, versionViews, sources, mailStatus = new Map() } = o;
+  const { viewer, row, emails, versions, views, viewers, versionViews, sources, mailStatus = new Map(), events } = o;
   const shareLink = o.brandedUrl || `/${row.slug}/`;
   const viewCount = views.counts.get(row.slug)?.total ?? 0;
   const badges = artifactBadges(row, emails, versions.length, viewCount, viewer.isAdmin);
@@ -982,7 +1025,7 @@ export function artifactDetailPage(o: ArtifactDetailInput): string {
         ${versionViewsPanel(row.slug, versionViews)}
         ${sourcesPanel(row.slug, sources)}
       </div>
-      ${viewsPanel(row.slug, views)}
+      ${viewsPanel(row.slug, views, events)}
       ${accessPanel(row, emails, viewers, mailStatus)}
       ${danger}`,
     style: ARTIFACTS_STYLE,

@@ -251,7 +251,7 @@ async function loadViewStatus(
   now: Date
 ): Promise<{ plan: string; status: string; views: number } | null> {
   const { start, end } = monthWindow(now);
-  const run = async (withOverride: boolean) => {
+  const run = async (withOverride: boolean, withOutcome = true) => {
     // The effective plan is resolved in SQL rather than by reading the row and
     // calling `effectivePlan`, so a refresh still costs exactly one D1 round
     // trip — the whole reason this query is shaped the way it is.
@@ -264,7 +264,11 @@ async function loadViewStatus(
       `SELECT ${planExpr} AS plan, acc.status AS status, COUNT(v.id) AS n
          FROM accounts acc
          LEFT JOIN artifacts a ON a.account_id = acc.id
-         LEFT JOIN artifact_views v ON v.slug = a.slug AND v.viewed_at >= ?2 AND v.viewed_at < ?3
+         LEFT JOIN artifact_views v ON v.slug = a.slug AND v.viewed_at >= ?2 AND v.viewed_at < ?3${
+           // Link-card previews, dead-link attempts and share-link opens are not metered
+           // (share-link opens were never logged before 0023). Pre-0023: no such columns.
+           withOutcome ? " AND v.outcome = 'viewed' AND v.link_id IS NULL" : ""
+         }
         WHERE acc.id = ?1
         GROUP BY plan, acc.status`
     );
@@ -273,15 +277,25 @@ async function loadViewStatus(
       : stmt.bind(accountId, start, end);
   };
   try {
-    let row: { plan: string; status: string; n: number } | null;
+    type Row = { plan: string; status: string; n: number };
+    // Worker ahead of migration 0023: retry without the outcome/link filter.
+    const runTolerant = async (withOverride: boolean) => {
+      try {
+        return await (await run(withOverride)).first<Row>();
+      } catch (e) {
+        if (!/no such column: (\w+\.)?(outcome|link_id)/i.test(e instanceof Error ? e.message : String(e))) throw e;
+        return await (await run(withOverride, false)).first<Row>();
+      }
+    };
+    let row: Row | null;
     try {
-      row = await (await run(true)).first<{ plan: string; status: string; n: number }>();
+      row = await runTolerant(true);
     } catch (e) {
       // Worker ahead of migration 0018: fall back to the pre-override query
       // rather than refusing to enforce anything. Same tolerance `usageFor`
       // already applies to a database that predates migration 0009.
       if (!isMissingOverrideColumn(e)) throw e;
-      row = await (await run(false)).first<{ plan: string; status: string; n: number }>();
+      row = await runTolerant(false);
     }
     if (!row) return null;
     return { plan: row.plan, status: row.status, views: row.n ?? 0 };

@@ -212,8 +212,14 @@ which is now unused on rtfx.pro.
 - `artifact_grants` — `(slug, email)` allow-list for restricted artifacts.
 - `artifact_versions` — `(slug, version)` one row per immutable version, with per-version
   type/entry/counts/note.
-- `artifact_views` — one row per HTML page load by a signed-in person (slug, version, email,
-  path, country, referrer, timestamp). Written non-blocking via `waitUntil`.
+- `artifact_views` — one row per HTML page load by a signed-in person, per share-link open
+  (shell render; email NULL, `link_id` set), per link-card preview (`outcome='preview'`) and per
+  attempt with an expired/revoked link (`outcome='link_expired'|'link_revoked'`, deduped for 10
+  minutes). Columns: slug, version, email, path, country, referrer, timestamp, plus (migration
+  0023) ip, region, city, device, os, browser, user_agent, link_id, outcome. Written
+  non-blocking via `waitUntil`; the Worker fails soft before 0023. `ip` is erased after 90 days
+  (lazily on insert, and hidden on read). Only `outcome='viewed'` rows count in view totals;
+  share-link opens are not metered against plan view limits.
 - `api_tokens` — one row per bearer credential: public `id`, `token_hash` (SHA-256, unique),
   name, `owner_email` (the creating identity), `account_id` (the workspace it acts inside; NULL
   for legacy and admin/platform tokens), `is_admin`, `scopes`, audit fields (`created_by`,

@@ -148,11 +148,12 @@ describe("shipped sharing features are claimed, and claimed accurately", () => {
   });
 
   /**
-   * The one thing a share link genuinely costs you. No view is logged without
+   * The one thing a share link genuinely costs you. No NAMED view is logged without
    * an identity (src/index.ts only calls `recordViewAndMaybeNotify` when
-   * `identity?.email` is set), so a link visitor appears nowhere in the view
-   * log — and copy that implies otherwise would be selling attribution this
-   * product does not provide for that path.
+   * `identity?.email` is set), so a link visitor is never named in the view
+   * log (since 0023 the visit is logged as "someone with a link") — and copy that
+   * implies otherwise would be selling attribution this product does not provide
+   * for that path.
    */
   it("admits that a share-link view is not attributed to a person", async () => {
     const docs = (await publicHtml("/docs")).toLowerCase();
