@@ -1,5 +1,6 @@
 import type { Env } from "./env";
 import { normalize, type UserRole } from "./users";
+import { generateAutoAccountSlug } from "./account-slugs";
 
 /**
  * Accounts, workspaces, organizations — the product container that OWNS things
@@ -400,6 +401,9 @@ export async function createAccount(env: Env, input: CreateAccountInput): Promis
       input.now
     )
     .run();
+  // Every workspace has an address from birth. Fail-soft (an un-migrated
+  // database has no column); the lazy path in `ensureAccountPublicSlug` covers it.
+  await ensureAccountPublicSlug(env, id);
   return (await getAccount(env, id))!;
 }
 
@@ -477,6 +481,12 @@ export async function ensurePersonalAccount(
       account = await personalAccountFor(env, clean);
     }
     if (!account) return null;
+    // Every workspace has an address; a pre-existing one that lacks it (created
+    // before migration 0021 ran) gets one here. Never a reason to fail.
+    if (!account.public_slug) {
+      await ensureAccountPublicSlug(env, account.id);
+      account = (await getAccount(env, account.id)) ?? account;
+    }
     // Idempotent, and repairs a hand-edited row that lost its owner membership.
     if (!(await memberRole(env, account.id, clean))) {
       await upsertMember(env, {
@@ -505,7 +515,8 @@ export type PublicSlugResult =
   | { ok: false; reason: "taken" | "unavailable" };
 
 /**
- * Claim, change, or (with `null`) release this workspace's branded address.
+ * Claim, change, or (with `null`) release this workspace's branded address —
+ * release reverts to a fresh auto address, never to NULL.
  *
  * Validation is NOT done here — `checkAccountSlug` (src/account-slugs.ts) owns
  * the shape and the reserved list, and the caller runs it first. This function
@@ -525,6 +536,14 @@ export async function setAccountPublicSlug(
   now: string
 ): Promise<PublicSlugResult> {
   const value = slug ? slug.trim().toLowerCase() : null;
+  // Releasing never leaves a workspace without an address: it reverts to a
+  // fresh auto one.
+  if (!value) {
+    const assigned = await assignAutoSlug(env, accountId, now, false);
+    if (!assigned) return { ok: false, reason: "unavailable" };
+    const account = await getAccount(env, accountId);
+    return account ? { ok: true, account } : { ok: false, reason: "unavailable" };
+  }
   try {
     if (value) {
       const holder = await getAccountByPublicSlug(env, value);
@@ -545,6 +564,65 @@ export async function setAccountPublicSlug(
   }
   const account = await getAccount(env, accountId);
   return account ? { ok: true, account } : { ok: false, reason: "unavailable" };
+}
+
+/**
+ * Write a fresh auto address (`w-xxxxxxxx`) for this account, retrying when the
+ * random draw collides with an existing one. With `onlyIfNull` the write is a
+ * no-op for an account that already has an address (the lazy safety net); without
+ * it the existing address is replaced (releasing a custom one). Returns the
+ * address now held, or null when the row/column is not there or retries ran out.
+ */
+async function assignAutoSlug(
+  env: Env,
+  accountId: string,
+  now: string,
+  onlyIfNull: boolean
+): Promise<string | null> {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const candidate = generateAutoAccountSlug();
+    try {
+      const res = await env.DB.prepare(
+        `UPDATE accounts SET public_slug = ?, updated_at = ? WHERE id = ?${
+          onlyIfNull ? " AND public_slug IS NULL" : ""
+        }`
+      )
+        .bind(candidate, now, accountId)
+        .run();
+      if ((res.meta?.changes ?? 0) > 0) return candidate;
+      // Nothing changed: either no such account, or (onlyIfNull) somebody else
+      // assigned one first — read back whichever it is.
+      const row = await env.DB.prepare("SELECT public_slug FROM accounts WHERE id = ?")
+        .bind(accountId)
+        .first<{ public_slug: string | null }>();
+      return row?.public_slug ?? null;
+    } catch (err) {
+      // A collision on the UNIQUE index: draw again. Anything else (no column on
+      // an un-migrated instance, a D1 blip) is not retryable.
+      if (!/UNIQUE|constraint/i.test(String(err))) return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * The workspace's address, assigning an auto one if it somehow has none yet.
+ *
+ * The safety net behind migration 0021's backfill and the assign-on-create
+ * paths: anything that computes a branded URL calls this, so an artifact with an
+ * `account_id` never lacks one. Fails soft to null.
+ */
+export async function ensureAccountPublicSlug(env: Env, accountId: string): Promise<string | null> {
+  try {
+    const row = await env.DB.prepare("SELECT public_slug FROM accounts WHERE id = ?")
+      .bind(accountId)
+      .first<{ public_slug: string | null }>();
+    if (!row) return null;
+    if (row.public_slug) return row.public_slug;
+  } catch {
+    return null;
+  }
+  return assignAutoSlug(env, accountId, new Date().toISOString(), true);
 }
 
 // --- request-scoped context -------------------------------------------------

@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
 import type { ArtifactRow, Env, VersionRow } from "./env";
-import { api } from "./api";
+import { api, brandedUrl } from "./api";
 import { mcpRoutes } from "./mcp";
 import { oauthRoutes } from "./oauth-routes";
 import { waitlist } from "./waitlist";
@@ -33,6 +33,7 @@ import {
   listMembers,
   accountIdsWithAtLeast,
   atLeast,
+  ensureAccountPublicSlug,
   getAccountByPublicSlug,
   memberRole,
   resolveAccountContext,
@@ -189,6 +190,17 @@ function scope<T>(map: Map<string, T>, slugs: Set<string>): Map<string, T> {
 // belonging to a directory account that is not paused.
 
 /** The artifacts this caller manages, with everything the cards need. */
+/** Branded URL per slug for the artifacts a portal page is about to show. */
+async function brandedLinks(c: PortalContext, rows: readonly ArtifactRow[]): Promise<Map<string, string>> {
+  const addresses = new Map<string, string | null>();
+  const links = new Map<string, string>();
+  for (const row of rows) {
+    const url = await brandedUrl(c, row.account_id, row.slug, addresses);
+    if (url) links.set(row.slug, url);
+  }
+  return links;
+}
+
 async function artifactContext(c: PortalContext): Promise<{
   rows: ArtifactRow[];
   grants: Map<string, string[]>;
@@ -298,7 +310,7 @@ app.get("/admin", requireUser, async (c) => {
 app.get("/admin/artifacts", requireUser, async (c) => {
   const viewer = await viewerOf(c);
   const { rows, grants, versions, views } = await artifactContext(c);
-  return c.html(artifactsPage({ viewer, rows, grants, versions, views }));
+  return c.html(artifactsPage({ viewer, rows, grants, versions, views, links: await brandedLinks(c, rows) }));
 });
 
 // One artifact, with its versions, view log, access list and danger zone.
@@ -328,7 +340,18 @@ app.get("/admin/artifacts/:slug", requireUser, async (c) => {
     recent: new Map([[slug, stats.recent]]),
   };
   return c.html(
-    artifactDetailPage({ viewer, row, emails, versions, views, viewers, versionViews, sources, mailStatus })
+    artifactDetailPage({
+      viewer,
+      row,
+      emails,
+      versions,
+      views,
+      viewers,
+      versionViews,
+      sources,
+      mailStatus,
+      brandedUrl: await brandedUrl(c, row.account_id, slug),
+    })
   );
 });
 
@@ -401,7 +424,8 @@ app.get("/admin/billing", requireUser, async (c) => {
 
 app.get("/admin/gallery", requireUser, async (c) => {
   const viewer = await viewerOf(c);
-  return c.html(galleryPage(viewer, await readableArtifacts(c)));
+  const rows = await readableArtifacts(c);
+  return c.html(galleryPage(viewer, rows, await brandedLinks(c, rows)));
 });
 
 app.get("/admin/people", requireUser, async (c) => {
@@ -422,13 +446,16 @@ app.get("/admin/integrations", requireUser, async (c) => {
 app.get("/admin/settings", requireUser, async (c) => {
   const viewer = await viewerOf(c);
   const ws = viewer.workspace;
+  // Every workspace has an address; assign the auto one now if migration 0021's
+  // backfill has not reached this account yet.
+  const address = ws ? (ws.publicSlug ?? (await ensureAccountPublicSlug(c.env, ws.id))) : null;
   return c.html(
     settingsPage(
       viewer,
       ws
         ? {
             origin: c.env.PUBLIC_BASE_URL || siteOrigin(c.env),
-            slug: ws.publicSlug ?? null,
+            slug: address,
             canEdit: ws.role === "owner" || ws.role === "admin" || viewer.isAdmin,
             // Absent billing means "not computed", never "free" — so the row
             // shows the address without offering an upgrade it cannot price.
@@ -1167,6 +1194,7 @@ app.get("*", async (c) => {
         entry: art.entry,
         isDocument: art.entry?.toLowerCase().endsWith(".pdf") ?? false,
         appBaseUrl: siteOrigin(c.env),
+        brandedUrl: (await brandedUrl(c, art.account_id, slug)) ?? undefined,
         frameToken,
       })
     );

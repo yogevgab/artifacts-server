@@ -97,6 +97,7 @@ import {
 } from "./db";
 import {
   artifactUrl,
+  brandedUrl,
   contentBase,
   manageableArtifact,
   normalizeAccessInput,
@@ -198,7 +199,7 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
       "a small multi-file site (which must contain a file whose path is exactly \"index.html\"). " +
       "A new slug creates the artifact at v1, private to its owner; publishing again to a slug you " +
       "own appends an immutable version, live at the same URL — so updating something means calling " +
-      "this with the SAME slug, never a new one. Read the returned `url`; never assemble it yourself, " +
+      "this with the SAME slug, never a new one. Show the person the returned `branded_url` (falling back to `url`); never assemble it yourself, " +
       "because the content host differs per instance.",
     inputSchema: {
       type: "object",
@@ -968,6 +969,7 @@ async function publish(c: Context<Vars>, args: any): Promise<ToolCallResult> {
     const data = (await res.json()) as {
       slug: string;
       url: string;
+      branded_url?: string;
       type: string;
       file_count: number;
       version: number;
@@ -975,7 +977,7 @@ async function publish(c: Context<Vars>, args: any): Promise<ToolCallResult> {
     return result(
       [
         `published ${data.slug} v${data.version} (${data.type}, ${data.file_count} file(s))`,
-        data.url,
+        data.branded_url ?? data.url,
         data.version === 1
           ? "private to you until you share it — set access from the dashboard"
           : "same URL as before; the previous version is still retrievable",
@@ -997,12 +999,18 @@ function pageArgs(args: any): { limit: number; offset: number } {
   return { limit, offset };
 }
 
-function artifactSummary(c: Context<Vars>, row: ArtifactRow): Record<string, unknown> {
+async function artifactSummary(
+  c: Context<Vars>,
+  row: ArtifactRow,
+  addresses?: Map<string, string | null>
+): Promise<Record<string, unknown>> {
+  const branded = await brandedUrl(c, row.account_id, row.slug, addresses);
   return {
     slug: row.slug,
     title: row.title,
     description: row.description,
     url: artifactUrl(c, row.slug),
+    ...(branded ? { branded_url: branded } : {}),
     type: row.type,
     visibility: row.visibility,
     current_version: row.current_version,
@@ -1047,13 +1055,16 @@ async function listArtifactsTool(c: Context<Vars>, args: any): Promise<ToolCallR
   const page = rows.slice(offset, offset + limit);
   const views = await viewCounts(c.env);
   const versions = await versionCounts(c.env);
-  const artifacts = page.map((row) => ({
-    ...artifactSummary(c, row),
-    versions: versions.get(row.slug)?.versions ?? 0,
-    expired_versions: versions.get(row.slug)?.expired ?? 0,
-    views: views.get(row.slug)?.total ?? 0,
-    unique_viewers: views.get(row.slug)?.unique ?? 0,
-  }));
+  const addresses = new Map<string, string | null>();
+  const artifacts = await Promise.all(
+    page.map(async (row) => ({
+      ...(await artifactSummary(c, row, addresses)),
+      versions: versions.get(row.slug)?.versions ?? 0,
+      expired_versions: versions.get(row.slug)?.expired ?? 0,
+      views: views.get(row.slug)?.total ?? 0,
+      unique_viewers: views.get(row.slug)?.unique ?? 0,
+    }))
+  );
   const nextOffset = offset + page.length < total ? offset + page.length : null;
   return result(
     [
@@ -1074,16 +1085,17 @@ async function artifactDetailsTool(c: Context<Vars>, args: any): Promise<ToolCal
     getViews(c.env, slug, 20),
     viewsByVersion(c.env, slug),
   ]);
+  const summary = await artifactSummary(c, art);
   return result(
     [
       `${art.slug} — ${art.title}`,
-      artifactUrl(c, slug),
+      (summary.branded_url as string | undefined) ?? artifactUrl(c, slug),
       `${versions.length} version(s); current v${art.current_version}; ${views.total} view(s); ${grants.length} explicit grant(s)`,
     ],
     {
       command: "artifact_details",
       transport: "http",
-      artifact: artifactSummary(c, art),
+      artifact: summary,
       versions: versions.map((v) => versionSummary(v, art.current_version)),
       access: { visibility: art.visibility, emails: grants },
       views: { ...views, by_version: perVersion },
@@ -1102,9 +1114,11 @@ async function artifactStatisticsTool(c: Context<Vars>, args: any): Promise<Tool
     const art = await manageableArtifact(c, slug);
     if (!art) return failure(new ToolError("artifact not found", { error: "not_found", status: 404 }));
     const [versions, grants, views] = await Promise.all([listVersions(c.env, slug), listGrants(c.env, slug), getViews(c.env, slug, 0)]);
+    const branded = await brandedUrl(c, art.account_id, slug);
     const totals = {
       slug,
       url: artifactUrl(c, slug),
+      ...(branded ? { branded_url: branded } : {}),
       versions: versions.length,
       expired_versions: versions.filter((v) => v.expired_at).length,
       files: versions.reduce((n, v) => n + v.file_count, 0),
@@ -1172,11 +1186,13 @@ async function shareArtifactTool(c: Context<Vars>, args: any): Promise<ToolCallR
   const emails = parsed.visibility === "everyone" ? [] : parsed.emails;
   await setAccess(c.env, slug, parsed.visibility, emails, new Date().toISOString());
   const grants = await listGrants(c.env, slug);
+  const branded = await brandedUrl(c, art.account_id, slug);
   return result([`${slug} access set to ${parsed.visibility}`, `${grants.length} explicit grant(s)`], {
     command: "share_artifact",
     transport: "http",
     slug,
     url: artifactUrl(c, slug),
+    ...(branded ? { branded_url: branded } : {}),
     visibility: parsed.visibility,
     emails: grants,
   });
@@ -1194,12 +1210,14 @@ async function rollbackArtifactTool(c: Context<Vars>, args: any): Promise<ToolCa
   }
   const rolled = await rollbackArtifact(c.env, slug, version);
   if (!rolled.ok) return failure(new ToolError(rolled.detail, { error: rolled.error, status: rolled.status }));
-  return result([`${slug} is now serving v${version}`, artifactUrl(c, slug)], {
+  const branded = await brandedUrl(c, art.account_id, slug);
+  return result([`${slug} is now serving v${version}`, branded ?? artifactUrl(c, slug)], {
     command: "rollback_artifact",
     transport: "http",
     slug,
     current: version,
     url: artifactUrl(c, slug),
+    ...(branded ? { branded_url: branded } : {}),
   });
 }
 

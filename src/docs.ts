@@ -664,8 +664,10 @@ tools: publish · list_artifacts · artifact_details · artifact_statistics · s
             Members carry a role — owner, admin, member or viewer — and instance privilege is
             re-derived from configuration on every request, so no database write can escalate
             anyone.</li>
-          <li><b>A branded address for the workspace, on a URL you can read out loud.</b> A paid
-            workspace can claim an address &mdash; <code>yogev</code>, <code>maya</code>, your
+          <li><b>A branded address for the workspace, on a URL you can read out loud.</b> Every
+            workspace has an address (a generated one like <code>w-3f9a0c12</code> until you pick
+            your own), and the links rtfx.pro shows you use it. A paid workspace can claim a custom
+            address &mdash; <code>yogev</code>, <code>maya</code>, your
             company &mdash; and every artifact in it answers at
             <span class="mono">rtfx.pro/yogev/q3-board-report</span> and
             <span class="mono">rtfx.pro/maya/client-proposal</span> as well as at its original URL.

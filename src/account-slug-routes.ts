@@ -131,7 +131,7 @@ async function readable(
  */
 type ApplyResult =
   | { code: "ok"; slug: string; account: AccountRow }
-  | { code: "released"; slug: null; account: AccountRow }
+  | { code: "released"; slug: string | null; account: AccountRow }
   | { code: "not_found" }
   | { code: "forbidden" | "plan_required"; detail: string }
   | { code: "shape" | "reserved"; detail: string }
@@ -147,7 +147,7 @@ async function applyAddress(c: SlugContext, id: string, raw: unknown): Promise<A
 
   const now = new Date().toISOString();
 
-  // An empty submission releases the address. Distinct from "no field at all"
+  // An empty submission releases the custom address, reverting to a generated one. Distinct from "no field at all"
   // only in the JSON route, where `slug: null` is explicit — the form's empty
   // input means the same thing, and a person who clears the box means it.
   if (normalizeAccountSlug(raw) === "") {
@@ -155,7 +155,9 @@ async function applyAddress(c: SlugContext, id: string, raw: unknown): Promise<A
     if (!released.ok) {
       return { code: "unavailable", detail: "the address could not be released — try again" };
     }
-    return { code: "released", slug: null, account: released.account };
+    // Release never leaves the workspace without an address: it is now a fresh
+    // auto one, which is what the response reports.
+    return { code: "released", slug: released.account.public_slug ?? null, account: released.account };
   }
 
   const planBlock = planDenial(!!identity.isAdmin, found.account);
@@ -228,7 +230,9 @@ const NOTICE_TEXT: Record<string, { kind: "ok" | "error"; text: string }> = {
   ok: { kind: "ok", text: "Workspace address saved. Every artifact here now has a branded link too." },
   released: {
     kind: "ok",
-    text: "Workspace address released. Artifact URLs on the content origin are unchanged.",
+    text:
+      "Custom address released — the workspace is back on a generated one. " +
+      "Artifact URLs on the content origin are unchanged.",
   },
   not_found: { kind: "error", text: "That workspace could not be found." },
   forbidden: { kind: "error", text: "Only an owner or admin of this workspace can change its address." },

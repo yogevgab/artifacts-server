@@ -43,6 +43,11 @@ export interface ShellInput {
   /** Canonical app origin. Artifact chrome often renders on a.rtfx.pro. */
   appBaseUrl?: string;
   /**
+   * The artifact's branded URL (`rtfx.pro/<workspace>/<slug>`). When present the
+   * toolbar's "Copy link" copies this instead of the address bar's URL.
+   */
+  brandedUrl?: string;
+  /**
    * Path capability for the frame (see `mintFrameToken` in src/session.ts).
    * Without it the sandboxed frame's relative assets carry no credential.
    */
@@ -338,7 +343,7 @@ export function shellPage(i: ShellInput): string {
   <div class="actions" data-actions>
     <button type="button" class="btn quiet" data-open-chat
       aria-expanded="false" aria-controls="rtfx-chat">Chat</button>
-    <button type="button" class="btn quiet" data-copy-link>Copy<span class="wide"> link</span></button>
+    <button type="button" class="btn quiet" data-copy-link${i.brandedUrl ? ` data-branded-url="${esc(i.brandedUrl)}"` : ""}>Copy<span class="wide"> link</span></button>
     ${banner(i)}
     <button type="button" class="btn icon" data-hide-bar
       aria-label="Hide toolbar" title="Hide toolbar">${CHEVRON_UP}</button>
@@ -521,7 +526,7 @@ const SHELL_SCRIPT = `(function(){
        markup — writing textContent back would flatten it after one copy. */
     var copyLabel=copy.innerHTML;
     copy.addEventListener('click',function(){
-      var url=location.origin+location.pathname;
+      var url=copy.getAttribute('data-branded-url')||location.origin+location.pathname;
       navigator.clipboard.writeText(url).then(function(){
         copy.textContent='Copied';
         setTimeout(function(){copy.innerHTML=copyLabel;},1400);

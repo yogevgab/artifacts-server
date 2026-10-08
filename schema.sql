@@ -167,10 +167,11 @@ CREATE TABLE IF NOT EXISTS accounts (
   suspended_at             TEXT,
   suspended_by             TEXT,
   suspended_reason         TEXT,
-  -- The workspace's branded address (migration 0020): the `yogev` in
-  -- rtfx.pro/yogev/q3-board-report. NULL until an owner claims one, and nothing
-  -- backfills it — an address nobody asked for is a namespace published by
-  -- accident. Globally unique across accounts via the partial index below.
+  -- The workspace's address (migration 0020, auto-assigned by 0021): the `yogev`
+  -- in rtfx.pro/yogev/q3-board-report. Every workspace has one — a custom name
+  -- (paid plans) or a generated `w-` + 8 hex chars. NULL only transiently, before
+  -- the lazy `ensureAccountPublicSlug` or 0021's backfill reaches a row.
+  -- Globally unique across accounts via the partial index below.
   public_slug              TEXT
 );
 
