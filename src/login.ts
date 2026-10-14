@@ -347,8 +347,8 @@ export function guestSigninPage(env: Env, slug: string, next?: string | null): s
       "guest",
       `<p class="eyebrow">Shared with you</p>
        <h1>Confirm it's you</h1>
-       <p class="lede">Enter the email address this was shared with and we'll send you a link
-         to open it. No account, no password.</p>
+       <p class="lede">Enter the email address this was shared with — or your own, if it's
+         yours — and we'll send you a link to open it. No password.</p>
        <form class="auth-form" data-guest-form data-slug="${esc(slug)}" novalidate>
          <label class="field">
            <span class="field-label">Email address</span>
@@ -379,13 +379,18 @@ const GUEST_SCRIPT = `(function(){
     fetch('/auth/guest?slug='+encodeURIComponent(form.getAttribute('data-slug')),{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({email:email})
-    }).then(function(){
-      form.hidden=true; status.hidden=false;
-      status.textContent='If that address has access, a link is on its way. It expires in 15 minutes.';
-    }).catch(function(){
-      btn.disabled=false; btn.textContent='Send me the link';
-      status.hidden=false; status.setAttribute('data-tone','error');
-      status.textContent='Network problem. Try again.';
-    });
+    }).then(function(r){
+      if(r.ok){
+        form.hidden=true; status.hidden=false; status.removeAttribute('data-tone');
+        status.textContent='If that address has access, a link is on its way. It expires in 15 minutes.';
+        return;
+      }
+      fail(r.status===429?'Too many attempts. Try again in an hour.':
+        r.status===400?'That address does not look right.':'Something went wrong. Try again.');
+    }).catch(function(){fail('Network problem. Try again.');});
   });
+  function fail(msg){
+    var btn=form.querySelector('button'); btn.disabled=false; btn.textContent='Send me the link';
+    status.hidden=false; status.setAttribute('data-tone','error'); status.textContent=msg;
+  }
 })();`;

@@ -225,3 +225,95 @@ describe("the shared-link landing page", () => {
     expect(html).toContain("/login?next=%2Fabc%2Freport");
   });
 });
+
+/**
+ * The gate form is the only door a signed-out owner sees on their own page. A
+ * grant is how *other* people get in, so an owner or a workspace member never
+ * holds one — and before this, typing their address here sent nothing at all
+ * while the page said a link was on its way.
+ */
+describe("the gate recognises people who belong to the artifact", () => {
+  const MEMBER = "mia@rtfx.pro";
+  const gate = (email: string) =>
+    app.request(
+      `${APP}/auth/guest?slug=report`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) },
+      e()
+    );
+  const challenges = async (email: string) =>
+    (
+      await (env as any).DB.prepare("SELECT purpose, slug FROM auth_challenges WHERE email = ?")
+        .bind(email)
+        .all()
+    ).results as { purpose: string; slug: string | null }[];
+
+  it("sends the owner a member sign-in that returns to the artifact", async () => {
+    const res = await gate(OWNER);
+    expect(res.status).toBe(202);
+    expect(await challenges(OWNER)).toEqual([{ purpose: "signin", slug: "report" }]);
+  });
+
+  it("sends a workspace member a member sign-in too", async () => {
+    const art = (await (env as any).DB.prepare("SELECT account_id FROM artifacts WHERE slug = 'report'").first()) as {
+      account_id: string;
+    };
+    await (env as any).DB.prepare(
+      "INSERT INTO account_members (account_id, email, role, status, created_at, updated_at) VALUES (?, ?, 'viewer', 'active', ?, ?)"
+    )
+      .bind(art.account_id, MEMBER, NOW(), NOW())
+      .run();
+    expect((await gate(MEMBER)).status).toBe(202);
+    expect(await challenges(MEMBER)).toEqual([{ purpose: "signin", slug: "report" }]);
+  });
+
+  it("still sends a grantee a guest link, and a stranger nothing", async () => {
+    await gate(GUEST);
+    await gate("nobody@x.com");
+    expect(await challenges(GUEST)).toEqual([{ purpose: "guest", slug: "report" }]);
+    expect(await challenges("nobody@x.com")).toEqual([]);
+  });
+
+  it("answers an owner exactly as it answers a stranger", async () => {
+    const owner = await gate(OWNER);
+    const stranger = await gate("nobody@x.com");
+    expect(owner.status).toBe(stranger.status);
+    expect(await owner.json()).toEqual(await stranger.json());
+  });
+
+  it("the emailed link signs the owner in and lands on the artifact", async () => {
+    const issued = await createChallenge(env as any, { email: OWNER, purpose: "signin", slug: "report", now: NOW() });
+    const res = await app.request(`${APP}/auth/m/${issued.token}`, { method: "POST" }, e());
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(await viewerPath("report"));
+    expect(res.headers.getSetCookie().some((c) => c.startsWith(`${SESSION_COOKIE}=`))).toBe(true);
+  });
+
+  it("the emailed code lands on the artifact too", async () => {
+    const issued = await createChallenge(env as any, { email: OWNER, purpose: "signin", slug: "report", now: NOW() });
+    const res = await app.request(
+      `${APP}/auth/verify`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: OWNER, code: issued.code }),
+      },
+      e()
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { redirect: string }).redirect).toBe(await viewerPath("report"));
+  });
+
+  it("an ordinary sign-in still lands on the dashboard", async () => {
+    const issued = await createChallenge(env as any, { email: OWNER, purpose: "signin", now: NOW() });
+    const res = await app.request(`${APP}/auth/m/${issued.token}`, { method: "POST" }, e());
+    expect(res.headers.get("location")).toBe("/admin");
+  });
+});
+
+describe("the gate page reports failures instead of claiming success", () => {
+  it("tells the visitor when they are rate limited or the server failed", async () => {
+    const html = await (await app.request("https://rtfx.pro/shared/report", {}, e())).text();
+    expect(html).toContain("Too many attempts");
+    expect(html).toContain("Something went wrong");
+  });
+});
