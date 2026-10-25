@@ -52,6 +52,10 @@ const MANAGEMENT_PREFIXES = [
   "/shared",
   // `/share/<slug>`: the share page the content-origin viewer links to.
   "/share",
+  // `/guide` and `/guide/<name>.webp`: the screenshot walkthrough and its images.
+  // App host only, like every public page; `guide` is thereby also a reserved
+  // workspace slug (reservedTopLevelSegments).
+  "/guide",
   // The chat socket for the viewer (src/index.ts). It authorizes with the
   // app-host session / link cookie exactly like the viewer, so it lives on the
   // app host and a content host must 404 it. `_chat` can never be a slug

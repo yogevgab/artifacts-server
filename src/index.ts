@@ -76,6 +76,7 @@ import { billingPage } from "./billing-page";
 import { workspaceBilling } from "./plan-copy";
 import { verifyFrameToken } from "./session";
 import { landingPage } from "./landing";
+import { guidePage, guideImageResponse } from "./guide";
 import { proPage, teamPage, enterprisePage } from "./plan-pages";
 import { contactRoutes, contactPage, normalizePlan } from "./contact";
 import { privacyPage, termsPage } from "./legal";
@@ -581,6 +582,14 @@ app.get("/", (c) =>
 // The docs page was folded into the one-page site. Browsers keep the URL
 // fragment across a redirect, so /docs#start still lands on the connect section.
 app.get("/docs", (c) => c.redirect("/", 301));
+
+// The step-by-step visual guide and its screenshots (src/guide.ts). Public and
+// identical for everyone, like the landing page. Image URLs carry a content
+// hash (?v=), so they cache as immutable.
+app.get("/guide", (c) =>
+  c.html(guidePage(c.env), 200, { "Cache-Control": PUBLIC_HTML_CACHE })
+);
+app.get("/guide/:file", (c) => guideImageResponse(c.req.param("file")));
 
 // A page per paid tier (src/plan-pages.ts). Public and cached like the rest of
 // the product surface: these are what a "Talk to us" button and a shared link

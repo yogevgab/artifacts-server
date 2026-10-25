@@ -227,6 +227,7 @@ export const BRAND_STYLE = `
 /** Which public page is being rendered, so its own link can be dropped. */
 export type PublicPage =
   | "home"
+  | "guide"
   | "login"
   | "privacy"
   | "terms"
@@ -256,6 +257,9 @@ export function skipLink(): string {
 export function siteHeader(current: PublicPage = "home"): string {
   const links = [
     `<a href="/#start" data-nav="how">How it works</a>`,
+    // The screenshot walkthrough. Dropped on its own page, like every nav link
+    // that would point at the page you are on.
+    current === "guide" ? "" : `<a href="/guide" data-nav="guide">Guide</a>`,
     // Pricing is a destination now that four tiers have pages of their own, and
     // two of those tiers are a conversation rather than a checkout — somebody
     // evaluating Team or Enterprise needs a way in that isn't the landing page's
@@ -282,6 +286,7 @@ export function siteFooter(): string {
   return `<footer class="site">
       <nav aria-label="Footer">
         <a href="/">Home</a>
+        <a href="/guide" data-nav="guide">Guide</a>
         <a href="/signup" data-cta="signup">Start free</a>
         <a href="/login" data-cta="sign-in">Sign in</a>
         <!-- Every tier that is not self-serve needs a route a person can take
