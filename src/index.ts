@@ -77,6 +77,7 @@ import { workspaceBilling } from "./plan-copy";
 import { verifyFrameToken } from "./session";
 import { landingPage } from "./landing";
 import { guidePage, guideImageResponse } from "./guide";
+import { mediaResponse } from "./media";
 import { proPage, teamPage, enterprisePage } from "./plan-pages";
 import { contactRoutes, contactPage, normalizePlan } from "./contact";
 import { privacyPage, termsPage } from "./legal";
@@ -590,6 +591,10 @@ app.get("/guide", (c) =>
   c.html(guidePage(c.env), 200, { "Cache-Control": PUBLIC_HTML_CACHE })
 );
 app.get("/guide/:file", (c) => guideImageResponse(c.req.param("file")));
+// The guide video and its poster, from R2 (src/media.ts).
+app.get("/media/:file", (c) =>
+  mediaResponse(c.env, c.req.param("file"), c.req.header("Range"), c.req.raw.headers)
+);
 
 // A page per paid tier (src/plan-pages.ts). Public and cached like the rest of
 // the product surface: these are what a "Talk to us" button and a shared link
