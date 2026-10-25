@@ -27,6 +27,38 @@ export interface ShareLink {
   expiresAt: string | null;
   revokedAt: string | null;
   lastUsedAt: string | null;
+  /**
+   * The owner's own label ("for Dana"). Bookkeeping only: it is never shown to
+   * whoever holds the link, never part of the credential, and NULL before
+   * migration 0024 or when the owner left it blank.
+   */
+  name: string | null;
+}
+
+/** Longest link name stored. Generous for a label, small enough to be a label. */
+export const MAX_LINK_NAME = 80;
+
+/**
+ * Normalize an owner-typed link name: trimmed, empty becomes null, and anything
+ * over {@link MAX_LINK_NAME} is a refusal rather than a silent truncation (an
+ * owner who typed 90 characters should learn it, not find a clipped label
+ * later). Anything that is not a string, null or undefined is also refused.
+ */
+export function normalizeLinkName(input: unknown): { name: string | null } | { error: string } {
+  if (input === null || input === undefined) return { name: null };
+  if (typeof input !== "string") return { error: "name must be a string" };
+  const name = input.trim();
+  if (name.length > MAX_LINK_NAME) return { error: `name must be at most ${MAX_LINK_NAME} characters` };
+  return { name: name || null };
+}
+
+/**
+ * True for the error SQLite raises when a statement names the 0024 `name`
+ * column and the migration has not been applied yet.
+ */
+function isMissingNameColumn(e: unknown): boolean {
+  const message = e instanceof Error ? e.message : String(e);
+  return /no such column|has no column named/i.test(message) && /\bname\b/i.test(message);
 }
 
 /** What `createShareLink` returns. `key` is shown once and never stored. */
@@ -54,6 +86,8 @@ interface Row {
   expires_at: string | null;
   revoked_at: string | null;
   last_used_at: string | null;
+  /** Absent from rows read by the pre-0024 column list. */
+  name?: string | null;
 }
 
 const toLink = (r: Row): ShareLink => ({
@@ -64,22 +98,38 @@ const toLink = (r: Row): ShareLink => ({
   expiresAt: r.expires_at,
   revokedAt: r.revoked_at,
   lastUsedAt: r.last_used_at,
+  name: r.name ?? null,
 });
 
 export async function createShareLink(
   env: Env,
-  o: { slug: string; createdBy: string; now: string; expiresAt?: string | null }
+  o: { slug: string; createdBy: string; now: string; expiresAt?: string | null; name?: string | null }
 ): Promise<IssuedShareLink> {
   const id = hex(crypto.getRandomValues(new Uint8Array(8)));
   const secret = base64url(crypto.getRandomValues(new Uint8Array(24)));
   const key = `${id}.${secret}`;
 
-  await env.DB.prepare(
-    `INSERT INTO share_links (id, slug, token_hash, created_by, expires_at, revoked_at, created_at, last_used_at)
-     VALUES (?, ?, ?, ?, ?, NULL, ?, NULL)`
-  )
-    .bind(id, o.slug, await hashToken(key), o.createdBy, o.expiresAt ?? null, o.now)
-    .run();
+  const hash = await hashToken(key);
+  const name = o.name ?? null;
+  let stored: string | null = name;
+  try {
+    await env.DB.prepare(
+      `INSERT INTO share_links (id, slug, token_hash, created_by, expires_at, revoked_at, created_at, last_used_at, name)
+       VALUES (?, ?, ?, ?, ?, NULL, ?, NULL, ?)`
+    )
+      .bind(id, o.slug, hash, o.createdBy, o.expiresAt ?? null, o.now, name)
+      .run();
+  } catch (e) {
+    // Pre-0024: no `name` column. The link still works; the label is dropped.
+    if (!isMissingNameColumn(e)) throw e;
+    stored = null;
+    await env.DB.prepare(
+      `INSERT INTO share_links (id, slug, token_hash, created_by, expires_at, revoked_at, created_at, last_used_at)
+       VALUES (?, ?, ?, ?, ?, NULL, ?, NULL)`
+    )
+      .bind(id, o.slug, hash, o.createdBy, o.expiresAt ?? null, o.now)
+      .run();
+  }
 
   return {
     id,
@@ -89,6 +139,7 @@ export async function createShareLink(
     expiresAt: o.expiresAt ?? null,
     revokedAt: null,
     lastUsedAt: null,
+    name: stored,
     key,
   };
 }
@@ -206,13 +257,117 @@ export async function revokeShareLink(
   return (res.meta?.changes ?? 0) > 0;
 }
 
+/**
+ * Run a query that wants the 0024 `name` column, and re-run the pre-0024 form
+ * when it does not exist yet. `run(true)` may reference `name`; `run(false)`
+ * must not.
+ */
+async function withName<T>(run: (hasName: boolean) => Promise<T>): Promise<T> {
+  try {
+    return await run(true);
+  } catch (e) {
+    if (!isMissingNameColumn(e)) throw e;
+    return run(false);
+  }
+}
+
+const LINK_COLUMNS = "id, slug, created_by, created_at, expires_at, revoked_at, last_used_at";
+
 /** Every link for an artifact. The secret is not stored, so it cannot leak from here. */
 export async function listShareLinks(env: Env, slug: string): Promise<ShareLink[]> {
-  const { results } = await env.DB.prepare(
-    `SELECT id, slug, created_by, created_at, expires_at, revoked_at, last_used_at
-       FROM share_links WHERE slug = ? ORDER BY created_at DESC`
-  )
-    .bind(slug)
-    .all<Row>();
+  const { results } = await withName((hasName) =>
+    env.DB.prepare(
+      `SELECT ${LINK_COLUMNS}${hasName ? ", name" : ""}
+         FROM share_links WHERE slug = ? ORDER BY created_at DESC`
+    )
+      .bind(slug)
+      .all<Row>()
+  );
   return (results ?? []).map(toLink);
+}
+
+/** One link of one artifact, or null. Scoped by slug so ids cannot cross artifacts. */
+export async function getShareLink(env: Env, slug: string, id: string): Promise<ShareLink | null> {
+  const row = await withName((hasName) =>
+    env.DB.prepare(
+      `SELECT ${LINK_COLUMNS}${hasName ? ", name" : ""} FROM share_links WHERE id = ? AND slug = ?`
+    )
+      .bind(id, slug)
+      .first<Row>()
+  );
+  return row ? toLink(row) : null;
+}
+
+/**
+ * Link id to owner label for one artifact, for the view log ("via link
+ * “Dana”"). Empty before migration 0024. Unnamed links are left out.
+ */
+export async function shareLinkNames(env: Env, slug: string): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  try {
+    const { results } = await env.DB.prepare(
+      "SELECT id, name FROM share_links WHERE slug = ? AND name IS NOT NULL"
+    )
+      .bind(slug)
+      .all<{ id: string; name: string }>();
+    for (const r of results ?? []) map.set(r.id, r.name);
+  } catch (e) {
+    if (!isMissingNameColumn(e)) throw e;
+  }
+  return map;
+}
+
+/**
+ * Rename and/or re-time a link. `name` and `expiresAt` are applied only when
+ * present in `patch` (`undefined` = leave alone; `null` = clear the name /
+ * never expire). A revoked link is refused rather than quietly revived —
+ * revocation is the owner saying "this URL is dead", and extending must not be
+ * a way to undo it. An already-expired link IS re-activated by a new expiry,
+ * since the credential (the hash) is unchanged: that is what "extend" means.
+ *
+ * Returns the updated link, `"not_found"` or `"revoked"`.
+ */
+export async function updateShareLink(
+  env: Env,
+  slug: string,
+  id: string,
+  patch: { name?: string | null; expiresAt?: string | null }
+): Promise<ShareLink | "not_found" | "revoked"> {
+  const current = await getShareLink(env, slug, id);
+  if (!current) return "not_found";
+  if (current.revokedAt) return "revoked";
+
+  const sets: string[] = [];
+  const binds: (string | null)[] = [];
+  if (patch.expiresAt !== undefined) {
+    sets.push("expires_at = ?");
+    binds.push(patch.expiresAt);
+  }
+  if (patch.name !== undefined) {
+    sets.push("name = ?");
+    binds.push(patch.name);
+  }
+  if (sets.length) {
+    try {
+      // `revoked_at IS NULL` again in the WHERE closes the race with a revoke
+      // that lands between the read above and this write.
+      const res = await env.DB.prepare(
+        `UPDATE share_links SET ${sets.join(", ")} WHERE id = ? AND slug = ? AND revoked_at IS NULL`
+      )
+        .bind(...binds, id, slug)
+        .run();
+      if ((res.meta?.changes ?? 0) === 0) return "revoked";
+    } catch (e) {
+      // Pre-0024 and the patch touched only `name`: nothing to store.
+      if (!isMissingNameColumn(e)) throw e;
+      if (patch.expiresAt !== undefined) {
+        await env.DB.prepare(
+          "UPDATE share_links SET expires_at = ? WHERE id = ? AND slug = ? AND revoked_at IS NULL"
+        )
+          .bind(patch.expiresAt, id, slug)
+          .run();
+      }
+    }
+  }
+  return (await getShareLink(env, slug, id)) ?? "not_found";
 }

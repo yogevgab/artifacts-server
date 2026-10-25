@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS artifact_grants (
   slug       TEXT NOT NULL,
   email      TEXT NOT NULL,
   created_at TEXT NOT NULL,
+  -- 'viewer' | 'editor' (migration 0024).
+  role       TEXT NOT NULL DEFAULT 'viewer',
   PRIMARY KEY (slug, email)
 );
 
@@ -256,7 +258,9 @@ CREATE TABLE IF NOT EXISTS share_links (
   expires_at  TEXT,
   revoked_at  TEXT,
   created_at  TEXT NOT NULL,
-  last_used_at TEXT
+  last_used_at TEXT,
+  -- The owner's own label for the link; never shown to its holder (0024).
+  name        TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_share_links_slug ON share_links (slug);

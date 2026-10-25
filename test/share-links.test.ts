@@ -441,3 +441,168 @@ describe("share-link previews for link-card crawlers", () => {
     }
   });
 });
+
+describe("named, extendable links", () => {
+  const post = (body: unknown, who = OWNER) =>
+    req("/api/artifacts/report/links", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      ...as(who),
+    });
+  const patch = (id: string, body: unknown, who = OWNER, slug = "report") =>
+    req(`/api/artifacts/${slug}/links/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      ...as(who),
+    });
+  const list = async () => ((await (await req("/api/artifacts/report/links", as(OWNER))).json()) as any).links as any[];
+
+  it("creates with a trimmed name, answers it, and lists it", async () => {
+    const res = await post({ name: "  Acme legal  ", expires_in_days: 7 });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as any;
+    expect(body).toMatchObject({ name: "Acme legal" });
+    expect(body.url).toContain("?k=");
+    expect(body.expires_at).toBeTruthy();
+    expect((await list())[0]).toMatchObject({ id: body.id, name: "Acme legal" });
+  });
+
+  it("an unnamed or blank-named link has a null name; many links coexist", async () => {
+    const a = (await (await post({})).json()) as any;
+    const b = (await (await post({ name: "   " })).json()) as any;
+    const c = (await (await post({ name: "Dana" })).json()) as any;
+    expect(a.name).toBeNull();
+    expect(b.name).toBeNull();
+    const links = await list();
+    expect(links).toHaveLength(3);
+    expect(links.find((l) => l.id === c.id).name).toBe("Dana");
+  });
+
+  it("refuses a name over 80 characters or a non-string name", async () => {
+    expect((await post({ name: "x".repeat(81) })).status).toBe(400);
+    expect((await post({ name: "x".repeat(80) })).status).toBe(201);
+    expect((await post({ name: 5 })).status).toBe(400);
+  });
+
+  it("PATCH renames and clears the name", async () => {
+    const { id } = (await (await post({ name: "Old" })).json()) as any;
+    const renamed = await patch(id, { name: "New" });
+    expect(renamed.status).toBe(200);
+    expect(await renamed.json()).toMatchObject({ id, name: "New", revokedAt: null });
+    expect(((await (await patch(id, { name: null })).json()) as any).name).toBeNull();
+    expect(((await (await patch(id, { name: "  " })).json()) as any).name).toBeNull();
+  });
+
+  it("PATCH extends an expiry, counted from now", async () => {
+    const { id } = (await (await post({ expires_in_days: 1 })).json()) as any;
+    const before = Date.now();
+    const res = await patch(id, { expires_in_days: 30 });
+    expect(res.status).toBe(200);
+    const { expiresAt } = (await res.json()) as any;
+    expect(Date.parse(expiresAt)).toBeGreaterThanOrEqual(before + 30 * 86_400_000 - 1000);
+    expect(Date.parse(expiresAt)).toBeLessThanOrEqual(Date.now() + 30 * 86_400_000 + 1000);
+  });
+
+  it("PATCH re-activates an expired link, and null removes the expiry", async () => {
+    const link = await createShareLink(env as any, {
+      slug: "report", createdBy: OWNER, now: AT, expiresAt: "2020-01-01T00:00:00.000Z", name: "Lapsed",
+    });
+    const now = new Date().toISOString();
+    expect(await redeemShareLink(env as any, link.key, now)).toBeNull();
+
+    expect((await patch(link.id, { expires_in_days: 7 })).status).toBe(200);
+    expect(await redeemShareLink(env as any, link.key, now)).toMatchObject({ slug: "report" });
+
+    const never = await patch(link.id, { expires_in_days: null });
+    expect(((await never.json()) as any).expiresAt).toBeNull();
+    expect(await redeemShareLink(env as any, link.key, "2999-01-01T00:00:00.000Z")).not.toBeNull();
+  });
+
+  it("PATCH on a revoked link is 409 link_revoked and does not revive it", async () => {
+    const { id } = (await (await post({})).json()) as any;
+    expect((await req(`/api/artifacts/report/links/${id}`, { method: "DELETE", ...as(OWNER) })).status).toBe(200);
+    const res = await patch(id, { expires_in_days: 30 });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: "link_revoked" });
+    expect((await list())[0].revokedAt).toBeTruthy();
+    expect((await list())[0].expiresAt).toBeNull();
+  });
+
+  it("PATCH for an unknown id, or another artifact's link, is 404", async () => {
+    const body = new FormData();
+    body.set("slug", "other");
+    body.set("title", "Other");
+    body.set("file", new File(["<h1>o</h1>"], "index.html", { type: "text/html" }));
+    await req("/api/artifacts", { method: "POST", body, ...as(OWNER) });
+    const { id } = (await (await post({ name: "Mine" })).json()) as any;
+
+    expect((await patch("deadbeef", { name: "x" })).status).toBe(404);
+    expect((await patch(id, { name: "x" }, OWNER, "other")).status).toBe(404);
+    expect((await list())[0].name).toBe("Mine");
+  });
+
+  it("PATCH bad input is 400", async () => {
+    const { id } = (await (await post({})).json()) as any;
+    for (const body of [{}, { name: 5 }, { name: "x".repeat(81) }, { expires_in_days: 0 }, { expires_in_days: 366 }, { expires_in_days: "soon" }, { expires_in_days: "" }, [], "x"]) {
+      expect((await patch(id, body)).status, JSON.stringify(body)).toBe(400);
+    }
+  });
+
+  it("only someone who manages the artifact can PATCH", async () => {
+    const { id } = (await (await post({})).json()) as any;
+    expect((await patch(id, { name: "x" }, "stranger@x.com")).status).toBe(404);
+  });
+
+  it("a read-scoped token cannot PATCH; a manage-scoped one can", async () => {
+    const mk = (scopes: string[]) =>
+      createApiToken(env as unknown as Env, {
+        name: scopes.join(), ownerEmail: OWNER, accountId: null, isAdmin: false,
+        scopes: scopes as any, createdBy: OWNER, expiresAt: null, now: AT,
+      });
+    const readOnly = await mk(["read"]);
+    const manage = await mk(["manage"]);
+    const { id } = (await (await post({})).json()) as any;
+    const url = `https://rtfx.pro/api/artifacts/report/links/${id}`;
+    const send = (token: string) =>
+      app.request(url, withToken(token, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "t" }) }), e());
+
+    const refused = await send(readOnly.token);
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toMatchObject({ error: "insufficient_scope" });
+    expect((await send(manage.token)).status).toBe(200);
+  });
+
+  it("the view log carries the link's name, and no name for an unnamed link", async () => {
+    const named = await createShareLink(env as any, { slug: "report", createdBy: OWNER, now: AT, name: "Dana" });
+    const plain = await createShareLink(env as any, { slug: "report", createdBy: OWNER, now: AT });
+    for (const link of [named, plain]) {
+      await env.DB.prepare(
+        "INSERT INTO artifact_views (slug, version, email, path, viewed_at, link_id, outcome) VALUES ('report', 1, NULL, '/', ?, ?, 'viewed')"
+      ).bind(AT, link.id).run();
+    }
+    const res = await req("/api/artifacts/report/views", as(OWNER));
+    const views = ((await res.json()) as any).views as any[];
+    expect(views.find((v) => v.link_id === named.id).link_name).toBe("Dana");
+    expect(views.find((v) => v.link_id === plain.id).link_name).toBeNull();
+  });
+
+  it("falls back when migration 0024 has not run (no name column)", async () => {
+    await env.DB.prepare("DROP TABLE share_links").run();
+    await env.DB.prepare(
+      `CREATE TABLE share_links (
+        id TEXT PRIMARY KEY, slug TEXT NOT NULL, token_hash TEXT NOT NULL,
+        created_by TEXT NOT NULL, expires_at TEXT, revoked_at TEXT,
+        created_at TEXT NOT NULL, last_used_at TEXT)`
+    ).run();
+    const res = await post({ name: "Lost", expires_in_days: 3 });
+    expect(res.status).toBe(201);
+    const { id } = (await res.json()) as any;
+    expect((await list())[0]).toMatchObject({ id, name: null });
+    // Extending still works; renaming is a no-op rather than an error.
+    expect((await patch(id, { expires_in_days: 10, name: "x" })).status).toBe(200);
+    expect((await patch(id, { name: "x" })).status).toBe(200);
+    expect((await req("/api/artifacts/report/views", as(OWNER))).status).toBe(200);
+  });
+});

@@ -111,6 +111,36 @@ export function canManage(
 }
 
 /**
+ * May this identity publish new versions to, list the versions of, and roll
+ * back this artifact? Everything `canManage` allows, plus a named person the
+ * owner granted the `editor` role.
+ *
+ * `role` is the caller's grant role on THIS artifact (`grantRole` in db.ts),
+ * looked up by the caller because this module stays free of the database. It
+ * is deliberately a separate, narrower question than `canManage`: an editor
+ * does not change access, manage links, read analytics, delete or take over
+ * the artifact. Those routes keep asking `canManage`, so adding an editor can
+ * never widen anything except publishing and rollback.
+ *
+ * Two guards on the editor path:
+ *  - A `kind: "guest"` session never edits. A guest proved only that they
+ *    control an inbox the artifact was granted to (src/auth-routes.ts); that is
+ *    enough to read, and not enough to change what the world sees. Editing
+ *    needs a real signed-in member or token identity.
+ *  - The identity must have an email, since a grant names a person. A service
+ *    token with no email cannot hold one.
+ */
+export function canEdit(
+  identity: Identity | null,
+  artifact: Owned,
+  accounts: AccountRoles | null | undefined,
+  role: "viewer" | "editor" | null | undefined
+): boolean {
+  if (canManage(identity, artifact, accounts)) return true;
+  return !!identity && identity.kind !== "guest" && !!identity.email && role === "editor";
+}
+
+/**
  * May this identity see the artifact at all by virtue of *belonging to it* —
  * as its owner, or as any member (including a `viewer`) of its account?
  *

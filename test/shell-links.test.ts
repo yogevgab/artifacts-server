@@ -77,3 +77,36 @@ describe("expiry is shown, not hidden, for both new and existing links", () => {
     expect(html).toContain("l.revokedAt");
   });
 });
+
+describe("named links, extending and per-person roles on the share page", () => {
+  it("renders the link-name input and the people-roles hint", async () => {
+    const html = await (await nav(OWNER)).text();
+    expect(html).toMatch(/<input[^>]*maxlength="80"[^>]*data-link-name[^>]*>/);
+    expect(html).toContain("Editors can also publish new versions and roll back");
+  });
+
+  it("ships rename, extend and role controls that call the contract endpoints", async () => {
+    const html = await (await nav(OWNER)).text();
+    expect(html).toContain("method:'PATCH'");
+    expect(html).toContain("'Rename'");
+    expect(html).toContain("'Extend'");
+    expect(html).toContain("Unnamed link");
+    expect(html).toContain("Permission for ");
+    expect(html).toContain("grants:next");
+    expect(html).toContain("expires_in_days:n");
+    expect(html).toContain("won't be shown again");
+  });
+
+  it("tags named-link views and falls back to emails when grants are missing", async () => {
+    const html = await (await nav(OWNER)).text();
+    expect(html).toContain("v.link_name");
+    expect(html).toContain("j.emails||[]");
+  });
+
+  it("the inline share script is syntactically valid JavaScript", async () => {
+    const html = await (await nav(OWNER)).text();
+    const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+    expect(scripts.length).toBeGreaterThan(0);
+    for (const s of scripts) expect(() => new Function(s)).not.toThrow();
+  });
+});

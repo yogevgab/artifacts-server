@@ -186,6 +186,8 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,
 .row{display:flex;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid var(--sh-rule)}
 .row:last-child{border-bottom:0}
 .row .who{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+.row .role{flex:none;font-size:12px;padding:4px 8px}
+.row{flex-wrap:wrap}
 .add{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .add .field{flex:1 1 150px}
 .add input[type=number]{flex:0 0 82px}
@@ -195,6 +197,13 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,
 .link-row:last-child{border-bottom:0}
 .link-row code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--sh-muted)}
+.link-row .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:13px;font-weight:600;color:var(--sh-fg)}
+.link-row .name.unnamed{font-weight:400;color:var(--sh-muted)}
+.link-row .acts{flex:1 0 100%;display:flex;flex-wrap:wrap;gap:6px}
+.link-row .edit{flex:1 0 100%;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.link-row .edit .field{flex:1 1 120px}
+.link-row .edit input[type=number]{flex:0 0 82px}
 .link-row .exp{flex:none;color:var(--sh-muted);white-space:nowrap}
 .link-row .exp.expired{color:var(--sh-danger);font-weight:600}
 .link-row .meta{flex:1 0 100%;color:var(--sh-muted);font-size:11.5px}
@@ -298,6 +307,7 @@ function sharePanel(i: { visibility: "restricted" | "everyone"; grantCount: numb
         </div>
         <h3>Who can open this</h3>
         <p class="hint" data-share-summary>${esc(summary)}</p>
+        <p class="hint">Viewers can open it. Editors can also publish new versions and roll back; they need an rtfx account to publish.</p>
         <div class="list" data-share-list></div>
         <form class="add" data-share-add>
           <input class="field" type="email" name="email" placeholder="name@example.com" aria-label="Email address">
@@ -305,8 +315,9 @@ function sharePanel(i: { visibility: "restricted" | "everyone"; grantCount: numb
         </form>
         <hr class="sep">
         <h3>Or share a link</h3>
-        <p class="hint">Anyone with the link can open this — no sign-in. Revoke it any time.</p>
+        <p class="hint">Anyone with the link can open this — no sign-in. Make one per person and name it so you can tell them apart. Extend or revoke any of them any time.</p>
         <div class="add">
+          <input class="field" type="text" maxlength="80" data-link-name placeholder="Name (e.g. who it's for)" aria-label="Link name (optional)" autocomplete="off">
           <select class="field" data-link-expiry aria-label="Link expiry">
             <option value="">Never expires</option>
             <option value="7">Expires in 7 days</option>
@@ -600,36 +611,61 @@ const SHARE_SCRIPT = `(function(){
 
   var list=panel.querySelector('[data-share-list]');
 
-  function render(emails){
+  /* The server is the source of truth; grants is [{email,role}]. An older
+     server only knows emails, and those people are all viewers. */
+  var grants=[];
+  function fromAccess(j){
+    if(j.grants&&j.grants.length!==undefined) return j.grants.map(function(g){
+      return {email:g.email,role:g.role==='editor'?'editor':'viewer'};
+    });
+    return (j.emails||[]).map(function(e){ return {email:e,role:'viewer'}; });
+  }
+
+  function render(){
     list.innerHTML='';
-    if(!emails.length){
+    if(!grants.length){
       var p=document.createElement('p');
       p.className='hint'; p.textContent='Nobody is named yet.';
       list.appendChild(p); return;
     }
-    emails.forEach(function(e){
+    grants.forEach(function(g){
       var row=document.createElement('div'); row.className='row';
-      var who=document.createElement('span'); who.className='who'; who.textContent=e;
+      var who=document.createElement('span'); who.className='who'; who.textContent=g.email;
+      who.title=g.email;
+      var sel=document.createElement('select'); sel.className='field role';
+      sel.setAttribute('aria-label','Permission for '+g.email);
+      [['viewer','Viewer'],['editor','Editor']].forEach(function(o){
+        var op=document.createElement('option'); op.value=o[0]; op.textContent=o[1];
+        if(o[0]===g.role) op.selected=true; sel.appendChild(op);
+      });
+      sel.addEventListener('change',function(){
+        save(grants.map(function(x){
+          return x.email===g.email?{email:x.email,role:sel.value}:x;
+        }));
+      });
       var rm=document.createElement('button');
       rm.type='button'; rm.className='btn sm'; rm.textContent='Remove';
-      rm.addEventListener('click',function(){ save(emails.filter(function(x){return x!==e;})); });
-      row.appendChild(who); row.appendChild(rm); list.appendChild(row);
+      rm.setAttribute('aria-label','Remove '+g.email);
+      rm.addEventListener('click',function(){ save(grants.filter(function(x){return x.email!==g.email;})); });
+      row.appendChild(who); row.appendChild(sel); row.appendChild(rm); list.appendChild(row);
     });
   }
 
-  function save(emails){
+  function save(next){
     fetch('/api/artifacts/'+encodeURIComponent(slug)+'/access',{
       method:'PUT',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({visibility:'restricted',emails:emails})
+      body:JSON.stringify({visibility:'restricted',grants:next})
     }).then(function(r){return r.ok?r.json():null;}).then(function(j){
-      if(j)render(j.emails||[]);
-    });
+      if(j) grants=fromAccess(j);
+      render(); /* on failure this snaps a changed select back to what is saved */
+    },function(){ render(); });
   }
 
   var mk=panel.querySelector('[data-make-link]');
   var linkList=panel.querySelector('[data-link-list]');
   var expirySelect=panel.querySelector('[data-link-expiry]');
   var daysInput=panel.querySelector('[data-link-days]');
+  var nameInput=panel.querySelector('[data-link-name]');
 
   if(expirySelect&&daysInput) expirySelect.addEventListener('change',function(){
     daysInput.hidden = expirySelect.value!=='custom';
@@ -661,31 +697,46 @@ const SHARE_SCRIPT = `(function(){
   }
   function plural(n,w){ return n+' '+w+(n===1?'':'s'); }
 
-  function linkRow(id,url,expiresAt,stats,revokedAt){
+  /* l is a link as the API lists it ({id,name,expiresAt,revokedAt,views,...});
+     url exists only for a link created in this page session - the key is
+     hashed on the server and never comes back. */
+  function linkRow(l,url){
     var row=document.createElement('div'); row.className='link-row';
-    var c=document.createElement('code'); c.textContent=url||'Share link';
-    var exp=describeExpiry(expiresAt);
-    var expEl=document.createElement('span'); expEl.className='exp'+(exp.expired?' expired':'');
-    expEl.textContent=exp.text;
+    var nameEl=document.createElement('span');
+    var expEl=document.createElement('span');
     var rev=document.createElement('button');
     rev.type='button'; rev.className='btn sm'; rev.textContent='Revoke';
-    rev.addEventListener('click',function(){
-      fetch('/api/artifacts/'+encodeURIComponent(slug)+'/links/'+encodeURIComponent(id),
-        {method:'DELETE'}).then(function(){ row.remove(); });
-    });
-    if(revokedAt){ c.textContent='Revoked link'; expEl.textContent='Revoked '+fmtDate(revokedAt); expEl.className='exp expired'; }
-    row.appendChild(c); row.appendChild(expEl);
-    stats=stats||{};
-    var views=stats.views||0, attempts=stats.expiredAttempts||0;
+    var ren=document.createElement('button');
+    ren.type='button'; ren.className='btn sm'; ren.textContent='Rename';
+    var ext=document.createElement('button');
+    ext.type='button'; ext.className='btn sm'; ext.textContent='Extend';
+
+    function paint(){
+      var nm=l.name||'';
+      nameEl.className='name'+(nm?'':' unnamed');
+      nameEl.textContent=nm||'Unnamed link'; nameEl.title=nm;
+      var label=nm||'unnamed link';
+      ren.setAttribute('aria-label','Rename '+label);
+      ext.setAttribute('aria-label','Extend '+label);
+      rev.setAttribute('aria-label','Revoke '+label);
+      if(l.revokedAt){ expEl.className='exp expired'; expEl.textContent='Revoked '+fmtDate(l.revokedAt); return; }
+      var exp=describeExpiry(l.expiresAt);
+      expEl.className='exp'+(exp.expired?' expired':''); expEl.textContent=exp.text;
+    }
+    paint();
+    row.appendChild(nameEl); row.appendChild(expEl);
+
+    var stats=l, views=stats.views||0, attempts=stats.expiredAttempts||0;
     var meta=document.createElement('span'); meta.className='meta';
     meta.textContent=plural(views,'view')+(stats.lastViewedAt?' \u00b7 last viewed '+fmtDate(stats.lastViewedAt):'');
     row.appendChild(meta);
     if(attempts>0){
       var warn=document.createElement('span'); warn.className='meta warn';
-      warn.textContent=plural(attempts,'attempt')+(revokedAt?' after it was revoked':' after expiry');
+      warn.textContent=plural(attempts,'attempt')+(l.revokedAt?' after it was revoked':' after expiry');
       row.appendChild(warn);
     }
     if(url){
+      var c=document.createElement('code'); c.textContent=url;
       var cp=document.createElement('button');
       cp.type='button'; cp.className='btn sm'; cp.textContent='Copy';
       cp.addEventListener('click',function(){
@@ -693,9 +744,74 @@ const SHARE_SCRIPT = `(function(){
           function(){ var r=document.createRange(); r.selectNodeContents(c);
             var sel=getSelection(); sel.removeAllRanges(); sel.addRange(r); cp.textContent='Press \u2318C'; });
       });
-      row.appendChild(cp);
+      var once=document.createElement('span'); once.className='meta';
+      once.textContent="Copy it now \u2014 it won't be shown again.";
+      row.appendChild(c); row.appendChild(cp); row.appendChild(once);
     }
-    if(!revokedAt) row.appendChild(rev);
+    if(l.revokedAt) return row;
+
+    var status=document.createElement('span'); status.className='meta warn'; status.setAttribute('role','status');
+    var editor=document.createElement('div'); editor.className='edit'; editor.hidden=true;
+    function patch(body){
+      status.textContent='';
+      return fetch('/api/artifacts/'+encodeURIComponent(slug)+'/links/'+encodeURIComponent(l.id),{
+        method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)
+      }).then(function(r){
+        if(!r.ok) throw new Error(r.status===409?'This link was revoked.':'Could not save \u2014 try again.');
+        return r.json();
+      }).then(function(u){
+        if(u.name!==undefined) l.name=u.name;
+        if(u.expiresAt!==undefined) l.expiresAt=u.expiresAt;
+        if(u.revokedAt!==undefined) l.revokedAt=u.revokedAt;
+        paint(); closeEditor();
+      },function(e){ status.textContent=e.message||'Could not save \u2014 try again.'; });
+    }
+    function closeEditor(back){ editor.hidden=true; editor.innerHTML=''; if(back) back.focus(); }
+    function btn(text,cls,fn){
+      var b=document.createElement('button'); b.type='button'; b.className='btn sm'+(cls?' '+cls:'');
+      b.textContent=text; b.addEventListener('click',fn); return b;
+    }
+    ren.addEventListener('click',function(){
+      editor.innerHTML=''; editor.hidden=false; status.textContent='';
+      var inp=document.createElement('input'); inp.type='text'; inp.className='field'; inp.maxLength=80;
+      inp.value=l.name||''; inp.setAttribute('aria-label','Link name'); inp.placeholder='Name (e.g. who it\u2019s for)';
+      var go=function(){ patch({name:inp.value.trim()||null}); };
+      inp.addEventListener('keydown',function(ev){
+        if(ev.key==='Enter'){ ev.preventDefault(); go(); }
+        else if(ev.key==='Escape') closeEditor(ren);
+      });
+      editor.appendChild(inp); editor.appendChild(btn('Save','primary',go));
+      editor.appendChild(btn('Cancel','',function(){ closeEditor(ren); }));
+      inp.focus(); inp.select();
+    });
+    ext.addEventListener('click',function(){
+      editor.innerHTML=''; editor.hidden=false; status.textContent='';
+      var sel=document.createElement('select'); sel.className='field'; sel.setAttribute('aria-label','Extend link by');
+      [['7','7 days from now'],['30','30 days from now'],['never','Never expires'],['custom','Custom\u2026']].forEach(function(o){
+        var op=document.createElement('option'); op.value=o[0]; op.textContent=o[1]; sel.appendChild(op);
+      });
+      var days=document.createElement('input'); days.type='number'; days.className='field'; days.min='1'; days.max='365';
+      days.hidden=true; days.placeholder='Days'; days.setAttribute('aria-label','Days until the link expires');
+      sel.addEventListener('change',function(){ days.hidden=sel.value!=='custom'; if(!days.hidden) days.focus(); });
+      editor.onkeydown=function(ev){ if(ev.key==='Escape') closeEditor(ext); };
+      editor.appendChild(sel); editor.appendChild(days);
+      editor.appendChild(btn('Apply','primary',function(){
+        var v=sel.value, n;
+        if(v==='never') n=null;
+        else if(v==='custom'){ n=parseInt(days.value,10); if(!(n>=1&&n<=365)){ days.focus(); return; } }
+        else n=parseInt(v,10);
+        patch({expires_in_days:n});
+      }));
+      editor.appendChild(btn('Cancel','',function(){ closeEditor(ext); }));
+      sel.focus();
+    });
+    rev.addEventListener('click',function(){
+      fetch('/api/artifacts/'+encodeURIComponent(slug)+'/links/'+encodeURIComponent(l.id),
+        {method:'DELETE'}).then(function(){ row.remove(); });
+    });
+    var acts=document.createElement('div'); acts.className='acts';
+    acts.appendChild(ren); acts.appendChild(ext); acts.appendChild(rev);
+    row.appendChild(acts); row.appendChild(editor); row.appendChild(status);
     return row;
   }
 
@@ -710,7 +826,7 @@ const SHARE_SCRIPT = `(function(){
     var who=document.createElement('span');
     who.textContent=v.email||(v.link_id?'Someone with a link':'Anonymous');
     row.appendChild(who);
-    var tagText=v.outcome==='preview'?'link preview':v.outcome==='link_expired'?'expired link':v.outcome==='link_revoked'?'revoked link':v.link_id?'via link':'';
+    var tagText=v.outcome==='preview'?'link preview':v.outcome==='link_expired'?'expired link':v.outcome==='link_revoked'?'revoked link':v.link_id?(v.link_name?'via link \u201c'+v.link_name+'\u201d':'via link'):'';
     if(tagText){
       var tag=document.createElement('span');
       tag.className='tag'+(v.outcome==='link_expired'||v.outcome==='link_revoked'?' warn':'');
@@ -741,14 +857,14 @@ const SHARE_SCRIPT = `(function(){
 
   fetch('/api/artifacts/'+encodeURIComponent(slug)+'/access')
     .then(function(r){return r.ok?r.json():null;})
-    .then(function(j){ if(j)render(j.emails||[]); });
+    .then(function(j){ if(j){ grants=fromAccess(j); render(); } });
   fetch('/api/artifacts/'+encodeURIComponent(slug)+'/links')
     .then(function(r){return r.ok?r.json():null;})
     .then(function(j){
       linkList.innerHTML='';
       if(!j||!j.links) return;
       j.links.filter(function(l){return !l.revokedAt||l.expiredAttempts>0;}).forEach(function(l){
-        linkList.appendChild(linkRow(l.id,null,l.expiresAt,l,l.revokedAt));
+        linkList.appendChild(linkRow(l,null));
       });
     });
 
@@ -757,10 +873,12 @@ const SHARE_SCRIPT = `(function(){
   if(mk) mk.addEventListener('click',function(){
     var days=selectedExpiryDays();
     if(days!==null&&isNaN(days)){ daysInput.focus(); return; }
+    var body={}; if(days) body.expires_in_days=days;
+    var nm=nameInput?nameInput.value.trim():''; if(nm) body.name=nm;
     mk.disabled=true; mk.textContent='Creating\u2026';
     var made=fetch('/api/artifacts/'+encodeURIComponent(slug)+'/links',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(days?{expires_in_days:days}:{})
+      body:JSON.stringify(body)
     }).then(function(r){ if(!r.ok) throw new Error('create failed'); return r.json(); });
     /* Safari only allows a clipboard write that starts inside the click, so the
        write is started now with the URL still pending. writeText after the
@@ -774,7 +892,8 @@ const SHARE_SCRIPT = `(function(){
     }catch(e){ copied=null; }
     if(!copied) copied=made.then(function(j){return navigator.clipboard.writeText(j.url);});
     made.then(function(j){
-      linkList.appendChild(linkRow(j.id,j.url,j.expires_at));
+      linkList.appendChild(linkRow({id:j.id,name:j.name||null,expiresAt:j.expires_at||null},j.url));
+      if(nameInput) nameInput.value='';
       return copied.then(function(){ return true; },function(){ return false; });
     }).then(function(ok){
       mk.disabled=false;
@@ -790,8 +909,8 @@ const SHARE_SCRIPT = `(function(){
     e.preventDefault();
     var input=e.target.elements.email, v=input.value.trim().toLowerCase();
     if(!v||v.indexOf('@')===-1) return;
-    var current=[].map.call(list.querySelectorAll('.who'),function(n){return n.textContent;});
-    if(current.indexOf(v)===-1) current.push(v);
+    var current=grants.slice();
+    if(!current.some(function(g){return g.email===v;})) current.push({email:v,role:'viewer'});
     input.value=''; save(current);
   });
 })();`;

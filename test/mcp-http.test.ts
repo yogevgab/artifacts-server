@@ -652,7 +652,7 @@ describe("artifact management tools", () => {
     expect(details.artifact.slug).toBe("mcp-managed");
     expect(details.versions.map((v: any) => v.version)).toEqual([2, 1]);
     expect(details.versions[0].current).toBe(true);
-    expect(details.access).toEqual({ visibility: "restricted", emails: [] });
+    expect(details.access).toEqual({ visibility: "restricted", emails: [], grants: [] });
     expect(details.views.total).toBe(1);
     expect(details.views.by_version[0]).toMatchObject({ version: 2, total: 1 });
 

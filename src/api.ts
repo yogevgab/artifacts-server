@@ -11,6 +11,7 @@ import {
   type AuthVars,
 } from "./auth";
 import {
+  canEdit,
   canManage,
   canManageMembers,
   canReadAccount,
@@ -77,6 +78,7 @@ import { isValidSlug, slugify, contentType } from "./util";
 import { processZip, singleHtml, singlePdf, sniffKind, UploadError, MAX_UPLOAD_BYTES, type ProcessedUpload } from "./upload";
 import { exceeds, limitsFor, usageFor } from "./quota";
 import { seatLimitDenial } from "./members";
+import { shareLinkNames } from "./share";
 import { nextPaidPlan, PLAN_LABEL, priceLabel } from "./plan-copy";
 import { checkoutUrl } from "./billing";
 import { num, bytes } from "./portal";
@@ -87,6 +89,9 @@ import {
   upsertArtifact,
   deleteArtifactRow,
   listGrants,
+  listGrantsWithRoles,
+  grantRole,
+  type Grant,
   setAccess,
   removeEmailFromAllGrants,
   insertNextVersion,
@@ -171,6 +176,32 @@ export async function manageableArtifact(c: Context<Vars>, slug: string): Promis
   const art = await getArtifact(c.env, slug);
   if (!art) return null;
   return canManage(c.get("identity"), art, (await accountsFor(c)).roles) ? art : null;
+}
+
+/**
+ * Like {@link manageableArtifact}, but also admits a named person the owner
+ * made an `editor` of this artifact (`canEdit` in src/authz.ts). Used for
+ * exactly the things an editor may do beyond viewing: publish a version, list
+ * versions and roll back. Everything else (access, links, analytics, delete)
+ * keeps asking `manageableArtifact`, so an editor can never reach it by
+ * accident.
+ *
+ * Null for a missing artifact and for one the caller may not edit, so the
+ * answer is 404 either way, as with `manageableArtifact`.
+ */
+export async function editableArtifact(c: Context<Vars>, slug: string): Promise<ArtifactRow | null> {
+  const art = await getArtifact(c.env, slug);
+  if (!art) return null;
+  const identity = c.get("identity");
+  const roles = (await accountsFor(c)).roles;
+  // The grant lookup is skipped when the caller already manages it, and for
+  // guests and email-less identities, which `canEdit` would refuse anyway.
+  if (canManage(identity, art, roles)) return art;
+  const role =
+    identity && identity.kind !== "guest" && identity.email
+      ? await grantRole(c.env, slug, identity.email)
+      : null;
+  return canEdit(identity, art, roles, role) ? art : null;
 }
 
 /**
@@ -343,10 +374,14 @@ export async function resolvePublishTarget(
     return c.json({ error: "bad_request", detail: `invalid slug "${slug}"` }, 400);
   }
   // Publishing to an existing slug adds a version to *that* artifact, so it is
-  // only allowed for its owner (or an admin). Slugs are a shared namespace, so
-  // "taken" is unavoidably observable — but nothing about the artifact is.
+  // only allowed for its owner (or an admin), or for a named person the owner
+  // made an editor of it. The editor still publishes into the artifact's own
+  // workspace: `storeUpload` keeps `owner_email`/`account_id` from `existing`
+  // and charges the artifact's account quota, not the editor's. Slugs are a
+  // shared namespace, so "taken" is unavoidably observable — but nothing about
+  // the artifact is.
   const accounts = await accountsFor(c);
-  if (existing && !canManage(c.get("identity"), existing, accounts.roles)) {
+  if (existing && !(await editableArtifact(c, slug))) {
     return c.json(
       { error: "slug_taken", detail: `the slug "${slug}" is already in use — pick another` },
       409
@@ -1118,7 +1153,8 @@ api.delete("/accounts/:id/members/:email", async (c) => {
 
 artifactRoutes.get("/artifacts/:slug/versions", requireScope("read"), async (c) => {
   const slug = c.req.param("slug");
-  const art = await manageableArtifact(c, slug);
+  // Editors may see the version list: they need it to pick a rollback target.
+  const art = await editableArtifact(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
   const rows = await listVersions(c.env, slug);
   const url = await viewUrl(c, art.account_id, slug);
@@ -1141,9 +1177,10 @@ artifactRoutes.get("/artifacts/:slug/views", requireScope("read"), async (c) => 
   const limit = Number.isInteger(raw) && raw > 0 ? Math.min(raw, 200) : 50;
   const rawBefore = Number(c.req.query("before"));
   const before = Number.isInteger(rawBefore) && rawBefore > 0 ? rawBefore : null;
-  const [stats, events] = await Promise.all([
+  const [stats, events, linkNames] = await Promise.all([
     getViews(c.env, slug, limit),
     listViewEvents(c.env, slug, { limit, before }),
+    shareLinkNames(c.env, slug),
   ]);
   // `total`/`unique`/`recent` keep their original shape (signed-in and link
   // opens only). `views` is the full event log — previews and attempts with an
@@ -1157,6 +1194,8 @@ artifactRoutes.get("/artifacts/:slug/views", requireScope("read"), async (c) => 
       outcome: e.outcome,
       email: e.email,
       link_id: e.link_id,
+      // The owner's own label for that link (null if unnamed or pre-0024).
+      link_name: e.link_id ? (linkNames.get(e.link_id) ?? null) : null,
       ip: e.ip,
       country: e.country,
       region: e.region,
@@ -1174,7 +1213,8 @@ artifactRoutes.get("/artifacts/:slug/views", requireScope("read"), async (c) => 
 // it changes what the world sees — so it rides on the `publish` scope.
 artifactRoutes.post("/artifacts/:slug/current", requireScope("publish"), async (c) => {
   const slug = c.req.param("slug");
-  const art = await manageableArtifact(c, slug);
+  // Editors may roll back (`editableArtifact`); the `publish` scope still applies.
+  const art = await editableArtifact(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
   // Rollback changes what the world sees, so it is a publish for the purposes
   // of suspension too. Delete and access changes deliberately still work: a
@@ -1193,11 +1233,25 @@ artifactRoutes.post("/artifacts/:slug/current", requireScope("publish"), async (
   return c.json({ slug, current: version, url, branded_url: url });
 });
 
+/**
+ * The shape of an artifact's access, as GET and PUT `/access` both answer it:
+ * `grants` carries each person's role; `emails` is the same people as a flat
+ * list, kept so clients written before roles existed keep working.
+ */
+async function accessBody(
+  c: Context<Vars>,
+  slug: string,
+  visibility: string
+): Promise<{ visibility: string; emails: string[]; grants: Grant[] }> {
+  const grants = await listGrantsWithRoles(c.env, slug);
+  return { visibility, emails: grants.map((g) => g.email), grants };
+}
+
 artifactRoutes.get("/artifacts/:slug/access", requireScope("read"), async (c) => {
   const slug = c.req.param("slug");
   const art = await manageableArtifact(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
-  return c.json({ visibility: art.visibility, emails: await listGrants(c.env, slug) });
+  return c.json(await accessBody(c, slug, art.visibility));
 });
 
 artifactRoutes.put("/artifacts/:slug/access", requireScope("manage"), async (c) => {
@@ -1206,17 +1260,21 @@ artifactRoutes.put("/artifacts/:slug/access", requireScope("manage"), async (c) 
   if (!art) return c.json({ error: "not_found" }, 404);
 
   const body = await c.req.json().catch(() => null);
-  const parsed = normalizeAccessInput({ visibility: body?.visibility, emails: body?.emails });
+  const parsed = normalizeAccessInput({
+    visibility: body?.visibility,
+    emails: body?.emails,
+    grants: body?.grants,
+  });
   if ("error" in parsed) return c.json({ error: "bad_request", detail: parsed.error }, 400);
-  const { visibility, emails } = parsed;
+  const { visibility, grants } = parsed;
 
-  await setAccess(c.env, slug, visibility, emails, new Date().toISOString());
+  await setAccess(c.env, slug, visibility, grants, new Date().toISOString());
 
   // Granting an artifact never grants a login: sign-in is invite-only and stays
   // an admin action through /api/users, so an owner sharing their own artifact
   // cannot widen who reaches the instance. Their grants still apply; the
   // recipient just needs an admin to invite them first.
-  return c.json({ slug, visibility, emails: await listGrants(c.env, slug) });
+  return c.json({ slug, ...(await accessBody(c, slug, visibility)) });
 });
 
 artifactRoutes.delete("/artifacts/:slug", requireScope("manage"), async (c) => {
@@ -1363,7 +1421,9 @@ export async function rollbackArtifact(
 export function normalizeAccessInput(input: {
   visibility: unknown;
   emails?: unknown;
-}): { visibility: "restricted" | "everyone"; emails: string[] } | { error: string } {
+  grants?: unknown;
+  editors?: unknown;
+}): { visibility: "restricted" | "everyone"; emails: string[]; grants: Grant[] } | { error: string } {
   const { visibility } = input;
   if (visibility !== "restricted" && visibility !== "everyone") {
     return { error: "visibility must be 'restricted' or 'everyone'" };
@@ -1372,11 +1432,39 @@ export function normalizeAccessInput(input: {
   if (!Array.isArray(rawEmails) || rawEmails.some((e) => typeof e !== "string")) {
     return { error: "emails must be an array of strings" };
   }
-  const emails = [
-    ...new Set((rawEmails as string[]).map((e) => e.trim().toLowerCase()).filter(Boolean)),
-  ];
-  if (emails.some((e) => !e.includes("@"))) {
+  const rawEditors: unknown = input.editors ?? [];
+  if (!Array.isArray(rawEditors) || rawEditors.some((e) => typeof e !== "string")) {
+    return { error: "editors must be an array of strings" };
+  }
+  const rawGrants: unknown = input.grants ?? [];
+  if (!Array.isArray(rawGrants)) return { error: "grants must be an array of { email, role }" };
+
+  // Applied in this order into one map, so the LAST mention of an address wins:
+  // plain `emails` are viewers, `grants` say their own role, `editors` are
+  // editors (an address in both `emails` and `editors` is therefore an editor).
+  const byEmail = new Map<string, "viewer" | "editor">();
+  for (const e of rawEmails as string[]) {
+    const email = e.trim().toLowerCase();
+    if (email) byEmail.set(email, "viewer");
+  }
+  for (const g of rawGrants) {
+    if (!g || typeof g !== "object" || typeof (g as any).email !== "string") {
+      return { error: "each grant must be { email, role }" };
+    }
+    const role = (g as any).role ?? "viewer";
+    if (role !== "viewer" && role !== "editor") {
+      return { error: "role must be 'viewer' or 'editor'" };
+    }
+    const email = (g as any).email.trim().toLowerCase();
+    if (email) byEmail.set(email, role);
+  }
+  for (const e of rawEditors as string[]) {
+    const email = e.trim().toLowerCase();
+    if (email) byEmail.set(email, "editor");
+  }
+  if ([...byEmail.keys()].some((e) => !e.includes("@"))) {
     return { error: "each email must contain '@'" };
   }
-  return { visibility, emails };
+  const grants = [...byEmail].map(([email, role]) => ({ email, role }));
+  return { visibility, emails: grants.map((g) => g.email), grants };
 }

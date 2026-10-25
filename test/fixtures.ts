@@ -43,6 +43,7 @@ export async function initDb() {
   await env.DB.prepare(
     `CREATE TABLE artifact_grants (
       slug TEXT NOT NULL, email TEXT NOT NULL, created_at TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
       PRIMARY KEY (slug, email))`
   ).run();
   await env.DB.prepare(
@@ -124,7 +125,7 @@ export async function initDb() {
     `CREATE TABLE share_links (
       id TEXT PRIMARY KEY, slug TEXT NOT NULL, token_hash TEXT NOT NULL,
       created_by TEXT NOT NULL, expires_at TEXT, revoked_at TEXT,
-      created_at TEXT NOT NULL, last_used_at TEXT)`
+      created_at TEXT NOT NULL, last_used_at TEXT, name TEXT)`
   ).run();
   await env.DB.prepare(
     `CREATE TABLE mail_log (

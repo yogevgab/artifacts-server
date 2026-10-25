@@ -557,6 +557,15 @@ tools: publish · list_artifacts · artifact_details · artifact_statistics · s
           a dedicated origin that hosts files only — never the dashboard or the API — so uploaded
           HTML can't reach the app it was published from.</p>
 
+        <h3>Viewers and editors</h3>
+        <p>Each person you name holds one of two roles. A <b>viewer</b> (the default) can open the
+          artifact. An <b>editor</b> can also publish new versions to it and roll it back — and
+          nothing else: editors cannot change who it is shared with, manage share links, read the
+          view log, delete it or take it over, and a new version they publish still belongs to your
+          workspace and counts against its storage. Editing needs a signed-in rtfx account; someone
+          who only opened the artifact with an emailed sign-in code is a viewer whatever role you
+          gave them. People you named before roles existed are viewers.</p>
+
         <h3>Share links, for recipients with no account</h3>
         <p>Naming a person is the default and the stronger option: they sign in as themselves, the
           view log names them, and revoking them is one action. But some recipients will never
@@ -564,8 +573,16 @@ tools: publish · list_artifacts · artifact_details · artifact_statistics · s
           is a <b>share link</b>: a capability URL that opens exactly one artifact for whoever
           holds it, with no sign-in.</p>
         <ul>
-          <li><b>It expires, if you want it to.</b> Never, in 7 days, in 30 days, or any number of
-            days up to 365. Expiry is enforced when the link is redeemed, not by a cleanup job.</li>
+          <li><b>Make as many as you like, and name them.</b> Give each recipient their own link
+            and a name of your own (&ldquo;Acme legal&rdquo;, &ldquo;for Dana&rdquo;). The name is
+            for your bookkeeping: the share panel and the view log show it, the person holding the
+            link never sees it. One link per recipient also means you can revoke one without
+            disturbing the rest.</li>
+          <li><b>It expires, if you want it to &mdash; and you can extend it.</b> Never, in 7 days, in
+            30 days, or any number of days up to 365. Expiry is enforced when the link is redeemed,
+            not by a cleanup job. Extending a link sets a new expiry counted from now, works on one
+            that has already lapsed (the same URL starts working again), or removes the expiry
+            altogether. A revoked link cannot be extended; make a new one.</li>
           <li><b>It revokes immediately.</b> One action in the share panel, and the next request
             with that link — including one already inside the artifact — gets the same 404 as a
             stranger.</li>
@@ -755,18 +772,25 @@ tools: publish · list_artifacts · artifact_details · artifact_statistics · s
           <li><code>POST /api/machine/artifacts/:slug/current</code> — make an earlier version live
             again (JSON: <code>{"version": 1}</code>).</li>
           <li><code>GET /api/machine/artifacts/:slug/views</code> — the view log.</li>
-          <li><code>PUT /api/machine/artifacts/:slug/access</code> — set visibility and the share
-            list (JSON: <code>visibility</code>, <code>emails</code>).</li>
+          <li><code>GET/PUT /api/machine/artifacts/:slug/access</code> — read or set visibility and
+            the share list (JSON: <code>visibility</code> plus either <code>emails</code>, all
+            viewers, or <code>grants</code>: <code>[{"email": "dana@example.com", "role":
+            "editor"}]</code> with <code>role</code> <code>viewer</code> or <code>editor</code>).
+            The answer carries both <code>emails</code> and <code>grants</code>.</li>
           <li><code>DELETE /api/machine/artifacts/:slug</code> — delete an artifact and its
             versions.</li>
         </ul>
         <p>The dashboard share panel uses the same authenticated API surface with the same scope
           rules as the rest of artifact management:
           <code>GET /api/artifacts/:slug/links</code> lists links for callers with <code>read</code>,
-          <code>POST /api/artifacts/:slug/links</code> and
-          <code>DELETE /api/artifacts/:slug/links/:id</code> create and revoke links for callers
-          with <code>manage</code> (<code>{"expires_in_days": 30}</code>, 1–365, omit for a link
-          that never expires — the URL comes back once and is never stored), and
+          <code>POST /api/artifacts/:slug/links</code>,
+          <code>PATCH /api/artifacts/:slug/links/:id</code> and
+          <code>DELETE /api/artifacts/:slug/links/:id</code> create, change and revoke links for
+          callers with <code>manage</code> (<code>{"name": "Acme legal", "expires_in_days":
+          30}</code>, 1–365, omit for a link that never expires — the URL comes back once and is
+          never stored; <code>PATCH</code> takes <code>name</code> and/or
+          <code>expires_in_days</code>, where <code>null</code> clears the name or removes the
+          expiry, and answers 409 <code>link_revoked</code> for a revoked link), and
           <code>GET/PUT /api/artifacts/:slug/receipts</code> reads and sets the read-receipt
           switch for one artifact.</p>
         <p><code>read</code> covers the listings, <code>publish</code> covers publishing and
