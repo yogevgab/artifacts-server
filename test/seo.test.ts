@@ -207,7 +207,9 @@ describe("sitemap.xml", () => {
     const res = await canonicalReq("/sitemap.xml");
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toContain("application/xml");
-    expect(await res.text()).toContain(`<loc>${LOCAL}/docs</loc>`);
+    const xml = await res.text();
+    expect(xml).toContain(`<loc>${LOCAL}/pro</loc>`);
+    expect(xml).not.toContain("/docs");
   });
 });
 
@@ -216,7 +218,7 @@ describe("llms.txt", () => {
     const txt = llmsTxt({ PUBLIC_BASE_URL: "https://rtfx.pro" });
     expect(txt.startsWith(`# ${SITE.name}`)).toBe(true);
     expect(txt).toMatch(/^> /m);
-    for (const heading of ["## What it is", "## Who it is for", "## How publishing works"]) {
+    for (const heading of ["## What it is", "## Connect", "## Tools"]) {
       expect(txt).toContain(heading);
     }
     for (const page of PUBLIC_PAGES) {
@@ -228,8 +230,8 @@ describe("llms.txt", () => {
     const txt = llmsTxt({}).toLowerCase();
     expect(txt).toContain("private by default");
     expect(txt).toContain("passwordless one-time email code or magic link");
-    expect(txt).toContain("claude code");
-    expect(txt).toContain("hermes");
+    expect(txt).toContain("https://mcp.rtfx.pro/mcp");
+    expect(txt).not.toContain("/docs");
     expect(txt).toContain("not indexed");
   });
 
@@ -320,11 +322,6 @@ describe("public page metadata", () => {
     expect(html).toContain(`<meta property="og:image" content="${LOCAL}/og.png">`);
   });
 
-  it("the docs page keeps the API-token snippet inside a balanced code element", async () => {
-    const html = await (await canonicalReq("/docs")).text();
-    expect(html).toContain("<code>Authorization: Bearer &lt;token&gt;</code>");
-    expect(html).not.toContain("&lt;to...de>");
-  });
 
   it("escapes < inside JSON-LD so it can never close the script early", async () => {
     const html = await (await canonicalReq("/")).text();
@@ -332,35 +329,7 @@ describe("public page metadata", () => {
     for (const [, json] of blocks) expect(json).not.toContain("<");
   });
 
-  it("the docs page is public, crawlable, and carries FAQ structured data", async () => {
-    const res = await canonicalReq("/docs", { headers: { "X-Dev-Anonymous": "true" } });
-    expect(res.status).toBe(200);
-    const html = await res.text();
-    expect(html).toContain(`<link rel="canonical" href="${LOCAL}/docs">`);
-    expect(html).toContain('<meta name="robots" content="index,follow,max-image-preview:large">');
-    const faq = [...html.matchAll(/<script type="application\/ld\+json">(.*?)<\/script>/gs)]
-      .map(([, json]) => JSON.parse(json))
-      .find((b) => b["@type"] === "FAQPage");
-    expect(faq).toBeDefined();
-    expect(faq.mainEntity.length).toBeGreaterThanOrEqual(4);
-    // Every answer offered to a rich result is also visible on the page itself.
-    for (const entry of faq.mainEntity) expect(html).toContain(entry.name);
-  });
 
-  it("the docs page covers publishing, agents, access control and the API", async () => {
-    const html = (await (await req("/docs")).text()).toLowerCase();
-    for (const topic of [
-      "claude code",
-      "hermes",
-      "api token",
-      "access",
-      "version",
-      "view log",
-      "private by default",
-    ]) {
-      expect(html, `docs missing: ${topic}`).toContain(topic);
-    }
-  });
 
   it("the signed-out sign-in page is public and indexable", async () => {
     const res = await canonicalReq("/login", { headers: { "X-Dev-Anonymous": "true" } });
@@ -416,7 +385,7 @@ describe("private surfaces stay out of every index", () => {
 
 describe("crawler surface on the content origin", () => {
   it("serves no product page, sitemap or llms.txt there", async () => {
-    for (const path of ["/", "/docs", "/sitemap.xml", "/llms.txt", "/og.svg", "/og.png", "/logo.png", "/login"]) {
+    for (const path of ["/", "/sitemap.xml", "/llms.txt", "/og.svg", "/og.png", "/logo.png", "/login"]) {
       const res = await contentReq(path);
       expect(res.status, `${path} should not exist on the content host`).toBe(404);
     }
@@ -435,7 +404,7 @@ describe("crawler surface on the content origin", () => {
 
 describe("public pages need no identity", () => {
   it("returns 200 and identical bytes for an anonymous visitor", async () => {
-    for (const path of ["/", "/docs", "/login", "/robots.txt", "/sitemap.xml", "/llms.txt"]) {
+    for (const path of ["/", "/login", "/robots.txt", "/sitemap.xml", "/llms.txt"]) {
       const anon = await canonicalReq(path, { headers: { "X-Dev-Anonymous": "true" } });
       const signedIn = await canonicalReq(path, as("admin@test.com"));
       expect(anon.status, path).toBe(200);

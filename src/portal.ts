@@ -413,7 +413,7 @@ export function portalShell(o: ShellOptions): string {
         ${workspaceControl(viewer, o.section)}
         <span class="badge is-role" data-viewer-role>${esc(roleLabel(viewer.role))}</span>
         <span class="mono" data-viewer-email>${esc(viewer.email)}</span>
-        <a href="/docs">Docs</a>
+        <a href="/#start">Help</a>
         <a href="/logout" data-cta="logout">Sign out</a>
       </div>
     </header>
@@ -437,7 +437,7 @@ export function portalShell(o: ShellOptions): string {
       <nav aria-label="Legal">
         <a href="/privacy" data-legal="privacy">Privacy</a>
         <a href="/terms" data-legal="terms">Terms</a>
-        <a href="/docs">Docs</a>
+        <a href="/#start">Help</a>
       </nav>
     </footer>
     ${ph ? analyticsConsentNotice() : ""}

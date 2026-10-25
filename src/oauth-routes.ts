@@ -132,7 +132,7 @@ oauthRoutes.get(PROTECTED_RESOURCE_PATH, (c) => {
       scopes_supported: OAUTH_SCOPES_SUPPORTED,
       bearer_methods_supported: ["header"],
       resource_name: "rtfx remote MCP",
-      resource_documentation: `${origin}/docs`,
+      resource_documentation: `${origin}/#start`,
     },
     200,
     METADATA_CACHE
@@ -160,7 +160,7 @@ oauthRoutes.get(AS_METADATA_PATH, (c) => {
       client_id_metadata_document_supported: true,
       revocation_endpoint_auth_methods_supported: ["none"],
       scopes_supported: OAUTH_SCOPES_SUPPORTED,
-      service_documentation: `${origin}/docs`,
+      service_documentation: `${origin}/#start`,
       /** RFC 8707: we validate `resource` at the authorization endpoint. */
       authorization_response_iss_parameter_supported: true,
     },

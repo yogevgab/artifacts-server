@@ -21,7 +21,7 @@ describe("health + landing", () => {
     const res = await req("/");
     expect(res.status).toBe(200);
     const body = await res.text();
-    expect(body).toContain('id="waitlist"');
+    expect(body).toContain('data-cta="signup-final"');
     expect(body).toContain('data-cta="signup"');
     expect(body).toContain("Start free");
     expect(body).toContain("Sign in");
@@ -32,7 +32,7 @@ describe("health + landing", () => {
   // preview of one. "beta"/"MVP" describe how finished the product is and must
   // not appear.
   it("public pages avoid preview-stage framing", async () => {
-    for (const path of ["/", "/docs", "/login"]) {
+    for (const path of ["/", "/login"]) {
       const body = (await (await req(path)).text()).toLowerCase();
       expect(body, `${path} mentions beta`).not.toMatch(/\bbetas?\b/);
       expect(body, `${path} mentions mvp`).not.toMatch(/\bmvp\b/);
@@ -43,7 +43,7 @@ describe("health + landing", () => {
   it("landing page is served the same regardless of caller identity", async () => {
     const anon = await req("/", { headers: { "X-Dev-Anonymous": "true" } });
     expect(anon.status).toBe(200);
-    expect(await anon.text()).toContain('id="waitlist"');
+    expect(await anon.text()).toContain('data-cta="signup-final"');
   });
 });
 

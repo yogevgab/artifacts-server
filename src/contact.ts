@@ -217,7 +217,7 @@ export function contactPage(env: Env, plan: PublicTier | null): string {
       <ul>
         <li><a href="/signup" data-cta="signup">Free and Pro are self-serve</a> — verify an email and
           you have a workspace; upgrade to Pro from Settings whenever you want.</li>
-        <li><a href="/docs">The docs</a> cover publishing, access control, versions and the API.</li>
+        <li><a href="/#start">How it works</a> covers connecting Claude, publishing, sharing and deleting.</li>
         <li><a href="/privacy">Privacy</a> and <a href="/terms">terms</a> answer what we hold and
           under what agreement.</li>
       </ul>

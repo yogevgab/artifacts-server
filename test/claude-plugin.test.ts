@@ -904,27 +904,17 @@ describe("the product surfaces point at the plugin", () => {
     await initDb();
   });
 
-  it("the public docs page carries the install commands", async () => {
-    const html = await (await req("/docs")).text();
-    expect(html).toContain('data-docs="claude-code-plugin"');
-    expect(html).toContain("/plugin marketplace add yogevgab/artifacts-server");
-    expect(html).toContain("/plugin install rtfx@rtfx");
-  });
-
   it("the integrations panel offers the plugin next to the token that feeds it", async () => {
     const html = await (await req("/admin/integrations", as("admin@test.com"))).text();
     expect(html).toContain('data-snippet="setup-plugin"');
     expect(html).toContain("/plugin install rtfx@rtfx");
   });
 
-  it("both surfaces also carry the MCP server the plugin registers (issue #39)", async () => {
-    const docs = await (await req("/docs")).text();
-    expect(docs).toContain('data-docs="mcp-server"');
-    expect(docs).toContain("rtfx-mcp.mjs");
+  it("the integrations panel carries the MCP server the plugin registers (issue #39)", async () => {
     const panel = await (await req("/admin/integrations", as("admin@test.com"))).text();
     expect(panel).toContain('data-snippet="setup-mcp"');
     expect(panel).toContain("rtfx-mcp.mjs");
     // The example config must show a placeholder, never anything token-shaped.
-    for (const html of [docs, panel]) expect(html).not.toMatch(/rtfx_[A-Za-z0-9]{4,}_[A-Za-z0-9_-]{8,}/);
+    expect(panel).not.toMatch(/rtfx_[A-Za-z0-9]{4,}_[A-Za-z0-9_-]{8,}/);
   });
 });

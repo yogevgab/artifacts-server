@@ -195,7 +195,7 @@ function signedOut(copy: SignedOutCopy = {}): string {
      ${
        copy.footerHtml ??
        `<p class="hint">New here? <a href="/signup">Create an account</a> — it takes one email and
-       nothing else. Or <a href="/docs">read the docs</a> first.</p>`
+       nothing else. Or <a href="/#start">see how it works</a> first.</p>`
      }
      <p class="hint">Signing in sets one cookie, the session that keeps you signed in. Nothing
        here tracks you: see the <a href="/privacy">privacy policy</a> and the

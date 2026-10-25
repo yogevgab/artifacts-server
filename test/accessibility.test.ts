@@ -19,7 +19,7 @@ import { initDb, clearR2, req, as } from "./fixtures";
 const SUPER = "admin@test.com"; // SUPER_ADMIN_EMAILS in vitest.config.ts
 const ANON = { headers: { "X-Dev-Anonymous": "true" } };
 
-const PUBLIC_PAGES = ["/", "/docs", "/login", "/privacy", "/terms"];
+const PUBLIC_PAGES = ["/", "/login", "/privacy", "/terms"];
 const APP_PAGES = [
   "/admin",
   "/admin/artifacts",
@@ -218,7 +218,7 @@ describe("the shared stylesheet keeps its accessibility guarantees", () => {
   });
 
   it("keeps wide tables inside their own scroll box rather than widening the page", async () => {
-    for (const path of ["/docs", "/privacy"]) {
+    for (const path of ["/privacy"]) {
       const body = await publicHtml(path);
       expect(body, path).toContain(".table-wrap{overflow-x:auto");
       // Every table on these pages is inside one.

@@ -263,7 +263,7 @@ describe("old URL forms keep working", () => {
     await publish("q3-board-report", OWNER);
     await claim(OWNER, "yogev");
     for (const [path, status] of [
-      ["/docs", 200],
+      ["/docs", 301],
       ["/pro", 200],
       ["/privacy", 200],
       ["/health", 200],

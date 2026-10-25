@@ -78,7 +78,6 @@ import { verifyFrameToken } from "./session";
 import { landingPage } from "./landing";
 import { proPage, teamPage, enterprisePage } from "./plan-pages";
 import { contactRoutes, contactPage, normalizePlan } from "./contact";
-import { docsPage } from "./docs";
 import { privacyPage, termsPage } from "./legal";
 import { signupPage, loginPage, guestSigninPage } from "./login";
 import {
@@ -579,10 +578,9 @@ app.get("/", (c) =>
   c.html(landingPage(c.env), 200, { "Cache-Control": PUBLIC_HTML_CACHE })
 );
 
-// Public product documentation: use cases, publishing (CLI/API/Claude Code/
-// Hermes), the access-control and privacy model, and the FAQ that backs the
-// FAQPage structured data on the page.
-app.get("/docs", (c) => c.html(docsPage(c.env), 200, { "Cache-Control": PUBLIC_HTML_CACHE }));
+// The docs page was folded into the one-page site. Browsers keep the URL
+// fragment across a redirect, so /docs#start still lands on the connect section.
+app.get("/docs", (c) => c.redirect("/", 301));
 
 // A page per paid tier (src/plan-pages.ts). Public and cached like the rest of
 // the product surface: these are what a "Talk to us" button and a shared link
@@ -609,8 +607,8 @@ app.get("/enterprise", (c) =>
  */
 app.get("/contact", (c) => c.html(contactPage(c.env, normalizePlan(c.req.query("plan")))));
 
-// Privacy policy and terms of use (issue #36). Public for the same reason /docs
-// is: they are what somebody reads *before* deciding to sign up, so gating them
+// Privacy policy and terms of use (issue #36). Public for the same reason the
+// landing page is: they are what somebody reads *before* deciding to sign up, so gating them
 // behind the sign-in they are trying to evaluate would defeat them entirely.
 app.get("/privacy", (c) => c.html(privacyPage(c.env), 200, { "Cache-Control": PUBLIC_HTML_CACHE }));
 

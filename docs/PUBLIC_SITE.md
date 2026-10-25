@@ -6,12 +6,12 @@ agent can see, and the rule for the copy that faces them.
 
 ## The public surface
 
-Exactly six paths are public, plus the crawler files. Everything else requires an identity.
+Exactly these paths are public, plus the crawler files. Everything else requires an identity.
 
 | Path | What it is | Indexable |
 |---|---|---|
-| `/` | Product landing page: positioning, use cases, differentiators, Claude Code/Hermes story, request access | ✅ |
-| `/docs` | Public documentation: publishing, agents, access & privacy model, `#why-rtfx` (table stakes vs differentiators vs not-yet), API overview, FAQ | ✅ |
+| `/` | The whole site on one page: short intro, MCP URL with a Copy button, walkthrough (`#start` connect, `#publish`, `#share`, `#delete`) and `#pricing` | ✅ |
+| `/docs` | 301 to `/` (the old docs page was folded into the landing page; `/docs#start` and `/docs#agents` still land on the connect section) | — |
 | `/login` | Sign-in surface (signed-out state) | ✅ |
 | `/privacy` | Privacy policy — what is stored, cookies, processors, retention, rights (issue #36) | ✅ |
 | `/terms` | Terms of use — access, ownership, acceptable use, tokens, liability (issue #36) | ✅ |
@@ -55,11 +55,8 @@ its canonicals at rtfx.pro.
 ## Structured data
 
 - `/` — one `@graph`: `Organization`, `WebSite`, `SoftwareApplication` (with `featureList`).
-- `/docs` — `TechArticle`, `FAQPage`, `BreadcrumbList`.
 
-The FAQ prose and the `FAQPage` JSON-LD are generated from the same `FAQS` array in
-`src/docs.ts`, so a rich result can never quote an answer the page doesn't show. JSON-LD is
-serialized with `<` escaped to `<`, so no content can close the `<script>` early.
+JSON-LD is serialized with `<` escaped, so no content can close the `<script>` early.
 
 ## Copy rules
 
@@ -87,35 +84,24 @@ Two rules bind every public surface:
   this product: sign-in is an app-owned one-time email code or magic link, and share links
   carry no secret of their own. Competing products lead with password protection, so the
   vocabulary is easy to borrow by accident.
-- **A planned feature is labelled planned, on the page.** `/docs#why-rtfx` carries a "Not
-  here yet" list, and `llms.txt` carries a "Not shipped yet" section, precisely so an answer
+- **A planned feature is labelled planned, on the page.** `llms.txt` carries a "Not shipped yet" section, precisely so an answer
   engine that has read a competitor's page cannot attribute their features to us.
 - **The content origin isolates artifacts from the app, not from each other.** Copy may say
   uploaded HTML cannot reach the dashboard or the API — that is true and enforced in
   `src/host.ts`. Copy must never imply a per-artifact browser sandbox or a per-artifact origin:
   every artifact shares `a.rtfx.pro`, so two artifacts are same-origin with each other and the
-  access list is what keeps them apart. `/docs` states this in the access section, in the
-  `#why-rtfx` differentiator and in the "where does the uploaded HTML run" FAQ; `llms.txt`
+  access list is what keeps them apart. `llms.txt`
   states it under the access and privacy model; [SECURITY.md](../SECURITY.md) carries the full
   threat-model version.
 
-- **Install paths must be ones a reader can run today.** There is no npm package, so no public
-  surface may show `npx artifacts …` or a bare `artifacts …` binary. The honest paths are the
-  Claude Code plugin (`/plugin marketplace add yogevgab/artifacts-server`, which brings its own
-  dependency-free publisher), `node cli/artifacts.mjs …` from a checkout with `npm install` run,
-  the MCP server file inside the installed plugin or a checkout, and `curl` against
-  `POST /api/artifacts`. When a package does ship, `src/docs.ts`, `src/integrations.ts` and
-  `llmsTxt()` in `src/seo.ts` change together.
+- **The hosted MCP endpoint publishes content, not paths.** The landing page and `llms.txt` show
+  only `https://mcp.rtfx.pro/mcp` (claude.ai custom connector, `claude mcp add`, generic JSON).
+  The plugin, the `.dxt`, the CLI, Hermes and the HTTP API are deliberately not featured on the
+  one-page site; `test/site.test.ts` pins that. Do not show `npx artifacts …` — there is no npm
+  package.
 
-- **The `curl` example must run against this instance as deployed.** Two ways it silently stops
-  being runnable: sending a zip as `-F file=@…`, when `file` is one HTML document and `bundle` is
-  the zip field (`src/api.ts`); or showing legacy Cloudflare Access service-token headers as if
-  `rtfx.pro` still needed them. It does not: `/api/machine/*` authenticates the bearer `rtfx_…`
-  token and nothing else. The examples on `/docs` (`data-docs="http-publish"`) and in the
-  Integrations panel (`data-snippet="setup-http"`) must change together.
-
-`test/positioning.test.ts` enforces these, plus the `#why-rtfx` anchor and its markers;
-`test/portal.test.ts` covers the Integrations copy of the same snippets.
+`test/positioning.test.ts` and `test/site.test.ts` enforce these;
+`test/portal.test.ts` covers the Integrations copy of the snippets.
 
 ## Cookies and consent (issue #36)
 
@@ -157,13 +143,13 @@ a one-time code or magic link, verifies it, and sets its own host-only `rtfx_ses
 After deploying, verify the public/crawler surface from a shell with no browser session:
 
 ```bash
-for p in / /docs /login /privacy /terms /robots.txt /sitemap.xml /llms.txt /og.svg /og.png /logo.png; do
+for p in / /login /privacy /terms /robots.txt /sitemap.xml /llms.txt /og.svg /og.png /logo.png; do
   printf '%-14s ' "$p"; curl -s -o /dev/null -w '%{http_code} %{content_type}
 ' "https://rtfx.pro$p"
 done
 ```
 
-Expected: every path returns `200`, the HTML pages are `text/html`, `robots.txt` and `llms.txt` are
+Expected: every path returns `200` (and `/docs` returns a `301` to `/`), the HTML pages are `text/html`, `robots.txt` and `llms.txt` are
 `text/plain`, the sitemap is XML, and the image paths are PNG/SVG. No public HTML page may set a
 cookie of its own; `rtfx_session` is set by signing in, not by reading marketing/legal/docs pages.
 
@@ -215,8 +201,8 @@ Start at [POSITIONING.md](POSITIONING.md) if the change touches *what is claimed
 lives in six files at once and drifts if edited one at a time.
 
 - Landing page → `src/landing.ts` (structured data lives beside the copy it describes).
-- Docs page → `src/docs.ts`; add a question to `FAQS` and both the page and the JSON-LD
-  gain it. The table-stakes/differentiator/not-yet split is `#why-rtfx` in the same file.
+- There is no docs page: `/docs` redirects to `/` (`src/index.ts`). Walkthrough copy lives in
+  `landingPage()` in `src/landing.ts`.
 - Product summary shared with AI agents → `llmsTxt()` in `src/seo.ts`, including the
   **Not shipped yet** section that keeps an answer engine from inventing features.
 - Privacy policy / terms of use → `src/legal.ts`. Both pages open with the **operator-template /

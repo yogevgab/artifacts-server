@@ -203,7 +203,7 @@ function setupPanel(origin: string): string {
       publishes as you — it can never become you, manage people, or reach anyone else's artifacts.
       Machine calls go to <code>/api/machine</code>, which takes the token and nothing else, so
       nothing here needs a Cloudflare credential. Full reference lives in the
-      <a href="/docs">product docs</a>.</p>
+      <a href="/#start">how it works</a> page.</p>
   </section>`;
 }
 
