@@ -63,7 +63,7 @@ pre.code{background:#05070c;border:1px solid var(--border);border-radius:var(--r
 .band-head h2{font-size:clamp(1.5rem,3.4vw,2rem);letter-spacing:-.045em;margin:0 0 .6rem;line-height:1.1}
 .band-head p{color:var(--muted);margin:0}
 .eyebrow-c{font-size:.72rem;text-transform:uppercase;letter-spacing:.09em;color:var(--faint);margin:0 0 .7rem}
-.pricing-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(16rem,1fr));gap:1rem}
+.pricing-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:1rem}
 .tier{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:1.4rem 1.3rem;
   box-shadow:var(--shadow);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
   display:flex;flex-direction:column;gap:.9rem}
@@ -291,7 +291,7 @@ export function landingPage(env: Env): string {
     <section id="share" class="band">
       <h2>3. Share</h2>
       <ul class="ask-list">
-        <li><q>Share it with dana@acme.com.</q> Dana signs in with her email and can open it.</li>
+        <li><q>Share it with dana@acme.com.</q> Dana signs in with their email and can open it.</li>
         <li><q>Let alex@acme.com edit it.</q> Editors can publish new versions and roll back.</li>
         <li><q>Make it visible to everyone in my workspace.</q></li>
       </ul>
