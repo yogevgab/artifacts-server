@@ -275,9 +275,20 @@ is validated and an unrecognized one is refused outright (DNS-rebinding protecti
 spec); a content host can never be an allowed origin, and `*` is never emitted. Messages are capped
 from the inline upload size, batches are refused, and a content host answers 404 for `/mcp` entirely.
 `doctor` reports the token's **id**, never its secret. `list_artifacts`, `artifact_details` and
-`artifact_statistics` require `read`; `publish` requires `publish`; `share_artifact`,
-`rollback_artifact` and `delete_artifact` require `manage`. Delete additionally requires
+`artifact_statistics` require `read`; `publish` and `rollback_artifact` require `publish`;
+`share_artifact` and `delete_artifact` require `manage`. Delete additionally requires
 `confirm_slug` to match `slug` exactly.
+
+**Viewers and editors.** `share_artifact` replaces the artifact's access list. `emails` become
+*viewers* (they can open it); the optional `editors` list become *editors*, who can also `publish` new
+versions to that slug and `rollback_artifact`, and nothing more: they cannot change access, manage
+share links, read analytics or delete. An address in both lists is an editor. A call that passes only
+`emails` (no `editors`) keeps the role every already-granted address has; new addresses are viewers. `artifact_details`
+returns `access.grants` (`[{ email, role }]`) next to the flat `access.emails`, and `share_artifact`
+answers the same pair. An editor still needs a token (or session) of their own with the matching scope
+(`publish` to publish or roll back), and a guest sign-in is never an
+editor. Share-link names and extending a link are REST-only (`POST`/`PATCH
+/api/artifacts/:slug/links`), not MCP tools.
 
 `test/mcp-http.test.ts` pins all of it against the real Worker, including publish success, path
 refusal, scope checks, inline bundle path filtering and body-size limits.

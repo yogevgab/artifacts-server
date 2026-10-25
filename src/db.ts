@@ -577,6 +577,61 @@ export async function viewSources(env: Env, slug: string, limit = 8): Promise<Vi
   };
 }
 
+/** What a named person may do with an artifact. `viewer` is the default and the only role before 0024. */
+export type GrantRole = "viewer" | "editor";
+
+export interface Grant {
+  email: string;
+  role: GrantRole;
+}
+
+/** True when a statement named the 0024 `role` column and the migration has not run yet. */
+export function isMissingRoleColumn(e: unknown): boolean {
+  const message = e instanceof Error ? e.message : String(e);
+  return /no such column|has no column named/i.test(message) && /\brole\b/i.test(message);
+}
+
+/**
+ * Every grant on an artifact with its role, sorted by email. Before migration
+ * 0024 there is no `role` column and every grant is a viewer, which is exactly
+ * what the old rows meant — so the fallback is also the correct answer.
+ */
+export async function listGrantsWithRoles(env: Env, slug: string): Promise<Grant[]> {
+  try {
+    const { results } = await env.DB.prepare(
+      "SELECT email, role FROM artifact_grants WHERE slug = ? ORDER BY email"
+    )
+      .bind(slug)
+      .all<{ email: string; role: string }>();
+    return (results ?? []).map((r) => ({
+      email: r.email,
+      role: r.role === "editor" ? ("editor" as const) : ("viewer" as const),
+    }));
+  } catch (e) {
+    if (!isMissingRoleColumn(e)) throw e;
+    return (await listGrants(env, slug)).map((email) => ({ email, role: "viewer" as const }));
+  }
+}
+
+/**
+ * The role an address holds on an artifact, or null if it holds no grant.
+ * `hasGrant` stays the "may open it" question (any role); this is the "may
+ * change it" one. It grants nothing by itself — see `canEdit` in authz.ts,
+ * which also insists on a real (non-guest) identity.
+ */
+export async function grantRole(env: Env, slug: string, email: string): Promise<GrantRole | null> {
+  try {
+    const row = await env.DB.prepare("SELECT role FROM artifact_grants WHERE slug = ? AND email = ?")
+      .bind(slug, email.trim().toLowerCase())
+      .first<{ role: string }>();
+    if (!row) return null;
+    return row.role === "editor" ? "editor" : "viewer";
+  } catch (e) {
+    if (!isMissingRoleColumn(e)) throw e;
+    return (await hasGrant(env, slug, email)) ? "viewer" : null;
+  }
+}
+
 export async function listGrants(env: Env, slug: string): Promise<string[]> {
   const { results } = await env.DB.prepare(
     "SELECT email FROM artifact_grants WHERE slug = ? ORDER BY email"
@@ -738,29 +793,53 @@ export async function addContactRequest(
     .run();
 }
 
-/** Replace an artifact's visibility and its full grant list atomically. */
+/**
+ * Replace an artifact's visibility and its full grant list atomically.
+ *
+ * Entries are either bare emails (legacy callers: a viewer) or `{ email, role }`.
+ * Emails are lower-cased; a repeated address keeps its LAST entry, so a caller
+ * can say "viewer" and later "editor" for the same person and mean the latter.
+ * Before migration 0024 the insert falls back to the role-less column list
+ * (everyone is a viewer then, and an editor request quietly becomes a viewer:
+ * the safe direction).
+ */
 export async function setAccess(
   env: Env,
   slug: string,
   visibility: "restricted" | "everyone",
-  emails: string[],
+  entries: Array<string | Grant>,
   now: string
 ): Promise<void> {
-  const clean = [...new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean))];
-  const stmts = [
+  const byEmail = new Map<string, GrantRole>();
+  for (const entry of entries) {
+    const email = (typeof entry === "string" ? entry : entry.email).trim().toLowerCase();
+    if (!email) continue;
+    byEmail.set(email, typeof entry === "string" ? "viewer" : entry.role);
+  }
+  const build = (withRole: boolean) => [
     env.DB.prepare("UPDATE artifacts SET visibility = ?, updated_at = ? WHERE slug = ?").bind(
       visibility,
       now,
       slug
     ),
     env.DB.prepare("DELETE FROM artifact_grants WHERE slug = ?").bind(slug),
-    ...clean.map((email) =>
-      env.DB.prepare(
-        "INSERT INTO artifact_grants (slug, email, created_at) VALUES (?, ?, ?)"
-      ).bind(slug, email, now)
+    ...[...byEmail].map(([email, role]) =>
+      withRole
+        ? env.DB.prepare(
+            "INSERT INTO artifact_grants (slug, email, created_at, role) VALUES (?, ?, ?, ?)"
+          ).bind(slug, email, now, role)
+        : env.DB.prepare(
+            "INSERT INTO artifact_grants (slug, email, created_at) VALUES (?, ?, ?)"
+          ).bind(slug, email, now)
     ),
   ];
-  await env.DB.batch(stmts);
+  try {
+    await env.DB.batch(build(true));
+  } catch (e) {
+    // D1 batches are transactional, so the failed attempt left nothing behind.
+    if (!isMissingRoleColumn(e)) throw e;
+    await env.DB.batch(build(false));
+  }
 }
 
 

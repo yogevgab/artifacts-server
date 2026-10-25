@@ -89,6 +89,7 @@ import type { ArtifactRow, VersionRow } from "./env";
 import {
   getViews,
   listGrants,
+  listGrantsWithRoles,
   listVersions,
   setAccess,
   versionCounts,
@@ -98,6 +99,8 @@ import {
 import {
   viewUrl,
   manageableArtifact,
+  keepExistingRoles,
+  editableArtifact,
   normalizeAccessInput,
   purgeArtifact,
   resolvePublishTarget,
@@ -365,7 +368,8 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
     description:
       "Everything known about one artifact you can manage: its row, its URL, its full version " +
       "history (marking which version is live and which have expired out of the plan's retention " +
-      "window), who it is shared with, and how often it has been opened. Call this before " +
+      "window), who it is shared with and whether each person is a viewer (can open it) or an " +
+      "editor (can also publish new versions and roll back), and how often it has been opened. Call this before " +
       "rolling back or re-sharing, so the version numbers and the email list you send are the ones " +
       "that actually exist. A slug you cannot manage answers not_found, exactly as if it did not exist.",
     inputSchema: {
@@ -405,10 +409,13 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
       "Replace who may open an artifact: 'restricted' (its owner plus exactly the emails you " +
       "list) or 'everyone' (any signed-in user of this instance). THE EMAIL LIST IS A REPLACEMENT, " +
       "NOT AN ADDITION — send the full list every time, and send [] to revoke everybody. Call " +
-      "artifact_details first to read the current list if you mean to add somebody to it. This " +
-      "grants access; it does not invite anyone or create an account, so a recipient who cannot " +
-      "already sign in to this instance still needs an administrator to invite them. Needs a token " +
-      "with the 'manage' scope.",
+      "artifact_details first to read the current list if you mean to add somebody to it. People in " +
+      "`emails` become viewers (they can open it); people in `editors` become editors (they can " +
+      "open it, publish new versions to it and roll it back, but cannot change who it is shared " +
+      "with, manage links, read analytics or delete it, and need an rtfx account to publish). An " +
+      "address in both lists is an editor. This grants access; it does not invite anyone or create " +
+      "an account, so a recipient who cannot already sign in to this instance still needs an " +
+      "administrator to invite them. Needs a token with the 'manage' scope.",
     inputSchema: {
       type: "object",
       properties: {
@@ -424,7 +431,14 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
           items: { type: "string" },
           maxItems: 200,
           description:
-            "Full replacement list of emails granted access, each containing '@'. Lower-cased and de-duplicated. Ignored when visibility is 'everyone'; pass [] to revoke everyone.",
+            "Full replacement list of emails granted VIEW access, each containing '@'. Lower-cased and de-duplicated. Ignored when visibility is 'everyone'; pass [] to revoke everyone.",
+        },
+        editors: {
+          type: "array",
+          items: { type: "string" },
+          maxItems: 200,
+          description:
+            "Optional. Emails granted EDITOR access (view, publish new versions, roll back). Part of the same full replacement: an editor you leave out is removed. Ignored when visibility is 'everyone'.",
         },
       },
       required: ["slug", "visibility"],
@@ -497,7 +511,9 @@ const TOOL_SCOPE: Record<string, Scope> = {
   artifact_details: "read",
   artifact_statistics: "read",
   share_artifact: "manage",
-  rollback_artifact: "manage",
+  // `publish`, like REST rollback (`POST /artifacts/:slug/current`): it changes
+  // what the world sees, and an editor may do it with a publish-scoped token.
+  rollback_artifact: "publish",
   delete_artifact: "manage",
 };
 
@@ -556,7 +572,7 @@ Never ask them to use a terminal.
 
 Artifact management is also available here: use "list_artifacts" to find existing work,
 "artifact_details" before sharing or rollback, "artifact_statistics" for counts, and — with a
-"manage" scoped credential — "share_artifact", "rollback_artifact" and "delete_artifact". Delete is
+"manage" scoped credential — "share_artifact" and "delete_artifact" ("rollback_artifact" needs "publish"). Delete is
 permanent and requires confirm_slug to equal slug.
 
 "doctor" reports how this connection is authenticated, what it may do, and the exact limits.
@@ -1207,7 +1223,7 @@ async function artifactDetailsTool(c: Context<Vars>, args: any): Promise<ToolCal
   if (!art) return failure(new ToolError("artifact not found", { error: "not_found", status: 404 }));
   const [versions, grants, views, perVersion] = await Promise.all([
     listVersions(c.env, slug),
-    listGrants(c.env, slug),
+    listGrantsWithRoles(c.env, slug),
     getViews(c.env, slug, 20),
     viewsByVersion(c.env, slug),
   ]);
@@ -1223,7 +1239,7 @@ async function artifactDetailsTool(c: Context<Vars>, args: any): Promise<ToolCal
       transport: "http",
       artifact: summary,
       versions: versions.map((v) => versionSummary(v, art.current_version)),
-      access: { visibility: art.visibility, emails: grants },
+      access: { visibility: art.visibility, emails: grants.map((g) => g.email), grants },
       views: { ...views, by_version: perVersion },
     }
   );
@@ -1307,26 +1323,32 @@ async function shareArtifactTool(c: Context<Vars>, args: any): Promise<ToolCallR
   const slug = String(args?.slug ?? "");
   const art = await manageableArtifact(c, slug);
   if (!art) return failure(new ToolError("artifact not found", { error: "not_found", status: 404 }));
-  const parsed = normalizeAccessInput({ visibility: args?.visibility, emails: args?.emails });
+  const parsed = normalizeAccessInput({
+    visibility: args?.visibility,
+    emails: args?.emails,
+    editors: args?.editors,
+  });
   if ("error" in parsed) return failure(new ToolError(parsed.error, { error: "bad_request", status: 400 }));
-  const emails = parsed.visibility === "everyone" ? [] : parsed.emails;
-  await setAccess(c.env, slug, parsed.visibility, emails, new Date().toISOString());
-  const grants = await listGrants(c.env, slug);
+  const requested = parsed.visibility === "everyone" ? [] : await keepExistingRoles(c.env, slug, parsed);
+  await setAccess(c.env, slug, parsed.visibility, requested, new Date().toISOString());
+  const grants = await listGrantsWithRoles(c.env, slug);
   const url = await viewUrl(c, art.account_id, slug);
-  return result([`${slug} access set to ${parsed.visibility}`, `${grants.length} explicit grant(s)`], {
+  return result([`${slug} access set to ${parsed.visibility}`, `${grants.length} explicit grant(s), ${grants.filter((g) => g.role === "editor").length} editor(s)`], {
     command: "share_artifact",
     transport: "http",
     slug,
     url,
     branded_url: url,
     visibility: parsed.visibility,
-    emails: grants,
+    emails: grants.map((g) => g.email),
+    grants,
   });
 }
 
 async function rollbackArtifactTool(c: Context<Vars>, args: any): Promise<ToolCallResult> {
   const slug = String(args?.slug ?? "");
-  const art = await manageableArtifact(c, slug);
+  // An owner/manager, or a named editor of this artifact (src/authz.ts `canEdit`).
+  const art = await editableArtifact(c, slug);
   if (!art) return failure(new ToolError("artifact not found", { error: "not_found", status: 404 }));
   const suspended = await suspendedDenial(c, art.account_id ?? null);
   if (suspended) return failure(await responseError(suspended));
