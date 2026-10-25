@@ -27,6 +27,15 @@ const RESERVED_SLUGS = new Set([
 ]);
 
 /**
+ * Longest `next` accepted. An OAuth authorization request from claude.ai is a
+ * path carrying a URL-encoded client_id, redirect_uri, scope, resource and an
+ * opaque `state`; it runs well past 512 characters, and a cap at 512 silently
+ * dropped it, landing a person who signed in mid-connect on /admin. 2048 keeps
+ * every real request while the parked cookie stays inside a browser's 4 KB.
+ */
+export const MAX_NEXT_PATH = 2048;
+
+/**
  * A `?next=` value that is safe to redirect to: a path on this origin, and
  * nothing else.
  *
@@ -39,7 +48,7 @@ const RESERVED_SLUGS = new Set([
 export function safeNextPath(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const value = raw.trim();
-  if (!value || value.length > 512) return null;
+  if (!value || value.length > MAX_NEXT_PATH) return null;
   if (!value.startsWith("/")) return null;
   if (value.startsWith("//") || value.startsWith("/\\")) return null;
   // Control characters (a smuggled newline above all) never belong in a Location.

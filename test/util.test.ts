@@ -79,7 +79,9 @@ describe("safeNextPath", () => {
     expect(safeNextPath("/admin\nLocation: https://evil.example.com")).toBeNull();
     expect(safeNextPath("/admin\r\nSet-Cookie: a=b")).toBeNull();
     expect(safeNextPath("/admin")).toBeNull();
-    expect(safeNextPath(`/${"a".repeat(512)}`)).toBeNull();
+    expect(safeNextPath(`/${"a".repeat(2048)}`)).toBeNull();
+    // A claude.ai-sized OAuth request (well past the old 512 cap) is accepted.
+    expect(safeNextPath(`/oauth/authorize?state=${"s".repeat(900)}`)).not.toBeNull();
     expect(safeNextPath(undefined)).toBeNull();
     expect(safeNextPath(null)).toBeNull();
     expect(safeNextPath(42)).toBeNull();
