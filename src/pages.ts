@@ -227,7 +227,6 @@ export const BRAND_STYLE = `
 /** Which public page is being rendered, so its own link can be dropped. */
 export type PublicPage =
   | "home"
-  | "docs"
   | "login"
   | "privacy"
   | "terms"
@@ -256,14 +255,12 @@ export function skipLink(): string {
  */
 export function siteHeader(current: PublicPage = "home"): string {
   const links = [
-    current === "home" ? "" : `<a href="/" data-nav="home">Home</a>`,
-    current === "docs" ? "" : `<a href="/docs" data-cta="docs">Docs</a>`,
-    `<a href="/docs#use-cases" data-nav="use-cases">Use cases</a>`,
+    `<a href="/#start" data-nav="how">How it works</a>`,
     // Pricing is a destination now that four tiers have pages of their own, and
     // two of those tiers are a conversation rather than a checkout — somebody
     // evaluating Team or Enterprise needs a way in that isn't the landing page's
     // scroll. It sits with the next-step links, not the orientation ones, which
-    // is why the narrow-screen rule below hides Home and Use cases and not this.
+    // is why the narrow-screen rule below hides How it works and not this.
     `<a href="/#pricing" data-nav="pricing">Pricing</a>`,
     `<a href="/signup" class="primary" data-cta="signup">Start free</a>`,
     current === "login" ? "" : `<a href="/login" data-cta="sign-in">Sign in →</a>`,
@@ -285,8 +282,6 @@ export function siteFooter(): string {
   return `<footer class="site">
       <nav aria-label="Footer">
         <a href="/">Home</a>
-        <a href="/docs" data-cta="docs">Docs</a>
-        <a href="/docs#use-cases">Use cases</a>
         <a href="/signup" data-cta="signup">Start free</a>
         <a href="/login" data-cta="sign-in">Sign in</a>
         <!-- Every tier that is not self-serve needs a route a person can take
@@ -346,7 +341,7 @@ footer.site nav.legal a:hover{color:var(--fg)}
   .nav{gap:.55rem}
   /* The two orientation links go first on a narrow screen; the two that move a
      person forward (signup, sign in) always stay. */
-  .nav a[data-nav="use-cases"],.nav a[data-nav="home"]{display:none}
+  .nav a[data-nav="how"]{display:none}
 }
 /* Touch targets in the nav: a 0.9rem text link is not 44px on its own. The
    .toc pills on /docs, /privacy and /terms are the same problem — a row of

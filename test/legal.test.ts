@@ -25,7 +25,7 @@ import type { Env } from "../src/env";
 const ANON = { headers: { "X-Dev-Anonymous": "true" } };
 const SUPER = "admin@test.com";
 const LEGAL = ["/privacy", "/terms"];
-const PUBLIC = ["/", "/docs", "/login", "/privacy", "/terms"];
+const PUBLIC = ["/", "/login", "/privacy", "/terms"];
 
 beforeEach(async () => {
   await initDb();
@@ -113,7 +113,7 @@ describe("the legal pages are findable", () => {
 
   it("points at each other, so neither is a dead end", async () => {
     expect(await html("/terms", ANON)).toContain('href="/privacy"');
-    expect(await html("/docs", ANON)).toContain('href="/terms"');
+    expect(await html("/", ANON)).toContain('href="/terms"');
   });
 });
 

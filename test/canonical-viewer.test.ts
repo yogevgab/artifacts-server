@@ -496,7 +496,7 @@ describe("routing precedence", () => {
     }
     // And the live app host answers them as itself, not as an artifact.
     expect((await onApp("/health")).status).toBe(200);
-    expect((await onApp("/docs", { Accept: "text/html" })).status).toBe(200);
+    expect((await onApp("/docs", { Accept: "text/html" })).status).toBe(301);
     expect((await onApp("/robots.txt")).status).toBe(200);
     expect((await onApp("/share/report", { Cookie: await cookie(OWNER) })).status).toBe(200);
   });

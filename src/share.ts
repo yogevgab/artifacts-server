@@ -9,7 +9,7 @@
  * logged in the view log with `link_id` set and no email (unless the visitor
  * happens to hold a session too), and the owner sees it as "Someone with a
  * link". The read-receipt email is for named people only and never fires for a
- * link. Public copy must say so — see /docs#access and /privacy.
+ * link. Public copy must say so — see /#share and /privacy.
  *
  * The URL *is* the credential. So: only a hash is stored, revocation is
  * immediate, expiry is optional but supported, and a link opens exactly one

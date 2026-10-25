@@ -125,8 +125,7 @@ function planPage(env: Env, page: PlanPageInput, title: string, description: str
     ${page.sections}
 
     <p class="plan-foot">Compare every tier on the <a href="/#pricing">pricing table</a> ·
-      <a href="/docs">how publishing works</a> ·
-      <a href="/docs#why-rtfx">what is and isn't built</a></p>
+      <a href="/#start">how it works</a></p>
     </main>
 
     ${siteFooter()}`;

@@ -27,10 +27,10 @@ describe("pricing section", () => {
   it("is reachable at #pricing without adding a new top-level section", async () => {
     const html = await landing();
     expect(html).toContain('id="pricing"');
-    // Issue #35 invariant (test/positioning.test.ts): the page stays at
-    // hero + one band + waitlist. Pricing lives inside the product band as a
-    // <div>, not a fourth <section>.
-    expect((html.match(/<section\b/g) ?? []).length).toBe(3);
+    // Pricing is a <div> between the walkthrough sections and the closing CTA,
+    // not a section of its own: hero + 4 walkthrough steps + final CTA.
+    expect(html).toMatch(/<div id="pricing" class="pricing">/);
+    expect((html.match(/<section\b/g) ?? []).length).toBe(6);
   });
 
   it("names every public tier", async () => {
