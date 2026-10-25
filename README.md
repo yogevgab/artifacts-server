@@ -30,8 +30,8 @@ custom domains for artifacts (branded workspace addresses are a path on the app 
 hostname), comments/approvals, a public gallery of artifacts, usage-based
 billing, and per-seat billing beyond the fixed seats included in each plan. Access is by identity
 first; share links are separate capability URLs with optional expiry and immediate revocation. The competitive reasoning, and the full
-table-stakes-vs-differentiators split, is in [`docs/POSITIONING.md`](docs/POSITIONING.md) and
-published at [`/docs#why-rtfx`](https://rtfx.pro/docs#why-rtfx).
+table-stakes-vs-differentiators split, is in [`docs/POSITIONING.md`](docs/POSITIONING.md). The public
+site is one page: [rtfx.pro](https://rtfx.pro/#start) — connect the MCP server, then publish, share, delete.
 
 ---
 
