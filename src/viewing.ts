@@ -92,7 +92,7 @@ export function wantsShell(c: AppContext): boolean {
 }
 
 /** Hand a promise to waitUntil in production; await it where there is no execution context (tests). */
-export async function inBackground(c: AppContext, p: Promise<unknown>): Promise<void> {
+export async function inBackground(c: Pick<AppContext, "executionCtx">, p: Promise<unknown>): Promise<void> {
   let ctx: { waitUntil(promise: Promise<unknown>): void } | undefined;
   try {
     ctx = c.executionCtx;

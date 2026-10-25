@@ -10,18 +10,18 @@
  */
 
 import { Hono, type Context } from "hono";
-import type { AppBindings, Env } from "./env";
+import type { AppBindings, ArtifactRow, Env } from "./env";
 import { SESSION_COOKIE } from "./auth";
 import { mintSession, SESSION_TTL_SECONDS } from "./session";
-import { createChallenge, redeemCode, redeemToken, CHALLENGE_TTL_MINUTES } from "./otp";
+import { createChallenge, redeemCode, redeemToken, CHALLENGE_TTL_MINUTES, type Challenge } from "./otp";
 import { sendMail } from "./mail";
 import { signinMail, guestMail } from "./mail-templates";
 import { normalizeEmail } from "./waitlist";
 import { incrementRateLimitBucket, clientAddress } from "./rate-limit";
 import { touchLastSeen, effectiveRole } from "./users";
-import { ensurePersonalAccount, ensureAccountPublicSlug } from "./accounts";
+import { ensurePersonalAccount, ensureAccountPublicSlug, memberRole } from "./accounts";
 import { canonicalPath } from "./canonical";
-import { GUEST_COOKIE } from "./viewing";
+import { GUEST_COOKIE, inBackground } from "./viewing";
 import { siteOrigin } from "./seo";
 import { isContentHost, requestHostname } from "./host";
 import { getIdentity, readCookie } from "./auth";
@@ -175,6 +175,41 @@ async function establishSession(env: Env, email: string): Promise<string | null>
   return sessionCookie(token, SESSION_TTL_SECONDS);
 }
 
+/** The artifact's canonical viewer address, or null when it no longer exists. */
+async function artifactPath(env: Env, slug: string): Promise<string | null> {
+  const art = await getArtifact(env, slug);
+  if (!art) return null;
+  const workspace = art.account_id ? await ensureAccountPublicSlug(env, art.account_id) : null;
+  return canonicalPath(workspace, art.slug);
+}
+
+/**
+ * Where a member lands once a sign-in is redeemed.
+ *
+ * A challenge that names an artifact was asked for from that artifact's gate,
+ * so it wins: it rides the challenge itself, which is the only thing that
+ * survives the person opening the email on another device. Otherwise the
+ * parked `?next=`, then the dashboard.
+ */
+async function signinLanding(c: Context<AppBindings>, challenge: Challenge): Promise<string> {
+  if (challenge.purpose === "signin" && challenge.slug) {
+    const path = await artifactPath(c.env, challenge.slug);
+    if (path) return path;
+  }
+  return pendingNext(c) ?? "/admin";
+}
+
+/**
+ * Does this address belong to the artifact — its owner, a member of its
+ * workspace (any role), or a platform admin? Those people get in with a member
+ * session, never a grant, so the guest path alone would leave them stranded.
+ */
+async function belongsToArtifact(env: Env, art: ArtifactRow, email: string): Promise<boolean> {
+  if (art.owner_email?.trim().toLowerCase() === email) return true;
+  if (effectiveRole(env, email) === "admin") return true;
+  return !!(art.account_id && (await memberRole(env, art.account_id, email)));
+}
+
 authRoutes.post("/auth/start", async (c) => {
   const body = await c.req.json().catch(() => null);
   const email = normalizeEmail((body as { email?: unknown } | null)?.email);
@@ -212,7 +247,7 @@ authRoutes.post("/auth/verify", async (c) => {
   const headers = new Headers({ "Content-Type": "application/json; charset=UTF-8" });
   headers.append("Set-Cookie", cookie);
   headers.append("Set-Cookie", pendingNextCookie(null));
-  return new Response(JSON.stringify({ ok: true, redirect: pendingNext(c) ?? "/admin" }), {
+  return new Response(JSON.stringify({ ok: true, redirect: await signinLanding(c, challenge) }), {
     status: 200,
     headers,
   });
@@ -249,11 +284,7 @@ authRoutes.post("/auth/m/:token", async (c) => {
       { email: challenge.email, kind: "guest", slug: challenge.slug },
       new Date().toISOString()
     );
-    const art = await getArtifact(c.env, challenge.slug);
-    const workspace = art?.account_id ? await ensureAccountPublicSlug(c.env, art.account_id) : null;
-    const headers = new Headers({
-      Location: art ? canonicalPath(workspace, art.slug) : "/",
-    });
+    const headers = new Headers({ Location: (await artifactPath(c.env, challenge.slug)) ?? "/" });
     headers.append("Set-Cookie", guestCookie(token, SESSION_TTL_SECONDS));
     return new Response(null, { status: 302, headers });
   }
@@ -264,18 +295,24 @@ authRoutes.post("/auth/m/:token", async (c) => {
   // Built by hand rather than with c.redirect(): that helper takes no headers,
   // and a redirect without the Set-Cookie would sign nobody in while looking
   // exactly like success.
-  const headers = new Headers({ Location: pendingNext(c) ?? "/admin" });
+  const headers = new Headers({ Location: await signinLanding(c, challenge) });
   headers.append("Set-Cookie", cookie);
   headers.append("Set-Cookie", pendingNextCookie(null));
   return new Response(null, { status: 302, headers });
 });
 
 /**
- * Guest sign-in: prove you control an address somebody granted this artifact to.
+ * The artifact gate's form: whoever you are, prove you control the address.
  *
- * Answers 202 whether or not the address holds a grant, and whether or not the
- * artifact exists. Anything else would let a stranger enumerate both who has
- * access and which slugs are real.
+ * - Somebody who belongs to the artifact (owner, workspace member, admin) gets
+ *   an ordinary member sign-in that lands back on it. They hold no grant —
+ *   grants are for other people — so the guest path alone sent them nothing.
+ * - Somebody granted it gets a guest link scoped to this one artifact.
+ * - Anybody else gets nothing.
+ *
+ * Answers 202 in every case, and whether or not the artifact exists. Anything
+ * else would let a stranger enumerate both who has access and which slugs are
+ * real.
  */
 authRoutes.post("/auth/guest", async (c) => {
   const slug = (c.req.query("slug") ?? "").trim().toLowerCase();
@@ -291,22 +328,33 @@ authRoutes.post("/auth/guest", async (c) => {
   ]);
   if (!emailOk || !ipOk) return c.json({ error: "rate_limited" }, 429, { "Retry-After": "3600" });
 
-  const art = await getArtifact(c.env, slug);
-  if (art && (await hasGrant(c.env, slug, email))) {
-    const now = new Date().toISOString();
-    const issued = await createChallenge(c.env, { email, purpose: "guest", slug, now });
-    const origin = c.env.PUBLIC_BASE_URL || siteOrigin(c.env);
-    await sendMail(c.env, {
-      to: email,
-      kind: "share_notice",
-      message: guestMail({
-        title: art.title || slug,
-        magicUrl: `${origin}/auth/m/${issued.token}`,
-        expiresMinutes: CHALLENGE_TTL_MINUTES,
-      }),
-      now,
-    });
-  }
+  // Everything that depends on who the address is runs after the response, so
+  // an owner, a grantee and a stranger are answered equally fast as well as
+  // identically — otherwise latency alone says who can see this slug.
+  const issue = async () => {
+    const art = await getArtifact(c.env, slug);
+    if (art && (await belongsToArtifact(c.env, art, email))) {
+      await startChallenge(c, email, "signin", art.slug);
+    } else if (art && (await hasGrant(c.env, slug, email))) {
+      const now = new Date().toISOString();
+      const issued = await createChallenge(c.env, { email, purpose: "guest", slug, now });
+      const origin = c.env.PUBLIC_BASE_URL || siteOrigin(c.env);
+      await sendMail(c.env, {
+        to: email,
+        kind: "share_notice",
+        message: guestMail({
+          title: art.title || slug,
+          magicUrl: `${origin}/auth/m/${issued.token}`,
+          expiresMinutes: CHALLENGE_TTL_MINUTES,
+        }),
+        now,
+      });
+    }
+  };
+  await inBackground(
+    c,
+    issue().catch((err) => console.error("auth/guest: issuing a challenge failed", err))
+  );
 
   return c.json(ACCEPTED, 202);
 });
