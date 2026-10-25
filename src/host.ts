@@ -56,6 +56,8 @@ const MANAGEMENT_PREFIXES = [
   // App host only, like every public page; `guide` is thereby also a reserved
   // workspace slug (reservedTopLevelSegments).
   "/guide",
+  // `/media/<name>`: the guide video and poster, served from R2 (src/media.ts).
+  "/media",
   // The chat socket for the viewer (src/index.ts). It authorizes with the
   // app-host session / link cookie exactly like the viewer, so it lives on the
   // app host and a content host must 404 it. `_chat` can never be a slug

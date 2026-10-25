@@ -1,6 +1,6 @@
 import { layout, siteHeader, siteFooter, PUBLIC_CHROME_STYLE, esc } from "./pages";
 import { cookieNotice, CONSENT_STYLE, CONSENT_SCRIPT } from "./consent";
-import { COPY_SCRIPT } from "./landing";
+import { COPY_SCRIPT, guideVideo, GUIDE_VIDEO_STYLE } from "./landing";
 import { GUIDE_IMAGES } from "./guide-images";
 import type { Env } from "./env";
 import { SITE, MCP_URL, canonicalUrl } from "./seo";
@@ -157,6 +157,7 @@ const STYLE = `${PUBLIC_CHROME_STYLE}${CONSENT_STYLE}
 .mcp-box{display:flex;align-items:center;gap:.6rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--card);padding:.5rem .5rem .5rem 1rem;margin:0 0 1rem;min-width:0}
 .mcp-box code{flex:1;min-width:0;font-family:var(--mono);font-size:.92rem;overflow-x:auto;white-space:nowrap}
 .mcp-box button{flex:none}
+${GUIDE_VIDEO_STYLE}
 .jump{display:flex;gap:.4rem 1.1rem;flex-wrap:wrap;margin:0;font-size:.92rem;color:var(--faint)}
 .part{margin:3.6rem 0 0;scroll-margin-top:1rem}
 .part>h2{font-size:clamp(1.4rem,3.2vw,1.8rem);letter-spacing:-.045em;line-height:1.1;margin:0 0 1.4rem}
@@ -215,6 +216,7 @@ export function guidePage(env: Env): string {
         <button type="button" class="ghost" data-copy="${MCP_URL}">Copy</button>
       </div>
       <p class="jump"><a href="#connect">A. Connect</a> <a href="#publish">B. Publish</a> <a href="#share">C. Share</a> <a href="#views">D. See who opened it</a></p>
+      ${guideVideo()}
     </section>
 
     ${part("connect", "A", "Connect", A)}

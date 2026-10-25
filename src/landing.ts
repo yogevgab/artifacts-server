@@ -3,6 +3,7 @@ import { layout, siteHeader, siteFooter, PUBLIC_CHROME_STYLE, SOURCE_URL } from 
 import { cookieNotice, CONSENT_STYLE, CONSENT_SCRIPT } from "./consent";
 import type { Env } from "./env";
 import { SITE, MCP_URL, canonicalUrl } from "./seo";
+import { mediaUrl } from "./media";
 import { num, bytes } from "./portal";
 import type { PlanName } from "./quota";
 import {
@@ -35,9 +36,14 @@ import {
 const CLAUDE_CODE_CMD = `claude mcp add --transport http rtfx ${MCP_URL}`;
 const MCP_JSON = `{"mcpServers":{"rtfx":{"url":"${MCP_URL}"}}}`;
 
+/** Styles for guideVideo(), shared with /guide (src/guide.ts). */
+export const GUIDE_VIDEO_STYLE = `.guide-video{margin:2rem 0 0}.guide-video video{display:block;width:100%;height:auto;border-radius:var(--radius-sm);border:1px solid var(--border-strong);box-shadow:var(--shadow);background:var(--card)}
+.guide-video figcaption{margin-top:.6rem;color:var(--muted);font-size:.92rem}`;
+
 const LANDING_STYLE = `${PUBLIC_CHROME_STYLE}${CONSENT_STYLE}
 .wrap{max-width:46rem}
 .hero{padding:3.2rem 0 1rem}
+${GUIDE_VIDEO_STYLE}
 .hero h1{font-size:clamp(2.2rem,6vw,3.6rem);line-height:1.02;letter-spacing:-.06em;font-weight:760;margin:0 0 1rem;text-wrap:balance}
 .hero p.lead{font-size:clamp(1.05rem,2vw,1.2rem);color:var(--muted);margin:0 0 1.6rem;letter-spacing:-.01em}
 .mcp-box{display:flex;align-items:center;gap:.6rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--card);padding:.5rem .5rem .5rem 1rem;margin:0 0 1.2rem;min-width:0}
@@ -228,6 +234,23 @@ function pricingSection(): string {
   </div>`;
 }
 
+/**
+ * The one-minute walkthrough video (rendered from the /guide screenshots,
+ * served from R2 by src/media.ts). No autoplay and preload="none": nobody
+ * downloads 5 MB they did not ask for.
+ */
+export function guideVideo(): string {
+  return `<figure class="guide-video" data-landing="video">
+        <video controls playsinline preload="none" width="1920" height="1080"
+          poster="${mediaUrl("rtfx-guide-poster.jpg")}"
+          aria-label="One-minute walkthrough: add rtfx to Claude, publish, share and see who opened it">
+          <source src="${mediaUrl("rtfx-guide.mp4")}" type="video/mp4">
+        </video>
+        <figcaption>One minute: connect, publish, share, see who opened it.
+          <a href="/guide">Step by step with screenshots &rarr;</a></figcaption>
+      </figure>`;
+}
+
 export function landingPage(env: Env): string {
   const body = `
     ${siteHeader("home")}
@@ -247,6 +270,7 @@ export function landingPage(env: Env): string {
         <a class="ghost link-button" href="/signup" data-cta="signup">Start free</a>
       </div>
       <p class="signin-note">Already have an account? <a href="/login" data-cta="sign-in">Sign in</a></p>
+      ${guideVideo()}
     </section>
 
     <section id="start" class="band">
