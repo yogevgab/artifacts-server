@@ -209,7 +209,7 @@ describe("the remote tool surface", () => {
       (await json(await rpc(token, { jsonrpc: "2.0", id: 1, method: "tools/list" }))).result.tools.map((t: any) => t.name);
 
     expect(await names(reader.token)).toEqual(["doctor", "list_artifacts", "artifact_details", "artifact_statistics"]);
-    expect(await names(publisher.token)).toEqual(["doctor", "publish", "create_upload_link", "list_artifacts", "artifact_details", "artifact_statistics"]);
+    expect(await names(publisher.token)).toEqual(["doctor", "publish", "create_upload_link", "list_artifacts", "artifact_details", "artifact_statistics", "rollback_artifact"]);
     expect(await names(manager.token)).toEqual([
       "doctor",
       "publish",
@@ -581,7 +581,7 @@ describe("doctor", () => {
       "/.well-known/oauth-authorization-server"
     );
     expect(facts.publish_supported).toBe(true);
-    expect(facts.tools).toEqual(["doctor", "publish", "create_upload_link", "list_artifacts", "artifact_details", "artifact_statistics"]);
+    expect(facts.tools).toEqual(["doctor", "publish", "create_upload_link", "list_artifacts", "artifact_details", "artifact_statistics", "rollback_artifact"]);
     expect(facts.reachable).toBe(true);
     expect(facts.artifact_count).toBe(1);
     expect(facts.content_base).toBeUndefined();
@@ -711,7 +711,8 @@ describe("artifact management tools", () => {
     expect(share.result.isError).toBe(true);
     expect(JSON.parse(share.result.content[1].text).error).toBe("insufficient_scope");
 
-    const rollback = await json(await callTool(publisher.token, "rollback_artifact", { slug: "mcp-scope", version: 1 }));
+    // Rollback rides on `publish` (as REST does), so it is the read-only token that is refused.
+    const rollback = await json(await callTool(reader.token, "rollback_artifact", { slug: "mcp-scope", version: 1 }));
     expect(rollback.result.isError).toBe(true);
     expect(JSON.parse(rollback.result.content[1].text).error).toBe("insufficient_scope");
     expect((await env.DB.prepare("SELECT current_version FROM artifacts WHERE slug = ?").bind("mcp-scope").first<any>())!.current_version).toBe(2);

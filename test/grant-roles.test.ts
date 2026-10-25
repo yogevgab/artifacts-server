@@ -86,17 +86,25 @@ describe("access API shape", () => {
     });
   });
 
-  it("treats legacy `emails` as viewers (and so demotes anyone it leaves out of the editor role)", async () => {
+  it("treats legacy `emails` as viewers for new addresses but keeps existing roles", async () => {
+    await putAccess(OWNER, { visibility: "restricted", grants: [{ email: EDITOR, role: "editor" }] });
+    // An old client re-saving the list it read must not silently demote the editor.
     const res = await putAccess(OWNER, { visibility: "restricted", emails: [EDITOR, "New@Beta.com"] });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({
       slug: "report",
       emails: [EDITOR, "new@beta.com"],
       grants: [
-        { email: EDITOR, role: "viewer" },
+        { email: EDITOR, role: "editor" },
         { email: "new@beta.com", role: "viewer" },
       ],
     });
+  });
+
+  it("a request that names roles is taken exactly as given", async () => {
+    await putAccess(OWNER, { visibility: "restricted", grants: [{ email: EDITOR, role: "editor" }] });
+    const res = await putAccess(OWNER, { visibility: "restricted", grants: [{ email: EDITOR, role: "viewer" }] });
+    expect((await res.json<any>()).grants).toEqual([{ email: EDITOR, role: "viewer" }]);
   });
 
   it("last mention of a duplicate address wins", async () => {
@@ -139,6 +147,7 @@ describe("access API shape", () => {
         { email: "a@x.com", role: "editor" },
         { email: "b@x.com", role: "editor" },
       ],
+      legacy: false,
     });
     expect(normalizeAccessInput({ visibility: "restricted", editors: "x" })).toHaveProperty("error");
   });

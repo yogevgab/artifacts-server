@@ -1266,7 +1266,8 @@ artifactRoutes.put("/artifacts/:slug/access", requireScope("manage"), async (c) 
     grants: body?.grants,
   });
   if ("error" in parsed) return c.json({ error: "bad_request", detail: parsed.error }, 400);
-  const { visibility, grants } = parsed;
+  const { visibility } = parsed;
+  const grants = await keepExistingRoles(c.env, slug, parsed);
 
   await setAccess(c.env, slug, visibility, grants, new Date().toISOString());
 
@@ -1423,7 +1424,9 @@ export function normalizeAccessInput(input: {
   emails?: unknown;
   grants?: unknown;
   editors?: unknown;
-}): { visibility: "restricted" | "everyone"; emails: string[]; grants: Grant[] } | { error: string } {
+}):
+  | { visibility: "restricted" | "everyone"; emails: string[]; grants: Grant[]; legacy: boolean }
+  | { error: string } {
   const { visibility } = input;
   if (visibility !== "restricted" && visibility !== "everyone") {
     return { error: "visibility must be 'restricted' or 'everyone'" };
@@ -1466,5 +1469,26 @@ export function normalizeAccessInput(input: {
     return { error: "each email must contain '@'" };
   }
   const grants = [...byEmail].map(([email, role]) => ({ email, role }));
-  return { visibility, emails: grants.map((g) => g.email), grants };
+  // A request that names no role at all is the pre-roles shape (`emails` only):
+  // an old share page, an old API client, an agent re-sending the list it read.
+  // See `keepExistingRoles`.
+  const legacy = input.grants == null && input.editors == null;
+  return { visibility, emails: grants.map((g) => g.email), grants, legacy };
+}
+
+/**
+ * For a role-less (legacy) access write, keep the role every already-granted
+ * address has. `setAccess` replaces the whole list, so without this an old
+ * client re-saving the emails it read would silently turn every editor back
+ * into a viewer. New addresses still arrive as viewers, and a request that
+ * names roles (`grants` / `editors`) is taken exactly as given.
+ */
+export async function keepExistingRoles(
+  env: Env,
+  slug: string,
+  parsed: { grants: Grant[]; legacy: boolean }
+): Promise<Grant[]> {
+  if (!parsed.legacy || parsed.grants.length === 0) return parsed.grants;
+  const existing = new Map((await listGrantsWithRoles(env, slug)).map((g) => [g.email, g.role]));
+  return parsed.grants.map((g) => ({ email: g.email, role: existing.get(g.email) ?? g.role }));
 }

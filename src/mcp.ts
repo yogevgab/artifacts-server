@@ -99,6 +99,7 @@ import {
 import {
   viewUrl,
   manageableArtifact,
+  keepExistingRoles,
   editableArtifact,
   normalizeAccessInput,
   purgeArtifact,
@@ -510,7 +511,9 @@ const TOOL_SCOPE: Record<string, Scope> = {
   artifact_details: "read",
   artifact_statistics: "read",
   share_artifact: "manage",
-  rollback_artifact: "manage",
+  // `publish`, like REST rollback (`POST /artifacts/:slug/current`): it changes
+  // what the world sees, and an editor may do it with a publish-scoped token.
+  rollback_artifact: "publish",
   delete_artifact: "manage",
 };
 
@@ -569,7 +572,7 @@ Never ask them to use a terminal.
 
 Artifact management is also available here: use "list_artifacts" to find existing work,
 "artifact_details" before sharing or rollback, "artifact_statistics" for counts, and — with a
-"manage" scoped credential — "share_artifact", "rollback_artifact" and "delete_artifact". Delete is
+"manage" scoped credential — "share_artifact" and "delete_artifact" ("rollback_artifact" needs "publish"). Delete is
 permanent and requires confirm_slug to equal slug.
 
 "doctor" reports how this connection is authenticated, what it may do, and the exact limits.
@@ -1326,7 +1329,7 @@ async function shareArtifactTool(c: Context<Vars>, args: any): Promise<ToolCallR
     editors: args?.editors,
   });
   if ("error" in parsed) return failure(new ToolError(parsed.error, { error: "bad_request", status: 400 }));
-  const requested = parsed.visibility === "everyone" ? [] : parsed.grants;
+  const requested = parsed.visibility === "everyone" ? [] : await keepExistingRoles(c.env, slug, parsed);
   await setAccess(c.env, slug, parsed.visibility, requested, new Date().toISOString());
   const grants = await listGrantsWithRoles(c.env, slug);
   const url = await viewUrl(c, art.account_id, slug);
