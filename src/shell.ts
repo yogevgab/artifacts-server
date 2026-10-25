@@ -185,7 +185,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,
 .panel .hint{color:var(--sh-muted);font-size:12.5px;line-height:1.45;margin:0 0 10px}
 .row{display:flex;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid var(--sh-rule)}
 .row:last-child{border-bottom:0}
-.row .who{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+.row .who{flex:1;width:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
 .row .role{flex:none;font-size:12px;padding:4px 8px}
 .row{flex-wrap:wrap}
 .add{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
@@ -195,9 +195,9 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,
 .link-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:7px 0;font-size:12px;
   border-bottom:1px solid var(--sh-rule)}
 .link-row:last-child{border-bottom:0}
-.link-row code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+.link-row code{flex:1;width:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--sh-muted)}
-.link-row .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+.link-row .name{flex:1;width:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   font-size:13px;font-weight:600;color:var(--sh-fg)}
 .link-row .name.unnamed{font-weight:400;color:var(--sh-muted)}
 .link-row .acts{flex:1 0 100%;display:flex;flex-wrap:wrap;gap:6px}
@@ -798,7 +798,7 @@ const SHARE_SCRIPT = `(function(){
       editor.appendChild(btn('Apply','primary',function(){
         var v=sel.value, n;
         if(v==='never') n=null;
-        else if(v==='custom'){ n=parseInt(days.value,10); if(!(n>=1&&n<=365)){ days.focus(); return; } }
+        else if(v==='custom'){ n=parseInt(days.value,10); if(!(n>=1&&n<=365)){ status.textContent='Enter a number of days from 1 to 365.'; days.focus(); return; } }
         else n=parseInt(v,10);
         patch({expires_in_days:n});
       }));
