@@ -74,6 +74,8 @@ function guestCookie(token: string, maxAge: number): string {
  */
 const NEXT_COOKIE = "rtfx_next";
 const NEXT_TTL_SECONDS = 600;
+/** Encoded-value budget for the parked cookie, under the ~4096-byte browser limit. */
+const NEXT_COOKIE_MAX = 3800;
 
 /**
  * The `Set-Cookie` that parks a post-sign-in destination — or, for `null`,
@@ -81,14 +83,17 @@ const NEXT_TTL_SECONDS = 600;
  * OAuth attempt must not silently redirect an ordinary sign-in ten minutes later.
  */
 export function pendingNextCookie(next: string | null): string {
-  const value = next ? encodeURIComponent(next) : "";
+  let value = next ? encodeURIComponent(next) : "";
+  // A browser silently ignores a cookie over ~4 KB, which would leave a stale
+  // destination in place. Say "no destination" out loud instead.
+  if (value.length > NEXT_COOKIE_MAX) value = "";
   return [
     `${NEXT_COOKIE}=${value}`,
     "Path=/",
     "HttpOnly",
     "Secure",
     "SameSite=Lax",
-    `Max-Age=${next ? NEXT_TTL_SECONDS : 0}`,
+    `Max-Age=${value ? NEXT_TTL_SECONDS : 0}`,
   ].join("; ");
 }
 

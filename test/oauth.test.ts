@@ -674,6 +674,27 @@ describe("the authorization endpoint", () => {
    * authorization request rather than dropping them on the dashboard while the
    * MCP client waits for a callback that is never coming.
    */
+  /**
+   * claude.ai's authorization requests are long: a URL-encoded CIMD client_id,
+   * redirect_uri, scope, resource and an opaque `state` well past 160
+   * characters. A 512-character cap on `next` dropped them, and the person who
+   * signed in mid-connect landed on /admin instead of the consent screen.
+   */
+  it("parks a long, claude.ai-sized authorization request through sign-in", async () => {
+    const clientId = await registerClient();
+    const query = authorizeQuery(clientId, {
+      scope: "rtfx:read rtfx:publish rtfx:manage",
+      state: "s".repeat(500),
+    });
+    expect(query.length).toBeGreaterThan(512);
+    const bounce = await req(query, { headers: { "X-Dev-Anonymous": "true" } });
+    const login = await req(bounce.headers.get("Location")!, { headers: { "X-Dev-Anonymous": "true" } });
+    const cookie = login.headers.get("Set-Cookie") ?? "";
+    expect(cookie).toContain("Max-Age=600");
+    const parked = decodeURIComponent(/rtfx_next=([^;]*)/.exec(cookie)![1]!);
+    expect(parked).toBe(query);
+  });
+
   it("lands a signed-in visitor back on the consent screen", async () => {
     const clientId = await registerClient();
     const query = authorizeQuery(clientId);
