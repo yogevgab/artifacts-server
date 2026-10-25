@@ -58,6 +58,7 @@ pre.code{background:#05070c;border:1px solid var(--border);border-radius:var(--r
 .ask-list{list-style:none;margin:0 0 .9rem;padding:0;display:grid;gap:.7rem}
 .ask-list li{color:var(--muted)}
 .ask-list q{color:var(--fg);font-weight:600;letter-spacing:-.01em}
+.guide-link{font-weight:600;font-size:1.02rem}
 .pricing{margin:4.2rem 0 0}
 .band-head{text-align:center;max-width:40rem;margin:0 auto 2rem}
 .band-head h2{font-size:clamp(1.5rem,3.4vw,2rem);letter-spacing:-.045em;margin:0 0 .6rem;line-height:1.1}
@@ -83,7 +84,7 @@ pre.code{background:#05070c;border:1px solid var(--border);border-radius:var(--r
 `;
 
 /** Copy-to-clipboard for the MCP URL. textContent only — no innerHTML. */
-const COPY_SCRIPT = `(function(){var b=document.querySelector('[data-copy]');if(!b)return;
+export const COPY_SCRIPT = `(function(){var b=document.querySelector('[data-copy]');if(!b)return;
 var t=b.textContent;b.addEventListener('click',function(){
 var v=b.getAttribute('data-copy');
 function done(ok){b.textContent=ok?'Copied':'Copy failed';setTimeout(function(){b.textContent=t},1600)}
@@ -254,14 +255,15 @@ export function landingPage(env: Env): string {
       <div class="panel">
         <h3>Claude on web, desktop and mobile</h3>
         <ol>
-          <li>Open <b>Settings → Connectors</b> and choose <b>Add custom connector</b>.</li>
+          <li>Open <b>Customize → Connectors</b> (or Settings → Connectors), click <b>+ Add</b>, then <b>Add custom connector</b>.</li>
           <li>Name it <code>rtfx</code> and use the URL <code>${MCP_URL}</code>.</li>
-          <li>Click <b>Add</b>, then <b>Connect</b>.</li>
+          <li>Keep the detected defaults and click <b>Add</b>, then <b>Connect</b>.</li>
           <li>Sign in with the code we email you, then <b>Allow</b>.</li>
         </ol>
         <p>Once added, it works in Claude on web, desktop and mobile. The consent screen lists
           “Manage access and delete artifacts” — allow it so Claude can share and delete from
           chat.</p>
+        <p class="guide-link"><a href="/guide" data-cta="guide">See every step with screenshots &rarr;</a></p>
       </div>
       <div class="panel">
         <h3>Other MCP clients</h3>
@@ -285,7 +287,8 @@ export function landingPage(env: Env): string {
         <li><q>Publish the fix to the same link.</q> A new version at the same URL.
           <q>Roll back to version 2.</q> The link points at the earlier version again.</li>
       </ul>
-      <p>For big sites or images, Claude gives you an upload link instead.</p>
+      <p>For big sites or images, Claude gives you an upload link instead.
+        <a href="/guide#publish">See it step by step &rarr;</a></p>
     </section>
 
     <section id="share" class="band">
@@ -297,7 +300,7 @@ export function landingPage(env: Env): string {
       </ul>
       <p>For someone without an account, open the artifact's Share page on rtfx.pro and create a
         link for them. Name each link for who it's for, set an expiry, and extend or revoke it any
-        time.</p>
+        time. <a href="/guide#share">See the Share page &rarr;</a></p>
     </section>
 
     <section id="delete" class="band">

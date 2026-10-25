@@ -90,6 +90,14 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
     priority: "1.0",
   },
   {
+    path: "/guide",
+    title: "Step-by-step guide · rtfx.pro",
+    summary:
+      "Twelve real screenshots: add rtfx to Claude as a custom connector, publish a page, share " +
+      "it with people or a revocable link, and see who opened it.",
+    priority: "0.8",
+  },
+  {
     path: "/pro",
     title: "Pro — the same product, without the ceiling",
     summary:
