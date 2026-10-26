@@ -549,7 +549,8 @@ const SHELL_SCRIPT = `(function(){
   var frameEl=document.querySelector('iframe.frame');
 
   /* --- frame-stall --------------------------------------------------------
-     An HTML artifact says 'rtfx:ready' as soon as it starts (src/serve.ts).
+     An HTML artifact says 'rtfx:ready' before any of its own scripts run
+     (src/serve.ts, READY_SIGNAL).
      If that never comes, the browser refused the frame before it reached us
      (an extension, stale site data) and the visitor sees a blank box or the
      browser's own error page. Say so, offer a reload, and leave one log line

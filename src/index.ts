@@ -892,6 +892,33 @@ function wantsShell(c: Context<{ Bindings: Env; Variables: AuthVars }>): boolean
  * (or a sandboxed artifact, whose origin is the opaque `null`) cannot open a
  * room using a visitor's cookies.
  */
+/** At most `max` bytes of a request body as text; the rest is never read (a chunked body has no Content-Length). */
+async function readPrefix(body: ReadableStream<Uint8Array> | null, max: number): Promise<string> {
+  if (!body) return "";
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (size < max) {
+      const { done, value } = await reader.read();
+      if (done || !value) break;
+      chunks.push(value);
+      size += value.byteLength;
+    }
+  } catch {
+    /* a broken body is an empty one */
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+  const all = new Uint8Array(size);
+  let at = 0;
+  for (const ch of chunks) {
+    all.set(ch, at);
+    at += ch.byteLength;
+  }
+  return new TextDecoder().decode(all.subarray(0, max));
+}
+
 /**
  * The viewer's frame-stall beacon (src/shell.ts): an HTML artifact never said
  * "I loaded", so the browser most likely refused the frame before it reached us
@@ -901,7 +928,10 @@ function wantsShell(c: Context<{ Bindings: Env; Variables: AuthVars }>): boolean
  * and the User-Agent is cut short.
  */
 app.post("/_frame-stall", async (c) => {
-  const raw = (await c.req.text().catch(() => "")).slice(0, 512);
+  // Unauthenticated by necessity, so never buffer more than a beacon's worth.
+  const length = Number(c.req.header("Content-Length") ?? "0");
+  if (!Number.isFinite(length) || length > 1024) return c.body(null, 413);
+  const raw = await readPrefix(c.req.raw.body, 512);
   let slug = "";
   try {
     const s = (JSON.parse(raw) as { slug?: unknown }).slug;

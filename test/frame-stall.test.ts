@@ -33,6 +33,31 @@ describe("frame-stall", () => {
     expect(html).toContain("<h1>hi</h1>");
   });
 
+  it("announces before the page's own scripts, so a slow script cannot look like a stall", async () => {
+    await publish("slow", new File([
+      '<html><head><script src="https://slow.example/blocking.js"></script></head><body><p>x</p></body></html>',
+    ], "index.html", { type: "text/html" }));
+    const html = await (await req("/slow/?raw=1", as(OWNER))).text();
+    expect(html.indexOf("rtfx:ready")).toBeGreaterThan(-1);
+    expect(html.indexOf("rtfx:ready")).toBeLessThan(html.indexOf("slow.example"));
+  });
+
+  it("announces from a fragment with neither <head> nor <body>", async () => {
+    await publish("frag", new File(["<h1>Just a fragment</h1>"], "index.html", { type: "text/html" }));
+    const html = await (await req("/frag/?raw=1", as(OWNER))).text();
+    expect(html).toContain("<h1>Just a fragment</h1>");
+    expect(html.match(/rtfx:ready/g)).toHaveLength(1);
+  });
+
+  it("refuses an oversized beacon without reading it", async () => {
+    const res = await req("/_frame-stall", {
+      method: "POST",
+      headers: { "Content-Length": "5000" },
+      body: "x".repeat(5000),
+    });
+    expect(res.status).toBe(413);
+  });
+
   it("the viewer expects the announcement for an HTML artifact and carries the hidden banner", async () => {
     await publish("demo", new File(["<html><body>hi</body></html>"], "index.html", { type: "text/html" }));
     const html = await (await openViewer("demo", OWNER)).text();

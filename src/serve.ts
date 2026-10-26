@@ -24,11 +24,17 @@ import { frameAncestorsDirective } from "./canonical";
 /** Kept identical to the viewer frame's `sandbox` attribute (src/shell.ts). */
 export const ARTIFACT_SANDBOX = "allow-scripts allow-forms allow-popups allow-downloads allow-modals";
 
+/**
+ * "I loaded": the viewer shows its "Is this page blank?" banner when this never
+ * arrives, because then the browser itself refused the frame (src/shell.ts,
+ * frame-stall). Injected FIRST — with the downloads shim at the top of <head>
+ * or <body>, or at the end of a document that has neither — so a slow script or
+ * a fragment without <body> can never make a working page look stalled.
+ */
+const READY_SIGNAL = `<script>try{if(window.parent!==window)window.parent.postMessage({type:'rtfx:ready'},'*');}catch(e){}</script>`;
+
 const SCROLL_REPORTER = `<script>(function(){
   if(window.parent===window) return;
-  /* "I loaded": the viewer warns when this never arrives, because then the
-     browser itself refused the frame (src/shell.ts, frame-stall). */
-  try{window.parent.postMessage({type:'rtfx:ready'},'*');}catch(e){}
   var last=-1, queued=false;
   function post(){
     queued=false;
@@ -202,15 +208,22 @@ export async function serveArtifact<E extends { Bindings: Env }>(
     return new HTMLRewriter()
       .on("head", {
         element(el) {
-          el.prepend(CLAUDE_DOWNLOADS_SHIM, { html: true });
+          el.prepend(READY_SIGNAL + CLAUDE_DOWNLOADS_SHIM, { html: true });
           shimmed = true;
         },
       })
       .on("body", {
         element(el) {
-          if (!shimmed) el.prepend(CLAUDE_DOWNLOADS_SHIM, { html: true });
+          if (!shimmed) el.prepend(READY_SIGNAL + CLAUDE_DOWNLOADS_SHIM, { html: true });
           shimmed = true;
           el.append(SCROLL_REPORTER, { html: true });
+        },
+      })
+      .onDocument({
+        // A fragment with neither <head> nor <body> still renders; it must
+        // still say it loaded, or the viewer would call a working page blank.
+        end(end) {
+          if (!shimmed) end.append(READY_SIGNAL, { html: true });
         },
       })
       .transform(res);
