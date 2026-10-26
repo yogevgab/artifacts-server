@@ -7,7 +7,7 @@ import { waitlist } from "./waitlist";
 import { authRoutes, pendingNextCookie } from "./auth-routes";
 import { requireUser, accessEmail, accountsFor, getIdentity, resolveAuth, readCookie, SESSION_COOKIE, type AuthVars } from "./auth";
 import { serveArtifact } from "./serve";
-import { safeNextPath } from "./util";
+import { safeNextPath, isValidSlug } from "./util";
 import {
   listArtifacts,
   listArtifactsForCaller,
@@ -892,6 +892,64 @@ function wantsShell(c: Context<{ Bindings: Env; Variables: AuthVars }>): boolean
  * (or a sandboxed artifact, whose origin is the opaque `null`) cannot open a
  * room using a visitor's cookies.
  */
+/** At most `max` bytes of a request body as text; the rest is never read (a chunked body has no Content-Length). */
+async function readPrefix(body: ReadableStream<Uint8Array> | null, max: number): Promise<string> {
+  if (!body) return "";
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (size < max) {
+      const { done, value } = await reader.read();
+      if (done || !value) break;
+      chunks.push(value);
+      size += value.byteLength;
+    }
+  } catch {
+    /* a broken body is an empty one */
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+  const all = new Uint8Array(size);
+  let at = 0;
+  for (const ch of chunks) {
+    all.set(ch, at);
+    at += ch.byteLength;
+  }
+  return new TextDecoder().decode(all.subarray(0, max));
+}
+
+/**
+ * The viewer's frame-stall beacon (src/shell.ts): an HTML artifact never said
+ * "I loaded", so the browser most likely refused the frame before it reached us
+ * (2026-10-26: Dorai's Chrome never requested a.rtfx.pro, eight times running,
+ * while every other visitor loaded the same page). One log line, nothing
+ * stored, nothing returned: the slug is only echoed if it is shaped like one,
+ * and the User-Agent is cut short.
+ */
+app.post("/_frame-stall", async (c) => {
+  // Unauthenticated by necessity, so never buffer more than a beacon's worth.
+  const length = Number(c.req.header("Content-Length") ?? "0");
+  if (!Number.isFinite(length) || length > 1024) return c.body(null, 413);
+  const raw = await readPrefix(c.req.raw.body, 512);
+  let slug = "";
+  try {
+    const s = (JSON.parse(raw) as { slug?: unknown }).slug;
+    if (typeof s === "string" && isValidSlug(s)) slug = s;
+  } catch {
+    /* not JSON: log without a slug */
+  }
+  console.log(
+    JSON.stringify({
+      event: "frame_stall",
+      slug,
+      ua: (c.req.header("User-Agent") ?? "").slice(0, 200),
+      country: c.req.header("CF-IPCountry") ?? null,
+    })
+  );
+  return c.body(null, 204);
+});
+
 app.get("/_chat/:slug", async (c) => {
   if (c.req.header("Upgrade") !== "websocket") {
     return c.json({ error: "expected_websocket" }, 426);
