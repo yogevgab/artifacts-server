@@ -580,7 +580,9 @@ describe("first-party clients and docs show only the canonical URL", () => {
 
   it("the remote MCP server tells models to show `url` exactly as given", () => {
     expect(mcpSource).not.toMatch(/content_base(?!64)/);
-    expect(mcpSource).toContain("Show the person the returned `url` exactly as given");
+    // Guidance lives in the server instructions, not in a tool description
+    // (Connectors Directory policy).
+    expect(mcpSource).toContain('Read the returned "url" from the result and show it exactly as given');
     expect(pluginMcp).toContain("Show the person the returned url exactly as given");
   });
 

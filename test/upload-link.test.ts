@@ -129,10 +129,13 @@ describe("create_upload_link", () => {
     expect(await env.DB.prepare("SELECT 1 FROM upload_sessions").first()).toBeNull();
   });
 
-  it("steers the model in the tool description and server instructions", async () => {
+  it("steers the model in the server instructions, never in the tool description", async () => {
     const { REMOTE_TOOLS, HTTP_INSTRUCTIONS } = await import("../src/mcp");
     const desc = REMOTE_TOOLS.find((t) => t.name === "create_upload_link")!.description;
-    for (const text of [desc, HTTP_INSTRUCTIONS]) {
+    // Connectors Directory policy: a description describes; it does not instruct.
+    expect(desc).not.toContain("Never ask them");
+    expect(desc).toContain("upload_url");
+    for (const text of [HTTP_INSTRUCTIONS]) {
       expect(text).toContain("curl -sS -F bundle=@site.zip");
       expect(text).toContain("Never ask them to use a terminal");
       // Sandbox first; when it can't connect, the link + zip AND the one-time
@@ -142,7 +145,7 @@ describe("create_upload_link", () => {
       expect(text).toContain('"Allow network egress"');
       expect(text).toContain('"All domains"');
     }
-    expect(REMOTE_TOOLS.find((t) => t.name === "publish")!.description).toContain("create_upload_link");
+    expect(HTTP_INSTRUCTIONS).toContain('Call "create_upload_link"');
   });
 });
 
