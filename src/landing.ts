@@ -322,7 +322,7 @@ function faqSection(): string {
   return `<section id="faq" class="band">
       <h2>Questions</h2>
       <div class="faq-list">
-        ${FAQS.map((f) => `<details><summary>${esc(f.q)}</summary><p>${esc(f.a)}</p></details>`).join("\n        ")}
+        ${FAQS.map((f) => `<details><summary>${esc(f.q)}</summary><p>${esc(f.a)}${f.more ? ` <a href="${f.more.href}" data-cta="faq-more">${f.more.label} &rarr;</a>` : ""}</p></details>`).join("\n        ")}
       </div>
     </section>`;
 }

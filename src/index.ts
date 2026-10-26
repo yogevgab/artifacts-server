@@ -77,6 +77,7 @@ import { workspaceBilling } from "./plan-copy";
 import { verifyFrameToken } from "./session";
 import { landingPage } from "./landing";
 import { guidePage, guideImageResponse } from "./guide";
+import { sharePrivatelyPage, comparePage } from "./answer-pages";
 import { mediaResponse } from "./media";
 import { proPage, teamPage, enterprisePage } from "./plan-pages";
 import { contactRoutes, contactPage, normalizePlan } from "./contact";
@@ -114,6 +115,7 @@ import {
   siteOrigin,
   securityTxt,
   SECURITY_TXT_PATHS,
+  ANSWER_META,
 } from "./seo";
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVars }>();
@@ -593,6 +595,13 @@ app.get("/guide", (c) =>
   c.html(guidePage(c.env), 200, { "Cache-Control": PUBLIC_HTML_CACHE })
 );
 app.get("/guide/:file", (c) => guideImageResponse(c.req.param("file")));
+// The two short "answer" pages (src/answer-pages.ts): public, identical for everyone.
+app.get(ANSWER_META.share.path, (c) =>
+  c.html(sharePrivatelyPage(c.env), 200, { "Cache-Control": PUBLIC_HTML_CACHE })
+);
+app.get(ANSWER_META.compare.path, (c) =>
+  c.html(comparePage(c.env), 200, { "Cache-Control": PUBLIC_HTML_CACHE })
+);
 // The guide video and its poster, from R2 (src/media.ts).
 app.get("/media/:file", (c) =>
   mediaResponse(c.env, c.req.param("file"), c.req.header("Range"), c.req.raw.headers)

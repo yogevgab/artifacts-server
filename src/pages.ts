@@ -229,6 +229,7 @@ export const BRAND_STYLE = `
 export type PublicPage =
   | "home"
   | "guide"
+  | "answer"
   | "login"
   | "privacy"
   | "terms"
@@ -288,6 +289,8 @@ export function siteFooter(): string {
       <nav aria-label="Footer">
         <a href="/">Home</a>
         <a href="/guide" data-nav="guide">Guide</a>
+        <a href="/share-claude-artifacts-privately" data-nav="share-privately">Share privately</a>
+        <a href="/claude-publish-vs-private-link" data-nav="publish-vs-private">Publish vs private link</a>
         <a href="/signup" data-cta="signup">Start free</a>
         <a href="/login" data-cta="sign-in">Sign in</a>
         <!-- Every tier that is not self-serve needs a route a person can take

@@ -19,6 +19,10 @@ const MANAGEMENT_PATHS = new Set([
   "/team",
   "/enterprise",
   "/contact",
+  // The two "answer" pages (src/answer-pages.ts). App host only, like /guide;
+  // listing them here also reserves both slugs as workspace addresses.
+  "/share-claude-artifacts-privately",
+  "/claude-publish-vs-private-link",
   "/sitemap.xml",
   "/llms.txt",
   "/llms-full.txt",

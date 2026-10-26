@@ -16,6 +16,7 @@ import { GUIDE_PARTS, guideSteps } from "./guide";
 import { tierLimitLines } from "./landing";
 import { PUBLIC_TIERS, TIER_LABEL, tierPath, tierPrice, isPlanName } from "./plan-copy";
 import { mediaUrl } from "./media";
+import { answerPagesMarkdown } from "./answer-pages";
 
 /**
  * `/llms-full.txt`: the whole public story (home page, step-by-step guide, FAQ,
@@ -65,7 +66,10 @@ export function llmsFullTxt(env: Pick<Env, "PUBLIC_BASE_URL">): string {
 
   // --- FAQ ---
   out.push(`## FAQ (${abs("/#faq")})`, "");
-  for (const f of FAQS) out.push(`### ${f.q}`, "", f.a, "");
+  for (const f of FAQS) {
+    out.push(`### ${f.q}`, "", f.a, "");
+    if (f.more) out.push(`Read more: ${abs(f.more.href)}`, "");
+  }
 
   // --- pricing ---
   out.push(`## Pricing (${abs("/#pricing")})`, "");
@@ -93,6 +97,8 @@ export function llmsFullTxt(env: Pick<Env, "PUBLIC_BASE_URL">): string {
     }
     out.push("");
   }
+
+  out.push(...answerPagesMarkdown(env));
 
   out.push(
     "## Links",
