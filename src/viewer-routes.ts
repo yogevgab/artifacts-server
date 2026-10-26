@@ -300,10 +300,10 @@ async function viewArtifact(
   // The account's monthly view allowance, and suspension (a takedown control
   // that binds even the owner; this read bypasses the ~60s cache on purpose).
   const status = art.account_id ? await viewLimitStatus(c.env, art.account_id, undefined, undefined, true) : null;
-  if (blocksOnSuspension(status, !!identity?.isAdmin)) {
+  if (blocksOnSuspension(status)) {
     return c.html(suspendedContentPage(slug, siteOrigin(c.env)), 403);
   }
-  if (blocksOnViewLimit(status, decision.owned || !!identity?.isAdmin)) {
+  if (blocksOnViewLimit(status, decision.owned)) {
     return c.html(overViewLimitPage(slug, siteOrigin(c.env)), 503);
   }
 

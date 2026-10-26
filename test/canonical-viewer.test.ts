@@ -554,7 +554,8 @@ describe("canonical URL helpers", () => {
 
 describe("owner-less artifacts (no workspace)", () => {
   it("are addressed at /<slug> on the app host and viewed there", async () => {
-    await env.DB.prepare("UPDATE artifacts SET account_id = NULL WHERE slug = 'report'").run();
+    // Genuinely nobody's: no workspace AND no owner (an admin/service-token publish).
+    await env.DB.prepare("UPDATE artifacts SET account_id = NULL, owner_email = NULL WHERE slug = 'report'").run();
     const admin = e({ ADMIN_EMAILS: "ops@rtfx.pro" });
     const list = await app.request(`${APP}/api/artifacts`, { headers: { Cookie: await cookie("ops@rtfx.pro") } }, admin);
     const row = ((await list.json()) as any).artifacts.find((a: any) => a.slug === "report");
@@ -563,7 +564,7 @@ describe("owner-less artifacts (no workspace)", () => {
     const res = await app.request(`${APP}/report`, { headers: { ...NAV, Cookie: await cookie("ops@rtfx.pro") } }, admin);
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("<iframe");
-    // No one but admins reach an owner-less artifact.
+    // No one but admins reach an owner-less artifact (the only artifact-level power admins keep).
     expect((await app.request(`${APP}/report`, { headers: { ...NAV, Cookie: await cookie(STRANGER) } }, admin)).status).toBe(404);
   });
 });

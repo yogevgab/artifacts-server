@@ -289,13 +289,12 @@ describe("the branded link in API responses", () => {
     expect(body.branded_url).toBe(body.url);
   });
 
-  it("is reported to a caller who is not a member of the workspace (platform admin)", async () => {
+  it("a platform admin who is not a member of the workspace does not get the artifact listed at all", async () => {
     await publish("q3-board-report", OWNER);
     await claim(OWNER, "yogev");
     const res = await appReq("/api/artifacts", as("admin@test.com"));
     const row = ((await res.json()) as any).artifacts.find((a: any) => a.slug === "q3-board-report");
-    expect(row.url).toBe(`${APP}/yogev/q3-board-report`);
-    expect(row.branded_url).toBe(row.url);
+    expect(row).toBeUndefined();
   });
 
   it("lazily assigns an address when the owning workspace somehow has none", async () => {

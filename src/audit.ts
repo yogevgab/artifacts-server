@@ -42,6 +42,7 @@ export const AUDIT_ACTIONS = [
   "account.unsuspended",
   "account.notes_updated",
   "billing.plan_change_under_override",
+  "artifact.operator_deleted",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
@@ -54,6 +55,7 @@ export const AUDIT_ACTION_LABEL: Record<AuditAction, string> = {
   "account.unsuspended": "Account unsuspended",
   "account.notes_updated": "Operator notes updated",
   "billing.plan_change_under_override": "Billing changed under an override",
+  "artifact.operator_deleted": "Artifact deleted by operator",
 };
 
 export interface AuditRow {

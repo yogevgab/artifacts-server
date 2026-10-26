@@ -3,7 +3,7 @@ import { portalShell, statTile, num, bytes, plural, stamp, type PortalViewer } f
 import { effectivePlan, overrideActive, type AccountRow } from "./accounts";
 import { AUDIT_ACTION_LABEL, auditDetail, type AuditAction, type AuditRow } from "./audit";
 import { OVERRIDABLE_PLANS, MAX_ACCOUNT_NOTES_LENGTH } from "./operator";
-import type { AccountSummary, BillingEventRow, ContactRequestRow, MailLogRow } from "./operator";
+import type { AccountSummary, ArtifactMeta, BillingEventRow, ContactRequestRow, MailLogRow } from "./operator";
 
 /**
  * The operator control plane's pages: the `/admin/platform` readouts and the
@@ -107,6 +107,10 @@ export interface OperatorData {
   mail: MailLogRow[];
   /** The search this list was filtered by, echoed back into the input. */
   q: string;
+  /** Instance-wide artifact METADATA (src/operator.ts `listArtifactMeta`) — never content. */
+  artifacts: ArtifactMeta[];
+  artifactQuery: string;
+  flash: Flash | null;
   /** Evaluated once per render, so every row on the page agrees about "now". */
   now: string;
 }
@@ -286,9 +290,70 @@ function mailPanel(rows: MailLogRow[]): string {
   </section>`;
 }
 
+/**
+ * Every artifact on the instance, as METADATA: slug, title, owner, type, size,
+ * counts, dates, visibility. There is no "Open" link, no share-page link, no view
+ * log and no grantee list here by design — the operator runs the service and
+ * does not read what customers publish or who viewed it. The only action is the
+ * audited abuse-delete, which never opens the artifact either.
+ */
+function artifactsPanel(data: OperatorData): string {
+  const rows = data.artifacts
+    .map((a) => {
+      const account = a.accountId
+        ? `<a href="/admin/platform/accounts/${encodeURIComponent(a.accountId)}"><span class="mono">${esc(a.accountId)}</span></a>`
+        : `<span class="faint">—</span>`;
+      return `<tr data-artifact-meta="${esc(a.slug)}">
+        <td data-cell="name">${esc(a.title || a.slug)}<span class="hint mono">${esc(a.slug)}</span></td>
+        <td data-cell="owner">${text(a.ownerEmail)}</td>
+        <td data-cell="account">${account}</td>
+        <td data-cell="type">${esc(a.type)}</td>
+        <td data-cell="size" class="numeric">${esc(bytes(a.sizeBytes))}</td>
+        <td data-cell="versions" class="numeric">${num(a.versionCount)}</td>
+        <td data-cell="views" class="numeric">${num(a.viewCount)}</td>
+        <td data-cell="grants" class="numeric">${num(a.grantCount)}</td>
+        <td data-cell="visibility">${esc(a.visibility)}</td>
+        <td data-cell="created">${when(a.createdAt)}</td>
+        <td data-cell="updated">${when(a.updatedAt)}</td>
+        <td data-cell="actions"><details>
+          <summary class="hint">Delete for abuse…</summary>
+          <form method="post" action="/admin/platform/artifacts/${encodeURIComponent(a.slug)}/delete" class="op-form">
+            <label class="hint">Reason (recorded in the audit trail)
+              <input name="reason" required maxlength="500" autocomplete="off"></label>
+            <div class="row-actions"><button class="danger" type="submit">Delete permanently</button></div>
+          </form>
+        </details></td>
+      </tr>`;
+    })
+    .join("");
+
+  const search = `<form class="op-search" method="get" action="/admin/platform" data-artifact-search>
+      <input type="search" name="aq" value="${esc(data.artifactQuery)}" placeholder="Slug, title or owner…" aria-label="Search artifacts">
+      <button class="ghost" type="submit">Search</button>
+    </form>`;
+
+  return `<section class="panel" data-panel="platform-artifacts" aria-labelledby="artifacts-meta-h">
+    <div class="panel-head"><div>
+      <h2 id="artifacts-meta-h">Artifacts <span class="hint">${plural(data.artifacts.length, "shown artifact")}</span></h2>
+      <p class="hint">Metadata only, so the service can be run. Content, version notes, who can open an
+        artifact and who has viewed it are never shown to operators.</p>
+    </div>${search}</div>
+    ${
+      rows
+        ? `<div class="op-scroll"><table class="optable">
+        <thead><tr><th>Artifact</th><th>Owner</th><th>Workspace</th><th>Type</th>
+          <th class="numeric">Size</th><th class="numeric">Versions</th><th class="numeric">Views</th>
+          <th class="numeric">Grants</th><th>Visibility</th><th>Created</th><th>Updated</th><th></th></tr></thead>
+        <tbody>${rows}</tbody></table></div>`
+        : `<p class="note" data-empty="artifacts-meta">No artifacts match.</p>`
+    }
+  </section>`;
+}
+
 /** The operator half of `/admin/platform`, appended after the configuration readout. */
 export function operatorSections(data: OperatorData): string {
-  return `${accountsPanel(data)}
+  return `${flashBanner(data.flash)}${accountsPanel(data)}
+    ${artifactsPanel(data)}
     ${auditPanel(data.audit, data.auditTotal, "instance")}
     ${contactsPanel(data.contacts)}
     <div class="pcols">

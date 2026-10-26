@@ -44,12 +44,19 @@ export async function listArtifactsOwnedBy(env: Env, email: string): Promise<Art
 export async function listArtifactsForCaller(
   env: Env,
   email: string | null,
-  accountIds: readonly string[]
+  accountIds: readonly string[],
+  /**
+   * Also return artifacts that belong to nobody (no owner, no account). Only a
+   * platform admin passes true: those rows are the one artifact-level thing an
+   * operator keeps (`isOrphan` in src/authz.ts). Never anyone's content.
+   */
+  includeOrphans = false
 ): Promise<ArtifactRow[]> {
   const ids = [...new Set(accountIds)];
-  if (!email && !ids.length) return [];
+  if (!email && !ids.length && !includeOrphans) return [];
   const clauses: string[] = [];
   const binds: unknown[] = [];
+  if (includeOrphans) clauses.push("(COALESCE(TRIM(owner_email), '') = '' AND account_id IS NULL)");
   if (email) {
     clauses.push("lower(owner_email) = ?");
     binds.push(email.trim().toLowerCase());
@@ -66,7 +73,7 @@ export async function listArtifactsForCaller(
       .all<ArtifactRow>();
     return results ?? [];
   } catch (e) {
-    if (ids.length && isMissingAccountColumn(e)) {
+    if ((ids.length || includeOrphans) && isMissingAccountColumn(e)) {
       // Worker deployed before 0009: fall back to the exact pre-account query.
       return email ? listArtifactsOwnedBy(env, email) : [];
     }
@@ -206,8 +213,13 @@ export async function setCurrentVersion(env: Env, slug: string, version: number,
   return true;
 }
 
-export async function deleteArtifactRow(env: Env, slug: string): Promise<void> {
-  await env.DB.batch([
+/**
+ * The statements that remove one artifact's rows, unexecuted, so a caller can
+ * batch them with something that must land atomically alongside (the operator
+ * abuse-delete batches its `admin_audit` row in here).
+ */
+export function deleteArtifactStatements(env: Env, slug: string): D1PreparedStatement[] {
+  return [
     env.DB.prepare("DELETE FROM artifact_grants WHERE slug = ?").bind(slug),
     env.DB.prepare("DELETE FROM artifact_versions WHERE slug = ?").bind(slug),
     env.DB.prepare("DELETE FROM artifact_views WHERE slug = ?").bind(slug),
@@ -215,7 +227,11 @@ export async function deleteArtifactRow(env: Env, slug: string): Promise<void> {
     // whatever links the previous artifact had handed out.
     env.DB.prepare("DELETE FROM share_links WHERE slug = ?").bind(slug),
     env.DB.prepare("DELETE FROM artifacts WHERE slug = ?").bind(slug),
-  ]);
+  ];
+}
+
+export async function deleteArtifactRow(env: Env, slug: string): Promise<void> {
+  await env.DB.batch(deleteArtifactStatements(env, slug));
 }
 
 // --- Views log ---

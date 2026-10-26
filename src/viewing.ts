@@ -16,7 +16,7 @@ import {
   readCookie,
 } from "./auth";
 import { getArtifact, hasGrant, logView } from "./db";
-import { canView, isOwner } from "./authz";
+import { canView, isOwner, operatesOrphan } from "./authz";
 import { memberRole } from "./accounts";
 import { inspectShareLink, redeemShareLink } from "./share";
 import { isLinkPreviewCrawler, linkPreviewPage } from "./link-preview";
@@ -237,7 +237,7 @@ export async function linkPreviewResponse(
   const status = previewed.account_id
     ? await viewLimitStatus(c.env, previewed.account_id, undefined, undefined, true)
     : null;
-  if (blocksOnSuspension(status, false)) return null;
+  if (blocksOnSuspension(status)) return null;
   // The crawler is a bot, not a reader: record the preview, not a view.
   await logLinkEvent(c, previewed, "", { linkId: key.viaLink.id, outcome: "preview", device: "bot" });
   return c.html(
@@ -274,9 +274,12 @@ export async function decideAccess(
   identity: Identity | null
 ): Promise<AccessDecision> {
   if (identity?.kind === "guest" && identity.slug !== art.slug) return { allowed: false, owned: false };
-  let owned = isOwner(identity, art);
+  // No platform-admin path: an operator opens an artifact only as its owner, a
+  // member of its workspace, or a named grantee — never by being an operator.
+  // (The one exception is an artifact that belongs to nobody; see `isOrphan`.)
+  let owned = isOwner(identity, art) || operatesOrphan(identity, art);
   let granted = false;
-  if (art.visibility === "restricted" && !identity?.isAdmin && !owned && identity?.email) {
+  if (art.visibility === "restricted" && !owned && identity?.email) {
     granted = await hasGrant(env, art.slug, identity.email);
   }
   if (

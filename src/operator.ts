@@ -2,6 +2,7 @@ import type { Env } from "./env";
 import { auditStatement, type AuditActor, type AuditInput } from "./audit";
 import { effectivePlan, getAccount, overrideActive, type AccountRow } from "./accounts";
 import { invalidateAccountStatus, PLANS } from "./quota";
+import { deleteArtifactStatements } from "./db";
 
 /**
  * The operator control plane's write side, plus the reads the `/admin/platform`
@@ -230,6 +231,132 @@ export async function setAccountNotes(
     detail: { account_name: account.name, length: opts.notes?.length ?? 0 },
     now: opts.now,
   });
+}
+
+// --- artifacts: metadata and the abuse-delete -------------------------------
+//
+// The operator console may know THAT an artifact exists and a handful of
+// numbers about it, so it can run the service. It may not know what is in it or
+// who looked at it: no file bytes, no version notes or description, no grantee
+// emails, no view log, no share-link details. Everything below is a COUNT or a
+// property of the row itself. Nothing here reads R2 except to delete.
+
+/** One artifact as the operator console shows it: metadata and counts only. */
+export interface ArtifactMeta {
+  slug: string;
+  title: string;
+  ownerEmail: string | null;
+  accountId: string | null;
+  type: string;
+  sizeBytes: number;
+  versionCount: number;
+  createdAt: string;
+  updatedAt: string;
+  visibility: string;
+  /** How many views the log holds. The log itself — who, when, from where — is never read. */
+  viewCount: number;
+  /** How many people are named on the access list. Never which. */
+  grantCount: number;
+}
+
+type MetaRow = {
+  slug: string;
+  title: string;
+  owner_email: string | null;
+  account_id: string | null;
+  type: string;
+  size_bytes: number;
+  created_at: string;
+  updated_at: string;
+  visibility: string;
+  version_count: number;
+  grant_count: number;
+  view_count: number;
+};
+
+/**
+ * Instance-wide artifact metadata, most recently updated first. `q` filters on
+ * slug, title and owner. The column list is explicit on purpose (never
+ * `SELECT *`): a new column on `artifacts` must not reach the operator console
+ * by default.
+ */
+export async function listArtifactMeta(
+  env: Env,
+  opts: { q?: string; limit?: number } = {}
+): Promise<ArtifactMeta[]> {
+  const q = (opts.q ?? "").trim().toLowerCase();
+  const limit = Math.min(Math.max(opts.limit ?? 200, 1), 500);
+  const where = q
+    ? "WHERE lower(a.slug) LIKE ?1 OR lower(a.title) LIKE ?1 OR lower(COALESCE(a.owner_email, '')) LIKE ?1"
+    : "";
+  const sql = `SELECT a.slug, a.title, a.owner_email, a.account_id, a.type, a.size_bytes,
+         a.created_at, a.updated_at, a.visibility,
+         (SELECT COUNT(*) FROM artifact_versions v WHERE v.slug = a.slug) AS version_count,
+         (SELECT COUNT(*) FROM artifact_grants g WHERE g.slug = a.slug) AS grant_count,
+         (SELECT COUNT(*) FROM artifact_views w WHERE w.slug = a.slug) AS view_count
+       FROM artifacts a ${where}
+       ORDER BY a.updated_at DESC LIMIT ${limit}`;
+  const stmt = env.DB.prepare(sql);
+  const { results } = await (q ? stmt.bind(`%${q.replace(/[%_\\]/g, "")}%`) : stmt).all<MetaRow>();
+  return (results ?? []).map((r) => ({
+    slug: r.slug,
+    title: r.title,
+    ownerEmail: r.owner_email,
+    accountId: r.account_id,
+    type: r.type,
+    sizeBytes: r.size_bytes,
+    versionCount: r.version_count ?? 0,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    visibility: r.visibility,
+    viewCount: r.view_count ?? 0,
+    grantCount: r.grant_count ?? 0,
+  }));
+}
+
+export const MAX_DELETE_REASON_LENGTH = 500;
+
+/**
+ * Remove an artifact for abuse, without reading it. The bytes go first (the
+ * order every delete in this codebase uses), then the rows and the audit row
+ * land in ONE D1 batch, so a deletion with no trail is not a state this can
+ * reach. The audit row records who, which artifact, whose it was and why; it
+ * deliberately records nothing about the content, which was never read.
+ *
+ * `deleteBytes` is injected (it is `deletePrefix` in src/api.ts) so this module
+ * keeps its no-HTTP, no-routing shape.
+ */
+export async function operatorDeleteArtifact(
+  env: Env,
+  art: { slug: string; owner_email: string | null; account_id?: string | null },
+  opts: {
+    reason: string;
+    actor: AuditActor;
+    now: string;
+    deleteBytes: (env: Env, slug: string) => Promise<{ files: number; bytes: number }>;
+  }
+): Promise<{ files: number; bytes: number }> {
+  const removed = await opts.deleteBytes(env, art.slug);
+  await env.DB.batch([
+    ...deleteArtifactStatements(env, art.slug),
+    auditStatement(env, {
+      actor: opts.actor,
+      action: "artifact.operator_deleted",
+      targetType: "artifact",
+      targetId: art.slug,
+      summary: `Artifact ${art.slug} deleted by operator: ${opts.reason}`,
+      detail: {
+        slug: art.slug,
+        owner_email: art.owner_email,
+        account_id: art.account_id ?? null,
+        reason: opts.reason,
+        files: removed.files,
+        bytes: removed.bytes,
+      },
+      now: opts.now,
+    }),
+  ]);
+  return removed;
 }
 
 // --- reads for the platform pages -------------------------------------------

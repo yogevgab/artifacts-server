@@ -14,6 +14,9 @@ import { getAccount, type AccountRow } from "./accounts";
 import { countAudit, listAudit, type AuditActor } from "./audit";
 import {
   accountSummary,
+  listArtifactMeta,
+  MAX_DELETE_REASON_LENGTH,
+  operatorDeleteArtifact,
   clearPlanOverride,
   isOverridablePlan,
   listAccountSummaries,
@@ -28,7 +31,9 @@ import {
 } from "./operator";
 import { adminEmails, listUsers, superAdminEmails } from "./users";
 import { listApiTokens } from "./tokens";
-import { listArtifacts, allVersions } from "./db";
+import { listArtifacts, allVersions, getArtifact } from "./db";
+import { deletePrefix } from "./api";
+import { isPlatformSuperAdmin } from "./authz";
 import { parseHostnames } from "./host";
 import { siteOrigin } from "./seo";
 
@@ -145,6 +150,15 @@ const FLASH_MESSAGES: Record<string, Flash> = {
   no_override: { kind: "error", message: "This workspace has no override to clear." },
   already_suspended: { kind: "error", message: "This workspace is already suspended." },
   not_suspended: { kind: "error", message: "This workspace is not suspended." },
+  artifact_deleted: {
+    kind: "ok",
+    message: "Artifact deleted. Its content was not read, and the deletion is in the audit trail.",
+  },
+  artifact_missing: { kind: "error", message: "That artifact no longer exists. Nothing was changed." },
+  reason_required: {
+    kind: "error",
+    message: `A reason is required (up to ${MAX_DELETE_REASON_LENGTH} characters). Nothing was deleted.`,
+  },
 };
 
 function flashFrom(c: PortalContext): Flash | null {
@@ -165,8 +179,9 @@ platformRoutes.get("/admin/platform", async (c) => {
   if (!viewer) return refuse(c, "The Platform section");
 
   const q = (c.req.query("q") ?? "").trim();
+  const aq = (c.req.query("aq") ?? "").trim();
   const now = new Date().toISOString();
-  const [rows, versions, users, tokens, accounts, audit, auditTotal, contacts, billing, mail] =
+  const [rows, versions, users, tokens, accounts, audit, auditTotal, contacts, billing, mail, artifacts] =
     await Promise.all([
       listArtifacts(c.env),
       allVersions(c.env),
@@ -178,6 +193,8 @@ platformRoutes.get("/admin/platform", async (c) => {
       listContactRequests(c.env, 20),
       listBillingEvents(c.env, { limit: 20 }),
       listMailLog(c.env, 20),
+      // Metadata and counts only: no content, no view log, no grantee emails.
+      listArtifactMeta(c.env, { q: aq, limit: 200 }),
     ]);
 
   const info: PlatformInfo = {
@@ -198,7 +215,19 @@ platformRoutes.get("/admin/platform", async (c) => {
     },
   };
 
-  const operator: OperatorData = { accounts, audit, auditTotal, contacts, billing, mail, q, now };
+  const operator: OperatorData = {
+    accounts,
+    audit,
+    auditTotal,
+    contacts,
+    billing,
+    mail,
+    q,
+    artifacts,
+    artifactQuery: aq,
+    flash: flashFrom(c),
+    now,
+  };
   return c.html(platformPage(viewer, info, operator));
 });
 
@@ -225,6 +254,63 @@ platformRoutes.get(ACCOUNT_PATH, async (c) => {
       flash: flashFrom(c),
     })
   );
+});
+
+// --- operator abuse-delete --------------------------------------------------
+//
+// The one thing platform authority can still do to an artifact, and it does not
+// read it. Super admin, human only (never a token, which `Identity.role` caps
+// below super_admin anyway; the explicit `token` check is the second lock),
+// reason required, and the deletion and its audit row are one D1 batch.
+
+type DeleteOutcome =
+  | { ok: true; files: number; bytes: number }
+  | { ok: false; code: "forbidden" | "not_found" | "reason_required" };
+
+async function abuseDelete(c: PortalContext, slug: string, rawReason: unknown): Promise<DeleteOutcome> {
+  const identity = c.get("identity");
+  if (!isPlatformSuperAdmin(identity) || identity.token || identity.kind === "guest") {
+    return { ok: false, code: "forbidden" };
+  }
+  if (crossOrigin(c)) return { ok: false, code: "forbidden" };
+  const reason = typeof rawReason === "string" ? rawReason.trim() : "";
+  if (!reason || reason.length > MAX_DELETE_REASON_LENGTH) return { ok: false, code: "reason_required" };
+  const art = await getArtifact(c.env, slug);
+  if (!art) return { ok: false, code: "not_found" };
+  // Deliberately NOT `canManage`: this route is the operator's, it never looks at
+  // what the artifact contains, and it must work whoever owns it.
+  const removed = await operatorDeleteArtifact(c.env, art, {
+    reason,
+    actor: actorOf(c),
+    now: new Date().toISOString(),
+    deleteBytes: deletePrefix,
+  });
+  console.log(JSON.stringify({ event: "operator_artifact_deleted", slug, by: identity.email }));
+  return { ok: true, ...removed };
+}
+
+platformRoutes.delete("/api/platform/artifacts/:slug", requireUser, async (c) => {
+  const body = (await c.req.json().catch(() => null)) as { reason?: unknown } | null;
+  const out = await abuseDelete(c, c.req.param("slug"), body?.reason);
+  if (out.ok) return c.json({ deleted: c.req.param("slug"), files: out.files, bytes: out.bytes });
+  if (out.code === "reason_required") {
+    return c.json(
+      { error: "reason_required", detail: `a reason is required (up to ${MAX_DELETE_REASON_LENGTH} characters)` },
+      400
+    );
+  }
+  // Both a refusal and a missing slug answer 404: the surface does not confirm itself.
+  return c.json({ error: "not_found" }, 404);
+});
+
+platformRoutes.post("/admin/platform/artifacts/:slug/delete", async (c) => {
+  if (!(await operatorViewer(c))) return refuse(c, "The Platform section");
+  const body = (await c.req.parseBody()) as Record<string, unknown>;
+  const out = await abuseDelete(c, c.req.param("slug") ?? "", field(body, "reason"));
+  if (!out.ok && out.code === "forbidden") return refuse(c, "The Platform section");
+  const code = out.ok ? "artifact_deleted" : out.code === "not_found" ? "artifact_missing" : "reason_required";
+  const key = FLASH_MESSAGES[code]?.kind === "error" ? "err" : "ok";
+  return c.redirect(`/admin/platform?${key}=${code}`, 303);
 });
 
 // --- the controls -----------------------------------------------------------

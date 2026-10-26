@@ -29,7 +29,7 @@ navigation to `/<workspace>/<artifact>[/<path…>]` renders the viewer shell (`s
 toolbar, chat drawer and one `<iframe>` — and **nothing from the artifact**. Every access rule runs
 there, against the app-host identity: the `rtfx_session` cookie, a per-artifact guest cookie
 (`rtfx_guest`), or a per-artifact share-link cookie (`rtfx_link_<slug>`); grants, workspace
-membership, platform admins, view limit and suspension (`decideAccess` in `src/viewing.ts`). A
+membership, view limit and suspension (platform admins get no special path) (`decideAccess` in `src/viewing.ts`). A
 signed-out visitor with no valid key is sent to `/shared/<slug>?next=<canonical path>`; a
 workspace/artifact mismatch is the same 404 as a missing artifact.
 
@@ -61,7 +61,7 @@ version preview, which is unchanged and is served under the same CSP `sandbox` (
 | `rtfx.pro/<stale-ws>/<slug>?k=<valid key>` | `302` → current canonical, key kept (the address was renamed) |
 | `a.rtfx.pro/<slug>/` with no `Sec-Fetch-Dest`, bearer/cookie | unchanged: raw bytes (CLI, curl, MCP) |
 
-An artifact with no workspace (legacy, owner-less rows; admin-only) has no `<workspace>` to show:
+An artifact with no workspace (legacy, owner-less rows; manageable only by platform admins) has no `<workspace>` to show:
 it is addressed `rtfx.pro/<slug>` and viewed directly there.
 
 **Chat** is a WebSocket on the app host, `/_chat/<slug>`, authorized by the same cookies as the
@@ -96,11 +96,11 @@ Worker (Hono router) — authenticates and authorizes every request itself
    GET /<slug>/…             old form: browsers → 302 to the canonical address; machines → 302
                               to the content host (a.rtfx.pro) raw path, which serves the bytes
                               (per-artifact authz; frame token for the viewer's frame)
-   GET /v/<slug>/<n>/…       preview a specific version (admin or the artifact's owner)
+   GET /v/<slug>/<n>/…       preview a specific version (the artifact's owner or workspace member)
    GET /admin                portal — Overview. One server-rendered section per URL, no
                               client router (see docs/DESIGN.md §4)
-   GET /admin/artifacts      publish + the artifact list; admins see every artifact,
-                              a member only their own
+   GET /admin/artifacts      publish + the artifact list; everyone, admins included,
+                              sees only their own and their workspaces'
    GET /admin/artifacts/<slug>  one artifact: versions, views, access, delete
    GET /admin/gallery        everything the viewer may *open* (owned + granted + everyone),
                               as opposed to everything they manage
@@ -217,18 +217,30 @@ if the person who owns it later joins others.
   - **dashboard access** (`canUseDashboard`) — admins, and signed-in humans. A non-admin
     service token is refused: ownership is keyed on an email, so a token owns nothing.
   - **per-artifact management** (`src/authz.ts`, `canManage`/`isOwner`) — three paths, checked in
-    order of authority: a **platform admin** manages every artifact; the **legacy owner**
+    order of authority: a **platform admin** manages only an artifact that belongs to nobody (no
+    owner, no account; `isOrphan`) and **never anyone else's** (see "Operators are artifact-blind"
+    below); the **legacy owner**
     (`owner_email` matches) manages theirs, checked before any account lookup so un-backfilled
     rows behave identically to before #27; an **account member** holding `member` or better
     manages anything their workspace owns. A `viewer` falls below that line — see the read side
     below. Everything else answers 404, never 403, so another user's slugs stay unprobeable. A
     view grant confers no management rights, and an artifact with neither owner nor account is
-    platform-admin-only.
-  - **per-artifact view** (`canView`, `belongsToCaller`) — admins see all; the owner always sees
+    manageable by platform admins only.
+  - **per-artifact view** (`canView`, `belongsToCaller`) — platform admins get no special view access; the owner always sees
     their own; any member of the owning account — `viewer` included — sees the workspace's
     artifacts; `everyone` artifacts are visible to any signed-in user; `restricted` artifacts
     only to granted emails. The membership lookup on the serving path runs *last* and only on a
     request that would otherwise 404, so it adds no read to anything that already worked.
+  - **Operators are artifact-blind** (decision 2026-10-26). Platform admins and super admins,
+    human or token, have no artifact-level access to anything with an owner or a workspace:
+    not the viewer, raw/frame serving, chat, versions, view log, access list, share links,
+    receipts, publish/rollback/delete, nor the MCP equivalents, and their lists
+    (`GET /api/artifacts`, MCP `list_artifacts`, the dashboard) contain only their own. What
+    platform authority still reaches is account-level and metadata-only: suspend/unsuspend, plan
+    override, workspace members, the users list, tokens, billing, the Platform section's artifact
+    metadata table (owner, size, counts, dates, visibility; never content, view log, grantee
+    emails or link details) and `DELETE /api/platform/artifacts/:slug` (super admin, human only,
+    reason required, one D1 batch with its `admin_audit` row, never reads the content).
   - **account membership** (`canManageMembers`, `memberChangeDenial`) — changing who is in a
     workspace takes `admin`/`owner` *in that account* (or platform rights) and an interactive
     login; only an account `owner` may create or demote another `owner`; and nobody, platform

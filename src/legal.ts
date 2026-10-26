@@ -385,8 +385,13 @@ const privacyParts = (analytics: boolean): readonly Part[] => [
         shared it can see that you did.</li>
       <li><b>People you grant access to</b> see that artifact and nothing else. A grant never
         reveals your other artifacts and never confers any management rights.</li>
-      <li><b>Administrators of this deployment</b> can see the people directory and administer
-        artifacts. This is an operator role, not a role other members hold.</li>
+      <li><b>Administrators of this deployment</b> can see the people directory and run accounts
+        (suspend a workspace, change a plan, manage members). To run the service they can also see
+        an artifact's metadata: its owner, title, type, size, version count, dates, visibility and
+        how many views and grants it has. They cannot open your artifacts, read your files, see
+        who has viewed them or who they are shared with. The product gives them no way to. The one
+        thing they can do to an artifact is delete it for abuse, which is recorded in an audit
+        trail with a reason and never involves reading it.</li>
       <li><b>Nobody else.</b> We do not sell personal data, we do not share it with advertisers,
         and we do not use it to train anything.</li>
     </ul>
@@ -540,7 +545,9 @@ const TERMS_PARTS: readonly Part[] = [
         anonymise the origin of content.</li>
     </ul>
     <p>Publishing something is a deliberate act with your name on it. The view log records who
-      opened what, and administrators of this deployment can see what is hosted here.</p>`,
+      opened what; that log is visible to you as owner, not to administrators of this deployment.
+      Administrators can see that an artifact exists, who owns it and how large it is, and may
+      delete it if it breaches these terms.</p>`,
   },
   {
     id: "tokens",

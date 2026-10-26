@@ -161,8 +161,10 @@ in a fresh deployment.
 
 ### Dashboard
 `https://<your-domain>/admin` — publish artifacts, manage per-artifact access, upload new
-versions / roll back, and (admins only) manage people. Admins see every artifact, labelled
-with its owner; a member sees only the ones they published. The **Gallery** section at
+versions / roll back, and (admins only) manage people. Every user, admins included, sees only
+the artifacts they own or belong to; platform admins get no access to other people's artifact
+content, versions, view log, access list or share links. The Platform section (super admin) lists
+every artifact as metadata only (owner, size, counts, dates) and offers an audited abuse-delete. The **Gallery** section at
 `/admin/gallery` is filtered to what each viewer may *open* — what they own plus what has been
 shared with them. `/gallery` is kept as a redirect into it; visiting it signed out goes to
 `/login`.

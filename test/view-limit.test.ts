@@ -377,32 +377,28 @@ describe("blocksOnSuspension", () => {
   };
 
   it("blocks a stranger when the workspace is suspended", () => {
-    expect(blocksOnSuspension(suspended, false)).toBe(true);
+    expect(blocksOnSuspension(suspended)).toBe(true);
   });
 
   it("still blocks the owner — unlike the view limit, they do not bypass it", () => {
     // The bypass argument is platform-admin only. There is no owner bypass to
     // pass in at all, which is the point: a suspension the owner can serve
     // around by opening their own artifact is decorative.
-    expect(blocksOnSuspension(suspended, false)).toBe(true);
-  });
-
-  it("lets a platform admin through, so an operator can inspect what they suspended", () => {
-    expect(blocksOnSuspension(suspended, true)).toBe(false);
+    expect(blocksOnSuspension(suspended)).toBe(true);
   });
 
   it("does not block an active workspace", () => {
-    expect(blocksOnSuspension(active, false)).toBe(false);
+    expect(blocksOnSuspension(active)).toBe(false);
   });
 
   it("does not block when there is nothing to enforce (null status)", () => {
-    expect(blocksOnSuspension(null, false)).toBe(false);
-    expect(blocksOnSuspension(null, true)).toBe(false);
+    expect(blocksOnSuspension(null)).toBe(false);
+    expect(blocksOnSuspension(null)).toBe(false);
   });
 
   it("is independent of the view limit — suspended but well under quota still blocks", () => {
     expect(blocksOnViewLimit(suspended, false)).toBe(false);
-    expect(blocksOnSuspension(suspended, false)).toBe(true);
+    expect(blocksOnSuspension(suspended)).toBe(true);
   });
 });
 
@@ -542,11 +538,11 @@ describe("suspension through the content route", () => {
     expect(await res.text()).not.toContain("<h1>phishy</h1>");
   });
 
-  it("still serves it to a platform admin, so an operator can inspect it", async () => {
+  it("does not serve it to a platform admin either: operators have no content access to bypass with", async () => {
     if (!(await seedSuspended())) return;
     const res = await req("/phishy/?raw=1", as(ADMIN));
-    expect(res.status).toBe(200);
-    expect(await res.text()).toContain("phishy");
+    expect(res.status).toBe(404);
+    expect(await res.text()).not.toContain("<h1>phishy</h1>");
   });
 
   it("serves normally again once the workspace is unsuspended", async () => {

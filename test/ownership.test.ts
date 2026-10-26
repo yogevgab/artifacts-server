@@ -70,9 +70,9 @@ describe("ownership: publishing assigns an owner", () => {
     expect(row.owner_email).toBe(BOB);
   });
 
-  it("does not transfer ownership when an admin publishes a new version", async () => {
+  it("an admin cannot publish into another user's slug, so ownership cannot move", async () => {
     await publish(BOB, "adopted");
-    expect((await publish(ADMIN, "adopted")).status).toBe(200);
+    expect((await publish(ADMIN, "adopted")).status).toBe(409);
     const row = await env.DB.prepare("SELECT owner_email FROM artifacts WHERE slug = 'adopted'").first<any>();
     expect(row.owner_email).toBe(BOB);
   });
@@ -90,9 +90,12 @@ describe("ownership: listing is scoped", () => {
   });
 
 
-  it("an admin's API list contains everyone's artifacts", async () => {
+  it("an admin's API list contains only their own artifacts", async () => {
     const all = await (await req("/api/artifacts", as(ADMIN))).json<any>();
-    expect(all.artifacts.map((a: any) => a.slug).sort()).toEqual(["bob-one", "carol-one"]);
+    expect(all.artifacts).toEqual([]);
+    await publish(ADMIN, "admin-one");
+    const mine = await (await req("/api/artifacts", as(ADMIN))).json<any>();
+    expect(mine.artifacts.map((a: any) => a.slug)).toEqual(["admin-one"]);
   });
 
   it("a beta user's dashboard renders only their own artifacts", async () => {
@@ -102,11 +105,12 @@ describe("ownership: listing is scoped", () => {
     expect(body).not.toContain("carol-one");
   });
 
-  it("an admin's dashboard renders everyone's artifacts, labelled by owner", async () => {
+  it("an admin's dashboard renders nobody else's artifacts", async () => {
     const body = await (await req("/admin/artifacts", as(ADMIN))).text();
-    expect(body).toContain('data-artifact="bob-one"');
-    expect(body).toContain('data-artifact="carol-one"');
-    expect(body).toContain(`data-badge="owner">${CAROL}`);
+    expect(body).not.toContain('data-artifact="bob-one"');
+    expect(body).not.toContain('data-artifact="carol-one"');
+    expect(body).not.toContain(CAROL);
+    expect(body).toContain("Your artifacts");
   });
 
   it("only admins get the People section; a beta user has no user management", async () => {
@@ -155,8 +159,10 @@ describe("ownership: another user's artifact is untouchable", () => {
       expect((await run(BOB, "bobs-secret")).status).toBe(200);
     });
 
-    it(`an admin can ${name} on someone else's artifact`, async () => {
-      expect((await run(ADMIN, "bobs-secret")).status).toBe(200);
+    it(`an admin cannot ${name} on someone else's artifact (404, same as a stranger)`, async () => {
+      const res = await run(ADMIN, "bobs-secret");
+      expect(res.status).toBe(404);
+      expect((await res.json<any>()).error).toBe("not_found");
     });
   }
 
@@ -180,7 +186,7 @@ describe("ownership: another user's artifact is untouchable", () => {
   it("a beta user cannot preview another user's versions", async () => {
     expect((await req("/v/bobs-secret/1/", as(CAROL))).status).toBe(404);
     expect((await req("/v/bobs-secret/1/", as(BOB))).status).toBe(200);
-    expect((await req("/v/bobs-secret/1/", as(ADMIN))).status).toBe(200);
+    expect((await req("/v/bobs-secret/1/", as(ADMIN))).status).toBe(404);
   });
 
   it("a beta user cannot open another user's restricted artifact", async () => {
