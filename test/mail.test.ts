@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { env } from "cloudflare:test";
 import { classifyMailError, isRetryable, recordMail, sendMail } from "../src/mail";
 import { signinMail } from "../src/mail-templates";
@@ -154,5 +154,84 @@ describe("sendMail", () => {
     });
     expect(res.ok).toBe(false);
     expect(res.class).toBe("config");
+  });
+});
+
+describe("sendMail — Resend fallback", () => {
+  beforeEach(initMailLog);
+  afterEach(() => vi.restoreAllMocks());
+
+  const failingCf = (code: string) => async () => {
+    throw Object.assign(new Error("cf failed"), { code });
+  };
+  const withResend = (base: any) => ({ ...base, RESEND_API_KEY: "re_test_key" });
+
+  function mockResend(status = 200, body: unknown = { id: "re_1" }) {
+    const calls: { url: string; init: RequestInit }[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init: init ?? {} });
+      return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+    });
+    return calls;
+  }
+
+  it("retries a transient Cloudflare failure through Resend and logs it as sent via the fallback", async () => {
+    const calls = mockResend();
+    const res = await sendMail(withResend(envWith(failingCf("E_RATE_LIMIT_EXCEEDED"))), {
+      to: "dana@acme.com", kind: "signin", message, now: at,
+    });
+    expect(res.ok).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe("https://api.resend.com/emails");
+    expect((calls[0]!.init.headers as Record<string, string>).Authorization).toBe("Bearer re_test_key");
+    const body = JSON.parse(String(calls[0]!.init.body));
+    expect(body.to).toEqual(["dana@acme.com"]);
+    expect(body.from).toBe("rtfx.pro <no-reply@rtfx.pro>");
+    expect(body.html).toContain("418209");
+    expect(body.text).toContain("418209");
+    const row = await env.DB.prepare("SELECT * FROM mail_log").first<any>();
+    expect(row.status).toBe("sent");
+    expect(row.error_code).toBe("resend_fallback:E_RATE_LIMIT_EXCEEDED");
+  });
+
+  it("falls back when the Cloudflare binding is missing", async () => {
+    mockResend();
+    const e = withResend({ ...(env as any), EMAIL: undefined, MAIL_FROM: "no-reply@rtfx.pro" });
+    const res = await sendMail(e, { to: "dana@acme.com", kind: "signin", message, now: at });
+    expect(res.ok).toBe(true);
+    const row = await env.DB.prepare("SELECT * FROM mail_log").first<any>();
+    expect(row.error_code).toBe("resend_fallback:E_NO_BINDING");
+  });
+
+  it("does not fall back for a recipient failure — another provider will not fix a bad address", async () => {
+    const calls = mockResend();
+    const res = await sendMail(withResend(envWith(failingCf("E_RECIPIENT_SUPPRESSED"))), {
+      to: "dana@acme.com", kind: "signin", message, now: at,
+    });
+    expect(res.ok).toBe(false);
+    expect(res.class).toBe("recipient");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("does nothing new without a Resend key", async () => {
+    const calls = mockResend();
+    const res = await sendMail(envWith(failingCf("E_RATE_LIMIT_EXCEEDED")), {
+      to: "dana@acme.com", kind: "signin", message, now: at,
+    });
+    expect(res.ok).toBe(false);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("reports the original failure when Resend fails too, and logs both codes", async () => {
+    mockResend(422, { name: "validation_error", message: "domain not verified" });
+    const res = await sendMail(withResend(envWith(failingCf("E_DELIVERY_FAILED"))), {
+      to: "dana@acme.com", kind: "signin", message, now: at,
+    });
+    expect(res.ok).toBe(false);
+    expect(res.code).toBe("E_DELIVERY_FAILED");
+    expect(res.class).toBe("transient");
+    const row = await env.DB.prepare("SELECT * FROM mail_log").first<any>();
+    expect(row.status).toBe("failed");
+    expect(row.error_code).toBe("E_DELIVERY_FAILED|resend:422 validation_error");
   });
 });

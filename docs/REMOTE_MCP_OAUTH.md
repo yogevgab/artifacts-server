@@ -335,8 +335,10 @@ waiting on a callback that was never coming.
 The round trip now closes, and it closes for both endings of a passwordless sign-in:
 
 - `/login?next=…` parks the destination in `rtfx_next` — host-only, `HttpOnly`, `Secure`,
-  `SameSite=Lax`, ten minutes. Opening `/login` *without* a `next` clears it, so an abandoned
-  authorization cannot hijack an ordinary sign-in later.
+  `SameSite=Lax`, thirty minutes, restarted when the code is requested (`POST /auth/start`) so
+  the code's own 15 minutes are always covered. Opening `/login` *without* a `next` clears it, so
+  an abandoned authorization cannot hijack an ordinary sign-in later. (It was ten minutes from the
+  page load until 2026-10-26; someone who stepped away before asking for a code landed on /admin.)
 - `POST /auth/verify` (the typed code) returns it as `redirect`; `POST /auth/m/:token` (the emailed
   link) returns it as `Location`. It rides a cookie rather than the challenge because the emailed
   link is a bare token with nowhere to carry a destination. `SameSite=Lax` is load-bearing: a link
