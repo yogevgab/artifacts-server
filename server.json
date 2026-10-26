@@ -1,0 +1,30 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "pro.rtfx/rtfx",
+  "title": "rtfx.pro",
+  "description": "Publish what Claude makes (HTML, PDF, small site) to a private link only chosen people can open.",
+  "version": "1.0.0",
+  "websiteUrl": "https://rtfx.pro/guide",
+  "repository": {
+    "url": "https://github.com/yogevgab/artifacts-server",
+    "source": "github"
+  },
+  "icons": [
+    {
+      "src": "https://rtfx.pro/icon.svg",
+      "mimeType": "image/svg+xml",
+      "sizes": ["any"]
+    },
+    {
+      "src": "https://rtfx.pro/icon.png",
+      "mimeType": "image/png",
+      "sizes": ["512x512"]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.rtfx.pro/mcp"
+    }
+  ]
+}

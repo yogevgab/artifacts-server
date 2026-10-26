@@ -269,6 +269,20 @@ INDEXNOW_KEY=<key> node scripts/indexnow-ping.mjs              # POSTs the sitem
 The script reads the live sitemap, checks `/<key>.txt` really returns the key, then POSTs; HTTP
 200 or 202 means accepted. The key is never committed to the repo.
 
+**MCP Registry listing.** `server.json` at the repo root lists the hosted endpoint in the official
+MCP Registry as `pro.rtfx/rtfx`. The namespace is proven by DNS: a TXT record on the apex
+`rtfx.pro` (`v=MCPv1; k=ed25519; p=<public key>`), whose private half the operator keeps outside
+the repo. To publish or update (bump `version` first; a published version is immutable):
+
+```bash
+mcp-publisher validate
+mcp-publisher login dns --domain rtfx.pro --private-key "$(cat ~/dev/.mcp-registry-rtfx.key)"
+mcp-publisher publish
+curl -s "https://registry.modelcontextprotocol.io/v0.1/servers?search=pro.rtfx/rtfx"
+```
+
+A remote URL can be claimed by only one server name, so this endpoint stays under `pro.rtfx/rtfx`.
+
 ## 7. Smoke test (after deploy)
 
 ```bash
