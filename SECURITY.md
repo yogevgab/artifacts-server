@@ -139,6 +139,13 @@ Design invariants worth knowing when reviewing:
   itself.
 - The dev bypass (`DEV_LOGIN` / `X-Dev-Email`) is only active when `DEV_LOGIN=true`, which is set
   by `npm run dev` and the test config — never in a normal `wrangler deploy`.
+- Optional **directory reviewer sign-in** (`REVIEWER_EMAIL` + `REVIEWER_CODE`, off unless both are
+  set; see `docs/DEPLOY_RTFX.md` 5c-bis) lets one non-admin address sign in with a fixed 6-digit
+  secret code instead of an emailed one. Threat notes: it only works against a live challenge
+  created by `/auth/start`, shares the per-challenge attempt cap (5) and hourly start limits, uses a
+  constant-time comparison, has no magic link, refuses to enable for an admin address, and is
+  audited. Anyone holding the code can sign in as that member, so keep it a secret and unset it
+  after the review.
 - A viewer requesting an artifact they can't see gets `404` (existence is not revealed).
 
 ## Content-origin isolation, and what it does not cover

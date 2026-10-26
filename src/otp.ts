@@ -12,6 +12,7 @@
 
 import type { Env } from "./env";
 import { hashToken } from "./tokens";
+import { timingSafeEqual } from "./reviewer";
 
 /** How long a challenge lives. Long enough to fetch a phone, short enough to matter. */
 export const CHALLENGE_TTL_MINUTES = 15;
@@ -64,7 +65,7 @@ function sixDigitCode(): string {
 
 export async function createChallenge(
   env: Env,
-  o: { email: string; purpose: ChallengePurpose; slug?: string; now: string }
+  o: { email: string; purpose: ChallengePurpose; slug?: string; now: string; noLink?: boolean }
 ): Promise<IssuedChallenge> {
   const email = normalize(o.email);
   const code = sixDigitCode();
@@ -80,7 +81,9 @@ export async function createChallenge(
   // against every row at once.
   const [codeHash, tokenHash] = await Promise.all([
     hashToken(`${email}:${code}`),
-    hashToken(token),
+    // noLink (reviewer): the stored hash is of a value never returned or sent,
+    // so no magic link can ever redeem this challenge.
+    hashToken(o.noLink ? `nolink:${token}` : token),
   ]);
 
   await env.DB.prepare(
@@ -143,7 +146,9 @@ export async function redeemCode(
     .first<Row & { code_hash?: string }>();
 
   if (!row) return null;
-  if (row.attempts >= MAX_ATTEMPTS) return null;
+  // Every guess spends an attempt BEFORE it is checked (see reserveAttempt),
+  // so parallel requests cannot all slip under the cap.
+  if (!(await reserveAttempt(env, row.id))) return null;
 
   const match = await env.DB.prepare(
     `SELECT id FROM auth_challenges WHERE id = ? AND code_hash = ?`
@@ -151,17 +156,51 @@ export async function redeemCode(
     .bind(row.id, codeHash)
     .first<{ id: string }>();
 
-  if (!match) {
-    // A wrong guess costs an attempt. At MAX_ATTEMPTS the challenge is dead
-    // even for the correct code, which is what bounds brute force.
-    await env.DB.prepare(
-      `UPDATE auth_challenges SET attempts = attempts + 1 WHERE id = ?`
-    )
-      .bind(row.id)
-      .run();
-    return null;
-  }
+  if (!match) return null;
+  return (await consume(env, row.id, now)) ? toChallenge(row) : null;
+}
 
+/**
+ * Spend one attempt on a challenge, atomically, before the guess is compared.
+ * A single conditional UPDATE: it succeeds only while the challenge is unused
+ * and under MAX_ATTEMPTS, so N concurrent guesses get at most MAX_ATTEMPTS
+ * evaluations between them. (Reading `attempts`, comparing, then incrementing
+ * let parallel requests all read 0 and all guess — which mattered most for the
+ * reviewer's fixed code, where ruled-out guesses carry over between challenges.)
+ */
+async function reserveAttempt(env: Env, id: string): Promise<boolean> {
+  const res = await env.DB.prepare(
+    `UPDATE auth_challenges SET attempts = attempts + 1
+      WHERE id = ? AND consumed_at IS NULL AND attempts < ?`
+  )
+    .bind(id, MAX_ATTEMPTS)
+    .run();
+  return (res.meta?.changes ?? 0) > 0;
+}
+
+/**
+ * Redeem the reviewer's fixed code. Mirrors {@link redeemCode}: needs an
+ * unconsumed, unexpired challenge (so a start is required first), counts
+ * attempts on it, burns at MAX_ATTEMPTS, consumes on success.
+ */
+export async function redeemReviewerCode(
+  env: Env,
+  email: string,
+  code: string,
+  expected: string,
+  now: string
+): Promise<Challenge | null> {
+  const addr = normalize(email);
+  const row = await env.DB.prepare(
+    `SELECT id, email, purpose, slug, attempts FROM auth_challenges
+      WHERE email = ? AND consumed_at IS NULL AND expires_at > ? AND purpose = 'signin'
+      ORDER BY created_at DESC LIMIT 1`
+  )
+    .bind(addr, now)
+    .first<Row>();
+  if (!row) return null;
+  if (!(await reserveAttempt(env, row.id))) return null;
+  if (!timingSafeEqual(code, expected)) return null;
   return (await consume(env, row.id, now)) ? toChallenge(row) : null;
 }
 

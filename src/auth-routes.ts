@@ -13,7 +13,7 @@ import { Hono, type Context } from "hono";
 import type { AppBindings, Env } from "./env";
 import { SESSION_COOKIE } from "./auth";
 import { mintSession, SESSION_TTL_SECONDS } from "./session";
-import { createChallenge, redeemCode, redeemToken, CHALLENGE_TTL_MINUTES } from "./otp";
+import { createChallenge, redeemCode, redeemReviewerCode, redeemToken, CHALLENGE_TTL_MINUTES } from "./otp";
 import { sendMail } from "./mail";
 import { signinMail, guestMail } from "./mail-templates";
 import { normalizeEmail } from "./waitlist";
@@ -28,6 +28,8 @@ import { getIdentity, readCookie } from "./auth";
 import { hasGrant, getArtifact } from "./db";
 import { magicLinkConfirmPage } from "./login";
 import { safeNextPath } from "./util";
+import { reviewerConfig } from "./reviewer";
+import { recordAudit } from "./audit";
 
 export const authRoutes = new Hono<AppBindings>();
 
@@ -159,6 +161,15 @@ async function startChallenge(
   slug?: string
 ): Promise<void> {
   const now = new Date().toISOString();
+
+  // Directory reviewer: the challenge is created and counted like any other
+  // (same limits, same response) but nothing is emailed and no link exists. No
+  // mail_log row is written, since no mail was attempted.
+  if (purpose === "signin" && reviewerConfig(c.env)?.email === email) {
+    await createChallenge(c.env, { email, purpose, now, noLink: true });
+    return;
+  }
+
   const issued = await createChallenge(c.env, { email, purpose, slug, now });
 
   const origin = signinOrigin(c);
@@ -185,6 +196,22 @@ async function establishSession(env: Env, email: string): Promise<string | null>
 
   const token = await mintSession(env.SESSION_SECRET, { email, kind: "member" }, now);
   return sessionCookie(token, SESSION_TTL_SECONDS);
+}
+
+/** Every reviewer sign-in leaves a log line and an audit row. */
+async function noteReviewerSignin(c: Context<AppBindings>, email: string, now: string): Promise<void> {
+  const country = (c.req.raw as { cf?: { country?: string } }).cf?.country ?? null;
+  const ua = (c.req.header("User-Agent") ?? "").slice(0, 80);
+  console.log(JSON.stringify({ event: "reviewer_signin", country, ua }));
+  await recordAudit(c.env, {
+    actor: { email, role: "member" },
+    action: "auth.reviewer_signin",
+    targetType: "user",
+    targetId: email,
+    summary: "Directory reviewer signed in",
+    detail: { country, ua },
+    now,
+  });
 }
 
 authRoutes.post("/auth/start", async (c) => {
@@ -215,11 +242,17 @@ authRoutes.post("/auth/verify", async (c) => {
     return c.json({ error: "bad_request" }, 400);
   }
 
-  const challenge = await redeemCode(c.env, email, code, new Date().toISOString());
+  const nowIso = new Date().toISOString();
+  const reviewer = reviewerConfig(c.env);
+  const isReviewer = !!reviewer && reviewer.email === email;
+  const challenge = isReviewer
+    ? await redeemReviewerCode(c.env, email, code, reviewer!.code, nowIso)
+    : await redeemCode(c.env, email, code, nowIso);
   if (!challenge) return c.json({ error: "invalid_code" }, 401);
 
   const cookie = await establishSession(c.env, challenge.email);
   if (!cookie) return c.json({ error: "not_configured" }, 503);
+  if (isReviewer) await noteReviewerSignin(c, challenge.email, nowIso);
 
   // Two Set-Cookie headers, so the response is built by hand: `c.json`'s header
   // record holds one value per name, and dropping either the session or the
@@ -251,6 +284,10 @@ authRoutes.get("/auth/m/:token", (c) =>
 authRoutes.post("/auth/m/:token", async (c) => {
   const challenge = await redeemToken(c.env, c.req.param("token"), new Date().toISOString());
   if (!challenge) return c.json({ error: "invalid_link" }, 401);
+  // The reviewer has no link; refuse one even if a stray challenge somehow has it.
+  if (challenge.purpose === "signin" && reviewerConfig(c.env)?.email === challenge.email) {
+    return c.json({ error: "invalid_link" }, 401);
+  }
 
   // A guest challenge yields a GUEST credential, never a member session:
   // redeeming a share invitation must not create an account for somebody who
