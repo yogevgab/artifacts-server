@@ -1,9 +1,20 @@
 import { maxSeatsFor } from "./members";
-import { layout, siteHeader, siteFooter, PUBLIC_CHROME_STYLE, SOURCE_URL } from "./pages";
+import { esc, layout, siteHeader, siteFooter, PUBLIC_CHROME_STYLE, SOURCE_URL } from "./pages";
 import { cookieNotice, CONSENT_STYLE, CONSENT_SCRIPT } from "./consent";
 import type { Env } from "./env";
 import { SITE, MCP_URL, canonicalUrl } from "./seo";
 import { mediaUrl } from "./media";
+import {
+  CLAUDE_CODE_CMD,
+  CONNECT_NOTE,
+  CONNECT_STEPS,
+  ENTERPRISE_LINES,
+  FAQS,
+  MCP_JSON,
+  OTHER_CLIENTS_NOTE,
+  VIDEO,
+  WALKTHROUGH,
+} from "./home-content";
 import { num, bytes } from "./portal";
 import type { PlanName } from "./quota";
 import {
@@ -32,9 +43,6 @@ import {
  * never described as a password), and the hosted MCP endpoint publishes content
  * sent in the call, never a path.
  */
-
-const CLAUDE_CODE_CMD = `claude mcp add --transport http rtfx ${MCP_URL}`;
-const MCP_JSON = `{"mcpServers":{"rtfx":{"url":"${MCP_URL}"}}}`;
 
 /** Styles for guideVideo(), shared with /guide (src/guide.ts). */
 export const GUIDE_VIDEO_STYLE = `.guide-video{margin:2rem 0 0}.guide-video video{display:block;width:100%;height:auto;border-radius:var(--radius-sm);border:1px solid var(--border-strong);box-shadow:var(--shadow);background:var(--card)}
@@ -65,6 +73,14 @@ pre.code{background:#05070c;border:1px solid var(--border);border-radius:var(--r
 .ask-list li{color:var(--muted)}
 .ask-list q{color:var(--fg);font-weight:600;letter-spacing:-.01em}
 .guide-link{font-weight:600;font-size:1.02rem}
+.faq-list{display:grid;gap:.6rem}
+.faq-list details{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-sm);padding:.15rem 1rem}
+.faq-list summary{cursor:pointer;font-weight:600;letter-spacing:-.01em;padding:.75rem 0;min-height:44px;display:flex;align-items:center;gap:.75rem;list-style:none}
+.faq-list summary::-webkit-details-marker{display:none}
+.faq-list summary::after{content:"+";margin-left:auto;flex:none;font-weight:500;font-size:1.2rem;color:var(--muted)}
+.faq-list details[open]>summary::after{content:"\\2212"}
+.faq-list details[open] summary{color:var(--fg)}
+.faq-list details p{margin:0 0 .9rem;color:var(--muted)}
 .pricing{margin:4.2rem 0 0}
 .band-head{text-align:center;max-width:40rem;margin:0 auto 2rem}
 .band-head h2{font-size:clamp(1.5rem,3.4vw,2rem);letter-spacing:-.045em;margin:0 0 .6rem;line-height:1.1}
@@ -98,7 +114,43 @@ if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.write
 else{var r=document.createRange();var c=document.getElementById('mcp-url');r.selectNodeContents(c);var s=window.getSelection();s.removeAllRanges();s.addRange(r);var ok=false;try{ok=document.execCommand('copy')}catch(e){}done(ok)}
 })})();`;
 
-const TITLE = "Private links for work Claude makes · rtfx.pro";
+const TITLE = SITE.homeTitle;
+
+/**
+ * The walkthrough video as schema.org `VideoObject`. Shared with /guide, which
+ * embeds the same player, so both pages describe the one video the same way.
+ */
+export function videoObject(env: Env): Record<string, unknown> {
+  return {
+    "@context": "https://schema.org",
+    "@type": "VideoObject",
+    "@id": `${canonicalUrl(env, "/")}#video`,
+    name: VIDEO.name,
+    description: VIDEO.description,
+    thumbnailUrl: canonicalUrl(env, mediaUrl(VIDEO.poster)),
+    contentUrl: canonicalUrl(env, mediaUrl(VIDEO.file)),
+    uploadDate: VIDEO.uploadDate,
+    duration: VIDEO.duration,
+    width: VIDEO.width,
+    height: VIDEO.height,
+    encodingFormat: "video/mp4",
+    inLanguage: "en",
+  };
+}
+
+/** FAQPage built from the SAME array the visible FAQ renders from. */
+function faqPage(env: Env): Record<string, unknown> {
+  return {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "@id": `${canonicalUrl(env, "/")}#faq`,
+    mainEntity: FAQS.map((f) => ({
+      "@type": "Question",
+      name: f.q,
+      acceptedAnswer: { "@type": "Answer", text: f.a },
+    })),
+  };
+}
 
 /** Structured data: what this site is, and what the product is. */
 function structuredData(env: Env): unknown[] {
@@ -128,12 +180,13 @@ function structuredData(env: Env): unknown[] {
         {
           "@type": "SoftwareApplication",
           "@id": `${url}#product`,
-          name: SITE.name,
+          name: "rtfx.pro MCP server for Claude (private links)",
           url,
           applicationCategory: "DeveloperApplication",
           applicationSubCategory: "Web hosting",
           operatingSystem: "Web",
           description: SITE.description,
+          isAccessibleForFree: true,
           softwareVersion: "1.0.0",
           codeRepository: SOURCE_URL,
           license: "https://opensource.org/licenses/MIT",
@@ -145,15 +198,19 @@ function structuredData(env: Env): unknown[] {
             url: canonicalUrl(env, "/signup"),
           },
           featureList: [
-            "Publish from Claude to a private link over MCP",
-            "Share with named people, editors or a revocable link",
-            "Immutable versions with rollback",
-            "Delete an artifact permanently",
+            "Publish a Claude artifact to a private link over MCP",
+            "Publish new versions at the same link and roll back",
+            "Share with viewers, editors or everyone in the workspace",
+            "Named share links that expire and can be extended or revoked",
+            "Delete an artifact",
+            "See who opened it with the view log",
           ],
           publisher: { "@id": `${url}#organization` },
         },
       ],
     },
+    videoObject(env),
+    faqPage(env),
   ];
 }
 
@@ -176,35 +233,34 @@ function seatsLine(name: PlanName): string {
  * Enterprise are not, and the button says so instead of sending somebody into a
  * flow that ends with them waiting on us anyway.
  */
+/** Plain-text lines of a plan's card — the card renders them, `/llms-full.txt` prints them. */
+export function tierLimitLines(name: PlanName): string[] {
+  const f = planFeatures(name);
+  const versions =
+    f.limits.keepVersions === null
+      ? "Full version history"
+      : `Keeps the last ${f.limits.keepVersions} versions of each artifact`;
+  return [
+    "Dedicated URL for every artifact",
+    // The branded workspace address (rtfx.pro/yogev/q3-board-report) is the one
+    // feature the paid plans unlock rather than merely widen, so it is named on
+    // the cards that unlock it and nowhere else.
+    ...(name === "free" ? [] : ["Branded workspace address"]),
+    `${num(f.limits.maxArtifacts)} artifacts`,
+    `${bytes(f.limits.maxStorageBytes)} storage`,
+    versions,
+    seatsLine(name),
+  ];
+}
+
 function tierCard(name: PublicTier): string {
   const cta = tierCta(name);
-  const detail = isPlanName(name)
-    ? (() => {
-        const f = planFeatures(name);
-        const versions =
-          f.limits.keepVersions === null
-            ? "Full version history"
-            : `Keeps the last ${f.limits.keepVersions} versions of each artifact`;
-        // The branded workspace address (rtfx.pro/yogev/q3-board-report) is the
-        // one feature the paid plans unlock rather than merely widen, so it is
-        // named on the card that unlocks it and nowhere else.
-        const address = name === "free" ? "" : `<li>Branded workspace address</li>\n      `;
-        return `<li>Dedicated URL for every artifact</li>
-      ${address}<li>${num(f.limits.maxArtifacts)} artifacts</li>
-      <li>${bytes(f.limits.maxStorageBytes)} storage</li>
-      <li>${versions}</li>
-      <li>${seatsLine(name)}</li>`;
-      })()
-    : // Enterprise has no row in PLANS to render, and inventing limits for it
-      // would be the one hand-typed number in this section. What it lists
-      // instead is what the conversation is about — see /enterprise, which is
-      // explicit that none of it is built today.
-      `<li>Dedicated URL for every artifact</li>
-      <li>Branded workspace address</li>
-      <li>Everything in Team, plus a conversation</li>
-      <li>SSO, SCIM and contractual SLAs — none built yet</li>
-      <li>Security review, DPA, invoicing</li>
-      <li>Or self-host it: the source is MIT</li>`;
+  // Enterprise has no row in PLANS to render, and inventing limits for it would
+  // be the one hand-typed number in this section; its lines are what the
+  // conversation is about — see /enterprise, which is explicit that none of it
+  // is built today.
+  const lines = isPlanName(name) ? tierLimitLines(name) : ENTERPRISE_LINES;
+  const detail = lines.map((l) => `<li>${l}</li>`).join("\n      ");
   const link = tierPath(name);
   return `<div class="tier" data-tier="${name}">
     <h3>${TIER_LABEL[name]}</h3>
@@ -241,14 +297,34 @@ function pricingSection(): string {
  */
 export function guideVideo(): string {
   return `<figure class="guide-video" data-landing="video">
-        <video controls playsinline preload="none" width="1920" height="1080"
-          poster="${mediaUrl("rtfx-guide-poster.jpg")}"
+        <video controls playsinline preload="none" width="${VIDEO.width}" height="${VIDEO.height}"
+          poster="${mediaUrl(VIDEO.poster)}"
           aria-label="One-minute walkthrough: add rtfx to Claude, publish, share and see who opened it">
-          <source src="${mediaUrl("rtfx-guide.mp4")}" type="video/mp4">
+          <source src="${mediaUrl(VIDEO.file)}" type="video/mp4">
         </video>
         <figcaption>One minute: connect, publish, share, see who opened it.
           <a href="/guide">Step by step with screenshots &rarr;</a></figcaption>
       </figure>`;
+}
+
+function walkthroughSection(w: (typeof WALKTHROUGH)[number]): string {
+  return `<section id="${w.id}" class="band">
+      <h2>${w.heading}</h2>
+      <ul class="ask-list">
+        ${w.asks.map((a) => `<li>${a}</li>`).join("\n        ")}
+      </ul>
+      <p>${w.note}</p>
+    </section>`;
+}
+
+/** The visible FAQ; `faqPage()` (JSON-LD) is built from the same `FAQS`. */
+function faqSection(): string {
+  return `<section id="faq" class="band">
+      <h2>Questions</h2>
+      <div class="faq-list">
+        ${FAQS.map((f) => `<details><summary>${esc(f.q)}</summary><p>${esc(f.a)}</p></details>`).join("\n        ")}
+      </div>
+    </section>`;
 }
 
 export function landingPage(env: Env): string {
@@ -279,21 +355,14 @@ export function landingPage(env: Env): string {
       <div class="panel">
         <h3>Claude on web, desktop and mobile</h3>
         <ol>
-          <li>Open <b>Customize → Connectors</b> (or Settings → Connectors), click <b>+ Add</b>, then <b>Add custom connector</b>.</li>
-          <li>Name it <code>rtfx</code> and use the URL <code>${MCP_URL}</code>.</li>
-          <li>Keep the detected defaults and click <b>Add</b>, then <b>Connect</b>.</li>
-          <li>Sign in with the code we email you, then <b>Allow</b>.</li>
+          ${CONNECT_STEPS.map((l) => `<li>${l}</li>`).join("\n          ")}
         </ol>
-        <p>Once added, it works in Claude on web, desktop and mobile. The consent screen lists
-          “Manage access and delete artifacts” — allow it so Claude can share and delete from
-          chat.</p>
+        <p>${CONNECT_NOTE}</p>
         <p class="guide-link"><a href="/guide" data-cta="guide">See every step with screenshots &rarr;</a></p>
       </div>
       <div class="panel">
         <h3>Other MCP clients</h3>
-        <p>Any client with remote MCP and OAuth connects the same way, with nothing to paste. It
-          asks for read and publish by default; it must also request <code>rtfx:manage</code> to
-          share and delete from chat.</p>
+        <p>${OTHER_CLIENTS_NOTE}</p>
         <pre class="code"><code>${CLAUDE_CODE_CMD}</code></pre>
         <pre class="code"><code>${MCP_JSON}</code></pre>
         <p>No OAuth in your client? Create a token under Settings → Integrations
@@ -302,39 +371,9 @@ export function landingPage(env: Env): string {
       </div>
     </section>
 
-    <section id="publish" class="band">
-      <h2>2. Publish</h2>
-      <ul class="ask-list">
-        <li><q>Publish this as a private link.</q> Claude replies with your link, like
-          <code>https://rtfx.pro/your-workspace/q3-report</code>. It is private to you until you
-          share it.</li>
-        <li><q>Publish the fix to the same link.</q> A new version at the same URL.
-          <q>Roll back to version 2.</q> The link points at the earlier version again.</li>
-      </ul>
-      <p>For big sites or images, Claude gives you an upload link instead.
-        <a href="/guide#publish">See it step by step &rarr;</a></p>
-    </section>
+    ${WALKTHROUGH.map(walkthroughSection).join("\n\n    ")}
 
-    <section id="share" class="band">
-      <h2>3. Share</h2>
-      <ul class="ask-list">
-        <li><q>Share it with dana@acme.com.</q> Dana signs in with their email and can open it.</li>
-        <li><q>Let alex@acme.com edit it.</q> Editors can publish new versions and roll back.</li>
-        <li><q>Make it visible to everyone in my workspace.</q></li>
-      </ul>
-      <p>For someone without an account, open the artifact's Share page on rtfx.pro and create a
-        link for them. Name each link for who it's for, set an expiry, and extend or revoke it any
-        time. <a href="/guide#share">See the Share page &rarr;</a></p>
-    </section>
-
-    <section id="delete" class="band">
-      <h2>4. Delete</h2>
-      <ul class="ask-list">
-        <li><q>Delete q3-report.</q> Claude confirms the exact name first, then it's gone: every
-          version, the link and its share links. This can't be undone.</li>
-      </ul>
-      <p>You can also delete it from the artifact's page on rtfx.pro.</p>
-    </section>
+    ${faqSection()}
 
     ${pricingSection()}
 
@@ -355,7 +394,7 @@ export function landingPage(env: Env): string {
     description: SITE.description,
     canonical: canonicalUrl(env, "/"),
     image: canonicalUrl(env, "/og.png"),
-    socialTitle: `${SITE.name} — ${SITE.tagline}`,
+    socialTitle: TITLE,
     jsonLd: structuredData(env),
   });
 }

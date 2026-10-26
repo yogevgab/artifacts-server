@@ -96,7 +96,8 @@ import { viewerOf, type PortalContext } from "./viewer";
 import { peoplePage, type UsersInfo } from "./people";
 import { integrationsPage } from "./integrations";
 import { canSeeSection, portalNotFound } from "./portal";
-import { isContentHost, isContentPrefix, isManagementPath, isPerOriginPath, firstContentHostname } from "./host";
+import { isContentHost, isContentPrefix, isManagementPath, isPerOriginPath, firstContentHostname, INDEXNOW_KEY_FILE } from "./host";
+import { llmsFullTxt } from "./llms-full";
 import { uploadRoutes } from "./upload-routes";
 import {
   robotsTxt,
@@ -105,6 +106,9 @@ import {
   ogImageSvg,
   OG_IMAGE_PNG_BASE64,
   LOGO_PNG_BASE64,
+  APPLE_TOUCH_PNG_BASE64,
+  logoSvg,
+  FAVICON_ICO_BASE64,
   LOGO_SMALL_PNG_BASE64,
   isCanonicalHost,
   siteOrigin,
@@ -654,6 +658,14 @@ app.get(
 // answer engines — what this is, who it's for, how publishing works, and what is
 // deliberately not crawlable.
 app.get("/llms.txt", (c) => c.text(llmsTxt(c.env), 200, { "Cache-Control": PUBLIC_FILE_CACHE }));
+// llms-full.txt: the long form — home page, guide, FAQ and pricing facts as markdown,
+// generated from the same data the pages render (src/llms-full.ts).
+app.get("/llms-full.txt", (c) =>
+  c.text(llmsFullTxt(c.env), 200, {
+    "Content-Type": "text/plain; charset=utf-8",
+    "Cache-Control": PUBLIC_FILE_CACHE,
+  })
+);
 
 // security.txt (RFC 9116), served at both the canonical `/.well-known` path and
 // the legacy top-level one — a researcher who tries either must find it rather
@@ -699,6 +711,48 @@ app.get("/og.png", () => pngResponse(OG_IMAGE_PNG_BASE64));
 app.get("/logo.png", () => pngResponse(LOGO_PNG_BASE64));
 // The small mark for share-link previews (src/link-preview.ts).
 app.get("/logo-128.png", () => pngResponse(LOGO_SMALL_PNG_BASE64));
+
+// `/favicon.ico` and `/apple-touch-icon.png`: browsers, crawlers and iOS request these by
+// name whatever the <head> says (it links both too). Real files, cached for 30 days; the
+// bytes are rendered from the same mark as everything else (scripts/generate-brand-rasters.mjs).
+const ICON_CACHE = "public, max-age=2592000";
+const binaryResponse = (base64: string, type: string) =>
+  new Response(Uint8Array.from(atob(base64), (ch) => ch.charCodeAt(0)), {
+    headers: {
+      "Content-Type": type,
+      "Cache-Control": ICON_CACHE,
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+// `/icon.svg` and `/icon.png`: stable standalone icon URLs for MCP directory listings
+// (the official MCP registry's server.json, Anthropic's connectors directory). Same mark as
+// /logo.png (512x512); the SVG is logoSvg() verbatim.
+app.get(
+  "/icon.svg",
+  () =>
+    new Response(logoSvg(), {
+      headers: {
+        "Content-Type": "image/svg+xml; charset=utf-8",
+        "Cache-Control": ICON_CACHE,
+        "X-Content-Type-Options": "nosniff",
+      },
+    })
+);
+app.get("/icon.png", () => binaryResponse(LOGO_PNG_BASE64, "image/png"));
+app.get("/favicon.ico", () => binaryResponse(FAVICON_ICO_BASE64, "image/x-icon"));
+app.get("/apple-touch-icon.png", () => binaryResponse(APPLE_TOUCH_PNG_BASE64, "image/png"));
+
+// IndexNow ownership file: `/<INDEXNOW_KEY>.txt` answers with the key so Bing and other
+// IndexNow engines can verify the host. Unset (every self-host) it is a plain 404. Any other
+// top-level `*.txt` is not an artifact path either, so it 404s here rather than redirecting.
+app.get("/:keyfile{[A-Za-z0-9-]{8,128}\\.txt}", (c) => {
+  const key = (c.env.INDEXNOW_KEY ?? "").trim();
+  const path = new URL(c.req.url).pathname;
+  if (key && INDEXNOW_KEY_FILE.test(path) && path === `/${key}.txt`) {
+    return c.text(key, 200, { "Cache-Control": PUBLIC_FILE_CACHE });
+  }
+  return c.text("Not found", 404);
+});
 
 
 // Sign-up surface. Public on purpose: it explains how to get in, so it must stay

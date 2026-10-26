@@ -5,6 +5,8 @@
  *
  *   ogImageSvg()  →  OG_IMAGE_PNG_BASE64   (1200×630 social card, served at /og.png)
  *   logoSvg()     →  LOGO_PNG_BASE64       (512×512 square mark,  served at /logo.png)
+ *   logoSvg()     →  FAVICON_ICO_BASE64    (16/32/48 PNG-in-ICO,  served at /favicon.ico)
+ *   appleTouchIconSvg() → APPLE_TOUCH_PNG_BASE64 (180×180,         served at /apple-touch-icon.png)
  *
  * Run it after ANY change to `ogImageSvg()`, `logoSvg()`, `MARK_PATH`,
  * `MARK_BLUE`, `SITE.name` or `SITE.tagline`:
@@ -293,6 +295,28 @@ function sha256Hex(text) {
   return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
+/** Wrap PNGs (each square, <256 px) into one ICO file. */
+function buildIco(entries) {
+  const header = Buffer.alloc(6);
+  header.writeUInt16LE(0, 0);
+  header.writeUInt16LE(1, 2);
+  header.writeUInt16LE(entries.length, 4);
+  let offset = 6 + 16 * entries.length;
+  const dir = [];
+  for (const { size, png } of entries) {
+    const e = Buffer.alloc(16);
+    e[0] = size;
+    e[1] = size;
+    e.writeUInt16LE(1, 4); // colour planes
+    e.writeUInt16LE(32, 6); // bits per pixel
+    e.writeUInt32LE(png.length, 8);
+    e.writeUInt32LE(offset, 12);
+    offset += png.length;
+    dir.push(e);
+  }
+  return Buffer.concat([header, ...dir, ...entries.map((e) => e.png)]);
+}
+
 /** Rewrite one `export const NAME = "…";` line in place. */
 function replaceConstant(source, name, base64) {
   const pattern = new RegExp(`(export const ${name} = ")[^"]*(";)`);
@@ -305,24 +329,44 @@ async function main() {
   const seo = await loadSeoModule();
   const workDir = await mkdtemp(path.join(tmpdir(), "rtfx-rasters-"));
   try {
+    // `--icons-only` rewrites just the favicon and apple-touch constants and
+    // leaves the (large, already verified) card and logo bytes untouched.
+    const iconsOnly = process.argv.includes("--icons-only");
     const size = seo.LOGO_PNG_SIZE;
     const cardSvg = seo.ogImageSvg();
     const logoSvg = seo.logoSvg(size);
     const card = await rasterize(chrome, cardSvg, 1200, 630, workDir, "og");
     const logo = await rasterize(chrome, logoSvg, size, size, workDir, "logo");
 
+    const appleSvg = seo.appleTouchIconSvg(seo.APPLE_TOUCH_SIZE);
+    const apple = await rasterize(chrome, appleSvg, seo.APPLE_TOUCH_SIZE, seo.APPLE_TOUCH_SIZE, workDir, "apple");
+    const icoEntries = [];
+    for (const px of [16, 32, 48]) {
+      icoEntries.push({ size: px, png: await rasterize(chrome, seo.logoSvg(px), px, px, workDir, `ico-${px}`) });
+    }
+    const ico = buildIco(icoEntries);
+
     let source = await readFile(SEO_TS, "utf8");
-    source = replaceConstant(source, "OG_IMAGE_PNG_BASE64", card.toString("base64"));
-    source = replaceConstant(source, "LOGO_PNG_BASE64", logo.toString("base64"));
+    source = replaceConstant(source, "APPLE_TOUCH_PNG_BASE64", apple.toString("base64"));
+    source = replaceConstant(source, "APPLE_TOUCH_SVG_SHA256", sha256Hex(appleSvg));
+    source = replaceConstant(source, "FAVICON_ICO_BASE64", ico.toString("base64"));
+    if (!iconsOnly) {
+      source = replaceConstant(source, "OG_IMAGE_PNG_BASE64", card.toString("base64"));
+      source = replaceConstant(source, "LOGO_PNG_BASE64", logo.toString("base64"));
+    }
     // The digests are what make a *later* edit to the artwork fail the suite
     // instead of silently shipping the previous render.
-    source = replaceConstant(source, "OG_IMAGE_SVG_SHA256", sha256Hex(cardSvg));
-    source = replaceConstant(source, "LOGO_SVG_SHA256", sha256Hex(logoSvg));
+    if (!iconsOnly) {
+      source = replaceConstant(source, "OG_IMAGE_SVG_SHA256", sha256Hex(cardSvg));
+      source = replaceConstant(source, "LOGO_SVG_SHA256", sha256Hex(logoSvg));
+    }
     await writeFile(SEO_TS, source, "utf8");
 
     console.log(`Rasterized with ${chrome}`);
     console.log(`  OG_IMAGE_PNG_BASE64  1200×630  ${card.length} bytes`);
     console.log(`  LOGO_PNG_BASE64      ${size}×${size}    ${logo.length} bytes`);
+    console.log(`  APPLE_TOUCH_PNG_BASE64 ${seo.APPLE_TOUCH_SIZE}×${seo.APPLE_TOUCH_SIZE}  ${apple.length} bytes`);
+    console.log(`  FAVICON_ICO_BASE64   16/32/48  ${ico.length} bytes`);
     console.log("Wrote src/seo.ts — now run `npm test`.");
   } finally {
     await rm(workDir, { recursive: true, force: true });

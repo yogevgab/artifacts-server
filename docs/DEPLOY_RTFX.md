@@ -204,7 +204,7 @@ no browser session. Historically this also caught an Access redirect to `…clou
 fresh deployment no longer uses Access, but the smoke still proves public pages are actually public.
 
 ```bash
-for p in / /docs /login /privacy /terms /robots.txt /sitemap.xml /llms.txt /og.svg /og.png /logo.png /security.txt /.well-known/security.txt; do
+for p in / /docs /login /privacy /terms /robots.txt /sitemap.xml /llms.txt /llms-full.txt /favicon.ico /apple-touch-icon.png /og.svg /og.png /logo.png /security.txt /.well-known/security.txt; do
   printf '%-30s ' "$p"; curl -s -o /dev/null -w '%{http_code} %{content_type}\n' "https://rtfx.pro$p"
 done
 # all 200; / /docs /login /privacy /terms are text/html, robots+llms+security text/plain,
@@ -254,6 +254,20 @@ See [PUBLIC_SITE.md](PUBLIC_SITE.md); self-hosters have the same job, in
 [SELF_HOSTING.md](SELF_HOSTING.md).
 Finally submit `https://rtfx.pro/sitemap.xml` in Google Search Console and Bing Webmaster
 Tools — nothing in the deploy does that for you. Details: [PUBLIC_SITE.md](PUBLIC_SITE.md).
+
+**Post-deploy step: IndexNow.** Once per deploy that changes public pages, tell IndexNow engines
+(Bing and others) what changed. One-time setup: pick a key (8-128 characters of letters, digits and
+dashes), set it as the Worker's `INDEXNOW_KEY` var/secret and deploy; the Worker then serves
+`https://rtfx.pro/<key>.txt` with the key in it. With `INDEXNOW_KEY` unset (every self-host) that path
+is a 404 and nothing else changes. After each deploy:
+
+```bash
+INDEXNOW_KEY=<key> node scripts/indexnow-ping.mjs --dry-run   # prints the body, sends nothing
+INDEXNOW_KEY=<key> node scripts/indexnow-ping.mjs              # POSTs the sitemap URLs to api.indexnow.org
+```
+
+The script reads the live sitemap, checks `/<key>.txt` really returns the key, then POSTs; HTTP
+200 or 202 means accepted. The key is never committed to the repo.
 
 ## 7. Smoke test (after deploy)
 

@@ -21,6 +21,12 @@ const MANAGEMENT_PATHS = new Set([
   "/contact",
   "/sitemap.xml",
   "/llms.txt",
+  "/llms-full.txt",
+  // Browser/crawler icon requests, answered by name (src/seo.ts).
+  "/favicon.ico",
+  "/icon.svg",
+  "/icon.png",
+  "/apple-touch-icon.png",
   // security.txt (RFC 9116). Its canonical path lives under the `/.well-known`
   // prefix below; this is the legacy top-level one, and it has to be named
   // explicitly or the app host 302s it to the content host as an unknown path
@@ -74,6 +80,14 @@ const MANAGEMENT_PREFIXES = [
   "/oauth",
   "/.well-known",
 ];
+
+/**
+ * `/<key>.txt`: the IndexNow ownership file (`INDEXNOW_KEY`, src/index.ts). The
+ * key is an env var, so the path cannot be listed; it is recognised by shape. No
+ * artifact lives at a top-level `*.txt` (a slug has no dot), so claiming the
+ * shape on the app host takes nothing from anyone.
+ */
+export const INDEXNOW_KEY_FILE = /^\/[A-Za-z0-9-]{8,128}\.txt$/;
 
 /**
  * Paths the CONTENT host serves in addition to artifact files — and the app
@@ -146,6 +160,7 @@ export function isManagementPath(path: string): boolean {
   // Served by the content host, so never treated as management.
   if (isContentPrefix(path)) return false;
   if (MANAGEMENT_PATHS.has(path)) return true;
+  if (INDEXNOW_KEY_FILE.test(path)) return true;
   return MANAGEMENT_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
 }
 

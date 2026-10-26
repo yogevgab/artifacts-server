@@ -3,7 +3,7 @@ import { esc, layout, siteHeader, siteFooter, PUBLIC_CHROME_STYLE } from "./page
 import { SITE, canonicalUrl } from "./seo";
 import { num, bytes } from "./portal";
 import { PLANS } from "./quota";
-import { TIER_LABEL, tierCta, tierPrice, type PublicTier } from "./plan-copy";
+import { PLAN_PRICE, TIER_LABEL, tierCta, tierPrice, isPlanName, type PublicTier } from "./plan-copy";
 
 /**
  * A page per paid tier: `/pro`, `/team`, `/enterprise`.
@@ -106,6 +106,57 @@ interface PlanPageInput {
   sections: string;
 }
 
+/**
+ * BreadcrumbList for every tier page, plus Product/Offer when the page states a
+ * price. The number comes from `PLAN_PRICE` (src/plan-copy.ts), the same table
+ * `tierPrice()` renders into the page, so the markup can never quote a price the
+ * page does not show. Enterprise states none, so it gets no Product.
+ */
+function structuredData(env: Env, tier: PublicTier, description: string): unknown[] {
+  const url = canonicalUrl(env, `/${tier}`);
+  const label = TIER_LABEL[tier];
+  const crumbs = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: SITE.name, item: canonicalUrl(env, "/") },
+      { "@type": "ListItem", position: 2, name: label, item: url },
+    ],
+  };
+  const price = isPlanName(tier) ? PLAN_PRICE[tier] : null;
+  if (price === null) return [crumbs];
+  const cta = tierCta(tier);
+  const offer: Record<string, unknown> = {
+    "@type": "Offer",
+    url,
+    price: String(price),
+    priceCurrency: "USD",
+    priceSpecification: {
+      "@type": "UnitPriceSpecification",
+      price,
+      priceCurrency: "USD",
+      billingDuration: "P1M",
+      unitText: "month",
+    },
+  };
+  // Only a plan somebody can finish buying alone is "in stock"; Team is set up with a person.
+  if (cta.kind === "self-serve") offer.availability = "https://schema.org/InStock";
+  return [
+    crumbs,
+    {
+      "@context": "https://schema.org",
+      "@type": "Product",
+      "@id": `${url}#product`,
+      name: `rtfx.pro ${label} plan \u2014 private links for Claude artifacts (MCP)`,
+      description,
+      url,
+      image: canonicalUrl(env, "/logo.png"),
+      brand: { "@type": "Brand", name: SITE.name },
+      offers: offer,
+    },
+  ];
+}
+
 function planPage(env: Env, page: PlanPageInput, title: string, description: string): string {
   const body = `
     ${siteHeader(page.tier as "pro" | "team" | "enterprise")}
@@ -133,7 +184,8 @@ function planPage(env: Env, page: PlanPageInput, title: string, description: str
     description,
     canonical: canonicalUrl(env, `/${page.tier}`),
     image: canonicalUrl(env, "/og.png"),
-    socialTitle: `${TIER_LABEL[page.tier]} — ${SITE.name}`,
+    socialTitle: title,
+    jsonLd: structuredData(env, page.tier, description),
   });
 }
 
@@ -249,9 +301,9 @@ export function proPage(env: Env): string {
         "an account to attach the subscription to, which is why the button starts you free.",
       sections,
     },
-    `Pro — ${bytes(PLANS.pro.maxStorageBytes)} and full version history · ${SITE.name}`,
-    `rtfx.pro Pro: ${num(PLANS.pro.maxArtifacts)} artifacts, ${bytes(PLANS.pro.maxStorageBytes)} storage, ` +
-      `full version history and up to ${PLANS.pro.maxSeats} people. Start free, upgrade from Settings.`
+    `Pro plan \u2014 ${SITE.name}, private links for Claude (MCP)`,
+    `rtfx.pro Pro, ${tierPrice("pro")}: private links for Claude artifacts (MCP) with ${num(PLANS.pro.maxArtifacts)} ` +
+      `artifacts, ${bytes(PLANS.pro.maxStorageBytes)} and full version history.`
   );
 }
 
@@ -336,9 +388,9 @@ export function teamPage(env: Env): string {
         "A person answers by email — there is no queue and no automatic reply.",
       sections,
     },
-    `Team — a shared workspace for up to ${PLANS.team.maxSeats} people · ${SITE.name}`,
-    `rtfx.pro Team: ${bytes(PLANS.team.maxStorageBytes)} and up to ${PLANS.team.maxSeats} people in one ` +
-      "workspace with owner, admin, member and viewer roles. Set up with us — talk to us."
+    `Team plan \u2014 ${SITE.name}, private links for Claude (MCP)`,
+    `rtfx.pro Team, ${tierPrice("team")}: private links for Claude artifacts (MCP) in one workspace for up to ` +
+      `${PLANS.team.maxSeats} people, with roles. Set up with us.`
   );
 }
 
@@ -463,8 +515,8 @@ export function enterprisePage(env: Env): string {
         "product does it, could do it, or does not.",
       sections,
     },
-    `Enterprise — talk to us · ${SITE.name}`,
-    "rtfx.pro for larger organisations: what exists today (workspaces, roles, view logs, " +
-      "MIT-licensed self-hosting) and what does not (SSO, SCIM, contractual SLAs). Talk to us."
+    `Enterprise \u2014 ${SITE.name}, private links for Claude (MCP)`,
+    "rtfx.pro Enterprise: private links for Claude artifacts (MCP) with workspaces, roles, view " +
+      "logs and self-hosting. No SSO, SCIM or SLAs yet. Talk to us."
   );
 }

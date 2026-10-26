@@ -21,7 +21,7 @@ describe("/guide", () => {
   it("renders the h1, canonical and 12 sized, described images", async () => {
     const html = await guide();
     expect(html).toContain("Add rtfx to Claude, publish, share, and see who opened it");
-    expect(html).toContain("<title>Step-by-step guide · rtfx.pro</title>");
+    expect(html).toContain("<title>rtfx.pro guide: private links for Claude (MCP)</title>");
     expect(html).toMatch(/<link rel="canonical" href="[^"]+\/guide">/);
     expect(html).not.toContain("noindex");
     const imgs = html.match(/<img\b[^>]*>/g) ?? [];

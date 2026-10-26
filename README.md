@@ -212,7 +212,33 @@ node cli/artifacts.mjs token-revoke <token-id>
 `token-*` and `user-*` require an app session with the right platform/workspace role — an API
 token can't mint or revoke tokens, or change who may sign in.
 
-### Claude Code plugin
+### Remote MCP server (hosted)
+
+rtfx.pro is a remote MCP server. Add it to Claude (claude.ai, Claude Desktop and mobile use the same
+flow: Customize → Connectors → + Add → Add custom connector) and ask Claude to publish, share and
+delete. Step by step with screenshots: [rtfx.pro/guide](https://rtfx.pro/guide).
+
+- Endpoint: `https://mcp.rtfx.pro/mcp` (Streamable HTTP)
+- Auth: OAuth 2.1 with discovery, dynamic client registration and client ID metadata documents
+  (CIMD); nothing to paste. Scopes: `rtfx:read`, `rtfx:publish`, `rtfx:manage`.
+- Claude Code: `claude mcp add --transport http rtfx https://mcp.rtfx.pro/mcp`
+
+The hosted server publishes content sent inside the tool call; it cannot read a path on your disk
+(use the local plugin below for that). Tools (`REMOTE_TOOLS` in `src/mcp.ts`):
+
+| Tool | What it does |
+|---|---|
+| `publish` | Publish an artifact from content carried in the request (one HTML page or PDF, or a small multi-file site) and return its stable URL; the same slug appends a new version. |
+| `create_upload_link` | Reserve the destination and return a single-use upload URL for a site too big for `publish` or containing images, video or other binary files. |
+| `list_artifacts` | List the artifacts the credential can manage (slug, title, URL, type, visibility, live version, size, last update), newest first and paginated. |
+| `artifact_details` | Everything known about one artifact: URL, full version history, who it is shared with (viewers and editors) and how often it has been opened. |
+| `artifact_statistics` | Aggregate numbers: versions, files, bytes and views, for one artifact or across everything the credential can reach. |
+| `share_artifact` | Replace who may open an artifact: restricted to named viewers and editors, or everyone in the workspace. Needs the `manage` scope. |
+| `rollback_artifact` | Point an artifact's URL back at one of its earlier versions; non-destructive. Needs the `manage` scope. |
+| `delete_artifact` | Permanently delete an artifact: every version, file, access grant and share link. Requires `confirm_slug`; needs the `manage` scope. |
+| `doctor` | Report how this connection is authenticated and whether the instance answers; publishes nothing. |
+
+### Claude Code plugin (local, stdio alternative)
 
 This repository is also a Claude Code marketplace. Installing the plugin makes publishing part of
 the conversation rather than a separate step:
@@ -276,9 +302,9 @@ runs on the user's machine, it can publish local paths/folders. Leave the option
 when using the browser OAuth credential store; expose access management only when explicitly needed.
 Full details: [`docs/CLAUDE_DESKTOP.md`](docs/CLAUDE_DESKTOP.md).
 
-### MCP server
+### Local MCP server (stdio alternative)
 
-The plugin also ships a native **MCP server** (`plugins/rtfx/scripts/rtfx-mcp.mjs`), so a client
+The hosted server above is the default. The plugin also ships a native local **MCP server** (`plugins/rtfx/scripts/rtfx-mcp.mjs`), so a client
 with no shell to run a command in — Claude Desktop, or anything else that speaks MCP — publishes
 through tool calls instead. Installing the plugin registers it; for a manual Claude Desktop setup,
 point `claude_desktop_config.json` at the script:
@@ -336,7 +362,7 @@ Full request/response contract, error codes and rollback flow:
 ### Permissions
 The app decides **who is signed in** by verifying an emailed code or magic link and setting an
 `rtfx_session` cookie. The Worker decides **who sees each artifact**: `restricted` (only granted
-emails + admins) or `everyone` (any signed-in user). New artifacts are private by default. A direct
+emails) or `everyone` (everyone in the artifact's workspace). Platform admins see metadata only, never content. New artifacts are private by default. A direct
 URL a viewer lacks access to returns 404.
 
 **Ownership.** Every artifact belongs to the person/workspace that published it

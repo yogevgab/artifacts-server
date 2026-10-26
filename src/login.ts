@@ -258,13 +258,27 @@ export type LoginState =
 function signedOutMeta(env: Env): HeadMeta {
   return {
     description:
-      "Sign in to rtfx.pro. Sign-in is passwordless — we email you a one-time code or magic " +
-      "link. No account yet? Create one on the Free plan.",
+      "Sign in to rtfx.pro, the MCP server that gives Claude artifacts private links. " +
+      "Passwordless: we email you a one-time code or magic link.",
     canonical: canonicalUrl(env, "/login"),
     image: canonicalUrl(env, "/og.png"),
-    socialTitle: "Sign in to rtfx.pro",
+    socialTitle: "Sign in · rtfx.pro",
   };
 }
+
+/** `/signup` gets its own description: it is a different page with a different job. */
+function signupMeta(env: Env): HeadMeta {
+  return {
+    description:
+      "Create a free rtfx.pro account with an email code, no password or card. Then add the MCP " +
+      "server to Claude and publish artifacts to private links.",
+    canonical: canonicalUrl(env, "/signup"),
+    image: canonicalUrl(env, "/og.png"),
+    socialTitle: SIGNUP_TITLE,
+  };
+}
+
+const SIGNUP_TITLE = "Sign up free \u2014 rtfx.pro, private links for Claude";
 
 /**
  * `/signup` is the same sheet with different copy. It must be, because signup
@@ -276,7 +290,7 @@ export function signupPage(env: Env, state: LoginState): string {
     return layout("Signed in \u00b7 rtfx.pro", signedIn(state.email), LOGIN_STYLE);
   }
   return layout(
-    "Create an account \u00b7 rtfx.pro",
+    SIGNUP_TITLE,
     signedOut({
       eyebrow: "Create an account",
       heading: "Get started",
@@ -288,7 +302,7 @@ export function signupPage(env: Env, state: LoginState): string {
         "it's the same code either way.</p>",
     }),
     LOGIN_STYLE,
-    signedOutMeta(env)
+    signupMeta(env)
   );
 }
 

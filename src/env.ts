@@ -66,6 +66,14 @@ export interface Env {
    */
   PUBLIC_BASE_URL?: string;
   /**
+   * IndexNow key (https://www.indexnow.org). When set, `/<key>.txt` on the app
+   * host answers with the key so search engines can verify ownership; see
+   * `scripts/indexnow-ping.mjs`. Unset (the default, and every self-host) means
+   * that path is a plain 404. A key is not a secret, but it is per-deployment,
+   * so it lives in the environment rather than the repo.
+   */
+  INDEXNOW_KEY?: string;
+  /**
    * Comma-separated *extra* origins ("https://ops.example.com") the dashboard
    * may be served from, for the browser CORS policy on `/api` (issue #37). Almost
    * nobody needs this: the origin a request arrives on and `PUBLIC_BASE_URL` are
