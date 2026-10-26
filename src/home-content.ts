@@ -23,9 +23,10 @@ export const FAQS: readonly Faq[] = [
     q: "How do I share a Claude artifact privately?",
     a:
       `Add rtfx.pro to Claude as a custom connector (${MCP_URL}), then ask Claude to publish ` +
-      "your artifact. You get a private link that only you can open. From there you can share it " +
-      "with named people as viewers or editors, with everyone in your workspace, or through " +
-      "named share links that expire and can be extended or revoked.",
+      "your artifact. You get a private link that only you can open. Then ask Claude to share it " +
+      "with named people as viewers or editors, or with everyone in your workspace. For someone " +
+      "without an account, create a named share link on the artifact's Share page; it can " +
+      "expire, and you can extend or revoke it any time.",
   },
   {
     q: "Isn't Claude's own Publish enough?",
@@ -37,9 +38,10 @@ export const FAQS: readonly Faq[] = [
   {
     q: "Does it work with Claude Desktop, claude.ai, mobile, Claude Code and other MCP clients?",
     a:
-      "Yes. rtfx.pro is a remote MCP server. In claude.ai on the web, Claude Desktop and the " +
-      "mobile apps you add it the same way: Customize → Connectors → + Add → Add custom connector, " +
-      `with the URL ${MCP_URL}. In Claude Code, run: claude mcp add --transport http rtfx ${MCP_URL}. ` +
+      "Yes. rtfx.pro is a remote MCP server. Add it once in claude.ai on the web or in Claude " +
+      "Desktop (Customize → Connectors → + Add → Add custom connector, with the URL " +
+      `${MCP_URL}) and it is available in the Claude mobile apps too. In Claude Code, run: ` +
+      `claude mcp add --transport http rtfx ${MCP_URL}. ` +
       "Other MCP clients connect with the same URL. Sign-in is OAuth, so there is nothing to paste.",
   },
   {
