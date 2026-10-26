@@ -15,6 +15,8 @@ export interface Faq {
   q: string;
   /** Plain text. Escaped when rendered, emitted verbatim in JSON-LD and markdown. */
   a: string;
+  /** Optional "Read more" link to a page with the long answer; not part of the JSON-LD answer text. */
+  more?: { href: string; label: string };
 }
 
 /** Questions people actually ask, answered only from facts the product ships. */
@@ -27,6 +29,7 @@ export const FAQS: readonly Faq[] = [
       "with named people as viewers or editors, or with everyone in your workspace. For someone " +
       "without an account, create a named share link on the artifact's Share page; it can " +
       "expire, and you can extend or revoke it any time.",
+    more: { href: "/share-claude-artifacts-privately", label: "Read more" },
   },
   {
     q: "Isn't Claude's own Publish enough?",
@@ -34,6 +37,7 @@ export const FAQS: readonly Faq[] = [
       "On Free, Pro and Max plans, Claude's own Publish makes an artifact public to anyone with " +
       "the link (on Team and Enterprise it is limited to your organization). rtfx is for when you " +
       "want only the people you choose to open it: every artifact is private by default.",
+    more: { href: "/claude-publish-vs-private-link", label: "Read more" },
   },
   {
     q: "Does it work with Claude Desktop, claude.ai, mobile, Claude Code and other MCP clients?",

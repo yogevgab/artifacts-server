@@ -54,6 +54,35 @@ export const SITE = {
   guideTitle: "rtfx.pro guide: private links for Claude (MCP)",
 } as const;
 
+/**
+ * Title, description and llms summary of the two "answer" pages
+ * (src/answer-pages.ts). They live here, not there, because PUBLIC_PAGES below
+ * needs them and answer-pages.ts imports this file. Titles stay at or under 60
+ * characters and descriptions at or under 155; test/answer-pages.test.ts asserts it.
+ */
+export const ANSWER_META = {
+  share: {
+    path: "/share-claude-artifacts-privately",
+    title: "How to share a Claude artifact privately (rtfx MCP)",
+    description:
+      "Claude's Publish is public to anyone with the link on Free, Pro and Max. To share only " +
+      "with chosen people, use an rtfx private link in four steps.",
+    summary:
+      "How to share a Claude artifact privately: what Claude's own Publish does on each plan, " +
+      "then four steps to a private link with the rtfx MCP server, plus a short FAQ.",
+  },
+  compare: {
+    path: "/claude-publish-vs-private-link",
+    title: "Claude Publish vs a private link: rtfx compared",
+    description:
+      "Claude's built-in Publish vs an rtfx private link, side by side: who can open it, " +
+      "sign-in, updates, expiry and cost, and when to use which.",
+    summary:
+      "An honest comparison table of Claude's built-in Publish and an rtfx.pro private link " +
+      "(who can open it, sign-in, updates and versions, expiry, cost) and when to use which.",
+  },
+} as const;
+
 /** Absolute origin for canonical URLs, with any trailing slash removed. */
 export function siteOrigin(env: Pick<Env, "PUBLIC_BASE_URL">): string {
   const raw = (env.PUBLIC_BASE_URL ?? "").trim() || SITE.origin;
@@ -100,6 +129,18 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
       "Twelve real screenshots: add rtfx to Claude as a custom connector, publish a page, share " +
       "it with people or a revocable link, and see who opened it.",
     priority: "0.8",
+  },
+  {
+    path: ANSWER_META.share.path,
+    title: ANSWER_META.share.title,
+    summary: ANSWER_META.share.summary,
+    priority: "0.7",
+  },
+  {
+    path: ANSWER_META.compare.path,
+    title: ANSWER_META.compare.title,
+    summary: ANSWER_META.compare.summary,
+    priority: "0.7",
   },
   {
     path: "/pro",
