@@ -3,6 +3,8 @@ import type { RtfxConfig } from "./rtfx.lib.d.mts";
 import type { OAuthCredential } from "./rtfx.oauth.lib.d.mts";
 
 export interface ToolAnnotations {
+  /** Human-readable name; the Claude Connectors Directory reads it from here. */
+  title?: string;
   readOnlyHint?: boolean;
   destructiveHint?: boolean;
   idempotentHint?: boolean;

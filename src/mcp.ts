@@ -453,8 +453,8 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
       "Point an artifact's URL back at one of its earlier versions. Non-destructive: no version " +
       "is deleted, and rolling forward again is the same call with a higher number. Call " +
       "artifact_details first to see which versions exist and which have expired — an expired " +
-      "version's files are gone and cannot be made live. Needs a token with the 'manage' scope, " +
-      "because changing the live version is artifact management over an existing URL.",
+      "version's files are gone and cannot be made live. Needs a token with the 'publish' scope " +
+      "(like publishing, it changes what the link shows); an editor of the artifact may call it too.",
     inputSchema: {
       type: "object",
       properties: {
@@ -496,6 +496,11 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   },
 ];
+
+// MCP clients and the Claude Connectors Directory read a tool's display name
+// from `annotations.title` as well as the top-level `title`; mirror it here so
+// the two can never drift apart.
+for (const tool of REMOTE_TOOLS) tool.annotations = { title: tool.title, ...tool.annotations };
 
 /**
  * The scope each remote tool needs. `publish` is listed as well as checked
