@@ -288,7 +288,7 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
       "Reserves a destination for a site that is too large to publish inline (more than a few MB or " +
       MAX_INLINE_FILES + " files) or that contains images, video or other binary files, and " +
       "returns a single-use `upload_url` and `page_url`, valid for 30 minutes. Slug rules match " +
-      "publish: an existing slug the caller owns becomes a new version, a slug owned by someone else is " +
+      "publish: an existing slug the caller owns or edits becomes a new version, any other taken slug is " +
       "refused with 409, and a new slug needs a `title`. Nothing is published until a zip of the site " +
       "(index.html at its root) is uploaded to `upload_url`; the upload response contains the published " +
       "URL. Requires the 'publish' scope.",
@@ -316,7 +316,7 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
     description:
       "Lists the artifacts this credential can manage (slug, title, URL, type, visibility, live " +
       "version, file count, size and last-updated time), newest first and paginated with `offset` and " +
-      "`next_offset`. Never includes artifacts that belong to someone else.",
+      "`next_offset`. Includes artifacts owned by the caller or by their workspaces, never anyone else's.",
     inputSchema: {
       type: "object",
       properties: {
@@ -393,12 +393,13 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
     title: "Set who can open an artifact",
     description:
       "Sets who may open an artifact: 'restricted' (its owner plus exactly the listed people) or " +
-      "'everyone' (everyone in the artifact's workspace). The lists replace the current ones rather " +
-      "than adding to them, and an empty list revokes everyone. People in `emails` become viewers (they " +
-      "can open it); people in `editors` become editors (they can also publish new versions and roll " +
-      "back, but cannot change sharing, manage links, read analytics or delete, and need their own rtfx " +
-      "account to publish). An address in both lists is an editor. Granting access sends no invitation " +
-      "and creates no account. Requires the 'manage' scope.",
+      "'everyone' (everyone in the artifact's workspace; this also clears every existing grant). The " +
+      "lists replace the current ones rather than adding to them, and an empty list revokes everyone. " +
+      "People in `editors` are editors (they can also publish new versions and roll back, but cannot " +
+      "change sharing, manage links, read analytics or delete, and need their own rtfx account to " +
+      "publish). People in `emails` are viewers (they can open it); when `editors` is omitted, an " +
+      "address that already has access keeps its current role. An address in both lists is an " +
+      "editor. Granting access sends no invitation and creates no account. Requires the 'manage' scope.",
     inputSchema: {
       type: "object",
       properties: {
@@ -414,14 +415,14 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
           items: { type: "string" },
           maxItems: 200,
           description:
-            "Full replacement list of emails granted VIEW access, each containing '@'. Lower-cased and de-duplicated. Ignored when visibility is 'everyone'; pass [] to revoke everyone.",
+            "Full replacement list of emails granted access, each containing '@'. Lower-cased and de-duplicated. New addresses are viewers. Not used when visibility is 'everyone', which clears all grants; pass [] to revoke everyone.",
         },
         editors: {
           type: "array",
           items: { type: "string" },
           maxItems: 200,
           description:
-            "Optional. Emails granted EDITOR access (view, publish new versions, roll back). Part of the same full replacement: an editor you leave out is removed. Ignored when visibility is 'everyone'.",
+            "Optional. Emails granted EDITOR access (view, publish new versions, roll back). Part of the same full replacement: when this list is given, an editor left out of it is removed. Not used when visibility is 'everyone', which clears all grants.",
         },
       },
       required: ["slug", "visibility"],
@@ -558,7 +559,7 @@ Never ask them to use a terminal.
 Artifact management is also available here: use "list_artifacts" to find existing work,
 "artifact_details" before sharing or rollback, "artifact_statistics" for counts, and — with a
 "manage" scoped credential — "share_artifact" and "delete_artifact" ("rollback_artifact" needs "publish"). Delete is
-permanent and requires confirm_slug to equal slug.
+permanent and requires confirm_slug to equal slug: confirm with the person, naming the exact artifact, before calling it.
 
 "doctor" reports how this connection is authenticated, what it may do, and the exact limits.
 
