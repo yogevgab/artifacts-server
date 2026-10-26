@@ -40,6 +40,14 @@ export interface Env {
    * the first `ADMIN_EMAILS` entry when unset, so every deployment has one.
    */
   SUPER_ADMIN_EMAILS?: string;
+  /**
+   * Directory-reviewer sign-in (docs/DEPLOY_RTFX.md "Directory reviewer account").
+   * The feature is ON only when BOTH are set, REVIEWER_CODE is exactly 6 digits,
+   * and REVIEWER_EMAIL is not an admin/super-admin address. REVIEWER_EMAIL may be
+   * a var or a secret; REVIEWER_CODE must be a secret. Unset both after review.
+   */
+  REVIEWER_EMAIL?: string;
+  REVIEWER_CODE?: string;
   /** Comma-separated service-token common_names (client ids) with admin rights. */
   ADMIN_SERVICE_TOKENS?: string;
   /**

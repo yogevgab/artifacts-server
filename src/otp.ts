@@ -12,6 +12,7 @@
 
 import type { Env } from "./env";
 import { hashToken } from "./tokens";
+import { timingSafeEqual } from "./reviewer";
 
 /** How long a challenge lives. Long enough to fetch a phone, short enough to matter. */
 export const CHALLENGE_TTL_MINUTES = 15;
@@ -64,7 +65,7 @@ function sixDigitCode(): string {
 
 export async function createChallenge(
   env: Env,
-  o: { email: string; purpose: ChallengePurpose; slug?: string; now: string }
+  o: { email: string; purpose: ChallengePurpose; slug?: string; now: string; noLink?: boolean }
 ): Promise<IssuedChallenge> {
   const email = normalize(o.email);
   const code = sixDigitCode();
@@ -80,7 +81,9 @@ export async function createChallenge(
   // against every row at once.
   const [codeHash, tokenHash] = await Promise.all([
     hashToken(`${email}:${code}`),
-    hashToken(token),
+    // noLink (reviewer): the stored hash is of a value never returned or sent,
+    // so no magic link can ever redeem this challenge.
+    hashToken(o.noLink ? `nolink:${token}` : token),
   ]);
 
   await env.DB.prepare(
@@ -162,6 +165,38 @@ export async function redeemCode(
     return null;
   }
 
+  return (await consume(env, row.id, now)) ? toChallenge(row) : null;
+}
+
+/**
+ * Redeem the reviewer's fixed code. Mirrors {@link redeemCode}: needs an
+ * unconsumed, unexpired challenge (so a start is required first), counts
+ * attempts on it, burns at MAX_ATTEMPTS, consumes on success.
+ */
+export async function redeemReviewerCode(
+  env: Env,
+  email: string,
+  code: string,
+  expected: string,
+  now: string
+): Promise<Challenge | null> {
+  const addr = normalize(email);
+  const row = await env.DB.prepare(
+    `SELECT id, email, purpose, slug, attempts FROM auth_challenges
+      WHERE email = ? AND consumed_at IS NULL AND expires_at > ? AND purpose = 'signin'
+      ORDER BY created_at DESC LIMIT 1`
+  )
+    .bind(addr, now)
+    .first<Row>();
+  if (!row) return null;
+  if (row.attempts >= MAX_ATTEMPTS) return null;
+
+  if (!timingSafeEqual(code, expected)) {
+    await env.DB.prepare(`UPDATE auth_challenges SET attempts = attempts + 1 WHERE id = ?`)
+      .bind(row.id)
+      .run();
+    return null;
+  }
   return (await consume(env, row.id, now)) ? toChallenge(row) : null;
 }
 

@@ -143,6 +143,34 @@ database state: no API call and no database write can grant admin.
 curl -s https://rtfx.pro/whoami -b "rtfx_session=<cookie>"
 ```
 
+### 5c-bis. Directory reviewer account (optional, temporary)
+
+Connector directories need a test account, and a reviewer cannot receive our
+email. Enable a narrow exception for ONE address for the duration of the review:
+
+```bash
+# the address (a var in wrangler.jsonc, or a secret)
+echo reviewer@rtfx.pro | npx wrangler secret put REVIEWER_EMAIL
+# the fixed code: exactly 6 digits, secret only (prompted for the value)
+npx wrangler secret put REVIEWER_CODE
+```
+
+The feature is ON only when both are set, `REVIEWER_CODE` matches `^\d{6}$`, and
+`REVIEWER_EMAIL` is not in `ADMIN_EMAILS`/`SUPER_ADMIN_EMAILS` (otherwise it stays
+off and logs a `reviewer_signin_disabled` warning). Behaviour: the reviewer
+requests a code as usual (same rate limits, same 202) but no email is sent and no
+`mail_log` row is written; the code they type is compared in constant time to
+`REVIEWER_CODE`, and only against a live challenge, so the per-challenge attempt
+limit (5) and hourly start limits still bound guessing. Magic links never work for
+this address. The account is an ordinary member with a normal personal workspace.
+Each sign-in logs `{"event":"reviewer_signin"}` and writes an `admin_audit` row
+(`auth.reviewer_signin`). Tell the reviewer: open the sign-in page, enter the
+address, press Send code, then type the code.
+
+**After the review:** `npx wrangler secret delete REVIEWER_CODE` (and
+`REVIEWER_EMAIL`), which turns the feature off; the account then behaves like any
+other member. Rotate `REVIEWER_CODE` if it was ever shared outside the review.
+
 ### 5d. The machine API
 
 `/api/machine` authenticates a bearer `rtfx_…` token and nothing else. Under
