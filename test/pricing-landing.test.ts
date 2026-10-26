@@ -28,9 +28,9 @@ describe("pricing section", () => {
     const html = await landing();
     expect(html).toContain('id="pricing"');
     // Pricing is a <div> between the walkthrough sections and the closing CTA,
-    // not a section of its own: hero + 4 walkthrough steps + final CTA.
+    // not a section of its own: hero + 4 walkthrough steps + FAQ + final CTA.
     expect(html).toMatch(/<div id="pricing" class="pricing">/);
-    expect((html.match(/<section\b/g) ?? []).length).toBe(6);
+    expect((html.match(/<section\b/g) ?? []).length).toBe(7);
   });
 
   it("names every public tier", async () => {

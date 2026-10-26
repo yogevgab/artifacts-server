@@ -176,8 +176,9 @@ export const DXT_URL = `${SOURCE_URL}/releases/download/v1.2.0/rtfx.dxt`;
 export const MARK_PATH = "M16 9 L24 23 L19.5 23 L16 16.5 L12.5 23 L8 23 Z";
 export const MARK_BLUE = "#0a84ff";
 
-// Inline mark, so no page ever requests /favicon.ico — that path would fall
-// through to the artifact catch-all (or the content-host redirect) and log noise.
+// Inline SVG mark for browsers that take it. `/favicon.ico` and
+// `/apple-touch-icon.png` are real files too (src/index.ts), because crawlers,
+// feed readers and iOS ask for them by name whatever the <head> says.
 const FAVICON =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E" +
   `%3Crect width='32' height='32' rx='8' fill='%23${MARK_BLUE.slice(1)}'/%3E` +
@@ -426,7 +427,9 @@ export function layout(title: string, body: string, extraStyle = "", meta?: Head
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark light">
 <meta name="theme-color" content="#06070a">
-${csp ? `<meta http-equiv="Content-Security-Policy" content="${esc(csp)}">\n` : ""}<link rel="icon" href="${FAVICON}">
+${csp ? `<meta http-equiv="Content-Security-Policy" content="${esc(csp)}">\n` : ""}<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/svg+xml" href="${FAVICON}">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <title>${esc(title)}</title>
 ${headTags(title, meta)}
 <style>${STYLE}${extraStyle}</style></head>

@@ -4,6 +4,8 @@ import { COPY_SCRIPT, guideVideo, GUIDE_VIDEO_STYLE } from "./landing";
 import { GUIDE_IMAGES } from "./guide-images";
 import type { Env } from "./env";
 import { SITE, MCP_URL, canonicalUrl } from "./seo";
+import { htmlToText } from "./html-text";
+import { videoObject } from "./landing";
 
 /**
  * `/guide`: the step-by-step visual walkthrough. Twelve real screenshots, served
@@ -15,11 +17,11 @@ import { SITE, MCP_URL, canonicalUrl } from "./seo";
  * so the page does not jump while they load.
  */
 
-const TITLE = "Step-by-step guide · rtfx.pro";
+const TITLE = SITE.guideTitle;
 const H1 = "Add rtfx to Claude, publish, share, and see who opened it";
 const DESCRIPTION =
-  "Twelve real screenshots: add rtfx to Claude as a custom connector, publish a page, share it " +
-  "with people or a revocable link, and see who opened it.";
+  "Twelve screenshots: add the rtfx MCP server to Claude, publish a private link, share it " +
+  "with chosen people or an expiring link, and see who viewed it.";
 
 const IMMUTABLE = "public, max-age=31536000, immutable";
 
@@ -39,6 +41,8 @@ export function guideImageResponse(file: string): Response {
 
 interface Shot {
   name: string;
+  /** Short step name for the HowTo structured data. */
+  title: string;
   width: number;
   height: number;
   alt: string;
@@ -53,6 +57,7 @@ interface Shot {
 const A: Shot[] = [
   {
     name: "01-add-custom-connector",
+    title: "Open Connectors and choose Add custom connector",
     width: 1000,
     height: 698,
     alt: "Claude's Connectors screen with the + Add menu open and Add custom connector highlighted",
@@ -60,6 +65,7 @@ const A: Shot[] = [
   },
   {
     name: "02-connector-details",
+    title: "Name the connector and enter the MCP URL",
     width: 810,
     height: 623,
     alt: "The Add custom connector dialog with the name rtfx and the URL https://mcp.rtfx.pro/mcp filled in",
@@ -67,6 +73,7 @@ const A: Shot[] = [
   },
   {
     name: "03-authentication-defaults",
+    title: "Keep the detected sign-in defaults and add it",
     width: 810,
     height: 1073,
     alt: "The authentication step showing Sign in now and Use Claude's published identity selected, with an Add button at the bottom",
@@ -74,6 +81,7 @@ const A: Shot[] = [
   },
   {
     name: "04-connect",
+    title: "Connect rtfx",
     width: 900,
     height: 745,
     alt: "The rtfx connector page with a Connect button",
@@ -81,6 +89,7 @@ const A: Shot[] = [
   },
   {
     name: "05-allow-access",
+    title: "Sign in and allow access",
     width: 579,
     height: 902,
     alt: "The rtfx consent screen listing what Claude is asking for, with an Allow access button",
@@ -88,6 +97,7 @@ const A: Shot[] = [
   },
   {
     name: "06-connected",
+    title: "Check that rtfx is connected",
     width: 952,
     height: 791,
     alt: "The connected rtfx connector listing its tools, each set to Needs approval",
@@ -98,6 +108,7 @@ const A: Shot[] = [
 const B: Shot[] = [
   {
     name: "07-allow-publish",
+    title: "Ask Claude to publish with rtfx",
     width: 1000,
     height: 766,
     alt: "A Claude chat asking to publish with rtfx, showing the publish call with an Allow once button",
@@ -106,6 +117,7 @@ const B: Shot[] = [
   },
   {
     name: "08-published-link",
+    title: "Copy your private link",
     width: 1000,
     height: 420,
     alt: "Claude's reply containing the private rtfx.pro link to the published page",
@@ -113,6 +125,7 @@ const B: Shot[] = [
   },
   {
     name: "09-artifact",
+    title: "Open the published artifact",
     width: 1176,
     height: 489,
     alt: "The published artifact open in the browser, with a Share button in the top-right corner",
@@ -123,6 +136,7 @@ const B: Shot[] = [
 const C: Shot[] = [
   {
     name: "10-share",
+    title: "Share it with people or a named link",
     width: 685,
     height: 675,
     alt: "The Share page: add people by email as Viewer or Editor, and create a named share link with an expiry",
@@ -131,6 +145,7 @@ const C: Shot[] = [
   },
   {
     name: "12-recipient-phone",
+    title: "See what the recipient sees",
     width: 470,
     height: 683,
     alt: "The shared page open on a phone, with no sign-in screen",
@@ -142,12 +157,92 @@ const C: Shot[] = [
 const D: Shot[] = [
   {
     name: "11-views",
+    title: "See who opened it",
     width: 685,
     height: 296,
     alt: "Recent views on the Share page: who opened the artifact, when, through which named link, and on what device",
     text: `Recent views, on the same Share page: who opened it, when, through which named link, and on what device. IP addresses are erased after 90 days.`,
   },
 ];
+
+/** The four parts of the guide, in page order — the page, its HowTo data and llms-full read this. */
+export const GUIDE_PARTS: readonly { id: string; letter: string; title: string; shots: readonly Shot[] }[] = [
+  { id: "connect", letter: "A", title: "Connect", shots: A },
+  { id: "publish", letter: "B", title: "Publish", shots: B },
+  { id: "share", letter: "C", title: "Share", shots: C },
+  { id: "views", letter: "D", title: "See who opened it", shots: D },
+];
+
+export interface GuideStep {
+  n: number;
+  part: string;
+  name: string;
+  /** Step text, HTML. */
+  html: string;
+  /** Path of the screenshot (with its cache-busting hash). */
+  image: string;
+  width: number;
+  height: number;
+  alt: string;
+}
+
+/** Every step in page order, numbered 1…12. */
+export function guideSteps(): GuideStep[] {
+  let n = 0;
+  return GUIDE_PARTS.flatMap((p) =>
+    p.shots.map((s) => ({
+      n: ++n,
+      part: p.id,
+      name: s.title,
+      html: s.text,
+      image: `/guide/${s.name}.webp?v=${GUIDE_IMAGES[s.name]!.hash}`,
+      width: s.width,
+      height: s.height,
+      alt: s.alt,
+    }))
+  );
+}
+
+/** Structured data for /guide: a HowTo (one step per screenshot), the video and a breadcrumb. */
+function structuredData(env: Env): unknown[] {
+  const url = canonicalUrl(env, "/guide");
+  return [
+    {
+      "@context": "https://schema.org",
+      "@type": "HowTo",
+      "@id": `${url}#howto`,
+      name: "How to publish a Claude artifact to a private link with rtfx.pro (MCP)",
+      description: DESCRIPTION,
+      url,
+      inLanguage: "en",
+      totalTime: "PT3M",
+      tool: [{ "@type": "HowToTool", name: "Claude (claude.ai, Claude Desktop or mobile)" }],
+      step: guideSteps().map((s) => ({
+        "@type": "HowToStep",
+        position: s.n,
+        name: s.name,
+        text: htmlToText(s.html),
+        url: `${url}#step-${s.n}`,
+        image: {
+          "@type": "ImageObject",
+          url: canonicalUrl(env, s.image),
+          width: s.width,
+          height: s.height,
+        },
+      })),
+      video: { "@id": `${canonicalUrl(env, "/")}#video` },
+    },
+    videoObject(env),
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: SITE.name, item: canonicalUrl(env, "/") },
+        { "@type": "ListItem", position: 2, name: "Guide", item: url },
+      ],
+    },
+  ];
+}
 
 const STYLE = `${PUBLIC_CHROME_STYLE}${CONSENT_STYLE}
 .wrap{max-width:47.5rem}
@@ -219,10 +314,7 @@ export function guidePage(env: Env): string {
       ${guideVideo()}
     </section>
 
-    ${part("connect", "A", "Connect", A)}
-    ${part("publish", "B", "Publish", B)}
-    ${part("share", "C", "Share", C)}
-    ${part("views", "D", "See who opened it", D)}
+    ${GUIDE_PARTS.map((p) => part(p.id, p.letter, p.title, p.shots as Shot[])).join("\n    ")}
 
     <section class="final">
       <h2>Ready when you are.</h2>
@@ -241,6 +333,7 @@ export function guidePage(env: Env): string {
     description: DESCRIPTION,
     canonical: canonicalUrl(env, "/guide"),
     image: canonicalUrl(env, "/og.png"),
-    socialTitle: `${SITE.name} — step-by-step guide`,
+    socialTitle: TITLE,
+    jsonLd: structuredData(env),
   });
 }

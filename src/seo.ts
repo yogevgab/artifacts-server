@@ -37,17 +37,21 @@ export const SITE = {
    * server, which has been shipped since issue #39. Kept under 160 now, and the
    * upper bound is asserted in `test/seo.test.ts` so it cannot drift back.
    *
-   * The wording then followed the landing page down to plain language. The
-   * previous version — "Private, access-controlled hosting for pages, PDFs and
-   * artifacts Claude builds. Publish from Claude Code, MCP or CLI" — spent three
-   * of its first six words on category vocabulary and named two acronyms, in the
-   * one string a person reads *before* deciding whether to click. It says the
-   * outcome and the two places you can install it instead; the acronyms are a
-   * scroll away on the page itself.
+   * It says what the thing is (an MCP server for Claude), the outcome (a private
+   * link) and the two verbs people search for (share, see who viewed). Facts come
+   * from the product, not the other way round: change it only with the page copy.
    */
   description:
-    "Turn what Claude builds — a page, a PDF, a small site — into a private link only the people " +
-    "you choose can open. Works with Claude Desktop and Claude Code.",
+    "rtfx.pro is an MCP server for Claude: publish an artifact to a private link, share it with " +
+    "the people you choose, and see who viewed it.",
+  /**
+   * `<title>` of the two pages that carry the product story. The brand "rtfx"
+   * collides with unrelated projects (an old RTF-to-XML tool, a PyPI package, an
+   * After Effects pack), so every title and description pairs the name with
+   * "Claude", "MCP" and "private link". Kept at or under 60 characters.
+   */
+  homeTitle: "rtfx.pro \u2014 private links for Claude artifacts (MCP)",
+  guideTitle: "rtfx.pro guide: private links for Claude (MCP)",
 } as const;
 
 /** Absolute origin for canonical URLs, with any trailing slash removed. */
@@ -83,7 +87,7 @@ export interface PublicPage {
 export const PUBLIC_PAGES: readonly PublicPage[] = [
   {
     path: "/",
-    title: "Private links for work Claude makes · rtfx.pro",
+    title: SITE.homeTitle,
     summary:
       "One page: how to connect rtfx.pro to Claude as an MCP server (claude.ai custom connector " +
       "or any MCP client), then publish, share and delete from chat, followed by pricing.",
@@ -91,7 +95,7 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
   },
   {
     path: "/guide",
-    title: "Step-by-step guide · rtfx.pro",
+    title: SITE.guideTitle,
     summary:
       "Twelve real screenshots: add rtfx to Claude as a custom connector, publish a page, share " +
       "it with people or a revocable link, and see who opened it.",
@@ -168,7 +172,8 @@ function publicRobots(origin: string): string {
   return [
     `# ${SITE.name} — public product site.`,
     "# Everything not listed below requires a signed-in identity and is never indexed.",
-    `# AI agents and answer engines: ${origin}/llms.txt is the machine-readable summary.`,
+    `# AI agents and answer engines: ${origin}/llms.txt is the machine-readable summary,`,
+    `# and ${origin}/llms-full.txt is the full text of the home page and guide.`,
     "",
     "User-agent: *",
     ...CRAWLER_DISALLOW.map((p) => `Disallow: ${p}`),
@@ -293,12 +298,34 @@ export function sitemapXml(env: Pick<Env, "PUBLIC_BASE_URL">): string {
  */
 export function llmsTxt(env: Pick<Env, "PUBLIC_BASE_URL">): string {
   const origin = siteOrigin(env);
-  return `# ${SITE.name}
+  return `# ${SITE.name} \u2014 private links for Claude artifacts (MCP)
 
 > ${SITE.description}
 
+rtfx.pro is a remote MCP server. Add it to Claude once, then ask Claude in chat to publish what
+it made to a private link, share it, delete it, and show who opened it. Not to be confused with
+unrelated projects that share the name "rtfx" (an old RTF-to-XML tool, a PyPI package, an After
+Effects pack): this one is the rtfx.pro MCP server for Claude.
+
 Status: v1.0.0, shipped and running in production. Signup is self-serve and there is a
 free plan plus two paid ones. Source: ${SOURCE_URL} (MIT).
+
+## Quick facts
+
+- MCP endpoint: \`${MCP_URL}\`. OAuth sign-in; nothing to paste.
+- Add it to Claude (claude.ai web, Claude Desktop and mobile all use the same flow):
+  Customize \u2192 Connectors \u2192 + Add \u2192 Add custom connector, URL \`${MCP_URL}\`.
+  Claude Code: \`claude mcp add --transport http rtfx ${MCP_URL}\`. Other MCP clients connect the
+  same way.
+- Four things you do in chat: **publish** (private link, new versions at the same link, roll
+  back), **share** (viewers, editors, everyone in the workspace, named expiring share links that
+  can be extended or revoked), **delete**, and **see who opened it** (view log).
+- Private by default. Claude's own "Publish" on Free, Pro and Max plans makes an artifact public to
+  anyone with the link (Team and Enterprise: your organization only); rtfx.pro is for when you want
+  only the people you choose.
+- Operators (rtfx staff) see metadata only \u2014 never artifact content or who viewed it.
+- There is a Free plan; Pro, Team and Enterprise are described at ${origin}/#pricing.
+- Full text of the home page and guide, for answer engines: ${origin}/llms-full.txt.
 
 ## Pricing and access
 
@@ -436,6 +463,8 @@ into an invite queue for a product that cannot solve their problem wastes their 
 ${PUBLIC_PAGES.map((p) => `- [${p.title}](${canonicalUrl(env, p.path)}): ${p.summary}`).join("\n")}
 - [Source code](${SOURCE_URL}): the full implementation, MIT-licensed, including the
   security model and the Claude Code plugin.
+- [Full text for AI agents](${origin}/llms-full.txt): the home page, step-by-step guide, FAQ and pricing facts as markdown.
+- [FAQ](${origin}/#faq): short answers to what people ask before connecting.
 - [Signup](${origin}/signup): create an account on the Free plan.
 - [Pricing](${origin}/#pricing): Free, Pro, Team and Enterprise side by side.
 - [Talk to us](${origin}/contact): the route for a Team or Enterprise workspace, and for
@@ -546,6 +575,36 @@ export const OG_IMAGE_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAABLAAAAJ2CAIAAADAIuwL
 
 /** Square PNG logo for `Organization.logo` in JSON-LD and any consumer wanting a mark, not a card. Generated from logoSvg. */
 export const LOGO_PNG_BASE64 = "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";
+
+/** Edge length of the iOS home-screen icon served at `/apple-touch-icon.png`. */
+export const APPLE_TOUCH_SIZE = 180;
+
+/**
+ * The home-screen icon: the mark on a full-bleed blue square. iOS rounds the
+ * corners itself and paints any transparent pixel black, so unlike `logoSvg()`
+ * this one has no rounded tile and no transparency. The mark is drawn at the same
+ * proportion inside the square as in the tile.
+ */
+export function appleTouchIconSvg(size: number = APPLE_TOUCH_SIZE): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 32 32" role="img" aria-label="${SITE.name}">
+  <rect width="32" height="32" fill="${MARK_BLUE}"/>
+  <path d="${MARK_PATH}" fill="white"/>
+</svg>
+`;
+}
+
+/** SHA-256 (hex) of the `appleTouchIconSvg()` string `APPLE_TOUCH_PNG_BASE64` was rendered from. */
+export const APPLE_TOUCH_SVG_SHA256 = "92833ad28672bed9944c78368d0a7c9a5010b585d61536c0bd7dba05f007df7c";
+
+/** 180\u00d7180 PNG served at `/apple-touch-icon.png`. Generated from appleTouchIconSvg. */
+export const APPLE_TOUCH_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAALQAAAC0CAIAAACyr5FlAAAFUElEQVR42u2dyYoUWRhG/7JddLtqm36B7tr0vl33osHhSdQHcOUMFio4ILoRUUHcCC5cKAhOOOGAOIEiOKCiqCjO81CWX1KpZGlkmVn5R3Lv/c+hFhGRN65BcijzVOTNHJgyNGIAVUziKQDkAOQA5ADkAOQA5ADkAOQA5ADkAEAOQA5ADkAOQA5ADkAOQA5ADkAOAOQA5ADkAOQA5ADkAOQA5ADkAOQAQA5ADkAOQA5ADkAOQA5ADkAOQA5ADgDkAOQA5ADkAOQA5ADkAOQA5AjA3GmNH/jGZJ6CUX7/1Rb+19jYccmeveP54DdHCzJj6m+Nn1FFADma/D3VZv/b3NaGdgE5mqyeab98fSa0oV1AjgYzBm3m4Jgj2v3/L56Y8HJMGrDVMyqOr5vVeAg5QqNXGIN/VBzXwW+vQpAjdL626xcNQI7Q+doOsjauHK35Os5/OpGzNq4crfnajuBZG1QOlep3+dqOyFkbUQ41qkq1c8JmbUQ52uVrO8JmbTg5xs9Xsja0HOPnK1kbV45O8pWsDSpHJ/lK1kaUo/N8JWtjydFtvpK1geToNl/J2ihyTCxfydoQckwsX8na8uXoJV+DZ235cvSSr8GztnA5es/XyFlbshxe+Ro2a0uWwytfw2ZtsXL45mvMrC1WDt98jZm1ZcpRR74GzNoy5agjXwNmbYFy1Jev0bK2NDnqztdQWVuaHHXna6isLUqO/uRrnKwtSo7+5GucrC1Hjn7ma5CsLUeOfuZrkKwtRI7+52uErC1EjlVVH93ExSCHzZlm//zpMM+Wc7b1vMM8upgyPgk5ezlUj4s8GuHdJxs6asuONDbI2kLk8MrXDaft4evGjzbI2hLk8MrXF+9tzYnmtja0S9ZmL4dXvq48bi8/NLe1oV2yNm85vPL13kvbeGbMEe3qIFmbqxyOd1/1IvT98Jgj2tVBF7K+W5urHF53X689tu0XK47roB7qnazv1mYph+Pd14WHbKTquA7qoeB3a7OUwytfz9+3PVfbPqqHNCBy1uYnh+Pd13n7eh1QdtbmJ4dXvu69bqfu/mSMBmhY2KzNTA6vfP08Yks6e0mhYRocM2tzksMxX/UVkJcfdTRSwzQ4ZtbmJIdXvn4ctsXdlIgG65SAWZuNHI75uums3X/VxXgN1ikBszYbObzy9fUHW3Gs67N0ik6MlrV5yOGYr2tP2tPuv3Bap+jEaFmbhxxe+frkra2f6Ns1dKJOD5W1Gcjh+OZh3U5783GC5+pEr7txuWRt6nI45uutZ7b5XE8z6HRNEidrU5fDce3r0sO9/jlLp2sSF7LI2qTlcMzXSw9t52WHeTSJpgqStUnL4bj2df4Bt6vymir9rE1XDsd8PXnHDt50uzBNpQkjZG26cjiuffW68+4+YeJZm6gcjvm664pdeOB8eZpQ0xaftSnK4Zivw59twcFaLlLTavKyszZFORzzddtFu/28lovUtJq87KxNTg7HfNWqV6+/aVbitbA22axNTg7HfB1d/lofXgtrk83atORwzNfW5a/14bWwNs2sTUsOx3xtXf5aH14La9PM2oTkcMzXH5e/1ofXwtoEszYVOXw/efjH5a/14biwNrWsTUUOx3xtt/y1PrwW1qaWtZPT+SW2vPu3dlay/0b18tf60D83e7dNT+PjDB0ZmDLU52cSsiHK15UDcgByAHIAcgByAHIAcgByAHIAIAcgByAHIAcgByAHIAcgByAHIAcAcgByAHIAcgByAHIAcgByAHIAcgAgByAHIAcgByAHIAcgByAHIAcgByAHAHIAcgByAHIAcgByAHIAckDBfAG+v2QwzNhoSQAAAABJRU5ErkJggg==";
+
+/**
+ * `/favicon.ico`: an ICO container holding 16, 32 and 48 px PNG renders of
+ * `logoSvg()` (PNG-in-ICO, supported by every browser that still asks for the
+ * file). Covered by `LOGO_SVG_SHA256`, since it is the same artwork.
+ */
+export const FAVICON_ICO_BASE64 = "AAABAAMAEBAAAAEAIAA+AQAANgAAACAgAAABACAAYgIAAHQBAAAwMAAAAQAgAJIDAADWAwAAiVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABBUlEQVR42p1TO4pCQRCsmd1gMXE9wq7BshhqbGIggoJewsQDKIgoKKIgeBQ/aKwgxkbi5wJGwjMxHasZTcR56itoXr2erpoZpluBCDVN1gAV/sSg8C05Jww81q5Z2znX1ERRnKdo4CtymxW0USgHEoueWs2j/Ac1EK3mN+wqiHzZ8EFYDJyoJm34wWnwGwGKCRvC3zbopYEPXlJC+FsGqR8gHQX2RxvCJfeSgTxLP2N5fQY05pZLTtaeGhTjQJR3Xh2A8Q4YbS2XnKzd4/PRsdoLYELxDaUpkP1z9EKoZTy/XniCk+ZgbAK3MrVaGXQDtzK1miM5pFXOGCxlVF/Y1rvW5kR7ASoWRqjsmfCqAAAAAElFTkSuQmCCiVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACKUlEQVR42sVXOy8EURT+7lgJGkRCT+LVEBQoaAS/QKLxaIhaRXa9G89GQkNIVP6ASiNChIJtKFZNFCiI3bU7e50zk7Gzs5vs7uzOzEnu5Nxz79zvu4/v5h4Bi5WvyW4KTkqJFiHQSqEaa5887Z3GepTAI413HPaLG3NjksCSLCv3YZm8WQqWFAia0YiESp+tcC0CmBaxfwKlK7LNJ3BKDJucAM7AJBiTGI8tiKDCdQIfdQ1cnzZPeFRzac97idElEdDIuGV0LhJxiQ6FnDG3wbWZE2aJwIxCh6DdbXCTApoVYtLsGQHC5qWv9IoAWV1Bez/YoJdCzGf3Rz48W0O6374PJOiWsTWOXQJTnUBDtV7Ytz0ROz9VlQH+/mSdfY65RsDfB1SbANnnmCsE6nnJuzJsCcW4zXECfPDoBkszjhmH0jECA/XAkEl2nxG9GMZt3McRAiy7nWHLalwB29epMe7DfYtOwJCdYS9fwP4dsHer+4blK8ucCFhlx7Z6AURVvbCfopI8ZJkTAavsQh/ASTBZZ59jdmSZlUAm2c2fa+8781tPi9mRZVYCVtndvwJnofR+HOO2fGUpKtboTeSh8Qq8eYj/xgQePCTwwI9SzwgwtpIADsn59QD8O+HDgRINiJAUWPTgSRyIzolnTYaRRmySmO/d3PtwI3aT98CIUH9U9NKyrGsJpGMpIVQqGz9x9DBmanZsSs+JyAQ1tBYzPaexngj8yJqe/wFE9Kbs5frVOwAAAABJRU5ErkJggolQTkcNChoKAAAADUlIRFIAAAAwAAAAMAgGAAAAVwL5hwAAA1lJREFUeNrVWk1oE0EUfrONNo1a7UWhnmwvghdBQU+Vqlh/QIsnUTx4CYKCV22S0mLiD4g/N73VH8STaK1Qi1ZRQREPgh7ioeClJfYgVK3ZxCTT72WTNk12NzS7S3c+mOxk3mzyvt033wxvRpAdrsi1wSwdERodJUmbSVA7blhje49DSKI/uEyikpSCHusBGqbzYsaqvzmBhNzQIqkPPxIWgoJeOlyXkCQdlztpjS5TRPysS6A5IQ81FeghLK3L6bjJq/mNz5P/YmK4slmroCpCF+WAJumZ75w3HnUrQupJMC6j7GvNG4DhBNg88J3jJigIOqVHxNA8gWBCdosCjSHeAyoQwED/j7FxUI+Jl8UQEpLOqeJ86amvgL9njfqAXN8SoBQa7SXVf29BpnPUHggFoPGKOV96CwK+92qIpWOqOV+BXg2xtFVhAjsh+8s70zocB0ENsdSsKgH2fWEm9gBteLdcvISnBCJdRlGSQEcbUXi7UbiuHIFrPURNCFIuXFeKwL5Ooh6UMri+e5MiBFjWzJ74zQOGzfcEwtuIOk1intvY5msC6yCZ0V3WdrZxH98SiEIy7XSfbdzHlwTKslk3xFyWVdcIlGWzHtyWVVcI7O1YLJtl5ApGqQb33eOSrDomwNJ4fb+5begL0V0UM9xwSVYdE7CSTT2H/NhbojgK172SVUcE7GTz1kei6VmjcN0rWXVEwEo2f6URIh8qwgV1bvNCVhsmYCebV98jQ5td+M51bvNCVhsmYCWbU8gt3/5c285tbHNbVhsiUL3arET/a3Pp5Da2mcHJanXJBKxWm4xv00SPvlrfyzbuY4ZGV6tLJmAlm4zYeDFTYJdFKPYxQ6Oy2lA+9NK72rZZDNSxifr3cp/IK6JVK13KTITiyM0pDE5sZRT2f4bHQEpV7xE7KSZgsdxSAIKSTOCNwqnFUS2v0aiqBApNIJDtE0nUXyiYmX6qXxA/ihNZHntkKqlRydcz8zNxJia+Y+f1tDIEChROR8XkoqVEcd9V0qACj39Q7xf3LI8aYLf+MC73/XjUAIJzPBMRz20Xc3wWQeZpC24Y8ZHzI+xTtfPWp1VKwPGDLixxu/EDOzDrIXlCG7EpuNrj2fUvvJqCYxP43084VjCuRwVSA+aYA+Qf/Z+ER3QxAAAAAElFTkSuQmCC";
 
 /**
  * The same square mark at 128×128, for share-link previews (src/link-preview.ts).

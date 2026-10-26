@@ -65,7 +65,7 @@ describe("the rtfx mark is the same mark everywhere", () => {
 
   it("is the same shape the favicon draws, so the tab agrees with the page", async () => {
     const body = await html("/", ANON);
-    const favicon = /<link rel="icon" href="([^"]+)">/.exec(body)?.[1] ?? "";
+    const favicon = /<link rel="icon" type="image\/svg\+xml" href="([^"]+)">/.exec(body)?.[1] ?? "";
     expect(decodeURIComponent(favicon)).toContain(MARK_PATH);
     expect(decodeURIComponent(favicon).toLowerCase()).toContain(MARK_BLUE.slice(1));
   });
