@@ -153,7 +153,7 @@ export async function sendMail(
       errorCode: `${code}|resend:${resend.detail}`,
       now: o.now,
     });
-    return { ok: false, code, class: failureClass };
+    return { ok: false, code: code === "E_UNKNOWN" ? undefined : code, class: failureClass };
   }
 
   await recordMail(env, { email: o.to, kind: o.kind, status: "failed", errorCode: code, now: o.now });
@@ -177,6 +177,8 @@ async function sendViaResend(
     const res = await fetch(RESEND_ENDPOINT, {
       method: "POST",
       headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+      // A sign-in request is waiting on this; a hung provider must not hold it open.
+      signal: AbortSignal.timeout(8000),
       body: JSON.stringify({
         from,
         to: [o.to],
