@@ -1,6 +1,6 @@
 ---
 description: Sign in to rtfx.pro with a browser and store a local OAuth credential
-allowed-tools: Bash(node:*)
+allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs:*), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs":*)
 ---
 
 ```bash

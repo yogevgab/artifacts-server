@@ -1,7 +1,7 @@
 ---
 description: Show an rtfx.pro artifact's version history
-argument-hint: [slug]
-allowed-tools: Bash(node:*)
+argument-hint: "[slug]"
+allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs:*), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs":*)
 ---
 
 Slug: $ARGUMENTS

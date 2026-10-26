@@ -1,6 +1,6 @@
 ---
 description: Check rtfx.pro credentials and connectivity
-allowed-tools: Bash(node:*)
+allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs:*), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs":*), Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/rtfx-mcp.mjs --help), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/rtfx-mcp.mjs" --help)
 ---
 
 ```bash

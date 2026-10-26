@@ -33,7 +33,7 @@ Copy these into the form.
 | Field | Value |
 |---|---|
 | Plugin name | `rtfx` |
-| Version | `1.2.0` |
+| Version | `1.2.1` |
 | Plugin path in repository | `./plugins/rtfx` |
 | Manifest | `plugins/rtfx/.claude-plugin/plugin.json` |
 | Marketplace manifest | `.claude-plugin/marketplace.json` (marketplace name: `rtfx`) |
@@ -172,7 +172,7 @@ by editing the file afterwards.
 
 - [ ] Working tree clean, and the change is on `main` — not a branch head that can move under review
 - [ ] All five commands in §7 pass
-- [ ] `plugins/rtfx/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` both read `1.2.0`
+- [ ] `plugins/rtfx/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` both read `1.2.1`
 - [ ] [`../plugins/rtfx/CHANGELOG.md`](../plugins/rtfx/CHANGELOG.md) has an entry for that version
 - [ ] `LICENSE` (MIT) and `SECURITY.md` present at repository root
 - [ ] No page in the repository claims an official or community listing

@@ -1,6 +1,6 @@
 ---
 description: List the rtfx.pro artifacts this token can reach
-allowed-tools: Bash(node:*)
+allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs:*), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs":*)
 ---
 
 Run:
