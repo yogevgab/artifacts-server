@@ -9,6 +9,21 @@ declared version.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are
 [semantic](https://semver.org/spec/v2.0.0.html).
 
+## 1.2.1
+
+Fixes from the Claude plugin directory review of 1.2.0.
+
+### Fixed
+
+- `/rtfx:publish` and `/rtfx:rollback` frontmatter is valid YAML again: `argument-hint` values with
+  more than one bracketed group are quoted (`/rtfx:versions` too, for consistency).
+- Commands no longer pre-approve every `node` command. `allowed-tools` names only the plugin's own
+  CLI, `${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs` (and, in `/rtfx:setup`, `rtfx-mcp.mjs --help`).
+
+### Added
+
+- `.claude-plugin/icon.png`, a 512 × 512 listing icon (the rtfx.pro logo).
+
 ## 1.2.0
 
 The submission-ready package for Anthropic review/listing. This version keeps the local Claude Code

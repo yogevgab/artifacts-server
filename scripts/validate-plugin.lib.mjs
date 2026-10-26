@@ -206,12 +206,58 @@ export function checkMarketplaceUrls(manifest) {
   return { errors, ok };
 }
 
+/**
+ * parseFrontmatter is deliberately forgiving; Claude Code and the plugin
+ * directory use a real YAML parser and are not. An unquoted value that starts
+ * with YAML syntax (`[path] [slug]` is two flow sequences, which is invalid)
+ * or that contains ": " or " #" makes the whole block unreadable, and the
+ * component then loads with its fields missing. Quoting the value fixes all of
+ * these, so that is the only remedy offered.
+ */
+export function checkFrontmatterYaml(path, text) {
+  const errors = [];
+  if (!text.startsWith("---")) return { errors, ok: [] };
+  const end = text.indexOf("\n---", 3);
+  if (end === -1) return { errors, ok: [] };
+  for (const line of text.slice(text.indexOf("\n") + 1, end).split("\n")) {
+    const match = /^([A-Za-z][\w-]*):[ \t]*(.*)$/.exec(line);
+    if (!match) continue;
+    const [, key, value] = match;
+    const v = value.trim();
+    if (!v || /^["']/.test(v) || /^[|>][-+]?$/.test(v)) continue;
+    if (/^[[\]{}&*!%@`|>]/.test(v)) {
+      errors.push(`${path}: \`${key}\` starts with "${v[0]}", which YAML reads as syntax — quote the whole value`);
+    } else if (/:\s|\s#/.test(v)) {
+      errors.push(`${path}: \`${key}\` contains ": " or " #", which YAML cannot read unquoted — quote the whole value`);
+    }
+  }
+  return { errors, ok: [] };
+}
+
+/**
+ * `allowed-tools` runs matching commands without asking. A bare `Bash`, or a
+ * wildcard straight after one program name (`Bash(node:*)`), approves anything
+ * that program can do; name the plugin's own script instead, as
+ * `Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/x.mjs:*)`.
+ */
+const BROAD_SHELL = /^Bash(?:\(\s*(?:\*|[^\s:()*]+\s*(?::\*|\*))\s*\))?$/;
+
+export function checkAllowedTools(path, allowedTools) {
+  if (!allowedTools) return { errors: [], ok: [] };
+  const entries = String(allowedTools).split(/,\s*(?![^()]*\))/).map((e) => e.trim()).filter(Boolean);
+  const errors = entries
+    .filter((entry) => BROAD_SHELL.test(entry))
+    .map((entry) => `${path}: allowed-tools pre-approves broad shell access with ${entry} — name the exact command, e.g. Bash(node \${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs:*)`);
+  return { errors, ok: [] };
+}
+
 export function checkCommand(path, text) {
   const errors = [];
   const parsed = parseFrontmatter(text);
   if (!parsed) return { errors: [`${path}: missing YAML frontmatter`], ok: [] };
 
   const { frontmatter, body } = parsed;
+  errors.push(...checkFrontmatterYaml(path, text).errors, ...checkAllowedTools(path, frontmatter["allowed-tools"]).errors);
   if (!frontmatter.description) errors.push(`${path}: frontmatter needs a \`description\``);
   else if (frontmatter.description.length > 120) {
     errors.push(`${path}: description is ${frontmatter.description.length} chars — keep it under 120 so /help stays readable`);
@@ -227,6 +273,7 @@ export function checkSkill(path, text) {
   if (!parsed) return { errors: [`${path}: missing YAML frontmatter`], ok: [] };
 
   const { frontmatter, body } = parsed;
+  errors.push(...checkFrontmatterYaml(path, text).errors, ...checkAllowedTools(path, frontmatter["allowed-tools"]).errors);
   if (!frontmatter.name) errors.push(`${path}: frontmatter needs a \`name\``);
   else if (!KEBAB_CASE.test(frontmatter.name)) errors.push(`${path}: skill name "${frontmatter.name}" must be kebab-case`);
 

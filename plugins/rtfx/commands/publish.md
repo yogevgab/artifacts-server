@@ -1,7 +1,7 @@
 ---
 description: Publish a page, folder or zip to rtfx.pro and return its URL
-argument-hint: [path] [slug]
-allowed-tools: Bash(node:*), Read, Glob
+argument-hint: "[path] [slug]"
+allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs:*), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs":*), Read, Glob
 ---
 
 Publish to rtfx.pro using the `publishing-to-rtfx` skill.

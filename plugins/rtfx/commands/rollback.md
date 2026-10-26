@@ -1,7 +1,7 @@
 ---
 description: Roll an rtfx.pro artifact back to an earlier version
-argument-hint: [slug] [version]
-allowed-tools: Bash(node:*)
+argument-hint: "[slug] [version]"
+allowed-tools: Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs:*), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs":*)
 ---
 
 Target: $ARGUMENTS

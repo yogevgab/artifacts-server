@@ -64,11 +64,31 @@ import {
   checkCommand,
   checkSkill,
   checkSkillNameMatchesDir,
+  checkFrontmatterYaml,
+  checkAllowedTools,
   checkPluginRootRefs,
   checkChangelog,
   checkCommunityMarketplaceClaims,
   checkSubmissionPacket,
 } from "../scripts/validate-plugin.lib.mjs";
+import listCommand from "../plugins/rtfx/commands/list.md?raw";
+import loginCommand from "../plugins/rtfx/commands/login.md?raw";
+import logoutCommand from "../plugins/rtfx/commands/logout.md?raw";
+import publishCommand from "../plugins/rtfx/commands/publish.md?raw";
+import rollbackCommand from "../plugins/rtfx/commands/rollback.md?raw";
+import setupCommand from "../plugins/rtfx/commands/setup.md?raw";
+import versionsCommand from "../plugins/rtfx/commands/versions.md?raw";
+import shippedSkill from "../plugins/rtfx/skills/publishing-to-rtfx/SKILL.md?raw";
+
+const SHIPPED_COMMANDS: Record<string, string> = {
+  "list.md": listCommand,
+  "login.md": loginCommand,
+  "logout.md": logoutCommand,
+  "publish.md": publishCommand,
+  "rollback.md": rollbackCommand,
+  "setup.md": setupCommand,
+  "versions.md": versionsCommand,
+};
 
 /**
  * Issue #25: the Claude Code plugin. Three things are worth pinning here.
@@ -746,6 +766,33 @@ describe("command and skill rules", () => {
     expect(checkCommand("c.md", "---\ndescription: Publish to rtfx.pro\n---\n\nDo the thing.").errors).toEqual([]);
     expect(checkCommand("c.md", "no frontmatter").errors[0]).toMatch(/frontmatter/);
     expect(checkCommand("c.md", "---\ndescription: d\n---\n").errors[0]).toMatch(/no body/);
+  });
+
+  it("rejects frontmatter a real YAML parser cannot read (the 1.2.0 directory review)", () => {
+    const cmd = (fm: string) => `---\ndescription: Publish\n${fm}\n---\n\nDo it.`;
+    expect(checkCommand("c.md", cmd("argument-hint: [path] [slug]")).errors[0]).toMatch(/argument-hint.*starts with "\[".*quote/);
+    expect(checkCommand("c.md", cmd('argument-hint: "[path] [slug]"')).errors).toEqual([]);
+    expect(checkFrontmatterYaml("c.md", "---\ndescription: Note: this breaks\n---\n").errors[0]).toMatch(/": "/);
+    expect(checkFrontmatterYaml("c.md", "---\ndescription: a #hashtag\n---\n").errors[0]).toMatch(/" #"/);
+    expect(checkFrontmatterYaml("c.md", "---\ndescription: |\n  Folded: fine here\n---\n").errors).toEqual([]);
+    expect(checkFrontmatterYaml("c.md", "---\ndescription: rtfx.pro, versioned — 3:1\n---\n").errors).toEqual([]);
+  });
+
+  it("rejects allowed-tools that pre-approve a whole interpreter", () => {
+    for (const broad of ["Bash", "Bash(*)", "Bash(node:*)", "Bash(node *)", "Read, Bash(python3:*)"]) {
+      expect(checkAllowedTools("c.md", broad).errors, broad).toHaveLength(1);
+    }
+    const narrow = 'Bash(node ${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs:*), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs":*), Read, Glob';
+    expect(checkAllowedTools("c.md", narrow).errors).toEqual([]);
+    expect(checkAllowedTools("c.md", "Bash(git status:*)").errors).toEqual([]);
+    expect(checkCommand("c.md", "---\ndescription: d\nallowed-tools: Bash(node:*)\n---\n\nDo it.").errors[0]).toMatch(/broad shell/);
+  });
+
+  it("every shipped command and skill parses as YAML and names its exact commands", () => {
+    for (const [file, text] of Object.entries(SHIPPED_COMMANDS)) {
+      expect(checkCommand(file, text).errors, file).toEqual([]);
+    }
+    expect(checkSkill("SKILL.md", shippedSkill).errors).toEqual([]);
   });
 
   it("a skill description must say when to use it, because that is all selection sees", () => {
