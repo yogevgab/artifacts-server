@@ -898,17 +898,25 @@ api.post("/tokens", async (c) => {
   let ownerEmail: string | null;
   let isAdminToken: boolean;
   if (identity.isAdmin) {
+    // Operators are artifact-blind (src/authz.ts canView). A token that acts as
+    // another person would read everything that person can, so an admin mints
+    // only for themselves, or an owner-less admin token for operator work.
+    if (requestedOwner && requestedOwner !== identity.email?.toLowerCase()) {
+      return c.json(
+        { error: "forbidden", detail: "operators cannot create tokens that act as another user" },
+        403
+      );
+    }
     ownerEmail = requestedOwner || null;
     isAdminToken = wantsAdmin;
     if (ownerEmail && !ownerEmail.includes("@")) {
       return c.json({ error: "bad_request", detail: "owner_email must be a valid email" }, 400);
     }
-    // A token with no owner and no admin bit could never own or reach anything.
+    // Neither an owner nor the operator bit: the token acts as the admin, like
+    // anybody else's (a token with neither could never own or reach anything).
+    if (!ownerEmail && !isAdminToken) ownerEmail = identity.email?.toLowerCase() ?? null;
     if (!ownerEmail && !isAdminToken) {
-      return c.json(
-        { error: "bad_request", detail: "provide owner_email, or set is_admin for an admin token" },
-        400
-      );
+      return c.json({ error: "bad_request", detail: "set is_admin for an operator token" }, 400);
     }
   } else {
     if (wantsAdmin || (requestedOwner && requestedOwner !== identity.email)) {

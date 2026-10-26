@@ -194,9 +194,16 @@ describe("member-change policy", () => {
     ).toBeNull();
   });
 
-  it("a platform admin bypasses that, because they administer the instance", () => {
+  it("a platform admin outside the workspace cannot add members or change roles (that would reach its content)", () => {
     expect(
       memberChangeDenial(platformAdmin, null, { targetCurrentRole: "member", nextRole: "owner", ownerCount: 1 })
+    ).toMatch(/operators cannot add members or change roles/);
+    expect(
+      memberChangeDenial(platformAdmin, null, { targetCurrentRole: null, nextRole: "viewer", ownerCount: 1 })
+    ).toMatch(/operators cannot add members/);
+    // Removing somebody is still an operator action.
+    expect(
+      memberChangeDenial(platformAdmin, null, { targetCurrentRole: "member", nextRole: null, ownerCount: 1 })
     ).toBeNull();
   });
 
@@ -570,12 +577,16 @@ describe("API tokens and workspaces", () => {
     expect(body.artifacts.map((a) => a.slug)).toEqual(["alice-token-art"]);
   });
 
-  it("pins an admin-minted token to the OWNER's workspace, not the admin's", async () => {
-    const { account_id } = await mint(OWNER, { owner_email: BOB });
-    const bobs = await personalAccountFor(env as any, BOB);
-    const admins = await personalAccountFor(env as any, OWNER);
-    expect(account_id).toBe(bobs!.id);
-    expect(account_id).not.toBe(admins?.id ?? null);
+  it("refuses an admin-minted token that would act as somebody else (operators are artifact-blind)", async () => {
+    const res = await req(
+      "/api/tokens",
+      as(OWNER, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "for-bob", owner_email: BOB }),
+      })
+    );
+    expect(res.status).toBe(403);
   });
 
   it("leaves a platform (admin) token account-less", async () => {

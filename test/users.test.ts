@@ -195,9 +195,10 @@ describe("pause and re-enable", () => {
 
   it("pausing revokes their API tokens", async () => {
     await invite(SUPER, BOB);
-    const minted = await call(SUPER, "/api/tokens", {
+    // Bob mints his own: operators cannot mint tokens that act as a user.
+    const minted = await call(BOB, "/api/tokens", {
       method: "POST",
-      ...json({ name: "bob-cli", owner_email: BOB }),
+      ...json({ name: "bob-cli" }),
     });
     const token = minted.body.token;
     expect((await req("/api/artifacts", withToken(token))).status).toBe(200);

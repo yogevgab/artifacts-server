@@ -71,10 +71,11 @@ describe("token panel — creation UI", () => {
     expect(body).toContain("showToken");
   });
 
-  it("offers owner and admin-token controls to an admin only", async () => {
+  it("offers the operator-token control to an admin only, and an owner field to nobody", async () => {
     const adminBody = await dash(ADMIN);
     expect(adminBody).toContain("data-token-admin-fields");
-    expect(adminBody).toContain('id="tok-owner"');
+    // Nobody mints a token that acts as somebody else (operators are artifact-blind).
+    expect(adminBody).not.toContain('id="tok-owner"');
     expect(adminBody).toContain('id="tok-admin"');
 
     const betaBody = await dash(BOB);
@@ -218,15 +219,14 @@ describe("token panel — API assumptions the client script relies on", () => {
     expect(body.revoked_at).toBeNull();
   });
 
-  it("accepts the owner and admin payloads the admin form sends", async () => {
+  it("accepts the admin payload the admin form sends, and refuses a token for someone else", async () => {
     const forOwner = await createToken(ADMIN, {
       name: "for-bob",
       scopes: ["read", "publish"],
       expires_in_days: 30,
       owner_email: BOB,
     });
-    expect(forOwner.status).toBe(201);
-    expect(forOwner.body.owner_email).toBe(BOB);
+    expect(forOwner.status).toBe(403);
 
     const service = await createToken(ADMIN, {
       name: "ci",
@@ -249,9 +249,9 @@ describe("token panel — API assumptions the client script relies on", () => {
     expect(unnamed.status).toBe(400);
     expect(unnamed.body.detail).toBeTruthy();
 
-    const inert = await createToken(ADMIN, { name: "inert", scopes: ["read"] });
-    expect(inert.status).toBe(400);
-    expect(inert.body.detail).toMatch(/owner_email/);
+    const forSomeoneElse = await createToken(ADMIN, { name: "x", owner_email: BOB });
+    expect(forSomeoneElse.status).toBe(403);
+    expect(forSomeoneElse.body.detail).toMatch(/another user/);
   });
 
   it("revoking is a 200 with the id, and repeats stay safe", async () => {

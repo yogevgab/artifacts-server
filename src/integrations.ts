@@ -73,11 +73,10 @@ function tokensPanel(tokens: PublicApiToken[], isAdmin: boolean): string {
 
   const adminFields = isAdmin
     ? `<div class="field-grid" data-token-admin-fields>
-        <div><label for="tok-owner">Owner email <span class="faint">(the member it acts as)</span></label>
-          <input id="tok-owner" name="owner_email" type="email" placeholder="person@example.com" autocomplete="off"></div>
-        <div><span class="field-label">Admin token</span>
+        <div><span class="field-label">Operator token</span>
           <label class="check"><input type="checkbox" id="tok-admin" name="is_admin">
-            <span>Manages every artifact <span class="faint">— admin reach wins even when an owner is set</span></span></label></div>
+            <span>No owner — for operator automation <span class="faint">— like every operator, it cannot
+              open other users' artifacts. Unticked, the token acts as you.</span></span></label></div>
       </div>`
     : `<p class="note" data-token-self-only>Tokens you create act as you — same artifacts, never more.
         Ask an admin if you need a token for someone else.</p>`;
@@ -232,18 +231,10 @@ if(tokenForm){
     var payload = { name: name, scopes: scopes };
     var days = $('#tok-expires').value;
     if(days) payload.expires_in_days = Number(days);
-    /* Owner/admin controls exist for admins only; the API enforces the same rule. */
-    var ownerInput = $('#tok-owner'), adminBox = $('#tok-admin');
-    if(ownerInput){
-      var owner = ownerInput.value.trim();
-      var wantsAdmin = !!(adminBox && adminBox.checked);
-      if(!owner && !wantsAdmin){
-        setStatus(status, 'Enter an owner email, or tick the admin-token box.', 'error');
-        return;
-      }
-      if(owner) payload.owner_email = owner;
-      if(wantsAdmin) payload.is_admin = true;
-    }
+    /* The operator-token box exists for admins only; the API enforces the same rule.
+       Nobody can mint a token that acts as somebody else. */
+    var adminBox = $('#tok-admin');
+    if(adminBox && adminBox.checked) payload.is_admin = true;
     var btn = $('button[type=submit]', tokenForm);
     btn.disabled = true;
     setStatus(status, 'Creating…');

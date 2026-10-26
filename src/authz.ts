@@ -239,6 +239,13 @@ export function memberChangeDenial(
   change: { targetCurrentRole: AccountRole | null; nextRole: AccountRole | null; ownerCount: number }
 ): string | null {
   const platform = isPlatformAdmin(identity);
+  // Operators are artifact-blind (see canView). Adding somebody — themselves
+  // above all — or raising a role in a workspace they do not belong to would
+  // hand them that workspace's content through the account-role path, so it is
+  // the workspace's own owners and admins who do it. Removing stays possible.
+  if (platform && actorRole === null && change.nextRole !== null) {
+    return "operators cannot add members or change roles in a workspace they are not part of — ask one of its owners";
+  }
   const touchesOwner = change.targetCurrentRole === "owner" || change.nextRole === "owner";
   if (touchesOwner && !platform && actorRole !== "owner") {
     return "only an account owner can add or change another owner";
