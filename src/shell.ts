@@ -158,6 +158,20 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,
 .peek:hover{color:var(--sh-fg)}
 .peek[hidden]{display:none}
 .frame{flex:1 1 auto;width:100%;border:0;display:block;background:var(--sh-surface)}
+/* Shown when the frame never reported in — the browser refused it. Over the
+   content, never replacing it: a page whose own CSP blocks our reporter still
+   renders, and then this is a dismissible false alarm, not a blank screen. */
+.stall{position:fixed;left:50%;top:64px;transform:translateX(-50%);z-index:40;
+  width:min(560px,calc(100vw - 32px));box-sizing:border-box;
+  display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;
+  padding:12px 14px;border:1px solid var(--sh-rule);border-radius:12px;
+  background:var(--sh-glass);-webkit-backdrop-filter:saturate(180%) blur(20px);
+  backdrop-filter:saturate(180%) blur(20px);box-shadow:0 10px 30px rgba(16,20,40,.14);
+  font-size:13px;line-height:1.45;color:var(--sh-fg)}
+.stall b{flex:1 0 100%}
+.stall span{flex:1 1 260px;color:var(--sh-muted)}
+.stall code{font-size:12px}
+.stall[hidden]{display:none}
 
 /* --- the scrim, mobile only ----------------------------------------------
    On a wide screen the popover and the drawer sit in their own corners and
@@ -362,6 +376,26 @@ function sandboxFor(i: ShellInput): string | null {
     : ARTIFACT_SANDBOX;
 }
 
+/**
+ * Will the framed document say "I loaded"? Only HTML gets the reporter script
+ * (src/serve.ts), so only an HTML target can be expected to — a PDF or an image
+ * never would, and must not trip the "is this page blank?" banner.
+ */
+/** The content origin's host for the frame-stall banner, or "" when one origin serves everything. */
+function contentHost(origin: string): string {
+  try {
+    return origin ? new URL(origin).host : "";
+  } catch {
+    return "";
+  }
+}
+
+function expectsReady(i: ShellInput, target: string): boolean {
+  if (sandboxFor(i) === null) return false;
+  const file = target || i.entry || "index.html";
+  return /\.html?$/i.test(file) || file.endsWith("/");
+}
+
 export function shellPage(i: ShellInput): string {
   // An empty filePath means "the artifact itself", which is its entry — not
   // necessarily index.html.
@@ -430,7 +464,15 @@ export function shellPage(i: ShellInput): string {
 </section>
 <iframe class="frame" title="${esc(i.title)}"
   ${sandboxFor(i) === null ? "" : `sandbox="${sandboxFor(i)}"`}
+  ${expectsReady(i, target) ? "data-expect-ready" : ""}
   src="${esc(src)}"></iframe>
+<div class="stall" data-stall role="status" hidden>
+  <b>Is this page blank?</b>
+  <span>Your browser may be blocking content from ${contentHost(origin) ? `<code>${esc(contentHost(origin))}</code>` : "this site"} — an ad or privacy
+    extension, or old site data. Try a private window, or allow rtfx.pro in the extension.</span>
+  <button type="button" class="btn" data-stall-reload>Reload</button>
+  <button type="button" class="btn quiet" data-stall-close aria-label="Dismiss">✕</button>
+</div>
 <script>${SHELL_SCRIPT}</script>
 </body></html>`
 }`;
@@ -505,12 +547,40 @@ const SHELL_SCRIPT = `(function(){
      reading it. Down hides, up reveals — the message is cosmetic only. */
   var lastY=0;
   var frameEl=document.querySelector('iframe.frame');
+
+  /* --- frame-stall --------------------------------------------------------
+     An HTML artifact says 'rtfx:ready' as soon as it starts (src/serve.ts).
+     If that never comes, the browser refused the frame before it reached us
+     (an extension, stale site data) and the visitor sees a blank box or the
+     browser's own error page. Say so, offer a reload, and leave one log line
+     so we can see how often it happens. Advisory only: it never hides the
+     frame, so a false alarm costs a dismissible banner. */
+  var stall=document.querySelector('[data-stall]');
+  var ready=false, stallTimer=null;
+  function frameReady(){ ready=true; if(stallTimer) clearTimeout(stallTimer); if(stall) stall.hidden=true; }
+  if(stall&&frameEl&&frameEl.hasAttribute('data-expect-ready')){
+    stallTimer=setTimeout(function(){
+      if(ready) return;
+      stall.hidden=false;
+      try{
+        navigator.sendBeacon('/_frame-stall',JSON.stringify({
+          slug:(chat&&chat.getAttribute('data-slug'))||'',
+          ms:12000, online:navigator.onLine
+        }));
+      }catch(e){}
+    },12000);
+    var rl=stall.querySelector('[data-stall-reload]');
+    var cl=stall.querySelector('[data-stall-close]');
+    if(rl) rl.addEventListener('click',function(){ location.reload(); });
+    if(cl) cl.addEventListener('click',function(){ stall.hidden=true; });
+  }
   addEventListener('message',function(ev){
     /* Only the artifact frame may speak here. Its origin is opaque (sandbox
        without allow-same-origin), so the window identity is the check, not
        ev.origin; nothing else is trusted to move the toolbar. */
     if(!frameEl||ev.source!==frameEl.contentWindow) return;
     var d=ev.data;
+    if(d&&d.type==='rtfx:ready'){ frameReady(); return; }
     if(!d||d.type!=='rtfx:scroll'||typeof d.y!=='number') return;
     if(pinnedHidden) return;
     var dy=d.y-lastY; lastY=d.y;

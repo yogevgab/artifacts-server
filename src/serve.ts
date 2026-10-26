@@ -26,6 +26,9 @@ export const ARTIFACT_SANDBOX = "allow-scripts allow-forms allow-popups allow-do
 
 const SCROLL_REPORTER = `<script>(function(){
   if(window.parent===window) return;
+  /* "I loaded": the viewer warns when this never arrives, because then the
+     browser itself refused the frame (src/shell.ts, frame-stall). */
+  try{window.parent.postMessage({type:'rtfx:ready'},'*');}catch(e){}
   var last=-1, queued=false;
   function post(){
     queued=false;

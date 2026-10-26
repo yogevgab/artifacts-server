@@ -63,6 +63,9 @@ const MANAGEMENT_PREFIXES = [
   // app host and a content host must 404 it. `_chat` can never be a slug
   // (SLUG_RE needs a leading [a-z0-9]), so this is collision-free by construction.
   "/_chat",
+  // The viewer's "the frame never loaded" beacon (src/index.ts). Collision-free
+  // for the same reason as `_chat`.
+  "/_frame-stall",
   "/mcp",
   // `/u/<token>` is the browser upload page behind the MCP `create_upload_link`
   // tool (src/upload-routes.ts). Its token is a credential, and `u` can never
