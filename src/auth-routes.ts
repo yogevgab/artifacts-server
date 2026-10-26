@@ -73,14 +73,21 @@ function guestCookie(token: string, maxAge: number): string {
  * GET navigation, which Lax permits, so the confirm page's POST still finds it.
  */
 const NEXT_COOKIE = "rtfx_next";
-const NEXT_TTL_SECONDS = 600;
+/**
+ * How long a parked destination survives. Thirty minutes from opening the
+ * sign-in page, restarted when the code is requested (`/auth/start`), so the
+ * code's own 15 minutes are always covered. It was 10 minutes from the page
+ * load, and a person who stepped away before asking for a code finished
+ * signing in on /admin instead of their consent screen.
+ */
+const NEXT_TTL_SECONDS = 1800;
 /** Encoded-value budget for the parked cookie, under the ~4096-byte browser limit. */
 const NEXT_COOKIE_MAX = 3800;
 
 /**
  * The `Set-Cookie` that parks a post-sign-in destination — or, for `null`,
  * clears a stale one. `/login` with no `next` clears on purpose: an abandoned
- * OAuth attempt must not silently redirect an ordinary sign-in ten minutes later.
+ * OAuth attempt must not silently redirect an ordinary sign-in later.
  */
 export function pendingNextCookie(next: string | null): string {
   let value = next ? encodeURIComponent(next) : "";
@@ -194,7 +201,10 @@ authRoutes.post("/auth/start", async (c) => {
   }
 
   await startChallenge(c, email, "signin");
-  return c.json(ACCEPTED, 202);
+  // Restart the parked destination's clock (see NEXT_TTL_SECONDS). Only ever
+  // re-parks what is already there, re-validated: nothing new is introduced.
+  const next = pendingNext(c);
+  return c.json(ACCEPTED, 202, next ? { "Set-Cookie": pendingNextCookie(next) } : {});
 });
 
 authRoutes.post("/auth/verify", async (c) => {

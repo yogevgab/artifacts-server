@@ -13,6 +13,14 @@ export interface Env {
   EMAIL?: { send(message: unknown): Promise<{ messageId?: string }> };
   /** Envelope sender for transactional mail. Defaults to "no-reply@rtfx.pro". */
   MAIL_FROM?: string;
+  /**
+   * Secret. Resend API key for the fallback sender (src/mail.ts): used only when
+   * the Cloudflare send fails for a reason other than the recipient. Unset means
+   * no fallback. MAIL_FROM's domain must be verified in that Resend account.
+   */
+  RESEND_API_KEY?: string;
+  /** Optional From for the Resend fallback, e.g. "rtfx.pro <no-reply@rtfx.pro>". */
+  RESEND_FROM?: string;
   /** Per-artifact chat rooms. Optional so dev and tests run without it. */
   CHAT?: DurableObjectNamespace;
   /**

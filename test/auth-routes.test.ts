@@ -245,6 +245,40 @@ describe("?next= round trip", () => {
     expect(cookie.toLowerCase()).not.toContain("domain=");
   });
 
+  /**
+   * 2026-10-25: a person connecting from claude.ai opened the sign-in page,
+   * stepped away, and asked for a code 12 minutes later — after a 10-minute
+   * parking window had lapsed — and landed on /admin. The window is now long
+   * enough to go and fetch a phone.
+   */
+  it("parks it for 30 minutes, not 10", async () => {
+    const res = await app.request(`/login?next=${encodeURIComponent(AUTHZ)}`, {}, testEnv());
+    expect(parked(res)).toContain("Max-Age=1800");
+  });
+
+  /** Asking for a code restarts the window, so the code's own lifetime is always covered. */
+  it("re-parks the destination when the code is requested", async () => {
+    const res = await app.request(
+      "/auth/start",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: `rtfx_next=${encodeURIComponent(AUTHZ)}` },
+        body: JSON.stringify({ email: "dana@acme.com" }),
+      },
+      testEnv()
+    );
+    expect(res.status).toBe(202);
+    const cookie = parked(res);
+    expect(cookie).toContain(encodeURIComponent(AUTHZ));
+    expect(cookie).toContain("Max-Age=1800");
+  });
+
+  it("does not invent a destination when the code is requested without one", async () => {
+    const res = await post("/auth/start", { email: "dana@acme.com" });
+    expect(res.status).toBe(202);
+    expect(parked(res)).toBe("");
+  });
+
   /** An abandoned authorization must not hijack an ordinary sign-in later. */
   it("clears a stale parked destination when /login is opened without one", async () => {
     const res = await app.request("/login", {}, testEnv());

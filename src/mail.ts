@@ -1,5 +1,6 @@
 /**
- * Transactional email over the Cloudflare Email Sending binding.
+ * Transactional email over the Cloudflare Email Sending binding, with Resend as
+ * an optional fallback (RESEND_API_KEY) for anything but a recipient failure.
  *
  * The module exists mostly to make failures legible. A send that fails silently
  * is the worst outcome for a sign-in system: the person waiting for a code has
@@ -105,38 +106,91 @@ export async function sendMail(
   env: Env,
   o: { to: string; kind: MailKind; message: RenderedMail; now: string }
 ): Promise<MailResult> {
+  let code: string | undefined;
+  let failureClass: MailFailureClass;
   if (!env.EMAIL) {
     // Ours, not Cloudflare's, and "config" is exactly right: a deployment that
     // forgot the binding.
-    await recordMail(env, {
-      email: o.to,
-      kind: o.kind,
-      status: "failed",
-      errorCode: "E_NO_BINDING",
-      now: o.now,
-    });
-    return { ok: false, code: "E_NO_BINDING", class: "config" };
+    code = "E_NO_BINDING";
+    failureClass = "config";
+  } else {
+    try {
+      await env.EMAIL.send({
+        to: o.to,
+        from: { email: env.MAIL_FROM || DEFAULT_FROM, name: "rtfx.pro" },
+        subject: o.message.subject,
+        html: o.message.html,
+        text: o.message.text,
+      });
+      await recordMail(env, { email: o.to, kind: o.kind, status: "sent", now: o.now });
+      return { ok: true };
+    } catch (e) {
+      code = (e as { code?: string }).code ?? "E_UNKNOWN";
+      failureClass = classifyMailError(code);
+    }
   }
 
-  try {
-    await env.EMAIL.send({
-      to: o.to,
-      from: { email: env.MAIL_FROM || DEFAULT_FROM, name: "rtfx.pro" },
-      subject: o.message.subject,
-      html: o.message.html,
-      text: o.message.text,
-    });
-    await recordMail(env, { email: o.to, kind: o.kind, status: "sent", now: o.now });
-    return { ok: true };
-  } catch (e) {
-    const code = (e as { code?: string }).code;
+  // A second provider can rescue an outage, a rate limit or a sender problem on
+  // Cloudflare's side; it cannot rescue an address that refuses mail, so a
+  // recipient failure is final. Without RESEND_API_KEY this is exactly the old
+  // behaviour.
+  if (env.RESEND_API_KEY && failureClass !== "recipient") {
+    const resend = await sendViaResend(env, o);
+    if (resend.ok) {
+      await recordMail(env, {
+        email: o.to,
+        kind: o.kind,
+        status: "sent",
+        errorCode: `resend_fallback:${code}`,
+        now: o.now,
+      });
+      return { ok: true };
+    }
     await recordMail(env, {
       email: o.to,
       kind: o.kind,
       status: "failed",
-      errorCode: code ?? "E_UNKNOWN",
+      errorCode: `${code}|resend:${resend.detail}`,
       now: o.now,
     });
-    return { ok: false, code, class: classifyMailError(code) };
+    return { ok: false, code: code === "E_UNKNOWN" ? undefined : code, class: failureClass };
+  }
+
+  await recordMail(env, { email: o.to, kind: o.kind, status: "failed", errorCode: code, now: o.now });
+  return { ok: false, code: code === "E_UNKNOWN" ? undefined : code, class: failureClass };
+}
+
+const RESEND_ENDPOINT = "https://api.resend.com/emails";
+
+/**
+ * The fallback sender: Resend's HTTP API, same message, same From. The sending
+ * domain (MAIL_FROM's) must be verified in the Resend account; until it is,
+ * every fallback fails with a 4xx that lands in `mail_log` next to the
+ * Cloudflare code, so the gap is visible rather than silent.
+ */
+async function sendViaResend(
+  env: Env,
+  o: { to: string; message: RenderedMail }
+): Promise<{ ok: true } | { ok: false; detail: string }> {
+  const from = env.RESEND_FROM || `rtfx.pro <${env.MAIL_FROM || DEFAULT_FROM}>`;
+  try {
+    const res = await fetch(RESEND_ENDPOINT, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+      // A sign-in request is waiting on this; a hung provider must not hold it open.
+      signal: AbortSignal.timeout(8000),
+      body: JSON.stringify({
+        from,
+        to: [o.to],
+        subject: o.message.subject,
+        html: o.message.html,
+        text: o.message.text,
+      }),
+    });
+    if (res.ok) return { ok: true };
+    const body = (await res.json().catch(() => null)) as { name?: string } | null;
+    return { ok: false, detail: `${res.status} ${body?.name ?? "error"}` };
+  } catch {
+    return { ok: false, detail: "network" };
   }
 }

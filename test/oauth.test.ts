@@ -690,7 +690,7 @@ describe("the authorization endpoint", () => {
     const bounce = await req(query, { headers: { "X-Dev-Anonymous": "true" } });
     const login = await req(bounce.headers.get("Location")!, { headers: { "X-Dev-Anonymous": "true" } });
     const cookie = login.headers.get("Set-Cookie") ?? "";
-    expect(cookie).toContain("Max-Age=600");
+    expect(cookie).toContain("Max-Age=1800");
     const parked = decodeURIComponent(/rtfx_next=([^;]*)/.exec(cookie)![1]!);
     expect(parked).toBe(query);
   });
