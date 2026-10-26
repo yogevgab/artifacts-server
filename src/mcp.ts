@@ -196,7 +196,10 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
     name: "doctor",
     title: "Check this connection",
     description:
-      "Report how this remote MCP connection is authenticated and whether the instance answers: the endpoint, where artifacts are served from, the calling token's id (never its secret), the scopes it holds, and which tools this transport exposes. Run it first when a remote call fails. It publishes nothing and changes nothing.",
+      "Reports how this remote MCP connection is authenticated and whether the instance answers: " +
+      "the endpoint, where artifacts are served from, the calling token's id (never its secret), " +
+      "the scopes it holds, and which tools this connection exposes. Read-only: it publishes and " +
+      "changes nothing.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   },
@@ -204,20 +207,14 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
     name: "publish",
     title: "Publish content you send with the call",
     description:
-      "Publish an artifact from content carried IN THIS REQUEST, and return its stable URL. " +
-      "The bytes travel as arguments to this call — this server runs in Cloudflare's network and " +
-      "cannot read the machine your client is running on, so there is deliberately no `path` " +
-      "argument and passing one is an error. To publish a folder that exists on disk, install the " +
-      "local rtfx plugin, whose stdio server runs beside your files. " +
-      "Send EITHER `content_text` or `content_base64` for a single HTML page or PDF, OR `files` for " +
-      "a small multi-file site (which must contain a file whose path is exactly \"index.html\"). " +
-      "A new slug creates the artifact at v1, private to its owner; publishing again to a slug you " +
-      "own appends an immutable version, live at the same URL — so updating something means calling " +
-      "this with the SAME slug, never a new one. Show the person the returned `url` exactly as given — it is the canonical address (rtfx.pro/<workspace>/<slug>); never assemble it yourself, " +
-      "because the workspace address is chosen per account. " +
-      "SIZE LIMIT: inline content is for small, text-only sites (a few MB, at most " + MAX_INLINE_FILES + " files). " +
-      "If the site is larger than that, or contains images, video or other binary files, do NOT base64 it " +
-      "into this call — use `create_upload_link` instead.",
+      "Publishes an artifact from content carried in this request and returns its stable URL " +
+      "(rtfx.pro/<workspace>/<slug>). Accepts either `content_text` or `content_base64` for a single " +
+      "HTML page or PDF, or `files` for a small multi-file site that contains a file whose path is " +
+      "exactly \"index.html\". Inline content is limited to small, text-only sites (a few MB, at most " +
+      MAX_INLINE_FILES + " files). There is no `path` argument: the server runs remotely and cannot " +
+      "read files on the client's machine. A new slug creates the artifact at version 1, private to its " +
+      "owner; publishing to a slug the caller owns or edits adds an immutable new version at the same " +
+      "URL. Requires the 'publish' scope.",
     inputSchema: {
       type: "object",
       properties: {
@@ -288,19 +285,13 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
     name: "create_upload_link",
     title: "Publish a large or binary site from your code sandbox",
     description:
-      "Use this to publish a site that is TOO BIG for `publish` (more than a few MB or " + MAX_INLINE_FILES + " files) " +
-      "or that contains images, video or other binary files. Do NOT base64 such files into `publish`. " +
-      "It reserves the destination exactly like `publish` (an existing slug you own becomes a new version; a slug that " +
-      "belongs to someone else is refused with 409; a new slug needs a `title`) and returns a single-use `upload_url`, " +
-      "valid 30 minutes. Nothing is published by this call. " +
-      "Then YOU upload the site from your code-execution sandbox: zip the files with index.html at the zip's root and run " +
-      "`curl -sS -F bundle=@site.zip <upload_url>`. The JSON response contains the published `url`; give that to the " +
-      "person. The person should not have to do anything. " +
-      "If the upload does not work (for example the sandbox's network access is off or rtfx.pro is not allowed), keep it " +
-      "short and friendly and give the person both: (a) the returned `page_url` as a clickable link plus the site as a " +
-      "downloadable .zip, telling them to open the link and drop the zip (or the folder) onto the page — that publishes it " +
-      "now; and (b) one line on how to let you do it for them next time: " + UPLOAD_SETTING_HINT + ". " +
-      "Never ask them to use a terminal or run a command. If the link expires, call this tool again.",
+      "Reserves a destination for a site that is too large to publish inline (more than a few MB or " +
+      MAX_INLINE_FILES + " files) or that contains images, video or other binary files, and " +
+      "returns a single-use `upload_url` and `page_url`, valid for 30 minutes. Slug rules match " +
+      "publish: an existing slug the caller owns or edits becomes a new version, any other taken slug is " +
+      "refused with 409, and a new slug needs a `title`. Nothing is published until a zip of the site " +
+      "(index.html at its root) is uploaded to `upload_url`; the upload response contains the published " +
+      "URL. Requires the 'publish' scope.",
     inputSchema: {
       type: "object",
       properties: {
@@ -323,11 +314,9 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
     name: "list_artifacts",
     title: "List the artifacts this credential can reach",
     description:
-      "List the artifacts this credential can manage — slug, title, URL, type, visibility, live " +
-      "version, file count, size and when each was last updated. Use it to find the slug of " +
-      "something already published before publishing a new version to it, instead of inventing a " +
-      "new slug. Results are newest-first and paginated; pass `offset` from `next_offset` to page. " +
-      "It never shows an artifact belonging to somebody else.",
+      "Lists the artifacts this credential can manage (slug, title, URL, type, visibility, live " +
+      "version, file count, size and last-updated time), newest first and paginated with `offset` and " +
+      "`next_offset`. Includes artifacts owned by the caller or by their workspaces, never anyone else's.",
     inputSchema: {
       type: "object",
       properties: {
@@ -366,12 +355,10 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
     name: "artifact_details",
     title: "Inspect one artifact",
     description:
-      "Everything known about one artifact you can manage: its row, its URL, its full version " +
-      "history (marking which version is live and which have expired out of the plan's retention " +
-      "window), who it is shared with and whether each person is a viewer (can open it) or an " +
-      "editor (can also publish new versions and roll back), and how often it has been opened. Call this before " +
-      "rolling back or re-sharing, so the version numbers and the email list you send are the ones " +
-      "that actually exist. A slug you cannot manage answers not_found, exactly as if it did not exist.",
+      "Returns everything known about one artifact the caller can manage: its URL, its full version " +
+      "history (which version is live and which have expired under the plan's retention window), who " +
+      "it is shared with and whether each person is a viewer or an editor, and how often it has been " +
+      "opened. An unknown slug, or one the caller cannot manage, returns not_found.",
     inputSchema: {
       type: "object",
       properties: { slug: REMOTE_SLUG },
@@ -384,11 +371,10 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
     name: "artifact_statistics",
     title: "Counts and totals",
     description:
-      "Aggregate numbers. With `slug`, the totals for that one artifact: versions, files, bytes, " +
-      "views and how many people it is shared with. Without `slug`, the totals across every " +
-      "artifact this credential can reach: how many there are, broken down by visibility and by " +
-      "type, plus total versions, files, bytes and views. Use it to answer \"how much have I " +
-      "published?\" without paging through list_artifacts.",
+      "Returns aggregate numbers. With `slug`: that artifact's versions, files, bytes, views and the " +
+      "number of people it is shared with. Without `slug`: totals across every artifact this " +
+      "credential can reach, broken down by visibility and by type, plus total versions, files, bytes " +
+      "and views.",
     inputSchema: {
       type: "object",
       properties: {
@@ -406,16 +392,14 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
     name: "share_artifact",
     title: "Set who can open an artifact",
     description:
-      "Replace who may open an artifact: 'restricted' (its owner plus exactly the emails you " +
-      "list) or 'everyone' (everyone in the artifact's workspace). THE EMAIL LIST IS A REPLACEMENT, " +
-      "NOT AN ADDITION — send the full list every time, and send [] to revoke everybody. Call " +
-      "artifact_details first to read the current list if you mean to add somebody to it. People in " +
-      "`emails` become viewers (they can open it); people in `editors` become editors (they can " +
-      "open it, publish new versions to it and roll it back, but cannot change who it is shared " +
-      "with, manage links, read analytics or delete it, and need an rtfx account to publish). An " +
-      "address in both lists is an editor. This grants access; it does not invite anyone or create " +
-      "an account, so a recipient who cannot already sign in to this instance still needs an " +
-      "administrator to invite them. Needs a token with the 'manage' scope.",
+      "Sets who may open an artifact: 'restricted' (its owner plus exactly the listed people) or " +
+      "'everyone' (everyone in the artifact's workspace; this also clears every existing grant). The " +
+      "lists replace the current ones rather than adding to them, and an empty list revokes everyone. " +
+      "People in `editors` are editors (they can also publish new versions and roll back, but cannot " +
+      "change sharing, manage links, read analytics or delete, and need their own rtfx account to " +
+      "publish). People in `emails` are viewers (they can open it); when `editors` is omitted, an " +
+      "address that already has access keeps its current role. An address in both lists is an " +
+      "editor. Granting access sends no invitation and creates no account. Requires the 'manage' scope.",
     inputSchema: {
       type: "object",
       properties: {
@@ -431,14 +415,14 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
           items: { type: "string" },
           maxItems: 200,
           description:
-            "Full replacement list of emails granted VIEW access, each containing '@'. Lower-cased and de-duplicated. Ignored when visibility is 'everyone'; pass [] to revoke everyone.",
+            "Full replacement list of emails granted access, each containing '@'. Lower-cased and de-duplicated. New addresses are viewers. Not used when visibility is 'everyone', which clears all grants; pass [] to revoke everyone.",
         },
         editors: {
           type: "array",
           items: { type: "string" },
           maxItems: 200,
           description:
-            "Optional. Emails granted EDITOR access (view, publish new versions, roll back). Part of the same full replacement: an editor you leave out is removed. Ignored when visibility is 'everyone'.",
+            "Optional. Emails granted EDITOR access (view, publish new versions, roll back). Part of the same full replacement: when this list is given, an editor left out of it is removed. Not used when visibility is 'everyone', which clears all grants.",
         },
       },
       required: ["slug", "visibility"],
@@ -450,11 +434,10 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
     name: "rollback_artifact",
     title: "Make an earlier version live again",
     description:
-      "Point an artifact's URL back at one of its earlier versions. Non-destructive: no version " +
-      "is deleted, and rolling forward again is the same call with a higher number. Call " +
-      "artifact_details first to see which versions exist and which have expired — an expired " +
-      "version's files are gone and cannot be made live. Needs a token with the 'manage' scope, " +
-      "because changing the live version is artifact management over an existing URL.",
+      "Points an artifact's URL back at one of its earlier versions. Non-destructive: no version is " +
+      "deleted, and rolling forward is the same call with a higher version number. A version that has " +
+      "expired under the plan's retention window cannot be made live. Requires the 'publish' scope; " +
+      "editors of the artifact can roll it back too.",
     inputSchema: {
       type: "object",
       properties: {
@@ -474,11 +457,9 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
     name: "delete_artifact",
     title: "Delete an artifact permanently",
     description:
-      "PERMANENTLY delete an artifact: every version, every stored file, every access grant and " +
-      "every share link. This cannot be undone and there is no trash — the URL stops working and " +
-      "the bytes are gone. To guard against a confused slug, `confirm_slug` must be given and must " +
-      "be exactly equal to `slug`; a mismatch deletes nothing. Ask the person you are working for " +
-      "before calling this. Needs a token with the 'manage' scope.",
+      "Permanently deletes an artifact: every version, stored file, access grant and share link. This " +
+      "cannot be undone, and the URL stops working. `confirm_slug` must exactly equal `slug`, otherwise " +
+      "nothing is deleted. Requires the 'manage' scope.",
     inputSchema: {
       type: "object",
       properties: {
@@ -496,6 +477,11 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   },
 ];
+
+// MCP clients and the Claude Connectors Directory read a tool's display name
+// from `annotations.title` as well as the top-level `title`; mirror it here so
+// the two can never drift apart.
+for (const tool of REMOTE_TOOLS) tool.annotations = { title: tool.title, ...tool.annotations };
 
 /**
  * The scope each remote tool needs. `publish` is listed as well as checked
@@ -573,7 +559,7 @@ Never ask them to use a terminal.
 Artifact management is also available here: use "list_artifacts" to find existing work,
 "artifact_details" before sharing or rollback, "artifact_statistics" for counts, and — with a
 "manage" scoped credential — "share_artifact" and "delete_artifact" ("rollback_artifact" needs "publish"). Delete is
-permanent and requires confirm_slug to equal slug.
+permanent and requires confirm_slug to equal slug: confirm with the person, naming the exact artifact, before calling it.
 
 "doctor" reports how this connection is authenticated, what it may do, and the exact limits.
 

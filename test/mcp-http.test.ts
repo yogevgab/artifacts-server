@@ -964,3 +964,36 @@ describe("origins and hosts", () => {
     expect(preflight.headers.get("Access-Control-Allow-Origin")).toBeNull();
   });
 });
+
+/**
+ * Claude Connectors Directory policy: every tool carries annotations.title, and
+ * a tool description describes the tool — no instructions about model
+ * behaviour, other tools, or external instruction sources. Guidance belongs in
+ * the server `instructions` and in tool results.
+ */
+describe("directory policy for remote tool definitions", () => {
+  const names = REMOTE_TOOLS.map((t) => t.name);
+
+  it("every tool has annotations.title equal to its title, and read/destructive hints", () => {
+    for (const t of REMOTE_TOOLS) {
+      expect(t.annotations?.title, t.name).toBe(t.title);
+      expect(typeof t.annotations?.readOnlyHint, t.name).toBe("boolean");
+      expect(typeof t.annotations?.destructiveHint, t.name).toBe("boolean");
+    }
+  });
+
+  it("no description names another tool or tells the model what to do", () => {
+    // Phrases that address the model rather than describe the tool.
+    const imperative = /\bthe person\b|\bcall (this|it)\b|\buse (this|it)\b|\binstead\b|\b(call|use|run) \S+ first\b|\bask (the|them)\b|\bshow (the|them)\b|\btell (the|them)\b|\bnever ask\b|\bdo not\b/i;
+    for (const t of REMOTE_TOOLS) {
+      // A reference to another tool: its identifier in backticks, or an
+      // underscore name. ("publish" alone is also the verb and the scope name.)
+      for (const other of names.filter((n) => n !== t.name)) {
+        expect(t.description, `${t.name} mentions ${other}`).not.toContain("`" + other + "`");
+        if (other.includes("_")) expect(t.description, `${t.name} mentions ${other}`).not.toContain(other);
+      }
+      expect(t.description, `${t.name} reads as an instruction`).not.toMatch(imperative);
+    }
+  });
+});
+
