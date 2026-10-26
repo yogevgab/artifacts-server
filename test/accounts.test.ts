@@ -197,10 +197,17 @@ describe("member-change policy", () => {
   it("a platform admin outside the workspace cannot add members or change roles (that would reach its content)", () => {
     expect(
       memberChangeDenial(platformAdmin, null, { targetCurrentRole: "member", nextRole: "owner", ownerCount: 1 })
-    ).toMatch(/operators cannot add members or change roles/);
+    ).toMatch(/only this workspace's owners and admins/);
     expect(
       memberChangeDenial(platformAdmin, null, { targetCurrentRole: null, nextRole: "viewer", ownerCount: 1 })
-    ).toMatch(/operators cannot add members/);
+    ).toMatch(/only this workspace's owners and admins/);
+    // An operator who is merely a viewer there cannot promote themselves either.
+    expect(
+      memberChangeDenial(platformAdmin, "viewer", { targetCurrentRole: "viewer", nextRole: "owner", ownerCount: 1 })
+    ).toMatch(/only this workspace's owners and admins/);
+    expect(
+      memberChangeDenial(platformAdmin, "member", { targetCurrentRole: null, nextRole: "admin", ownerCount: 1 })
+    ).toMatch(/only this workspace's owners and admins/);
     // Removing somebody is still an operator action.
     expect(
       memberChangeDenial(platformAdmin, null, { targetCurrentRole: "member", nextRole: null, ownerCount: 1 })

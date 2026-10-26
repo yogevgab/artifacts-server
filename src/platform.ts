@@ -283,8 +283,9 @@ function mailPanel(rows: MailLogRow[]): string {
       <h2 id="mail-h">Transactional mail <span class="hint">${
         failed ? `${plural(failed, "failure")} in the last ${num(rows.length)}` : "all delivered"
       }</span></h2>
-      <p class="hint">Sign-in codes, share invitations and read receipts. This is what answers
-        "they say they never got the email".</p>
+      <p class="hint">Sign-in mail only. This is what answers "they say they never got the
+        code". Share notices, read receipts and access requests are about artifact activity, which
+        operators do not see.</p>
     </div></div>
     ${list || `<p class="note" data-empty="mail">No mail sent yet.</p>`}
   </section>`;
@@ -563,7 +564,7 @@ function statusPanel(a: AccountRow): string {
     <div class="panel-head"><div>
       <h2 id="status-h">Status</h2>
       <p class="hint">A suspended workspace cannot publish, and its artifacts stop serving to
-        everyone except a platform admin. Nothing is deleted, and unsuspending restores exactly what
+        everyone, platform admins included. Nothing is deleted, and unsuspending restores exactly what
         was there — which is what makes this usable for a payment dispute, not only for an ending.</p>
     </div></div>
     ${history}

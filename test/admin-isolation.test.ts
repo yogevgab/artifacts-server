@@ -435,3 +435,33 @@ describe("with a real session cookie", () => {
     }
   });
 });
+
+describe("tokens minted before the rule cannot impersonate", () => {
+  /**
+   * POST /api/tokens no longer lets an operator mint a token that acts as
+   * somebody else, but a row created under the old rule would still resolve to
+   * its owner. Such a row (a PERSON as creator, a different owner) is refused at
+   * authentication; the person's own tokens and OAuth grants are untouched.
+   */
+  it("refuses a legacy admin-minted token that acts as another user", async () => {
+    const { createApiToken } = await import("../src/tokens");
+    const now = new Date().toISOString();
+    const legacy = await createApiToken(env as any, {
+      name: "for-bob", ownerEmail: BOB, accountId: null, isAdmin: false,
+      scopes: ["read", "publish", "manage"], createdBy: SUPER, expiresAt: null, now,
+    });
+    expect((await req("/api/artifacts", withToken(legacy.token))).status).toBe(401);
+
+    const own = await createApiToken(env as any, {
+      name: "bob-own", ownerEmail: BOB, accountId: null, isAdmin: false,
+      scopes: ["read"], createdBy: BOB, expiresAt: null, now,
+    });
+    expect((await req("/api/artifacts", withToken(own.token))).status).toBe(200);
+
+    const oauth = await createApiToken(env as any, {
+      name: "Claude (OAuth)", ownerEmail: BOB, accountId: null, isAdmin: false,
+      scopes: ["read"], createdBy: "oauth:oc_test", expiresAt: null, now,
+    });
+    expect((await req("/api/artifacts", withToken(oauth.token))).status).toBe(200);
+  });
+});

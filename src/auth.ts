@@ -215,6 +215,13 @@ async function identityFromApiToken(c: AuthContext, presented: string): Promise<
   const email = row.owner_email ? row.owner_email.toLowerCase() : null;
   const isAdminToken = row.is_admin === 1;
   if (!isAdminToken && !email) return null;
+  // A token a PERSON minted to act as somebody else. Only an admin could ever
+  // do that, and operators are artifact-blind (src/authz.ts canView), so any
+  // such token left over from before that rule is dead: refusing it here means
+  // no stored credential can impersonate. OAuth grants record `oauth:<client>`
+  // and are the person's own consent, so they are untouched.
+  const creator = (row.created_by ?? "").toLowerCase();
+  if (email && creator.includes("@") && creator !== email) return null;
 
   if (needsTouch(row, now)) {
     const p = touchApiToken(c.env, row.id, now.toISOString());

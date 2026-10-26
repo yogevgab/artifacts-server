@@ -103,7 +103,13 @@ describe("/admin/platform — the operator readouts", () => {
     await env.DB.prepare(
       "INSERT INTO mail_log (email, kind, status, error_code, created_at) VALUES (?, ?, ?, ?, ?)"
     )
-      .bind(BOB, "otp", "failed", "bounced", NOW)
+      .bind(BOB, "signin", "failed", "bounced", NOW)
+      .run();
+    // Artifact activity mail must never be listed by recipient to an operator.
+    await env.DB.prepare(
+      "INSERT INTO mail_log (email, kind, status, error_code, created_at) VALUES (?, ?, ?, ?, ?)"
+    )
+      .bind("grantee@secret.example", "share_notice", "sent", null, NOW)
       .run();
 
     const html = await (await req("/admin/platform", as(SUPER))).text();
@@ -135,6 +141,7 @@ describe("/admin/platform — the operator readouts", () => {
     expect(html).toContain("buyer@corp.com");
     expect(html).toContain("subscription_created");
     expect(html).toContain('data-mail-status="failed"');
+    expect(html).not.toContain("grantee@secret.example");
   });
 
   it("filters the account list in SQL, so the limit stays meaningful", async () => {

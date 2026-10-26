@@ -484,14 +484,23 @@ export interface MailLogRow {
 }
 
 /** Transactional-mail delivery outcomes, newest first — "why didn't they get it". */
+/**
+ * Mail an operator may see by recipient: sign-in mail is about the account.
+ * share_notice / view_notice / access_request rows would say who was granted an
+ * artifact, or that somebody viewed one — artifact activity, which operators do
+ * not get (src/authz.ts canView) — so those are counted, never listed.
+ */
+export const OPERATOR_MAIL_KINDS = ["signin", "magic_link"] as const;
+
 export async function listMailLog(env: Env, limit = 100): Promise<MailLogRow[]> {
   const capped = Math.min(Math.max(Math.trunc(limit), 1), 500);
   try {
     const { results } = await env.DB.prepare(
       `SELECT id, email, kind, status, error_code, created_at FROM mail_log
+        WHERE kind IN (${OPERATOR_MAIL_KINDS.map(() => "?").join(", ")})
         ORDER BY created_at DESC, id DESC LIMIT ?`
     )
-      .bind(capped)
+      .bind(...OPERATOR_MAIL_KINDS, capped)
       .all<MailLogRow>();
     return results ?? [];
   } catch {
