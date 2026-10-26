@@ -146,7 +146,9 @@ export async function redeemCode(
     .first<Row & { code_hash?: string }>();
 
   if (!row) return null;
-  if (row.attempts >= MAX_ATTEMPTS) return null;
+  // Every guess spends an attempt BEFORE it is checked (see reserveAttempt),
+  // so parallel requests cannot all slip under the cap.
+  if (!(await reserveAttempt(env, row.id))) return null;
 
   const match = await env.DB.prepare(
     `SELECT id FROM auth_challenges WHERE id = ? AND code_hash = ?`
@@ -154,18 +156,26 @@ export async function redeemCode(
     .bind(row.id, codeHash)
     .first<{ id: string }>();
 
-  if (!match) {
-    // A wrong guess costs an attempt. At MAX_ATTEMPTS the challenge is dead
-    // even for the correct code, which is what bounds brute force.
-    await env.DB.prepare(
-      `UPDATE auth_challenges SET attempts = attempts + 1 WHERE id = ?`
-    )
-      .bind(row.id)
-      .run();
-    return null;
-  }
-
+  if (!match) return null;
   return (await consume(env, row.id, now)) ? toChallenge(row) : null;
+}
+
+/**
+ * Spend one attempt on a challenge, atomically, before the guess is compared.
+ * A single conditional UPDATE: it succeeds only while the challenge is unused
+ * and under MAX_ATTEMPTS, so N concurrent guesses get at most MAX_ATTEMPTS
+ * evaluations between them. (Reading `attempts`, comparing, then incrementing
+ * let parallel requests all read 0 and all guess — which mattered most for the
+ * reviewer's fixed code, where ruled-out guesses carry over between challenges.)
+ */
+async function reserveAttempt(env: Env, id: string): Promise<boolean> {
+  const res = await env.DB.prepare(
+    `UPDATE auth_challenges SET attempts = attempts + 1
+      WHERE id = ? AND consumed_at IS NULL AND attempts < ?`
+  )
+    .bind(id, MAX_ATTEMPTS)
+    .run();
+  return (res.meta?.changes ?? 0) > 0;
 }
 
 /**
@@ -189,14 +199,8 @@ export async function redeemReviewerCode(
     .bind(addr, now)
     .first<Row>();
   if (!row) return null;
-  if (row.attempts >= MAX_ATTEMPTS) return null;
-
-  if (!timingSafeEqual(code, expected)) {
-    await env.DB.prepare(`UPDATE auth_challenges SET attempts = attempts + 1 WHERE id = ?`)
-      .bind(row.id)
-      .run();
-    return null;
-  }
+  if (!(await reserveAttempt(env, row.id))) return null;
+  if (!timingSafeEqual(code, expected)) return null;
   return (await consume(env, row.id, now)) ? toChallenge(row) : null;
 }
 

@@ -131,6 +131,26 @@ describe("reviewer sign-in", () => {
     expect(hasSession(res)).toBe(false);
   });
 
+  /**
+   * The cap must hold under concurrency: parallel guesses used to all read
+   * attempts=0 before any of them incremented. Each guess now reserves its
+   * attempt atomically before the compare, so at most MAX_ATTEMPTS (5) are
+   * ever evaluated per challenge.
+   */
+  it("parallel guesses cannot exceed the 5-attempt cap", async () => {
+    await start(REVIEWER);
+    const guesses = Array.from({ length: 40 }, (_, i) => String(100000 + i));
+    await Promise.all(guesses.map((g) => verify(REVIEWER, g)));
+    const row = await env.DB.prepare(
+      `SELECT attempts FROM auth_challenges WHERE email = ? ORDER BY created_at DESC LIMIT 1`
+    )
+      .bind(REVIEWER)
+      .first<{ attempts: number }>();
+    expect(row!.attempts).toBeLessThanOrEqual(5);
+    // The challenge is spent: even the right code is refused now.
+    expect((await verify(REVIEWER, CODE)).status).toBe(401);
+  });
+
   it("an expired challenge does not accept the code", async () => {
     await start(REVIEWER);
     await env.DB.prepare(`UPDATE auth_challenges SET expires_at = ?`).bind("2000-01-01T00:00:00.000Z").run();
