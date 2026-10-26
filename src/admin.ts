@@ -358,9 +358,9 @@ export function overviewPage(o: OverviewInput): string {
     });
   }
 
-  const lede = viewer.isAdmin
-    ? `Everything published on this instance, who can reach it, and what still needs doing.`
-    : `Your artifacts, who can open them, and what still needs doing. You only ever see your own.`;
+  // Same for everyone, operators included: an admin's overview is their own
+  // artifacts. Instance-wide metadata lives in Platform (and is metadata only).
+  const lede = `Your artifacts, who can open them, and what still needs doing. You only ever see your own.`;
 
   return portalShell({
     viewer,
@@ -372,7 +372,7 @@ export function overviewPage(o: OverviewInput): string {
     body: `${usageWarningBanner(viewer.workspace?.billing)}
       ${statsRow(rows, versions, views)}
       ${nextActionsPanel(actions)}
-      ${recentPanel(rows, views, versions, grants, viewer.isAdmin, o.links)}
+      ${recentPanel(rows, views, versions, grants, false, o.links)}
       ${healthPanel(health)}`,
     style: OVERVIEW_STYLE,
   });
@@ -527,7 +527,7 @@ export function artifactsPage(o: ArtifactsInput): string {
         grants.get(r.slug) ?? [],
         versions.get(r.slug)?.length ?? 1,
         views.counts.get(r.slug)?.total ?? 0,
-        viewer.isAdmin,
+        false,
         links
       )
     )
@@ -543,7 +543,7 @@ export function artifactsPage(o: ArtifactsInput): string {
   const searchable = rows.length > 3;
   const listSection = `<section aria-labelledby="artifacts-h">
     <div class="section-head">
-      <h2 id="artifacts-h">${viewer.isAdmin ? "All artifacts" : "Your artifacts"}
+      <h2 id="artifacts-h">Your artifacts
         <span class="hint">${plural(rows.length, "published artifact")}</span></h2>
       ${searchable ? `<input id="filter" type="search" placeholder="Filter by title or slug…" aria-label="Filter artifacts">` : ""}
     </div>
@@ -561,9 +561,7 @@ export function artifactsPage(o: ArtifactsInput): string {
     section: "artifacts",
     title: "Artifacts",
     heading: "Artifacts",
-    lede: viewer.isAdmin
-      ? `Everything published here. Open one to manage its versions, its audience and its view log.`
-      : `Everything ${
+    lede: `Everything ${
           viewer.workspace
             ? `<b>${esc(workspaceLabel(viewer.workspace, viewer.email))}</b> has published`
             : "you have published"
@@ -620,9 +618,7 @@ export function galleryPage(viewer: PortalViewer, rows: ArtifactRow[], links?: B
     section: "gallery",
     title: "Gallery",
     heading: "Gallery",
-    lede: viewer.isAdmin
-      ? `Every artifact on this instance, as a reader sees it. Open one to view the page itself.`
-      : `Everything you can open — what you published, plus what other people have shared with
+    lede: `Everything you can open — what you published, plus what other people have shared with
          you. Managing an artifact happens under <a href="/admin/artifacts">Artifacts</a>.`,
     body: `<section aria-labelledby="gallery-h">
       <div class="section-head">
@@ -974,7 +970,7 @@ export function artifactDetailPage(o: ArtifactDetailInput): string {
   const { viewer, row, emails, versions, views, viewers, versionViews, sources, mailStatus = new Map(), events } = o;
   const shareLink = o.brandedUrl || `/${row.slug}/`;
   const viewCount = views.counts.get(row.slug)?.total ?? 0;
-  const badges = artifactBadges(row, emails, versions.length, viewCount, viewer.isAdmin);
+  const badges = artifactBadges(row, emails, versions.length, viewCount, false);
 
   const summary = `<section class="panel art-summary" data-artifact-detail="${esc(row.slug)}"
       aria-labelledby="summary-h">
@@ -1484,7 +1480,7 @@ export function platformPage(
     </div>
     <div class="row" data-operator="admins">
       <div class="info"><b>Admins</b><span class="hint"><span class="mono">ADMIN_EMAILS</span>
-        — manage every artifact and every member.</span></div>
+        — run the service: accounts, members and people. They see artifact metadata, never content.</span></div>
       <div class="row-actions"><span class="badge is-role">${num(info.adminCount)}</span></div>
     </div>
     <div class="row" data-operator="service-tokens">

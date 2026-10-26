@@ -369,11 +369,11 @@ export async function viewLimitStatus(
  * page instead of its content?
  *
  * `bypass` is the caller's own "may see this regardless of the limit"
- * decision — the artifact's owner and platform admins, per the spec — passed
+ * decision — the artifact's owner and workspace members — passed
  * in as a plain boolean rather than an `Identity` so this stays pure and
  * table-testable without any auth/session machinery. The content route
  * already computes exactly this (the `owned` it derives from `isOwner` /
- * workspace membership, OR'd with `identity?.isAdmin`) for its own `canView`
+ * workspace membership) for its own `canView`
  * check, so wiring this in costs it nothing extra to compute.
  */
 export function blocksOnViewLimit(status: ViewLimitStatus | null, bypass: boolean): boolean {
@@ -391,8 +391,8 @@ export function blocksOnViewLimit(status: ViewLimitStatus | null, bypass: boolea
  *    problem, so the owner keeps reaching their own content in order to do
  *    something about it. Suspension is an operator saying this workspace stops
  *    serving; an owner who could still serve their own artifacts by opening
- *    them themselves would make the control decorative. Only a platform admin
- *    passes, and only so an operator can inspect what they suspended.
+ *    them themselves would make the control decorative. Nobody passes —
+ *    not even a platform admin, who has no path to a customer's content anyway.
  *  - **It applies to raw requests too**, not just browser navigations. A
  *    suspension somebody could step around with `curl` is not a suspension.
  *    That is affordable because the answer comes from the same isolate-local,
@@ -402,7 +402,6 @@ export function blocksOnViewLimit(status: ViewLimitStatus | null, bypass: boolea
  * A null status means "nothing to enforce against" — no such account, or a
  * database that predates the accounts tables — and never blocks.
  */
-export function blocksOnSuspension(status: ViewLimitStatus | null, isPlatformAdmin: boolean): boolean {
-  if (isPlatformAdmin) return false;
+export function blocksOnSuspension(status: ViewLimitStatus | null): boolean {
   return !!status?.suspended;
 }

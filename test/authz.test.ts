@@ -32,9 +32,15 @@ describe("canView", () => {
     expect(canView(null, "everyone", true)).toBe(false);
     expect(canView(null, "restricted", true)).toBe(false);
   });
-  it("admin sees everything", () => {
-    expect(canView(admin, "restricted", false)).toBe(true);
-    expect(canView(admin, "everyone", false)).toBe(true);
+  it("admin sees nothing by being admin", () => {
+    expect(canView(admin, "restricted", false)).toBe(false);
+    expect(canView(admin, "everyone", false)).toBe(false);
+    expect(canView(admin, "everyone", false, false, false)).toBe(false);
+  });
+  it("an admin is an ordinary viewer when granted, owning, or in the workspace", () => {
+    expect(canView(admin, "restricted", true)).toBe(true);
+    expect(canView(admin, "restricted", false, true)).toBe(true);
+    expect(canView(admin, "everyone", false, false, true)).toBe(true);
   });
   it("'everyone' means everyone in the artifact workspace, not every authenticated viewer", () => {
     expect(canView(bob, "everyone", false)).toBe(false);
@@ -70,10 +76,14 @@ describe("isOwner", () => {
 });
 
 describe("canManage", () => {
-  it("admins manage every artifact, owned or not", () => {
-    expect(canManage(admin, ownedBy("bob@x.com"))).toBe(true);
+  it("admins manage only artifacts that belong to nobody", () => {
+    expect(canManage(admin, ownedBy("bob@x.com"))).toBe(false);
+    expect(canManage(adminToken, ownedBy("bob@x.com"))).toBe(false);
     expect(canManage(admin, ownedBy(null))).toBe(true);
-    expect(canManage(adminToken, ownedBy("bob@x.com"))).toBe(true);
+    expect(canManage(adminToken, ownedBy(null))).toBe(true);
+  });
+  it("an ownerless artifact that has a workspace is not the operator's", () => {
+    expect(canManage(admin, { owner_email: null, account_id: "acct_x" })).toBe(false);
   });
   it("a beta user manages only their own", () => {
     expect(canManage(bob, ownedBy("bob@x.com"))).toBe(true);

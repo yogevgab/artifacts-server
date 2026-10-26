@@ -91,21 +91,21 @@ describe("token issuance", () => {
     expect((await createToken(BOB, { name: "t", owner_email: BOB })).status).toBe(201);
   });
 
-  it("an admin can issue tokens for another user, or an admin token", async () => {
+  it("an admin can issue an admin token, but never one that acts as another user", async () => {
     const forBob = await createToken(ADMIN, { name: "t", owner_email: BOB });
-    expect(forBob.status).toBe(201);
-    expect(forBob.body.owner_email).toBe(BOB);
-    expect(forBob.body.is_admin).toBe(false);
+    expect(forBob.status).toBe(403);
+    expect(forBob.body.detail).toMatch(/another user/);
 
     const adminToken = await createToken(ADMIN, { name: "ci", is_admin: true });
     expect(adminToken.status).toBe(201);
     expect(adminToken.body.is_admin).toBe(true);
   });
 
-  it("refuses a token that could own nothing and manage nothing", async () => {
-    const res = await createToken(ADMIN, { name: "inert" });
-    expect(res.status).toBe(400);
-    expect(res.body.detail).toMatch(/owner_email/);
+  it("an admin token request with neither owner nor operator bit acts as the admin", async () => {
+    const res = await createToken(ADMIN, { name: "mine" });
+    expect(res.status).toBe(201);
+    expect(res.body.owner_email).toBe(ADMIN);
+    expect(res.body.is_admin).toBe(false);
   });
 });
 
@@ -274,17 +274,17 @@ describe("token ownership (scope never widens rights)", () => {
     ]);
   });
 
-  it("an admin token manages everyone's artifacts", async () => {
+  it("an admin token manages nobody's artifacts", async () => {
     const admin = await tokenFor(ADMIN, { name: "ci", is_admin: true, scopes: ["read", "publish", "manage"] });
-    expect((await req("/api/artifacts/bobs-secret/versions", withToken(admin))).status).toBe(200);
-    expect((await (await req("/api/artifacts", withToken(admin))).json<any>()).artifacts).toHaveLength(1);
-    // Publishing a new version as admin does not steal ownership.
-    expect((await publishWithToken(admin, "bobs-secret")).status).toBe(200);
+    expect((await req("/api/artifacts/bobs-secret/versions", withToken(admin))).status).toBe(404);
+    expect((await (await req("/api/artifacts", withToken(admin))).json<any>()).artifacts).toHaveLength(0);
+    // Publishing into someone else's slug is refused like for any stranger.
+    expect((await publishWithToken(admin, "bobs-secret")).status).toBe(409);
     const row = await env.DB.prepare("SELECT owner_email FROM artifacts WHERE slug='bobs-secret'").first<any>();
     expect(row.owner_email).toBe(BOB);
   });
 
-  it("an admin token publishing a new artifact leaves it unowned (admin-only)", async () => {
+  it("an admin token publishing a new artifact leaves it unowned (operator-only)", async () => {
     const admin = await tokenFor(ADMIN, { name: "ci", is_admin: true });
     expect((await publishWithToken(admin, "machine-made")).status).toBe(200);
     const row = await env.DB.prepare("SELECT owner_email FROM artifacts WHERE slug='machine-made'").first<any>();

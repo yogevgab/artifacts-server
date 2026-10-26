@@ -208,9 +208,11 @@ export async function editableArtifact(c: Context<Vars>, slug: string): Promise<
  * Every artifact this caller may manage — the visibility rule `GET /artifacts`
  * has always applied, in one place.
  *
- * A platform admin sees the instance; everybody else sees what they own by
- * email plus what their workspaces own (issue #27). For the personal account
- * every identity gets, those are the same rows as before.
+ * Everybody — platform admins included — sees what they own by email plus what
+ * their workspaces own (issue #27). For the personal account every identity gets,
+ * those are the same rows as before. An admin's list is not the instance: the
+ * operator console shows other people's artifacts as metadata only
+ * (src/platform.ts).
  *
  * Exported for the same reason as `manageableArtifact`: the remote MCP
  * `doctor`, `list_artifacts` and `artifact_statistics` tools all need this
@@ -218,13 +220,14 @@ export async function editableArtifact(c: Context<Vars>, slug: string): Promise<
  */
 export async function visibleArtifacts(c: Context<Vars>): Promise<ArtifactRow[]> {
   const identity = c.get("identity");
-  return isPlatformAdmin(identity)
-    ? listArtifacts(c.env)
-    : listArtifactsForCaller(
-        c.env,
-        identity.email,
-        accountIdsWithAtLeast((await accountsFor(c)).roles, MANAGE_ARTIFACTS)
-      );
+  // Platform admins get no wider a list than anybody else: their own and their
+  // workspaces', plus artifacts that belong to nobody (service-token publishes).
+  return listArtifactsForCaller(
+    c.env,
+    identity.email,
+    accountIdsWithAtLeast((await accountsFor(c)).roles, MANAGE_ARTIFACTS),
+    isPlatformAdmin(identity)
+  );
 }
 
 /**
@@ -374,7 +377,7 @@ export async function resolvePublishTarget(
     return c.json({ error: "bad_request", detail: `invalid slug "${slug}"` }, 400);
   }
   // Publishing to an existing slug adds a version to *that* artifact, so it is
-  // only allowed for its owner (or an admin), or for a named person the owner
+  // only allowed for its owner (or a member of its workspace), or for a named person the owner
   // made an editor of it. The editor still publishes into the artifact's own
   // workspace: `storeUpload` keeps `owner_email`/`account_id` from `existing`
   // and charges the artifact's account quota, not the editor's. Slugs are a
@@ -525,7 +528,8 @@ export async function storeUpload(
     visibility: existing?.visibility ?? "restricted",
     current_version: version, // new upload becomes live immediately
     // Ownership is set once, at creation, and never transferred by a republish.
-    // A service token (no email) creates an unowned, admin-only artifact.
+    // A service token (no email) creates an unowned artifact — the one kind
+    // platform admins still manage (`isOrphan`, src/authz.ts).
     owner_email: existing?.owner_email ?? c.get("identity").email,
     // The workspace this artifact belongs to (issue #27), also set once. Null
     // when the publisher has no account yet (un-migrated instance, or a platform
@@ -894,17 +898,25 @@ api.post("/tokens", async (c) => {
   let ownerEmail: string | null;
   let isAdminToken: boolean;
   if (identity.isAdmin) {
+    // Operators are artifact-blind (src/authz.ts canView). A token that acts as
+    // another person would read everything that person can, so an admin mints
+    // only for themselves, or an owner-less admin token for operator work.
+    if (requestedOwner && requestedOwner !== identity.email?.toLowerCase()) {
+      return c.json(
+        { error: "forbidden", detail: "operators cannot create tokens that act as another user" },
+        403
+      );
+    }
     ownerEmail = requestedOwner || null;
     isAdminToken = wantsAdmin;
     if (ownerEmail && !ownerEmail.includes("@")) {
       return c.json({ error: "bad_request", detail: "owner_email must be a valid email" }, 400);
     }
-    // A token with no owner and no admin bit could never own or reach anything.
+    // Neither an owner nor the operator bit: the token acts as the admin, like
+    // anybody else's (a token with neither could never own or reach anything).
+    if (!ownerEmail && !isAdminToken) ownerEmail = identity.email?.toLowerCase() ?? null;
     if (!ownerEmail && !isAdminToken) {
-      return c.json(
-        { error: "bad_request", detail: "provide owner_email, or set is_admin for an admin token" },
-        400
-      );
+      return c.json({ error: "bad_request", detail: "set is_admin for an operator token" }, 400);
     }
   } else {
     if (wantsAdmin || (requestedOwner && requestedOwner !== identity.email)) {
@@ -1330,7 +1342,7 @@ api.all("/machine", noMachineRoute);
 api.all("/machine/*", noMachineRoute);
 
 /** Delete every R2 object under `<slug>/`, reporting how many bytes went. */
-async function deletePrefix(env: Env, slug: string): Promise<{ files: number; bytes: number }> {
+export async function deletePrefix(env: Env, slug: string): Promise<{ files: number; bytes: number }> {
   const prefix = `${slug}/`;
   let cursor: string | undefined;
   let files = 0;

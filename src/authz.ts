@@ -20,7 +20,8 @@ type Owned = {
 /**
  * Does this identity own the artifact? Ownership is an exact (case-insensitive)
  * email match. An artifact with no owner_email — legacy rows, or anything
- * published by a service token — is owned by nobody, so only admins manage it.
+ * published by a service token — is owned by nobody, so only an admin manages it
+ * (see `isOrphan`; the sole artifact-level power platform admins keep).
  */
 export function isOwner(identity: Identity | null, artifact: Owned): boolean {
   const owner = artifact.owner_email?.trim().toLowerCase();
@@ -42,10 +43,40 @@ export function isOwner(identity: Identity | null, artifact: Owned): boolean {
 //
 // The helpers below are named for which system they consult, so a reader of an
 // authorization check never has to guess.
+//
+// **Neither system reaches other people's artifact CONTENT through platform
+// authority** (decision of 2026-10-26). A platform admin or super admin is an
+// operator: they run the service, they do not read what customers publish or who
+// viewed it. At the artifact level an admin is therefore an ordinary caller —
+// `canManage`, `canView`, `canEdit`, the listings and every serve path treat them
+// exactly like a stranger unless they own the artifact, belong to its workspace,
+// or were granted it by name. What platform authority still reaches is
+// account-level and metadata-only: suspend/unsuspend, plan override, members of
+// a workspace, the users list, tokens, billing, the instance-wide artifact
+// *metadata* table (src/platform.ts) and the audited abuse-delete
+// (`DELETE /api/platform/artifacts/:slug`, src/platform-routes.ts).
 
 /** Platform admin: instance-wide operator rights. Config-derived, never from D1. */
 export function isPlatformAdmin(identity: Identity | null): boolean {
   return !!identity?.isAdmin;
+}
+
+/**
+ * Is this artifact nobody's? No `owner_email` and no `account_id` means it was
+ * published by an admin/service token with no person behind it (or is a legacy
+ * single-tenant row). There is no customer whose content that could be, so the
+ * operator who published it may keep managing it. It is the ONLY artifact-level
+ * thing platform authority still reaches; any row with an owner or a workspace is
+ * out of reach. Remove this function and its two call sites to make platform
+ * admins fully artifact-blind (orphans would then be reachable by nobody).
+ */
+export function isOrphan(artifact: Owned): boolean {
+  return !artifact.owner_email?.trim() && !artifact.account_id;
+}
+
+/** Platform admin acting on an artifact that belongs to nobody. See {@link isOrphan}. */
+export function operatesOrphan(identity: Identity | null, artifact: Owned): boolean {
+  return isPlatformAdmin(identity) && isOrphan(artifact);
 }
 
 /**
@@ -84,7 +115,10 @@ function hasAccountRights(
  *
  * Three independent paths, checked in order of authority:
  *
- * 1. **Platform admin** — manages every artifact on the instance.
+ * 1. **Operator of an ownerless artifact** — a platform admin manages an artifact
+ *    only when it belongs to nobody (`isOrphan`). Platform authority does NOT
+ *    reach anyone's artifact: being an admin is not a path to other people's
+ *    content, versions, views, access list or share links.
  * 2. **Legacy owner** — `owner_email` matches. Unchanged from before #27, and
  *    checked before any account lookup, which is what guarantees an artifact
  *    whose `account_id` was never backfilled keeps working exactly as it did.
@@ -105,7 +139,7 @@ export function canManage(
   accounts?: AccountRoles | null
 ): boolean {
   if (!identity) return false;
-  if (isPlatformAdmin(identity)) return true;
+  if (operatesOrphan(identity, artifact)) return true;
   if (isOwner(identity, artifact)) return true;
   return hasAccountRights(artifact, accounts, MANAGE_ARTIFACTS);
 }
@@ -204,9 +238,18 @@ export function memberChangeDenial(
   actorRole: AccountRole | null,
   change: { targetCurrentRole: AccountRole | null; nextRole: AccountRole | null; ownerCount: number }
 ): string | null {
-  const platform = isPlatformAdmin(identity);
+  // Operators are artifact-blind (see canView). Adding somebody — themselves
+  // above all — or raising a role would hand them that workspace's content
+  // through the account-role path, so platform authority over a workspace's
+  // members is REMOVAL only. Adding and role changes follow the workspace's own
+  // rule whoever asks: its admins add, and only its owners touch owners — an
+  // operator who is merely a viewer there cannot promote themselves.
+  const platformRemoval = isPlatformAdmin(identity) && change.nextRole === null;
+  if (change.nextRole !== null && !atLeast(actorRole, MANAGE_MEMBERS)) {
+    return "only this workspace's owners and admins can add members or change roles";
+  }
   const touchesOwner = change.targetCurrentRole === "owner" || change.nextRole === "owner";
-  if (touchesOwner && !platform && actorRole !== "owner") {
+  if (touchesOwner && !platformRemoval && actorRole !== "owner") {
     return "only an account owner can add or change another owner";
   }
   if (change.targetCurrentRole === "owner" && change.nextRole !== "owner" && change.ownerCount <= 1) {
@@ -302,7 +345,9 @@ export function userActionDenial(
 /**
  * Can this identity view an artifact?
  * - Unauthenticated → no.
- * - Admin (or service token) → yes.
+ * - Platform admins get nothing special: they pass through the same rules as
+ *   anyone else (an orphan artifact is handled by the caller passing `owned`,
+ *   see `operatesOrphan`).
  * - The owner, or a member of the owning workspace (`owned`) → yes, regardless
  *   of visibility and grants.
  * - visibility 'everyone' → anybody in the artifact's workspace (`inWorkspace`).
@@ -333,10 +378,10 @@ export function userActionDenial(
  *
  * **Known consequence:** an artifact whose `account_id` is NULL has no
  * workspace to be "everyone" within, so nobody reaches it through this branch —
- * only its owner, its grantees and platform admins. Migration 0010 backfills
+ * only its owner and its grantees. Migration 0010 backfills
  * `account_id` for every artifact that has an `owner_email`, so the rows this
  * can affect are the ones that were already owner-less and therefore already
- * admin-only by the `isOwner` path. See docs/ARCHITECTURE.md § Data model.
+ * unowned. See docs/ARCHITECTURE.md § Data model.
  */
 export function canView(
   identity: Identity | null,
@@ -346,7 +391,6 @@ export function canView(
   inWorkspace = false
 ): boolean {
   if (!identity) return false;
-  if (identity.isAdmin) return true;
   if (owned) return true;
   if (visibility === "everyone" && inWorkspace) return true;
   return granted;

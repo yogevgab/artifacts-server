@@ -60,7 +60,7 @@ The server stores only a SHA-256 hash of the token. If you lose it, revoke it
 
 | Caller | May create |
 |---|---|
-| Admin | Any token: for any `owner_email`, or `"is_admin": true` for a token that manages every artifact |
+| Admin | Any token: for any `owner_email`, or `"is_admin": true` for a token that acts for no user (it manages only artifacts that belong to nobody, never anyone's content) |
 | Member | Only tokens that act as themselves (`owner_email` = their own email, never `is_admin`) |
 | API token | Nothing — `403` |
 
@@ -70,7 +70,7 @@ The server stores only a SHA-256 hash of the token. If you lose it, revoke it
 |---|---|
 | `name` | Label, ≤ 80 chars. Required. |
 | `owner_email` | The user this token acts as. Required unless `is_admin`. |
-| `is_admin` | Admin token: manages every artifact. Admin-only to create. |
+| `is_admin` | Admin token: a platform credential. It cannot read or manage any user's artifacts. Admin-only to create. |
 | `scopes` | Subset of `read`, `publish`, `manage`. Defaults to `["read","publish"]`. |
 | `expires_in_days` | 1–365. Omit for a token that never expires. |
 | `account_id` | **Read-only, set by the server.** The workspace this token acts inside. |
@@ -83,8 +83,8 @@ workspace the creator was acting in. That pin is permanent and is not a field yo
 - The token reaches that workspace's artifacts and no others. If its owner later joins a second
   workspace, **the token does not follow them.** Mint a separate token for the second workspace.
 - An admin minting a token for somebody else pins it to *that person's* workspace, never their own.
-- An `"is_admin": true` token has no workspace at all — it is a platform credential and manages
-  every artifact directly.
+- An `"is_admin": true` token has no workspace at all — it is a platform credential. It has no
+  workspace and no access to any user's artifacts.
 - Tokens minted before workspaces existed have no `account_id` and keep working unchanged, scoped
   by `owner_email` exactly as before.
 
@@ -203,7 +203,7 @@ rather than assembling a link: the workspace part of the address is chosen per a
 no `content_base` any more — the content host is not an address.
 
 Rollback is instant and non-destructive: v3's files stay in R2, so rolling forward again is
-another `current` call. Preview any version at `/v/<slug>/<n>/` (owner/admin only).
+another `current` call. Preview any version at `/v/<slug>/<n>/` (owner or workspace member only).
 
 ## 5. Access and deletion (scope `manage`)
 

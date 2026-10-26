@@ -105,10 +105,16 @@ describe("canManage across the three authorization paths", () => {
   const legacy = { owner_email: ALICE, account_id: null };
   const teamArtifact = { owner_email: BOB, account_id: "acct_team" };
 
-  it("a platform admin manages everything, account or not", () => {
-    expect(canManage(platformAdmin, legacy)).toBe(true);
-    expect(canManage(platformAdmin, teamArtifact)).toBe(true);
+  it("a platform admin manages no artifact that has an owner or a workspace", () => {
+    expect(canManage(platformAdmin, legacy)).toBe(false);
+    expect(canManage(platformAdmin, teamArtifact)).toBe(false);
+    expect(canManage(platformAdmin, { owner_email: BOB, account_id: null })).toBe(false);
+    expect(canManage(platformAdmin, { owner_email: null, account_id: "acct_team" })).toBe(false);
+  });
+
+  it("the only artifact a platform admin manages is one that belongs to nobody", () => {
     expect(canManage(platformAdmin, { owner_email: null, account_id: null })).toBe(true);
+    expect(canManage(alice, { owner_email: null, account_id: null })).toBe(false);
   });
 
   it("the legacy owner_email path still works with no account context at all", () => {
@@ -188,9 +194,23 @@ describe("member-change policy", () => {
     ).toBeNull();
   });
 
-  it("a platform admin bypasses that, because they administer the instance", () => {
+  it("a platform admin outside the workspace cannot add members or change roles (that would reach its content)", () => {
     expect(
       memberChangeDenial(platformAdmin, null, { targetCurrentRole: "member", nextRole: "owner", ownerCount: 1 })
+    ).toMatch(/only this workspace's owners and admins/);
+    expect(
+      memberChangeDenial(platformAdmin, null, { targetCurrentRole: null, nextRole: "viewer", ownerCount: 1 })
+    ).toMatch(/only this workspace's owners and admins/);
+    // An operator who is merely a viewer there cannot promote themselves either.
+    expect(
+      memberChangeDenial(platformAdmin, "viewer", { targetCurrentRole: "viewer", nextRole: "owner", ownerCount: 1 })
+    ).toMatch(/only this workspace's owners and admins/);
+    expect(
+      memberChangeDenial(platformAdmin, "member", { targetCurrentRole: null, nextRole: "admin", ownerCount: 1 })
+    ).toMatch(/only this workspace's owners and admins/);
+    // Removing somebody is still an operator action.
+    expect(
+      memberChangeDenial(platformAdmin, null, { targetCurrentRole: "member", nextRole: null, ownerCount: 1 })
     ).toBeNull();
   });
 
@@ -311,8 +331,13 @@ describe("publishing attaches the artifact to a workspace", () => {
   it("does not re-home an artifact when somebody else publishes a new version", async () => {
     await publish(ALICE, "shared-slug");
     const alicesAccount = await accountOf("shared-slug");
-    // The platform admin republishes: ownership and workspace must both survive.
-    await publish(OWNER, "shared-slug");
+    // The platform admin cannot publish into it at all (409, like any stranger):
+    // ownership and workspace both survive.
+    const res = await req(
+      "/api/artifacts",
+      as(OWNER, { method: "POST", body: htmlForm({ title: "shared-slug", slug: "shared-slug" }, "index.html", html) })
+    );
+    expect(res.status).toBe(409);
     expect(await accountOf("shared-slug")).toBe(alicesAccount);
     const row = await env.DB.prepare("SELECT owner_email FROM artifacts WHERE slug = ?")
       .bind("shared-slug")
@@ -559,12 +584,16 @@ describe("API tokens and workspaces", () => {
     expect(body.artifacts.map((a) => a.slug)).toEqual(["alice-token-art"]);
   });
 
-  it("pins an admin-minted token to the OWNER's workspace, not the admin's", async () => {
-    const { account_id } = await mint(OWNER, { owner_email: BOB });
-    const bobs = await personalAccountFor(env as any, BOB);
-    const admins = await personalAccountFor(env as any, OWNER);
-    expect(account_id).toBe(bobs!.id);
-    expect(account_id).not.toBe(admins?.id ?? null);
+  it("refuses an admin-minted token that would act as somebody else (operators are artifact-blind)", async () => {
+    const res = await req(
+      "/api/tokens",
+      as(OWNER, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "for-bob", owner_email: BOB }),
+      })
+    );
+    expect(res.status).toBe(403);
   });
 
   it("leaves a platform (admin) token account-less", async () => {
@@ -692,10 +721,11 @@ describe("no D1 role escalation", () => {
   it("a platform admin is not silently made a member of the accounts they administer", async () => {
     await publish(ALICE, "audit-trail");
     const alices = await personalAccountFor(env as any, ALICE);
-    // The operator can manage it (platform authority) but is not in the workspace,
-    // so an audit trail never shows them as one of the customer's members.
+    // The operator is not in the workspace (so an audit trail never shows them as
+    // one of the customer's members) and, since 2026-10-26, cannot reach its
+    // artifacts through platform authority either.
     expect(await memberRole(env as any, alices!.id, OWNER)).toBeNull();
-    expect((await req("/api/artifacts/audit-trail/versions", as(OWNER))).status).toBe(200);
+    expect((await req("/api/artifacts/audit-trail/versions", as(OWNER))).status).toBe(404);
   });
 });
 

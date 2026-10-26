@@ -29,7 +29,7 @@ import {
   viewsByVersion,
   viewSources,
 } from "./db";
-import { canView, canManage, canManageMembers, isOwner, belongsToCaller } from "./authz";
+import { canView, canManage, canManageMembers, isOwner, belongsToCaller, operatesOrphan } from "./authz";
 import {
   listMembers,
   accountIdsWithAtLeast,
@@ -211,15 +211,15 @@ async function artifactContext(c: PortalContext): Promise<{
   views: ViewsInfo;
 }> {
   const identity = c.get("identity");
-  // Platform admins see the instance; everybody else sees what they own by email
-  // plus what their workspaces own. Identical results for a personal account.
-  const rows = identity.isAdmin
-    ? await listArtifacts(c.env)
-    : await listArtifactsForCaller(
-        c.env,
-        identity.email,
-        accountIdsWithAtLeast((await accountsFor(c)).roles, MANAGE_ARTIFACTS)
-      );
+  // Everybody — platform admins included — sees what they own by email plus what
+  // their workspaces own. (An admin also gets artifacts that belong to nobody.)
+  // The instance-wide view is metadata-only and lives in /admin/platform.
+  const rows = await listArtifactsForCaller(
+    c.env,
+    identity.email,
+    accountIdsWithAtLeast((await accountsFor(c)).roles, MANAGE_ARTIFACTS),
+    !!identity.isAdmin
+  );
   const slugs = new Set(rows.map((r) => r.slug));
   const [grants, versions, counts, recent] = await Promise.all([
     allGrants(c.env),
@@ -239,14 +239,12 @@ async function artifactContext(c: PortalContext): Promise<{
  * Every artifact this caller may *open* — what the Gallery section lists.
  *
  * Deliberately a different question from `artifactContext`, which answers "what
- * may I manage?". A member sees what they own, what their workspaces own, what
- * has been granted to them by name, and what their workspaces own. An admin
- * sees the instance.
+ * may I manage?". Everyone — admins included — sees what they own, what their
+ * workspaces own, and what has been granted to them by name.
  */
 async function readableArtifacts(c: PortalContext): Promise<ArtifactRow[]> {
   const identity = c.get("identity");
   const rows = await listArtifacts(c.env);
-  if (identity.isAdmin) return rows;
   const [granted, accounts] = await Promise.all([
     identity.email ? grantedSlugs(c.env, identity.email) : Promise.resolve(new Set<string>()),
     // `ensure: false` — the gallery is a read path and must not provision an
@@ -820,8 +818,8 @@ app.get("/gallery", async (c) => {
  * Does this caller manage the artifact, for the two routes that authenticate
  * without the portal middleware (`/v/…` preview and the public catch-all)?
  *
- * Account membership is consulted only *after* the free checks — platform admin,
- * then `owner_email` — have already failed, and only when the artifact actually
+ * Account membership is consulted only *after* the free checks — `owner_email`
+ * (and the ownerless-artifact operator rule) — have already failed, and only when the artifact actually
  * belongs to an account. So the ordinary case (an owner previewing their own
  * work) costs no extra database read, and the serving hot path below pays for
  * the membership lookup only on a request that would otherwise 404.
@@ -836,7 +834,7 @@ async function manages(
   return atLeast(await memberRole(env, art.account_id, identity.email), MANAGE_ARTIFACTS);
 }
 
-// Version preview for people who manage the artifact (admin or owner):
+// Version preview for people who manage the artifact (owner or workspace member):
 // /v/<slug>/<n>/<path> serves a specific version. Relative assets resolve within
 // this prefix. Everyone else gets 404 (existence stays hidden).
 app.get("/v/*", async (c) => {
@@ -975,21 +973,21 @@ app.get("/_chat/:slug", async (c) => {
     return c.json({ error: "not_found" }, 404);
   }
 
-  const owned = isOwner(identity, art);
+  const owned = isOwner(identity, art) || operatesOrphan(identity, art);
   // 'everyone' means everyone in the artifact's workspace, not every identity
   // on the instance (see canView). The chat room has to answer the same
   // question the artifact itself does, or somebody who cannot open a page can
   // still join the conversation attached to it.
   const inWorkspace = await callerIsInWorkspace(c.env, art, identity);
   let granted = false;
-  if (!identity?.isAdmin && !owned && !inWorkspace && identity?.email) {
+  if (!owned && !inWorkspace && identity?.email) {
     granted = await hasGrant(c.env, slug, identity.email);
   }
   if (!viaLink && !canView(identity, art.visibility, granted, owned, inWorkspace)) {
     return c.json({ error: "not_found" }, 404);
   }
 
-  const kind = owned || identity?.isAdmin
+  const kind = owned
     ? "owner"
     : viaLink
       ? "link"
@@ -1007,7 +1005,7 @@ app.get("/_chat/:slug", async (c) => {
   const chatStatus = art.account_id
     ? await viewLimitStatus(c.env, art.account_id, undefined, undefined, true)
     : null;
-  if (blocksOnSuspension(chatStatus, !!identity?.isAdmin)) {
+  if (blocksOnSuspension(chatStatus)) {
     return c.json({ error: "suspended" }, 403);
   }
   const stub = c.env.CHAT.get(c.env.CHAT.idFromName(slug));
@@ -1078,7 +1076,7 @@ app.get("*", async (c) => {
     const status = art.account_id
       ? await viewLimitStatus(c.env, art.account_id, undefined, undefined, true)
       : null;
-    if (blocksOnSuspension(status, false)) {
+    if (blocksOnSuspension(status)) {
       return c.html(suspendedContentPage(slug, siteOrigin(c.env)), 403);
     }
     const served = await serveArtifact(c, slug, art.current_version, framedPath, { framed: true });
@@ -1142,7 +1140,7 @@ app.get("*", async (c) => {
   // on purpose (see `blocksOnSuspension` in src/quota.ts). The monthly view
   // allowance is a browser-navigation limit and is enforced by the viewer.
   const status = art.account_id ? await viewLimitStatus(c.env, art.account_id, undefined, undefined, true) : null;
-  if (blocksOnSuspension(status, !!identity?.isAdmin)) {
+  if (blocksOnSuspension(status)) {
     return c.html(suspendedContentPage(slug, siteOrigin(c.env)), 403);
   }
 
