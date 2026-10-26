@@ -91,6 +91,8 @@ describe.each(PAGES)("$meta.path", ({ meta, h1, faq }) => {
     expect(served).toContain(`${LOCAL}${meta.path}`);
     const full = llmsFullTxt({ PUBLIC_BASE_URL: "https://rtfx.pro" });
     expect(full).toContain(`## ${h1} (https://rtfx.pro${meta.path})`);
+    // Inline links survive the HTML→markdown conversion (a stray rel= used to drop the URL).
+    expect(full).toContain("](https://support.claude.com)");
   });
 
   it("is app-host only and a reserved workspace slug", () => {
@@ -155,7 +157,15 @@ describe("/share-claude-artifacts-privately content", () => {
 describe("/claude-publish-vs-private-link content", () => {
   it("has a comparison table with both columns and a when-to-use section", async () => {
     const html = await (await get(ANSWER_META.compare.path)).text();
-    const table = /<table class="cmp">[\s\S]*?<\/table>/.exec(html)![0];
+    const table = /<table class="cmp"[^>]*>[\s\S]*?<\/table>/.exec(html)![0];
+    // Explicit roles keep the column headers announced when the narrow layout
+    // sets display:block on the table parts.
+    expect(table).toMatch(/<table class="cmp" role="table">/);
+    expect(table).toContain('role="rowheader"');
+    expect(table).toContain('role="cell"');
+    expect(table).not.toContain("&nbsp;</th>");
+    // Only what Claude's support docs state about Publish — no inferred claims.
+    expect(table).not.toContain("none needed");
     expect(table).toContain("Claude's built-in Publish");
     expect(table).toContain("rtfx private link");
     for (const row of ["Who can open it", "Sign-in for viewers", "Updating and versions", "Expiry and revoking", "Cost"]) {

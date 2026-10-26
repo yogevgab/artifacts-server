@@ -135,8 +135,8 @@ const COMPARE_H1 = "Claude Publish vs a private link";
 
 const COMPARE_LEAD =
   "Claude has a built-in Publish button, and rtfx.pro adds private links to Claude as an MCP " +
-  "server. They solve different problems: Publish is for sharing with anyone, a private link is for " +
-  "sharing with only the people you choose. Here is how they differ.";
+  "server. They solve different problems: Publish is for sharing publicly (or organization-wide on " +
+  "Team and Enterprise), a private link is for sharing with only the people you choose. Here is how they differ.";
 
 interface CompareRow {
   label: string;
@@ -158,7 +158,7 @@ const COMPARE_ROWS: readonly CompareRow[] = [
   {
     label: "Sign-in for viewers",
     claude:
-      "Free, Pro and Max: none needed, since it is public. Team and Enterprise: viewers must be " +
+      "Free, Pro and Max: public to anyone with the link. Team and Enterprise: viewers must be " +
       "logged in to your organization.",
     rtfx:
       "People you add sign in with a one-time email code. Someone with a share link needs no " +
@@ -180,7 +180,7 @@ const COMPARE_ROWS: readonly CompareRow[] = [
   },
   {
     label: "Cost",
-    claude: `Built into Claude; see <a href="${CLAUDE_SUPPORT_URL}" rel="noopener">Claude's support site</a> for plan details.`,
+    claude: `Built into Claude; see <a href="${CLAUDE_SUPPORT_URL}">Claude's support site</a> for plan details.`,
     rtfx: `Free plan. Pro ${priceLabel("pro")}, Team ${priceLabel("team")}. Operators see metadata only, never your content.`,
   },
 ];
@@ -300,12 +300,13 @@ table.cmp td{color:var(--muted)}
 .final h2{font-size:clamp(1.4rem,3.2vw,1.8rem);letter-spacing:-.045em;margin:0 0 1rem}
 .final .cta{display:flex;gap:.7rem;justify-content:center;flex-wrap:wrap}.final .cta a:hover{text-decoration:none}
 .related{margin:2.4rem 0 0;color:var(--muted);font-size:.96rem}
+.cell-label{display:none}
 @media(max-width:760px){.hero{padding:2rem 0 .5rem}h2.sec{margin-top:2.4rem}.when{grid-template-columns:1fr}
 table.cmp,table.cmp tbody,table.cmp tr,table.cmp th,table.cmp td{display:block;width:auto}
 table.cmp thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 table.cmp tbody th{width:auto;border:0;padding:.9rem 0 .2rem}
 table.cmp td{border:0;padding:.2rem 0 .3rem}
-table.cmp td::before{content:attr(data-label);display:block;font-size:.76rem;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:600}
+table.cmp .cell-label{display:block;font-size:.76rem;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:600}
 table.cmp tr{border-bottom:1px solid var(--border);padding-bottom:.6rem}}
 `;
 
@@ -389,15 +390,17 @@ export function comparePage(env: Env): string {
   const meta = ANSWER_META.compare;
   const rows = COMPARE_ROWS.map(
     (r) =>
-      `<tr><th scope="row">${esc(r.label)}</th><td data-label="Claude's built-in Publish">${r.claude}</td><td data-label="rtfx private link">${r.rtfx}</td></tr>`
+      `<tr role="row"><th scope="row" role="rowheader">${esc(r.label)}</th>` +
+      `<td role="cell"><span class="cell-label" aria-hidden="true">Claude's built-in Publish</span>${r.claude}</td>` +
+      `<td role="cell"><span class="cell-label" aria-hidden="true">rtfx private link</span>${r.rtfx}</td></tr>`
   ).join("\n        ");
   const main = `
     <section aria-labelledby="cmp-h">
       <h2 class="sec" id="cmp-h">Side by side</h2>
-      <table class="cmp">
+      <table class="cmp" role="table">
         <caption class="sr-only">Claude's built-in Publish compared with an rtfx private link</caption>
-        <thead><tr><th scope="col">&nbsp;</th><th scope="col">Claude's built-in Publish</th><th scope="col">rtfx private link</th></tr></thead>
-        <tbody>
+        <thead role="rowgroup"><tr role="row"><th scope="col" role="columnheader"><span class="sr-only">Topic</span></th><th scope="col" role="columnheader">Claude's built-in Publish</th><th scope="col" role="columnheader">rtfx private link</th></tr></thead>
+        <tbody role="rowgroup">
         ${rows}
         </tbody>
       </table>
