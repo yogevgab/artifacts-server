@@ -75,7 +75,10 @@ pre.code{background:#05070c;border:1px solid var(--border);border-radius:var(--r
 .guide-link{font-weight:600;font-size:1.02rem}
 .faq-list{display:grid;gap:.6rem}
 .faq-list details{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-sm);padding:.15rem 1rem}
-.faq-list summary{cursor:pointer;font-weight:600;letter-spacing:-.01em;padding:.75rem 0;min-height:44px;display:flex;align-items:center}
+.faq-list summary{cursor:pointer;font-weight:600;letter-spacing:-.01em;padding:.75rem 0;min-height:44px;display:flex;align-items:center;gap:.75rem;list-style:none}
+.faq-list summary::-webkit-details-marker{display:none}
+.faq-list summary::after{content:"+";margin-left:auto;flex:none;font-weight:500;font-size:1.2rem;color:var(--muted)}
+.faq-list details[open]>summary::after{content:"\\2212"}
 .faq-list details[open] summary{color:var(--fg)}
 .faq-list details p{margin:0 0 .9rem;color:var(--muted)}
 .pricing{margin:4.2rem 0 0}

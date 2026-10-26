@@ -373,7 +373,7 @@ ask Claude to publish, share or delete what it made. The site is one page: ${ori
 
 - MCP endpoint: \`${MCP_URL}\` (Streamable HTTP). OAuth 2.1 with discovery and dynamic client
   registration; sign-in is a browser email code and there is nothing to paste.
-- claude.ai: Settings → Connectors → "Add custom connector", name \`rtfx\`, URL
+- claude.ai: Customize → Connectors → + Add → "Add custom connector", name \`rtfx\`, URL
   \`${MCP_URL}\`, then Add, Connect, sign in with the email code and Allow. It then works in
   Claude on web, desktop and mobile. claude.ai asks for read, publish and manage, so the consent
   screen lists "Manage access and delete artifacts"; allow it to share and delete from chat.
@@ -428,7 +428,7 @@ product:
 - rtfx.pro owns sign-in: passwordless one-time email code or magic link, with a host-only
   session cookie on the app origin.
 - Signup is self-serve at ${origin}/signup; no human review is required to start on Free.
-- Per-artifact permissions: restricted (named people only) or everyone signed in.
+- Per-artifact permissions: restricted (named people only) or everyone in the workspace.
 - Optionally, a share link for one artifact: a capability URL with no sign-in, an optional
   expiry of 1–365 days (or none), immediate revocation, and only a hash stored. It opens that
   artifact and nothing else, and confers no management rights.

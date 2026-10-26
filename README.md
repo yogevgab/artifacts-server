@@ -233,7 +233,7 @@ The hosted server publishes content sent inside the tool call; it cannot read a 
 | `list_artifacts` | List the artifacts the credential can manage (slug, title, URL, type, visibility, live version, size, last update), newest first and paginated. |
 | `artifact_details` | Everything known about one artifact: URL, full version history, who it is shared with (viewers and editors) and how often it has been opened. |
 | `artifact_statistics` | Aggregate numbers: versions, files, bytes and views, for one artifact or across everything the credential can reach. |
-| `share_artifact` | Replace who may open an artifact: restricted to named viewers and editors, or everyone signed in. Needs the `manage` scope. |
+| `share_artifact` | Replace who may open an artifact: restricted to named viewers and editors, or everyone in the workspace. Needs the `manage` scope. |
 | `rollback_artifact` | Point an artifact's URL back at one of its earlier versions; non-destructive. Needs the `manage` scope. |
 | `delete_artifact` | Permanently delete an artifact: every version, file, access grant and share link. Requires `confirm_slug`; needs the `manage` scope. |
 | `doctor` | Report how this connection is authenticated and whether the instance answers; publishes nothing. |
@@ -362,7 +362,7 @@ Full request/response contract, error codes and rollback flow:
 ### Permissions
 The app decides **who is signed in** by verifying an emailed code or magic link and setting an
 `rtfx_session` cookie. The Worker decides **who sees each artifact**: `restricted` (only granted
-emails + admins) or `everyone` (any signed-in user). New artifacts are private by default. A direct
+emails) or `everyone` (everyone in the artifact's workspace). Platform admins see metadata only, never content. New artifacts are private by default. A direct
 URL a viewer lacks access to returns 404.
 
 **Ownership.** Every artifact belongs to the person/workspace that published it

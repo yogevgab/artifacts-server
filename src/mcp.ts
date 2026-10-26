@@ -407,7 +407,7 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
     title: "Set who can open an artifact",
     description:
       "Replace who may open an artifact: 'restricted' (its owner plus exactly the emails you " +
-      "list) or 'everyone' (any signed-in user of this instance). THE EMAIL LIST IS A REPLACEMENT, " +
+      "list) or 'everyone' (everyone in the artifact's workspace). THE EMAIL LIST IS A REPLACEMENT, " +
       "NOT AN ADDITION — send the full list every time, and send [] to revoke everybody. Call " +
       "artifact_details first to read the current list if you mean to add somebody to it. People in " +
       "`emails` become viewers (they can open it); people in `editors` become editors (they can " +
@@ -424,7 +424,7 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
           type: "string",
           enum: ["restricted", "everyone"],
           description:
-            "'restricted' = the owner plus the named emails only. 'everyone' = any signed-in user of this instance.",
+            "'restricted' = the owner plus the named emails only. 'everyone' = everyone in the artifact's workspace.",
         },
         emails: {
           type: "array",
