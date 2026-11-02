@@ -10,6 +10,8 @@ const SECRET = "whsec_test_lemonsqueezy_secret";
 const STORE = "rtfx-store";
 const VARIANT_PRO = "1001";
 const VARIANT_TEAM = "2002";
+const SLUG_PRO = "6ef9bec1-0000-4000-8000-00000000a001";
+const SLUG_TEAM = "a35b7782-0000-4000-8000-00000000a002";
 const AT = "2026-08-14T12:00:00.000Z";
 
 function billingEnv(extra: Record<string, unknown> = {}) {
@@ -19,6 +21,8 @@ function billingEnv(extra: Record<string, unknown> = {}) {
     LEMONSQUEEZY_STORE_ID: STORE,
     LEMONSQUEEZY_VARIANT_PRO: VARIANT_PRO,
     LEMONSQUEEZY_VARIANT_TEAM: VARIANT_TEAM,
+    LEMONSQUEEZY_CHECKOUT_PRO: SLUG_PRO,
+    LEMONSQUEEZY_CHECKOUT_TEAM: SLUG_TEAM,
     ...extra,
   };
 }
@@ -141,14 +145,23 @@ describe("checkoutUrl", () => {
     expect(url).not.toBeNull();
     const parsed = new URL(url!);
     expect(parsed.hostname).toBe(`${STORE}.lemonsqueezy.com`);
-    expect(parsed.pathname).toBe(`/checkout/buy/${VARIANT_PRO}`);
+    // The variant's checkout slug selects the plan; a numeric id 404s on a live store.
+    expect(parsed.pathname).toBe(`/checkout/buy/${SLUG_PRO}`);
+    expect(parsed.searchParams.get("enabled")).toBe(VARIANT_PRO);
     expect(parsed.searchParams.get("checkout[email]")).toBe("buyer@example.com");
     expect(parsed.searchParams.get("checkout[custom][account_id]")).toBe("acct_abc123");
   });
 
-  it("returns null when the store or variant is not configured", () => {
+  it("addresses the team plan by its own slug and variant", () => {
+    const parsed = new URL(checkoutUrl(billingEnv(), "team", { id: "acct_t" }, "t@example.com")!);
+    expect(parsed.pathname).toBe(`/checkout/buy/${SLUG_TEAM}`);
+    expect(parsed.searchParams.get("enabled")).toBe(VARIANT_TEAM);
+  });
+
+  it("returns null when the store, variant or checkout slug is not configured", () => {
     expect(checkoutUrl(billingEnv({ LEMONSQUEEZY_STORE_ID: undefined }), "pro", { id: "a" }, "x@x.com")).toBeNull();
     expect(checkoutUrl(billingEnv({ LEMONSQUEEZY_VARIANT_TEAM: undefined }), "team", { id: "a" }, "x@x.com")).toBeNull();
+    expect(checkoutUrl(billingEnv({ LEMONSQUEEZY_CHECKOUT_PRO: undefined }), "pro", { id: "a" }, "x@x.com")).toBeNull();
   });
 });
 

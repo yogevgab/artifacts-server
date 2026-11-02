@@ -91,6 +91,8 @@ describe("quota_exceeded names the next plan and what it grants", () => {
       LEMONSQUEEZY_STORE_ID: "test-store",
       LEMONSQUEEZY_VARIANT_PRO: "variant-pro",
       LEMONSQUEEZY_VARIANT_TEAM: "variant-team",
+      LEMONSQUEEZY_CHECKOUT_PRO: "slug-pro",
+      LEMONSQUEEZY_CHECKOUT_TEAM: "slug-team",
     };
     const res = await app.request(
       "/api/artifacts",

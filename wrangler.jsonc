@@ -83,12 +83,18 @@
     // The store's SUBDOMAIN, not the numeric store id (#452239) — hosted
     // checkout URLs address a store as <subdomain>.lemonsqueezy.com.
     "LEMONSQUEEZY_STORE_ID": "rtfxpro",
-    // Variants of product 1291234. The free "starter" variant is mapped
+    // LIVE-mode variants of product 1291243 (test-mode ids 2020313/19/23 do
+    // not exist on the live store). The free "starter" variant is mapped
     // deliberately: without it a downgrade writes no plan and the customer
-    // keeps the paid tier they just left.
-    "LEMONSQUEEZY_VARIANT_FREE": "2020313",
-    "LEMONSQUEEZY_VARIANT_PRO": "2020319",
-    "LEMONSQUEEZY_VARIANT_TEAM": "2020323",
+    // keeps the paid tier they just left. Pro $12/mo and Team $40/mo are flat
+    // monthly subscriptions — must match PLAN_PRICE in src/plan-copy.ts.
+    "LEMONSQUEEZY_VARIANT_FREE": "2020328",
+    "LEMONSQUEEZY_VARIANT_PRO": "2020329",
+    "LEMONSQUEEZY_VARIANT_TEAM": "2020330",
+    // Checkout slugs of those variants (Share dialog → star the variant → the
+    // UUID after /checkout/buy/). Checkout links use these, not numeric ids.
+    "LEMONSQUEEZY_CHECKOUT_PRO": "6ef9bec1-b7f2-40f5-b3b2-0c3bc5d824a7",
+    "LEMONSQUEEZY_CHECKOUT_TEAM": "a35b7782-5fc7-46db-81e7-c2b33f44561a",
 
     // Canonical public origin of the app host. Canonical links, OpenGraph URLs,
     // sitemap.xml and llms.txt are absolute against it, and any host that isn't

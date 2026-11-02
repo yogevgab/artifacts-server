@@ -18,7 +18,7 @@ Nothing below ships in this repository, and nothing below is shared with the hos
 | **A content hostname** | A second hostname routed to the same Worker | `CONTENT_HOSTNAMES` + a matching `routes[]` entry, plus `PUBLIC_BASE_URL` (your app origin: the viewer and the content's `frame-ancestors` allowlist name it). Not optional — see below. |
 | **Email** | A Cloudflare Email Sending binding (`EMAIL`) and a verified sender | Sign-in is a one-time code by email; with no mail path, nobody can log in. `MAIL_FROM` must be in `allowed_sender_addresses`. |
 | **Session secret** | `npx wrangler secret put SESSION_SECRET` | Signs the `rtfx_session` cookie. |
-| **Billing** *(only for paid plans)* | A Lemon Squeezy store, variants and a webhook secret | `LEMONSQUEEZY_STORE_ID`, `LEMONSQUEEZY_VARIANT_FREE/PRO/TEAM`, plus `wrangler secret put LEMONSQUEEZY_WEBHOOK_SECRET`. Leave unset to run free-plan-only. |
+| **Billing** *(only for paid plans)* | A Lemon Squeezy store, variants and a webhook secret | `LEMONSQUEEZY_STORE_ID`, `LEMONSQUEEZY_VARIANT_FREE/PRO/TEAM`, `LEMONSQUEEZY_CHECKOUT_PRO/TEAM` (variant checkout slugs from the Share dialog), plus `wrangler secret put LEMONSQUEEZY_WEBHOOK_SECRET`. Leave unset to run free-plan-only. |
 | **Analytics** *(optional)* | A PostHog project key | `POSTHOG_KEY` / `POSTHOG_HOST`. Unset means no analytics anywhere, which is the default. Public pages never load analytics regardless; the dashboard only does after an explicit accept. |
 | **Legal values** | Your entity, address, contact, governing law | See below. |
 
