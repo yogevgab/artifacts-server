@@ -30,7 +30,12 @@ const canonicalReq = (path: string, init?: RequestInit) =>
   app.request(`${LOCAL}${path}`, init, canonicalEnv as any);
 
 /** Every page an anonymous visitor can read. */
-const PUBLIC_PATHS = ["/", "/login", "/privacy", "/terms", "/pro", "/team", "/enterprise"];
+const PUBLIC_PATHS = [
+  "/", "/login", "/privacy", "/terms", "/pro", "/team", "/enterprise",
+  // The answer pages discuss passwords most directly, so they need the guard most.
+  "/share-claude-artifacts-privately", "/claude-publish-vs-private-link",
+  "/see-who-viewed-claude-artifact", "/claude-artifact-password",
+];
 
 const anon = { headers: { "X-Dev-Anonymous": "true" } };
 

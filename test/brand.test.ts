@@ -120,8 +120,8 @@ describe("the landing page leads with one idea", () => {
 
   it("uses valid links for the hero CTAs, not nested interactive controls", async () => {
     const body = await html("/", ANON);
-    expect(body).toContain('<a class="link-button" href="#start" data-cta="connect">Connect to Claude</a>');
-    expect(body).toContain('<a class="ghost link-button" href="/signup" data-cta="signup">Start free</a>');
+    expect(body).toContain('<a class="link-button" href="/signup" data-cta="signup">Start free</a>');
+    expect(body).toContain('<a class="ghost link-button" href="#start" data-cta="connect">How it works</a>');
     expect(body).not.toMatch(/<a[^>]*>\s*<button/i);
   });
 

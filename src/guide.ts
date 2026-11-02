@@ -121,7 +121,7 @@ const B: Shot[] = [
     width: 1000,
     height: 420,
     alt: "Claude's reply containing the private rtfx.pro link to the published page",
-    text: `Claude replies with your private link. Only you can open it until you share it.`,
+    text: `Claude replies with your private link. Only you (and your workspace, if it is a team's) can open it until you share it.`,
   },
   {
     name: "09-artifact",
@@ -253,8 +253,16 @@ const STYLE = `${PUBLIC_CHROME_STYLE}${CONSENT_STYLE}
 .mcp-box code{flex:1;min-width:0;font-family:var(--mono);font-size:.92rem;overflow-x:auto;white-space:nowrap}
 .mcp-box button{flex:none}
 ${GUIDE_VIDEO_STYLE}
-.jump{display:flex;gap:.4rem 1.1rem;flex-wrap:wrap;margin:0;font-size:.92rem;color:var(--faint)}
-.part{margin:3.6rem 0 0;scroll-margin-top:1rem}
+.jump{display:flex;gap:.4rem 1.1rem;flex-wrap:wrap;margin:1.6rem 0 0;font-size:.92rem;color:var(--faint)}
+/* Desktop: the section links stay reachable below the sticky site header while
+   scrolling a long guide. Phones keep them static (the header is static there). */
+@media(min-width:761px){
+  .jump{position:sticky;top:4.6rem;z-index:4;padding:.6rem .9rem;border:1px solid var(--border);
+    border-radius:999px;background:var(--card);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
+    box-shadow:var(--shadow);width:max-content;max-width:100%}
+}
+.part{margin:3.6rem 0 0;scroll-margin-top:8.5rem}
+@media(max-width:760px){.part{scroll-margin-top:1rem}}
 .part>h2{font-size:clamp(1.4rem,3.2vw,1.8rem);letter-spacing:-.045em;line-height:1.1;margin:0 0 1.4rem}
 .part>h2 span{color:var(--faint);font-weight:600;margin-right:.5rem}
 ol.steps{list-style:none;margin:0;padding:0;display:grid;gap:2.4rem;counter-reset:none}
@@ -310,9 +318,10 @@ export function guidePage(env: Env): string {
         <code id="mcp-url">${MCP_URL}</code>
         <button type="button" class="ghost" data-copy="${MCP_URL}">Copy</button>
       </div>
-      <p class="jump"><a href="#connect">A. Connect</a> <a href="#publish">B. Publish</a> <a href="#share">C. Share</a> <a href="#views">D. See who opened it</a></p>
       ${guideVideo()}
     </section>
+
+    <nav class="jump" aria-label="Guide sections"><a href="#connect">A. Connect</a> <a href="#publish">B. Publish</a> <a href="#share">C. Share</a> <a href="#views">D. See who opened it</a></nav>
 
     ${GUIDE_PARTS.map((p) => part(p.id, p.letter, p.title, p.shots as Shot[])).join("\n    ")}
 

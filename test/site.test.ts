@@ -40,8 +40,9 @@ describe("the landing page", () => {
     for (const id of ["start", "agents", "publish", "share", "delete", "pricing"]) {
       expect(body, id).toContain(`id="${id}"`);
     }
-    expect(body).toContain("1. Add rtfx to Claude");
-    expect(body).toContain("4. Delete");
+    expect(body).toContain("How it works");
+    expect(body).toContain("Keep control after you share");
+    expect(body).toContain("Delete it");
   });
 
   it("shows the MCP URL with a working copy button and no inline HTML injection", async () => {

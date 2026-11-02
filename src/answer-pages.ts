@@ -59,12 +59,11 @@ const imgPath = (name: string) => `/guide/${name}.webp?v=${GUIDE_IMAGES[name]!.h
 const SHARE_H1 = "How to share a Claude artifact privately";
 
 const SHARE_LEAD =
-  "Claude artifacts start private, and Claude's Share menu can open one to anyone with the link or " +
-  "to people you invite by email — but the people opening it generally need a Claude account, and " +
-  "Claude's help article doesn't describe passwords, expiring links or a view log. To share with " +
-  "exactly the people you choose, with or without a Claude account, and see who opened it, publish " +
-  "to a private link instead: add the rtfx.pro MCP server to Claude once, then ask Claude to " +
-  "publish and share from chat.";
+  "Add the rtfx.pro MCP server to Claude once, ask Claude to publish your artifact to a private " +
+  "link, then choose exactly who can open it — they sign in with an email code and don't need a " +
+  "Claude account — and see who opened it. (Claude artifacts start private too, but the people " +
+  "you share them with generally need a Claude account, and Claude's help article doesn't " +
+  "describe passwords, expiring links or a view log.)";
 
 interface AnswerStep {
   name: string;
@@ -119,7 +118,7 @@ const PRICE_LINE =
 
 const SHARE_FAQS: readonly Faq[] = [
   {
-    q: "Can I password protect a Claude artifact?",
+    q: "Can I put a password on a Claude artifact?",
     a:
       "Claude's help article describes sharing an artifact with only you, anyone with the link, " +
       "people invited by email or (on Team and Enterprise) your organization; it doesn't describe a " +
@@ -239,6 +238,179 @@ const WHEN_RTFX: readonly string[] = [
   "You want a link that expires, or one you can revoke without deleting the work.",
 ];
 
+// --- topic pages: one question, answered first ----------------------------------
+
+/**
+ * Short answer pages for questions people actually search ("can I see who viewed
+ * my Claude artifact?", "can I put a password on one?"). Same rules as the two
+ * pages above: claims about Claude stop at what its help article says; claims
+ * about rtfx are what the code does (view fields: src/db.ts logView/logLinkEvent;
+ * read notices: src/read-receipts.ts; chat access to the log: artifact_details in
+ * src/mcp.ts returns the recent views).
+ */
+interface TopicSection {
+  heading: string;
+  /** Trusted HTML written in this file. */
+  html: string;
+}
+
+interface Topic {
+  h1: string;
+  lead: string;
+  sections: readonly TopicSection[];
+  faqs: readonly Faq[];
+  finalH: string;
+}
+
+const TOPICS: Record<"views" | "password", Topic> = {
+  views: {
+    h1: "Can you see who viewed a Claude artifact?",
+    lead:
+      "Claude's help article on sharing artifacts doesn't describe view analytics. Publish the artifact " +
+      "to an rtfx.pro private link and it gets a view log: who opened it if they were signed in, which " +
+      "share link was used if not, when, and on what device.",
+    sections: [
+      {
+        heading: "What the view log records",
+        html: `<ul>
+          <li><b>Who</b> — the email address of anyone who opened it while signed in, including people
+            who came through a share link while signed in.</li>
+          <li><b>Which link</b> — opens through a share link are labelled with the link's name, so you
+            can tell “Board preview” from “Client copy” even when the person isn't signed in.</li>
+          <li><b>When, and on what</b> — the time, device type, operating system and browser, the
+            approximate location, and which version they saw.</li>
+          <li><b>Attempts</b> — someone trying an expired or revoked link, and the previews chat apps
+            build when a link is pasted.</li>
+        </ul>
+        <p>Opens of the same share link from the same IP address within five minutes are recorded once,
+          so a reload doesn't add an entry (two people on one office network can merge, too). Signed-in
+          opens are each recorded.</p>`,
+      },
+      {
+        heading: "How to see it",
+        html: `<ul>
+          <li><b>Ask Claude.</b> <q>Who has opened q3-report?</q> Claude reads the recent views for you.</li>
+          <li><b>Open the artifact's Share page</b> on rtfx.pro for the full log. <a href="/guide#views">See it in the guide &rarr;</a></li>
+          <li><b>Get an email.</b> As the owner, you can be emailed the first time a signed-in person other
+            than you opens it (share-link opens don't send these). Turn read notices off per artifact.</li>
+        </ul>`,
+      },
+      {
+        heading: "What it can't tell you",
+        html: `<ul>
+          <li>That someone <em>read</em> it. A log entry means the page was loaded.</li>
+          <li>Who a share link was forwarded to. A share link opens for anyone who has it; the log names
+            the link, not the person, unless they were signed in. Share by name when you need names.</li>
+          <li>Old IP addresses. They stop being shown after 90 days.</li>
+        </ul>`,
+      },
+    ],
+    faqs: [
+      {
+        q: "Can I see who viewed my Claude artifact?",
+        a:
+          "Claude's help article on sharing artifacts doesn't describe view analytics. If you publish the " +
+          "artifact to an rtfx.pro private link, its view log shows who opened it (when they were signed " +
+          "in), when, on what device and through which share link.",
+      },
+      {
+        q: "Can I get notified when someone opens it?",
+        a:
+          "Yes. The first time a signed-in person other than you opens the artifact (not through a share " +
+          "link), rtfx.pro can email you. Read notices can be turned off for each artifact.",
+      },
+      {
+        q: "Who else can see the view log?",
+        a:
+          "You, and members of the workspace the artifact belongs to who can manage it. Viewers can't, " +
+          "and rtfx staff can't — they see metadata only, never content or who viewed it.",
+      },
+    ],
+    finalH: "Know who opened it.",
+  },
+  password: {
+    h1: "Can you put a password on a Claude artifact?",
+    lead:
+      "Claude's help article doesn't describe a password option: you share an artifact with only you, " +
+      "anyone with the link, or people you invite by email, who need a Claude account. rtfx.pro " +
+      "doesn't use passwords either — each person you choose signs in with a one-time email code, " +
+      "you can remove one person without affecting the others, and you see who opened it.",
+    sections: [
+      {
+        heading: "Why a shared password is weak",
+        html: `<ul>
+          <li>It can be forwarded, and nothing records who it was forwarded to.</li>
+          <li>Shutting one person out means changing it for everyone.</li>
+          <li>On its own, a shared password doesn't identify who opened the page.</li>
+        </ul>`,
+      },
+      {
+        heading: "What rtfx.pro does instead",
+        html: `<ul>
+          <li><b>Named people.</b> <q>Share it with dana@acme.com.</q> Dana signs in with a code sent to
+            that address — no password, no Claude account — and you can remove her at any time.</li>
+          <li><b>Share links, when names aren't practical.</b> A share link opens for anyone who has it.
+            Each one has a name, can expire, can be revoked on its own without touching the others, and
+            opens through it are logged.</li>
+          <li><b>Your workspace.</b> Members of the workspace you publish to can always open it — on a
+            personal workspace that's just you.</li>
+        </ul>
+        <p>Every artifact is private when it is published: only you, and members of its workspace if it
+          belongs to a team, can open it until you share it.</p>`,
+      },
+    ],
+    faqs: [
+      {
+        q: "Can I put a password on a Claude artifact?",
+        a:
+          "Claude's help article on sharing artifacts doesn't describe a password option. With rtfx.pro you " +
+          "don't need one: the people you choose sign in with a one-time email code. Only they, members of " +
+          "the artifact's workspace and holders of a valid share link you created can open it.",
+      },
+      {
+        q: "Does rtfx.pro use passwords on links?",
+        a:
+          "No. It has named access (email-code sign-in for each person) and share links that anyone holding " +
+          "them can open, with an optional expiry and immediate revocation.",
+      },
+      {
+        q: "Do the people I share with need a Claude account?",
+        a: "No. They sign in with a one-time code sent to their email, or open a share link with no sign-in.",
+      },
+    ],
+    finalH: "Share without a password.",
+  },
+};
+
+export function topicPage(env: Env, key: keyof typeof TOPICS): string {
+  const t = TOPICS[key];
+  const meta = ANSWER_META[key];
+  const sections = t.sections
+    .map((s, i) => `<section class="topic" aria-labelledby="t${i}-h"><h2 class="sec" id="t${i}-h">${esc(s.heading)}</h2>${s.html}</section>`)
+    .join("\n    ");
+  const main = `
+    ${sections}
+
+    <section id="faq" aria-labelledby="faq-h">
+      <h2 class="sec" id="faq-h">Questions</h2>
+      <div class="faq-list">
+        ${t.faqs.map((f) => `<details><summary>${esc(f.q)}</summary><p>${esc(f.a)}</p></details>`).join("\n        ")}
+      </div>
+    </section>
+
+    <p class="related">Set it up: <a href="${ANSWER_META.share.path}">how to share a Claude artifact privately</a>,
+      or compare <a href="${ANSWER_META.compare.path}">Claude's own sharing with a private link</a>.</p>
+
+    <section class="final">
+      <h2>${esc(t.finalH)}</h2>
+      <div class="cta">
+        <a class="link-button" href="/signup" data-cta="signup-final">Start free</a>
+        <a class="ghost link-button" href="/guide" data-cta="guide">See the guide</a>
+      </div>
+    </section>`;
+  return layout(meta.title, wrapPage(esc(t.h1), t.lead, main), STYLE, head(env, meta, t.h1, [faqPage(env, meta.path, t.faqs)]));
+}
+
 // --- structured data ----------------------------------------------------------
 
 function organization(env: Env): Record<string, unknown> {
@@ -336,6 +508,9 @@ table.cmp td{color:var(--muted)}
 .final h2{font-size:clamp(1.4rem,3.2vw,1.8rem);letter-spacing:-.045em;margin:0 0 1rem}
 .final .cta{display:flex;gap:.7rem;justify-content:center;flex-wrap:wrap}.final .cta a:hover{text-decoration:none}
 .related{margin:2.4rem 0 0;color:var(--muted);font-size:.96rem}
+section.topic ul{margin:0 0 .9rem;padding-left:1.15rem;color:var(--muted);display:grid;gap:.55rem}
+section.topic p{color:var(--muted);margin:0 0 .9rem}
+section.topic b,section.topic q{color:var(--fg);font-weight:600}
 .cell-label{display:none}
 @media(max-width:760px){.hero{padding:2rem 0 .5rem}h2.sec{margin-top:2.4rem}.when{grid-template-columns:1fr}
 table.cmp,table.cmp tbody,table.cmp tr,table.cmp th,table.cmp td{display:block;width:auto}
@@ -431,6 +606,14 @@ export function comparePage(env: Env): string {
       `<td role="cell"><span class="cell-label" aria-hidden="true">rtfx private link</span>${r.rtfx}</td></tr>`
   ).join("\n        ");
   const main = `
+    <section aria-labelledby="when-h">
+      <h2 class="sec" id="when-h">When to use which</h2>
+      <div class="when">
+        <div><h3>Claude's own sharing is fine when</h3><ul>${WHEN_CLAUDE.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>
+        <div><h3>Use a private link when</h3><ul>${WHEN_RTFX.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>
+      </div>
+    </section>
+
     <section aria-labelledby="cmp-h">
       <h2 class="sec" id="cmp-h">Side by side</h2>
       <table class="cmp" role="table">
@@ -443,13 +626,6 @@ export function comparePage(env: Env): string {
       <p class="note">${esc(COMPARE_NOTE)}</p>
     </section>
 
-    <section aria-labelledby="when-h">
-      <h2 class="sec" id="when-h">When to use which</h2>
-      <div class="when">
-        <div><h3>Claude's own sharing is fine when</h3><ul>${WHEN_CLAUDE.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>
-        <div><h3>Use a private link when</h3><ul>${WHEN_RTFX.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>
-      </div>
-    </section>
 
     <p class="related">To set it up, follow <a href="${ANSWER_META.share.path}">how to share a Claude artifact privately</a> or the <a href="/guide">screenshot guide</a>.</p>
 
@@ -493,5 +669,12 @@ export function answerPagesMarkdown(env: Pick<Env, "PUBLIC_BASE_URL">): string[]
   out.push("", "### Use a private link when", "");
   for (const x of WHEN_RTFX) out.push(`- ${x}`);
   out.push("");
+
+  for (const key of ["views", "password"] as const) {
+    const t = TOPICS[key];
+    out.push(`## ${t.h1} (${abs(ANSWER_META[key].path)})`, "", t.lead, "");
+    for (const s of t.sections) out.push(`### ${s.heading}`, "", md(s.html), "");
+    for (const f of t.faqs) out.push(`### ${f.q}`, "", f.a, "");
+  }
   return out;
 }

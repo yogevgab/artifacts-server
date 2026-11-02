@@ -115,11 +115,11 @@ describe("structured data per page", () => {
     }
   });
 
-  it("the FAQ section sits after Delete and before pricing", async () => {
+  it("the FAQ section answers what's left after the walkthrough and pricing", async () => {
     const html = await (await get("/")).text();
     const i = (s: string) => html.indexOf(s);
-    expect(i('id="delete"')).toBeLessThan(i('id="faq"'));
-    expect(i('id="faq"')).toBeLessThan(i('id="pricing"'));
+    expect(i('id="delete"')).toBeLessThan(i('id="pricing"'));
+    expect(i('id="pricing"')).toBeLessThan(i('id="faq"'));
     expect((html.match(/id="faq"/g) ?? []).length).toBe(1);
   });
 
