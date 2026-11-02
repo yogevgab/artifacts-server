@@ -271,3 +271,61 @@ describe("no non-essential anything runs before consent", () => {
     }
   });
 });
+
+// --- a deployment that says who it is ---------------------------------------
+
+describe("the legal pages on a deployment with a configured operator (rtfx.pro)", () => {
+  const configured = {
+    ...(env as any),
+    LEGAL_OPERATOR: "Yogev Gabrielovitch",
+    LEGAL_OPERATOR_DETAIL: "an individual sole proprietor based in Israel",
+    LEGAL_CONTACT: "privacy@rtfx.pro",
+    LEGAL_GOVERNING_LAW: "the State of Israel",
+    LEGAL_COURTS: "the competent courts of the Tel Aviv district, Israel",
+  } as unknown as Env;
+  const page = async (path: string) => (await app.request(path, ANON, configured as any)).text();
+
+  it("drops the template notice and names the operator and contact", async () => {
+    for (const path of LEGAL) {
+      const body = await page(path);
+      expect(body, path).not.toContain("data-legal-template");
+      expect(body, path).not.toContain("Operator template");
+      expect(body, path).toContain("Yogev Gabrielovitch, an individual sole proprietor based in Israel");
+      expect(body, path).toContain('href="mailto:privacy@rtfx.pro"');
+      expect(body, path).not.toMatch(/intended to be governed|is a placeholder/i);
+    }
+  });
+
+  it("states Israeli law and courts without removing consumers' home-country protections", async () => {
+    const body = await page("/terms");
+    expect(body).toContain("governed by the laws of the State of Israel");
+    expect(body).toContain("the competent courts of the Tel Aviv district, Israel");
+    expect(body).toContain("mandatory laws of the country");
+  });
+
+  it("states the plans, renewal, cancel-anytime and refund rule, with the legal carve-out", async () => {
+    const body = await page("/terms");
+    expect(body).toContain("US$12 per month");
+    expect(body).toContain("US$40 per month");
+    expect(body).toContain("merchant of record");
+    expect(body).toContain("renew automatically");
+    expect(body).toContain("cancel at any time");
+    expect(body).toContain("except where the law requires it");
+  });
+
+  it("is honest about the retention the code actually does", async () => {
+    const body = await page("/privacy");
+    // IP erasure is opportunistic, not a hard 90-day deadline.
+    expect(body).toContain("no longer shown to anyone");
+    expect(body).toContain("erased from storage in batches");
+    expect(body).not.toContain("is erased after 90 days");
+    // Removing a user does not delete their workspace.
+    expect(body).toContain("does not by itself delete");
+    // Workspace members, not just owners, see the activity log.
+    expect(body).toContain("members (not viewers)");
+    // Every cookie the Worker sets is listed.
+    for (const name of ["rtfx_session", "rtfx_guest", "rtfx_link_", "rtfx_next", "rtfx_account"]) {
+      expect(body, name).toContain(name);
+    }
+  });
+});

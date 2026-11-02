@@ -86,6 +86,25 @@ export class ChatRoom extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: client });
   }
 
+  /**
+   * Erase this room's history and close any open sockets. Called (over RPC) when
+   * the artifact the room belongs to is deleted: rooms are keyed by slug, so a
+   * history that outlived its artifact would be shown to whoever later publishes
+   * — and shares — a new artifact under the same slug.
+   */
+  async purge(): Promise<number> {
+    for (const ws of this.ctx.getWebSockets()) {
+      try {
+        ws.close(1000, "artifact deleted");
+      } catch {
+        // Already closing; nothing to do.
+      }
+    }
+    const before = this.ctx.storage.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM messages").one().n;
+    this.ctx.storage.sql.exec("DELETE FROM messages");
+    return before;
+  }
+
   /** The Worker is the only caller, so these headers are trustworthy by construction. */
   private authorFrom(request: Request): ChatAuthor {
     const email = request.headers.get("X-Chat-Email");

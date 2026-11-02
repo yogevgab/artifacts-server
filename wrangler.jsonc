@@ -96,6 +96,15 @@
     "LEMONSQUEEZY_CHECKOUT_PRO": "6ef9bec1-b7f2-40f5-b3b2-0c3bc5d824a7",
     "LEMONSQUEEZY_CHECKOUT_TEAM": "a35b7782-5fc7-46db-81e7-c2b33f44561a",
 
+    // Who operates rtfx.pro, for /privacy and /terms (src/legal.ts). Owner's
+    // decision 2026-11-02: an individual in Israel, Israeli law; contact mailbox
+    // is Cloudflare Email Routing → owner's inbox. No postal address published.
+    "LEGAL_OPERATOR": "Yogev Gabrielovitch",
+    "LEGAL_OPERATOR_DETAIL": "an individual sole proprietor based in Israel",
+    "LEGAL_CONTACT": "privacy@rtfx.pro",
+    "LEGAL_GOVERNING_LAW": "the State of Israel",
+    "LEGAL_COURTS": "the competent courts of the Tel Aviv district, Israel",
+
     // Canonical public origin of the app host. Canonical links, OpenGraph URLs,
     // sitemap.xml and llms.txt are absolute against it, and any host that isn't
     // this one serves a disallow-everything robots.txt — so a preview deploy
