@@ -354,7 +354,7 @@ export function landingPage(env: Env): string {
       <h1>Publish from Claude to a private link.</h1>
       <p class="lead">rtfx.pro is an MCP server. Connect it to Claude once, then ask Claude to
         publish, share or delete what it made — each artifact gets a private link only the people
-        you choose can open.</p>
+        you choose can open, whether or not they use Claude.</p>
       <div class="mcp-box">
         <code id="mcp-url">${MCP_URL}</code>
         <button type="button" class="ghost" data-copy="${MCP_URL}">Copy</button>

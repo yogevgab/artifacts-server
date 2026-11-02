@@ -304,7 +304,7 @@ export function proPage(env: Env): string {
     },
     `Pro plan \u2014 ${SITE.name}, private links for Claude (MCP)`,
     `rtfx.pro Pro, ${tierPrice("pro")}: private links for Claude artifacts (MCP) with ${num(PLANS.pro.maxArtifacts)} ` +
-      `artifacts, ${bytes(PLANS.pro.maxStorageBytes)} and full version history.`
+      `artifacts, ${bytes(PLANS.pro.maxStorageBytes)}, full version history and up to ${PLANS.pro.maxSeats} people. Self-serve checkout.`
   );
 }
 

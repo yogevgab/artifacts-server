@@ -98,7 +98,7 @@ import { viewerOf, type PortalContext } from "./viewer";
 import { peoplePage, type UsersInfo } from "./people";
 import { integrationsPage } from "./integrations";
 import { canSeeSection, portalNotFound } from "./portal";
-import { isContentHost, isContentPrefix, isManagementPath, isPerOriginPath, firstContentHostname, INDEXNOW_KEY_FILE } from "./host";
+import { isContentHost, isContentPrefix, isManagementPath, isPerOriginPath, firstContentHostname, requestHostname, INDEXNOW_KEY_FILE } from "./host";
 import { llmsFullTxt } from "./llms-full";
 import { uploadRoutes } from "./upload-routes";
 import {
@@ -114,6 +114,7 @@ import {
   LOGO_SMALL_PNG_BASE64,
   isCanonicalHost,
   siteOrigin,
+  isPublicPagePath,
   securityTxt,
   SECURITY_TXT_PATHS,
   ANSWER_META,
@@ -155,6 +156,45 @@ app.use("*", async (c, next) => {
     return c.html(notFoundPage(), 404);
   }
   await next();
+});
+
+// One address per public page. Three duplicates used to answer 200:
+//  - plain http (no redirect, no HSTS) on rtfx.pro and its subdomains;
+//  - the marketing pages on a sibling app host (mcp.rtfx.pro), whose robots.txt
+//    is Disallow: /, so a crawler could index the bare URL but never read the
+//    canonical tag that would have folded it into rtfx.pro;
+//  - trailing-slash and /index.html variants of public pages (which 404'd).
+// Scoped to the canonical host's own subdomains, so a local or test origin is
+// never redirected, and on the sibling host to the marketing pages only —
+// sign-in, OAuth, /mcp and the API keep working there for connectors.
+app.use("*", async (c, next) => {
+  const canonical = siteOrigin(c.env);
+  const canonicalHost = requestHostname(canonical);
+  const url = new URL(c.req.url);
+  const host = url.hostname.toLowerCase();
+  const ours = canonicalHost !== "" && (host === canonicalHost || host.endsWith(`.${canonicalHost}`));
+  if (!ours || (c.req.method !== "GET" && c.req.method !== "HEAD")) {
+    await next();
+    return;
+  }
+  if (url.protocol === "http:" && canonical.startsWith("https:")) {
+    url.protocol = "https:";
+    return c.redirect(url.toString(), 301);
+  }
+  const path = url.pathname;
+  const stripped = path === "/index.html" ? "/" : path.length > 1 && path.endsWith("/") ? path.replace(/\/+$/, "") : null;
+  if (stripped !== null && isPublicPagePath(stripped)) {
+    return c.redirect(`${host === canonicalHost ? "" : canonical.replace(/\/+$/, "")}${stripped}${url.search}`, 301);
+  }
+  if (host !== canonicalHost && !isContentHost(c.env, c.req.url) && isPublicPagePath(path)) {
+    return c.redirect(`${canonical.replace(/\/+$/, "")}${path}${url.search}`, 301);
+  }
+  await next();
+  if (url.protocol === "https:" && !c.res.headers.has("Strict-Transport-Security")) {
+    // No includeSubDomains: other rtfx.pro names (mail records, future hosts)
+    // are not ours to pin from here.
+    c.header("Strict-Transport-Security", "max-age=31536000");
+  }
 });
 
 // Baseline response headers for the app and public pages. Artifact content adds its own

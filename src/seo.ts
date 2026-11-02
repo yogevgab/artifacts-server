@@ -111,6 +111,19 @@ export interface PublicPage {
   summary: string;
   /** sitemap priority; the landing page leads. */
   priority: string;
+  /** sitemap <lastmod>: the day this page's content last changed (YYYY-MM-DD). Bump it with the copy. */
+  updated: string;
+}
+
+/**
+ * Marketing pages that live only at the canonical origin: the sitemap pages
+ * (minus /signup, which a connector's sign-in may need on its own host) and the
+ * machine-readable files about them. Used to fold duplicate addresses into one.
+ */
+export function isPublicPagePath(path: string): boolean {
+  if (path === "/signup") return false;
+  if (path === "/llms.txt" || path === "/llms-full.txt" || path === "/sitemap.xml") return true;
+  return PUBLIC_PAGES.some((p) => p.path === path);
 }
 
 /** The complete public surface — the single source the sitemap and llms.txt use. */
@@ -122,6 +135,7 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
       "How to connect rtfx.pro to Claude as an MCP server (claude.ai custom connector or any MCP " +
       "client), then publish, share and delete from chat, followed by an FAQ and pricing.",
     priority: "1.0",
+    updated: "2026-11-02",
   },
   {
     path: "/guide",
@@ -130,18 +144,21 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
       "Twelve real screenshots: add rtfx to Claude as a custom connector, publish a page, share " +
       "it with people or a revocable link, and see who opened it.",
     priority: "0.8",
+    updated: "2026-10-26",
   },
   {
     path: ANSWER_META.share.path,
     title: ANSWER_META.share.title,
     summary: ANSWER_META.share.summary,
     priority: "0.7",
+    updated: "2026-11-02",
   },
   {
     path: ANSWER_META.compare.path,
     title: ANSWER_META.compare.title,
     summary: ANSWER_META.compare.summary,
     priority: "0.7",
+    updated: "2026-11-02",
   },
   {
     path: "/pro",
@@ -151,6 +168,7 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
       "and the self-serve path to it (Buy Pro: an email code, then checkout). Also what it does " +
       "not add — no SSO, no custom domains, no metered pricing.",
     priority: "0.7",
+    updated: "2026-11-02",
   },
   {
     path: "/team",
@@ -160,6 +178,7 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
       "roles, raised limits and one view log. Self-serve: name the team workspace, check out, " +
       "and add people — each one is emailed a link in.",
     priority: "0.7",
+    updated: "2026-11-02",
   },
   {
     path: "/enterprise",
@@ -169,6 +188,7 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
       "contractual SLAs, negotiated DPAs, invoicing) and what does (workspaces and roles, " +
       "per-artifact access lists, view logs, MIT-licensed self-hosting).",
     priority: "0.7",
+    updated: "2026-10-26",
   },
   {
     path: "/contact",
@@ -177,12 +197,17 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
       "How to reach a person about an Enterprise workspace, or about a workspace that is " +
       "already yours. A form; a person answers by email; no automatic confirmation.",
     priority: "0.5",
+    updated: "2026-11-02",
   },
   {
-    path: "/login",
-    title: "Sign in to rtfx.pro",
-    summary: "Passwordless sign-in surface: email a one-time code or magic link.",
-    priority: "0.5",
+    // /signup, not /login: it is where every "Start free" button and the Free
+    // Offer point, and it carries its own description. /login stays reachable
+    // and indexable, it just isn't a page worth asking a crawler to visit.
+    path: "/signup",
+    title: "Sign up free \u2014 rtfx.pro, private links for Claude",
+    summary: "Create a free account with an emailed one-time code: no password, no card, no review.",
+    priority: "0.6",
+    updated: "2026-11-02",
   },
   {
     path: "/privacy",
@@ -192,6 +217,7 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
       "why, and for how long; cookies and local storage; processors; your rights. No " +
       "analytics, advertising or third-party tracking.",
     priority: "0.3",
+    updated: "2026-11-02",
   },
   {
     path: "/terms",
@@ -200,6 +226,7 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
       "Account plans, ownership of what you publish, acceptable use, how API tokens and " +
       "agents are treated, availability and liability.",
     priority: "0.3",
+    updated: "2026-11-02",
   },
 ];
 
@@ -314,7 +341,7 @@ export function securityTxt(env: Pick<Env, "PUBLIC_BASE_URL">, now: Date): strin
 export function sitemapXml(env: Pick<Env, "PUBLIC_BASE_URL">): string {
   const entries = PUBLIC_PAGES.map(
     (p) =>
-      `  <url>\n    <loc>${canonicalUrl(env, p.path)}</loc>\n` +
+      `  <url>\n    <loc>${canonicalUrl(env, p.path)}</loc>\n    <lastmod>${p.updated}</lastmod>\n` +
       `    <changefreq>weekly</changefreq>\n    <priority>${p.priority}</priority>\n  </url>`
   ).join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${entries}\n</urlset>\n`;
