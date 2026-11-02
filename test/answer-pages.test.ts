@@ -32,6 +32,8 @@ const attr = (html: string, re: RegExp) => re.exec(html)?.[1] ?? "";
 const PAGES = [
   { key: "share", meta: ANSWER_META.share, h1: "How to share a Claude artifact privately", faq: true },
   { key: "compare", meta: ANSWER_META.compare, h1: "Claude artifact sharing vs a private link", faq: false },
+  { key: "views", meta: ANSWER_META.views, h1: "Can you see who viewed a Claude artifact?", faq: true },
+  { key: "password", meta: ANSWER_META.password, h1: "Can you put a password on a Claude artifact?", faq: true },
 ] as const;
 
 describe.each(PAGES)("$meta.path", ({ meta, h1, faq }) => {

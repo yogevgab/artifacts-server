@@ -82,6 +82,26 @@ export const ANSWER_META = {
       "An honest comparison table of Claude's built-in Publish and an rtfx.pro private link " +
       "(who can open it, sign-in, updates and versions, expiry, cost) and when to use which.",
   },
+  views: {
+    path: "/see-who-viewed-claude-artifact",
+    title: "See who viewed a Claude artifact · rtfx.pro",
+    description:
+      "Claude's docs don't describe view analytics for shared artifacts. With rtfx.pro every artifact h" +
+      "as a view log: who opened it, when, on what device.",
+    summary:
+      "Whether you can see who opened a Claude artifact you shared, what an rtfx.pro view log records " +
+      "(who, when, device, which share link), how to read it from chat, and its limits.",
+  },
+  password: {
+    path: "/claude-artifact-password",
+    title: "Put a password on a Claude artifact? · rtfx.pro",
+    description:
+      "Claude's sharing has no password option. rtfx.pro uses something stronger: each person sig" +
+      "ns in with an email code, and you see who opened it.",
+    summary:
+      "Whether you can put a password on a Claude artifact, why a shared password is weak, and what " +
+      "rtfx.pro does instead: per-person email sign-in, expiring revocable share links, a view log.",
+  },
 } as const;
 
 /** Absolute origin for canonical URLs, with any trailing slash removed. */
@@ -157,6 +177,20 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
     path: ANSWER_META.compare.path,
     title: ANSWER_META.compare.title,
     summary: ANSWER_META.compare.summary,
+    priority: "0.7",
+    updated: "2026-11-02",
+  },
+  {
+    path: ANSWER_META.views.path,
+    title: ANSWER_META.views.title,
+    summary: ANSWER_META.views.summary,
+    priority: "0.7",
+    updated: "2026-11-02",
+  },
+  {
+    path: ANSWER_META.password.path,
+    title: ANSWER_META.password.title,
+    summary: ANSWER_META.password.summary,
     priority: "0.7",
     updated: "2026-11-02",
   },
