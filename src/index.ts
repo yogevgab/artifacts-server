@@ -73,7 +73,7 @@ import { receiptsRoutes } from "./receipts-routes";
 import { accessRequestRoutes } from "./access-request-routes";
 import { membersPage } from "./members";
 import { billingPage } from "./billing-page";
-import { workspaceBilling } from "./plan-copy";
+import { workspaceBilling, UPGRADE_PRO_PATH } from "./plan-copy";
 import { verifyFrameToken } from "./session";
 import { landingPage } from "./landing";
 import { guidePage, guideImageResponse } from "./guide";
@@ -769,13 +769,58 @@ app.get("/:keyfile{[A-Za-z0-9-]{8,128}\\.txt}", (c) => {
 // docs/DEPLOY_RTFX.md). It never authenticates anyone itself: the form posts to
 // /auth/start, the same endpoint /login uses, which is what emails the one-time
 // code.
+//
+// `?next=` works exactly as it does on /login: parked in the same short-lived
+// cookie that /auth/verify redirects to after the code is accepted, and
+// re-validated by `safeNextPath`, so it can only ever be a path on this origin.
 app.get("/signup", async (c) => {
   const { identity } = await resolveAuth(c);
+  const next = safeNextPath(c.req.query("next"));
   if (identity?.email) {
+    if (next) return c.redirect(next, 302);
     return c.html(signupPage(c.env, { kind: "signed-in", email: identity.email }));
   }
-  return c.html(signupPage(c.env, { kind: "signed-out" }));
+  return c.html(signupPage(c.env, { kind: "signed-out" }, next), 200, {
+    "Set-Cookie": pendingNextCookie(next),
+  });
 });
+
+/**
+ * `GET /upgrade/pro` — what every public "Buy Pro" button points at.
+ *
+ * A checkout has to be tied to a workspace (the webhook attributes the
+ * subscription by the `account_id` the link carries), so a signed-out visitor
+ * is sent to sign up first with this path as `next`, and comes back here once
+ * the code is accepted. Signed in, it is the same decision the Billing page
+ * makes, done for them:
+ *
+ *  - can act on the active workspace's plan and it is below Pro → redirect to
+ *    the hosted checkout (`checkoutUrl` via `workspaceBilling`, never built here);
+ *  - already on Pro or above, or checkout isn't configured, or this caller may
+ *    not see Billing (a bearer token, a guest) → the Billing page, which says
+ *    which of those it is — never a checkout prefilled with somebody's email.
+ */
+app.get(
+  UPGRADE_PRO_PATH,
+  async (c, next) => {
+    const { identity } = await resolveAuth(c);
+    if (!identity) return c.redirect(`/signup?next=${encodeURIComponent(UPGRADE_PRO_PATH)}`, 302);
+    return next();
+  },
+  requireUser,
+  async (c) => {
+    c.header("Cache-Control", "no-store");
+    const viewer = await viewerOf(c);
+    const ctx = await accountsFor(c);
+    if (!canSeeSection(viewer, "billing") || !ctx.active || !ctx.role) {
+      return c.redirect("/admin/billing", 302);
+    }
+    const billing =
+      viewer.workspace?.billing ?? (await workspaceBilling(c.env, ctx.active, c.get("email")));
+    const checkout = billing.nextPlan === "pro" ? billing.checkout.pro : null;
+    return c.redirect(checkout ?? "/admin/billing", 302);
+  }
+);
 
 /**
  * Where the viewer sends a visitor it cannot identify. `slug` is only used to

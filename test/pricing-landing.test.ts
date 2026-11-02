@@ -69,10 +69,13 @@ describe("pricing section", () => {
     // setup until team invites, operator provisioning and enterprise asks are
     // real self-serve flows; the CTA must say that instead of pretending.
     const html = await landing();
+    // Free signs up; Pro is a "Buy" button whose route signs up first and then
+    // lands on checkout (see test/upgrade-route.test.ts) — never a raw checkout link.
+    const selfServeHref: Record<string, string> = { free: "/signup", pro: "/upgrade/pro" };
     for (const plan of ["free", "pro"]) {
       const card = html.slice(html.indexOf(`data-tier="${plan}"`));
       const cta = card.slice(0, card.indexOf("</div>"));
-      expect(cta, plan).toContain('href="/signup"');
+      expect(cta, plan).toContain(`href="${selfServeHref[plan]}"`);
       expect(cta, plan).toContain('data-cta-kind="self-serve"');
       expect(cta, plan).not.toContain("#waitlist");
       expect(cta, plan).not.toContain("lemonsqueezy");

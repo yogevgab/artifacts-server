@@ -285,7 +285,7 @@ const SIGNUP_TITLE = "Sign up free \u2014 rtfx.pro, private links for Claude";
  * and sign-in are literally the same endpoint (`/auth/start`) — giving them two
  * different forms would let the two paths disagree about who you are.
  */
-export function signupPage(env: Env, state: LoginState): string {
+export function signupPage(env: Env, state: LoginState, next: string | null = null): string {
   if (state.kind === "signed-in") {
     return layout("Signed in \u00b7 rtfx.pro", signedIn(state.email), LOGIN_STYLE);
   }
@@ -298,7 +298,12 @@ export function signupPage(env: Env, state: LoginState): string {
         "Enter your email and we'll send you a code. No password, no credit card \u2014 " +
         "you'll have a workspace in about thirty seconds.",
       footerHtml:
-        '<p class="hint">Already have an account? <a href="/login">Sign in</a> \u2014 ' +
+        // `/login` without `?next=` clears a parked destination on purpose, so
+        // the link has to carry it or "Buy Pro → I already have an account"
+        // would forget the checkout it started from.
+        `<p class="hint">Already have an account? <a href="${esc(
+          next ? `/login?next=${encodeURIComponent(next)}` : "/login"
+        )}">Sign in</a> \u2014 ` +
         "it's the same code either way.</p>",
     }),
     LOGIN_STYLE,
