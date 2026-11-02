@@ -103,6 +103,20 @@ export interface Env {
    * refuses every request rather than trusting an unverifiable body.
    */
   LEMONSQUEEZY_WEBHOOK_SECRET?: string;
+
+  // --- Who operates this deployment (src/legal.ts). Plain vars. Until
+  //     LEGAL_OPERATOR and LEGAL_GOVERNING_LAW are set, /privacy and /terms show
+  //     an "operator template" notice instead of presenting themselves as final. ---
+  /** Name of the operator, e.g. a person's or company's legal name. */
+  LEGAL_OPERATOR?: string;
+  /** Reads after the name, e.g. "an individual sole proprietor based in Israel". */
+  LEGAL_OPERATOR_DETAIL?: string;
+  /** Contact address for privacy, legal, support and billing. Defaults to privacy@rtfx.pro. */
+  LEGAL_CONTACT?: string;
+  /** e.g. "the State of Israel" — "governed by the laws of …". */
+  LEGAL_GOVERNING_LAW?: string;
+  /** e.g. "the competent courts of the Tel Aviv district, Israel". */
+  LEGAL_COURTS?: string;
   /**
    * The store's subdomain (e.g. "my-store" for my-store.lemonsqueezy.com), used
    * to build hosted checkout URLs. Despite the name, this is the subdomain

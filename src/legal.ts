@@ -2,35 +2,74 @@ import { layout, esc, siteHeader, siteFooter, PUBLIC_CHROME_STYLE, type HeadMeta
 import { cookieNotice, CONSENT_STYLE, CONSENT_SCRIPT } from "./consent";
 import type { Env } from "./env";
 import { posthogConfig } from "./posthog";
-import { SITE, canonicalUrl, siteOrigin } from "./seo";
+import { SITE, canonicalUrl } from "./seo";
+import { PLAN_PRICE } from "./plan-copy";
 
 /**
  * `/privacy` and `/terms` (issue #36).
  *
- * Two rules govern what is written here, and they matter more than the prose:
+ * Rules, in order of importance:
  *
- *  1. **Everything on these pages is true of the code in this repository.** The
- *     data inventory below is the D1 schema and the R2 bucket, named table by
- *     table; the cookie table is the cookies that actually reach a browser. A
- *     privacy policy that describes a generic SaaS instead of this one is worse
- *     than no page at all, because it is a promise nobody checked.
- *  2. **The repository copy remains reusable for self-hosted operators, and the
- *     canonical rtfx.pro deployment stays honest too.** Until a real legal
- *     entity, physical address, governing law and lawyer-reviewed DPA language
- *     exist, production renders the same notice as self-hosted deployments. A
- *     less polished warning is safer than silently presenting a template as a
- *     final EU-ready legal document.
+ *  1. **Everything on these pages is true of the code in this repository** and
+ *     of the production configuration. The data inventory is the D1 schema, the
+ *     R2 bucket, the chat Durable Object and the email log; the cookie table is
+ *     the cookies the Worker sets (checked against production responses
+ *     2026-11-02). Where the code does something weaker than a reader would
+ *     assume — IP erasure is opportunistic, removing a user does not delete
+ *     their workspace — the page says so rather than promising the stronger
+ *     thing. Change the code or change the page; never let them drift.
+ *  2. **Who operates the service is configuration, not copy.** `LEGAL_OPERATOR`
+ *     (and friends, see `operatorOf`) name the operator, the governing law and
+ *     the courts. rtfx.pro sets them in wrangler.jsonc. A self-hosted deployment
+ *     that has not set them renders the "operator template" notice instead of
+ *     presenting this text as somebody's finished legal document.
+ *  3. These pages are not a lawyer's work product. Items that need one are
+ *     tracked outside the page (EU representative, Israeli consumer disclosures,
+ *     a customer DPA); the page must not imply they are done.
  *
- * Both pages are public and crawlable: they are the pages a person reads *before*
- * deciding to sign up, so putting them behind sign-in would defeat them entirely.
- * They must sit outside the Cloudflare Access application — see docs/DEPLOY_RTFX.md.
+ * Both pages are public and crawlable: they are what a person reads *before*
+ * deciding to sign up.
  */
 
-/** Last substantive edit to either document, shown on both. */
-const UPDATED = "14 August 2026";
+/** Last substantive edit to either document, shown on both and in JSON-LD. */
+const UPDATED = "2 November 2026";
+const UPDATED_ISO = "2026-11-02";
 
-const CONTACT = "privacy@rtfx.pro";
-const OPERATOR = "the rtfx.pro operator";
+const DEFAULT_CONTACT = "privacy@rtfx.pro";
+
+interface Operator {
+  /** Display name of the operator, or null when this deployment has not configured one. */
+  name: string | null;
+  /** "an individual sole proprietor based in Israel" — reads after the name. */
+  detail: string | null;
+  contact: string;
+  /** "the State of Israel" */
+  law: string | null;
+  /** "the competent courts of the Tel Aviv district, Israel" */
+  courts: string | null;
+}
+
+function operatorOf(env: Env): Operator {
+  const clean = (v: string | undefined) => (v && v.trim() ? v.trim() : null);
+  return {
+    name: clean(env.LEGAL_OPERATOR),
+    detail: clean(env.LEGAL_OPERATOR_DETAIL),
+    contact: clean(env.LEGAL_CONTACT) ?? DEFAULT_CONTACT,
+    law: clean(env.LEGAL_GOVERNING_LAW),
+    courts: clean(env.LEGAL_COURTS),
+  };
+}
+
+/** True when this deployment has said who it is — the template notice disappears. */
+const isConfigured = (op: Operator) => !!(op.name && op.law);
+
+/** "Yogev Gabrielovitch, an individual sole proprietor based in Israel" / "the operator of this deployment". */
+function operatorPhrase(op: Operator): string {
+  if (!op.name) return "the operator of this deployment";
+  return op.detail ? `${esc(op.name)}, ${esc(op.detail)}` : esc(op.name);
+}
+
+const mail = (op: Operator) => `<a href="mailto:${esc(op.contact)}">${esc(op.contact)}</a>`;
 
 const LEGAL_STYLE = `${PUBLIC_CHROME_STYLE}${CONSENT_STYLE}
 .wrap{max-width:900px}
@@ -88,21 +127,19 @@ function sections(parts: readonly Part[]): string {
 }
 
 /**
- * The banner both documents open with. It names what an operator has to decide
- * before either page can be relied on, rather than gesturing vaguely at "consult
- * a lawyer" — the fill-ins are the contact address and the governing law.
+ * Shown only when this deployment has not configured an operator (see
+ * `operatorOf`): the software's legal text is a starting point for whoever runs
+ * it, and must not pass as their finished document.
  */
-function templateNotice(kind: "privacy" | "terms"): string {
+function templateNotice(kind: "privacy" | "terms", op: Operator): string {
   return `<div class="template" data-legal-template role="note">
       <h2>Operator template — not legal advice</h2>
       <p>This ${kind === "privacy" ? "privacy policy" : "terms of use"} describes what the
-        rtfx.pro software actually does, and it has <b>not been reviewed by a lawyer</b>. It is a
-        starting point for whoever operates this deployment, not a document a reader should treat
-        as final or as legal advice.</p>
-      <p>Before publishing it, the operator must confirm at least: the contact address
-        (<code>${esc(CONTACT)}</code> is a placeholder), the governing law and jurisdiction, the
-        legal entity's name and address, and whether their jurisdiction requires anything this
-        template does not carry.</p>
+        rtfx.pro software does. Whoever operates this deployment has not yet said who they are,
+        so treat it as a starting point, not as a final document.</p>
+      <p>The operator must set at least: their name, a working contact address
+        (<code>${esc(op.contact)}</code> is the software's default), the governing law and courts,
+        and anything else their jurisdiction requires.</p>
     </div>`;
 }
 
@@ -118,7 +155,12 @@ function legalPage(
     parts: readonly Part[];
   }
 ): string {
+  const op = operatorOf(env);
   const path = `/${o.current}`;
+  const operatedBy = isConfigured(op)
+    ? `<p class="updated" data-legal-operator>Operated by ${operatorPhrase(op)}. Contact: ${mail(op)}
+        (a postal address is available on request).</p>`
+    : "";
   const body = `
     ${siteHeader(o.current)}
 
@@ -127,10 +169,11 @@ function legalPage(
         <p class="eyebrow">${esc(o.eyebrow)}</p>
         <h1>${esc(o.heading)}</h1>
         <p class="lede">${o.lede}</p>
-        <p class="updated">Last updated ${esc(UPDATED)}</p>
+        <p class="updated">Last updated ${esc(UPDATED)}, and in effect from that date.</p>
+        ${operatedBy}
       </div>
 
-      ${templateNotice(o.current)}
+      ${isConfigured(op) ? "" : templateNotice(o.current, op)}
       ${toc(o.parts)}
 
       <article class="legal">${sections(o.parts)}</article>
@@ -154,7 +197,7 @@ function legalPage(
         description: o.description,
         url: canonicalUrl(env, path),
         inLanguage: "en",
-        dateModified: "2026-08-14",
+        dateModified: UPDATED_ISO,
         isPartOf: { "@id": `${canonicalUrl(env, "/")}#website` },
         publisher: { "@id": `${canonicalUrl(env, "/")}#organization` },
       },
@@ -179,310 +222,327 @@ const PRIVACY_DESCRIPTION_BASE =
 
 const privacyDescription = (analytics: boolean): string =>
   analytics
-    ? `${PRIVACY_DESCRIPTION_BASE} The public pages carry no analytics or third-party tracking; ` +
-      "the dashboard offers optional, consent-gated session recording and error tracking, " +
-      "heavily masked, that you can decline."
+    ? `${PRIVACY_DESCRIPTION_BASE} No ads; dashboard session recording only if you accept it.`
     : `${PRIVACY_DESCRIPTION_BASE} No analytics, ads or third-party tracking.`;
 
 /**
- * `analytics` is whether this deployment can record anything at all — i.e.
- * whether POSTHOG_KEY is set. When it isn't, every mention of recording is
- * dropped: describing a sub-processor an instance does not use is the same
- * class of inaccuracy as hiding one it does.
+ * `analytics`: whether this deployment can record dashboard sessions at all
+ * (POSTHOG_KEY set). `resend`: whether the Resend fallback sender is configured.
+ * Neither is described when it is off — naming a processor an instance does not
+ * use is as inaccurate as hiding one it does.
  */
-const privacyParts = (analytics: boolean, resend = false): readonly Part[] => [
+const privacyParts = (op: Operator, analytics: boolean, resend: boolean): readonly Part[] => [
   {
     id: "summary",
     heading: "The short version",
     html: `<ul>
-      <li>We identify you by <b>email address</b>. Sign-in is passwordless: rtfx.pro emails
-        a one-time code and magic link, and there is no password to store.</li>
-      <li>We store <b>what you publish</b> — your files, their versions, and the access list you
-        set — because hosting them is the product.</li>
-      <li>We record <b>who opened each artifact</b>, and show that log to the artifact's owner.
-        This is a feature of the product, and it applies to you when you open somebody else's
-        artifact too.</li>
-      <li>The public pages — this one included — run <b>no analytics, no advertising and no
+      <li>rtfx.pro hosts pages and files that you (usually through Claude) publish, and lets you
+        decide who can open them: named people, your workspace, or share links you create.</li>
+      <li>We use <b>email addresses</b> for accounts, invitations and passwordless sign-in. There
+        are no passwords.</li>
+      <li>We store <b>what you publish</b> — files, versions, sharing settings — because hosting it
+        is the product.</li>
+      <li>We keep an <b>activity log</b> for every artifact (who opened it when we know who they are,
+        when, from roughly where, on what device). People who manage the artifact can see it. This
+        is a feature, and it applies to you when you open somebody else's artifact too.</li>
+      <li>The public pages and the artifact viewer run <b>no analytics, no advertising and no
         third-party tracking</b>.${
           analytics
-            ? ` The dashboard is different: with your OK, it uses PostHog for
-        session recording and error tracking, heavily masked, and declining means it never loads.
-        See <a href="#dashboard-analytics">Session recording and error tracking</a> below.`
+            ? " The dashboard records sessions only if you accept it — see below."
             : " Neither does the dashboard."
-        }</li>
-      <li>Nothing you publish or view is sold, shared with advertisers, or used to profile you.</li>
+        } An artifact somebody publishes can contain its own scripts; that is up to its publisher.</li>
+      <li>We do not sell personal data, share it with advertisers, or use it to train AI models.</li>
     </ul>`,
   },
   {
     id: "who",
     heading: "Who is responsible",
-    html: `<p>${esc(OPERATOR)} is responsible for this deployment and is the data controller for everything
-      described below. Questions, requests and complaints go to <code>${esc(CONTACT)}</code>.</p>
-    <p>If you reached an artifact through a link somebody sent you, they are the one who decided
-      to share it with you and who sees that you opened it. We host it on their behalf.</p>`,
+    html: `<p>rtfx.pro is operated by ${operatorPhrase(op)}. Write to ${mail(op)}
+      with any privacy question, request or complaint. A postal address is available on request.</p>
+    <p>For your account, sign-in, security, billing and support we decide how and why data is
+      processed (we are the "controller"). For the content customers publish — and the personal
+      data inside it — the customer who publishes it decides what goes in and who sees it; we host
+      it on their instructions. If you reached an artifact through somebody's link, they chose to
+      share it with you, and they can see that you opened it.</p>
+    <p>This policy covers the hosted service at rtfx.pro. Self-hosted copies of the open-source
+      software are run by their own operators under their own policies.</p>`,
   },
   {
     id: "collect",
     heading: "What we collect",
-    html: `<p>Everything in this table is stored in this deployment's own database or object
-      storage. There is no data collection on this site beyond it.</p>
-    <div class="table-wrap"><table class="data">
-      <thead><tr><th scope="col">What</th><th scope="col">Where it comes from</th><th scope="col">Why</th></tr></thead>
+    html: `<div class="table-wrap"><table class="data">
+      <thead><tr><th scope="col">What</th><th scope="col">Details</th></tr></thead>
       <tbody>
-        <tr><th scope="row">Email address</th>
-          <td>You, when you sign in or create an account with a one-time code.</td>
-          <td>It is your identity here: it decides what you can open and what you own.</td></tr>
-        <tr><th scope="row">Account record</th>
-          <td>Created on first sign-in; an admin may add a display name or note.</td>
-          <td>Role, status (invited, active, paused) and workspace membership.</td></tr>
-        <tr><th scope="row">Artifacts you publish</th>
-          <td>You, through the dashboard, the CLI, the API or an agent.</td>
-          <td>The files, plus their title, slug, size, versions and version notes. This is the
-            thing being hosted.</td></tr>
-        <tr><th scope="row">Access lists</th>
-          <td>You, when you share an artifact.</td>
-          <td>The email addresses you granted access to, per artifact.</td></tr>
-        <tr><th scope="row">View log</th>
-          <td>Recorded when a signed-in person opens an artifact page, when anyone opens it
-            through a share link, when a chat or social app fetches a share link to build a
-            preview card, and when someone follows a share link that has expired or been
-            revoked.</td>
-          <td>Viewer's email (signed-in views only; a share-link visit is recorded as
-            "someone with a link", not as a person), artifact and version, path, timestamp,
-            referring page, IP address, the approximate country, region and city Cloudflare
-            derives from that address, a device type, operating system and browser read from the
-            User-Agent header (and the header itself, truncated), and which share link was used.
-            Shown to the artifact's owner.</td></tr>
-        <tr><th scope="row">API tokens</th>
-          <td>You, when you mint one.</td>
-          <td>Name, scopes, owner, created/last-used timestamps. The token itself is stored only
-            as a hash — we cannot show it to you again after it is created.</td></tr>
-        <tr><th scope="row">Signup records</th>
-          <td>You, when you create a workspace.</td>
-          <td>Your email address, workspace membership and plan so the account can exist and limits can be enforced.</td></tr>
-        <tr><th scope="row">Sign-in challenges</th>
-          <td>Created when you ask rtfx.pro to email a code or magic link.</td>
-          <td>Hashed code/link data, attempts and expiry time, so a short-lived code can sign you in without storing a password.</td></tr>
-        <tr><th scope="row">Billing records</th>
-          <td>Lemon Squeezy, when a workspace changes plan.</td>
-          <td>Plan, subscription/customer identifiers and status. Payment-card details stay with Lemon Squeezy, not rtfx.pro.</td></tr>
-        <tr><th scope="row">Infrastructure logs</th>
-          <td>Cloudflare, as the network and platform serving every request.</td>
-          <td>Standard request logging and abuse prevention, under Cloudflare's own terms.</td></tr>
+        <tr><th scope="row">Identity and workspaces</th>
+          <td>Email address; optional display name; role and status; the workspaces you belong to,
+            their names and addresses; who invited you and when; when you were last active. It
+            comes from you — or from a workspace owner who adds you, or somebody who shares an
+            artifact with your address before you ever sign in.</td></tr>
+        <tr><th scope="row">What you publish</th>
+          <td>The files and their contents (stored in Cloudflare R2); title, description, address,
+            size, version notes and who published each version and when.</td></tr>
+        <tr><th scope="row">Sharing settings</th>
+          <td>The email addresses an artifact is shared with and their role (viewer or editor);
+            share links — stored only as a hash — with their name, creator, expiry, revocation and
+            last use.</td></tr>
+        <tr><th scope="row">Activity log (view log)</th>
+          <td>For each open of an artifact: the artifact, version and file; time and outcome; your
+            email if you are signed in (including when you came through a share link); which share
+            link was used; IP address; the approximate country, region and city Cloudflare derives
+            from it; device type, operating system and browser, and the browser's User-Agent text
+            (up to 300 characters); the referring page (up to 500 characters). Link previews built
+            by chat and social apps, and attempts to use an expired or revoked link, are logged too.
+            Repeated opens of the same share link from the same IP address within a few minutes
+            produce one entry. A log entry shows
+            that a page was loaded — not that a person read it.</td></tr>
+        <tr><th scope="row">Chat</th>
+          <td>Messages written in an artifact's chat, with the author's email where known, their
+            role and the version they were viewing.</td></tr>
+        <tr><th scope="row">Sign-in and integrations</th>
+          <td>One-time codes and magic links (stored hashed), attempts and expiry; API tokens
+            (stored hashed) with their name, scopes and dates; the apps you connect over OAuth
+            (such as Claude) and their authorisations; short-lived upload links.</td></tr>
+        <tr><th scope="row">Email delivery log</th>
+          <td>For every email we send — sign-in codes, invitations, share and read notices, access
+            requests — the recipient, the kind of message, whether the sending provider accepted it or
+            the send failed, and when. Not the message itself.</td></tr>
+        <tr><th scope="row">Billing</th>
+          <td>When you buy a plan we send your email and workspace id to Lemon Squeezy's checkout.
+            From its notifications we store the resulting plan and a record that the notification
+            was processed. We do not store card details, or Lemon Squeezy's customer or subscription
+            ids.</td></tr>
+        <tr><th scope="row">Contact and operations</th>
+          <td>Messages you send through the contact form or by email; notes and an audit trail of
+            actions taken by our administrators; rate-limit counters (hourly counts keyed by a hash
+            of an email or IP address); and short technical logs from the platform.</td></tr>
       </tbody>
     </table></div>
-    <h3>What we do not collect</h3>
-    <ul>
-      <li>No passwords — sign-in is passwordless, so none exist.</li>
-      <li>No card numbers or bank details. Paid checkout is handled by Lemon Squeezy; rtfx.pro stores only plan/subscription metadata.</li>
-      <li>No advertising or fingerprinting.${
-        analytics
-          ? ` No analytics or session recording anywhere except the
-        dashboard, and only there once you say yes — see the next section for exactly what that is
-        and how to say no.`
-          : " No analytics and no session recording, anywhere."
-      }</li>
-      <li>The product code does not inspect your artifacts' contents for analytics, advertising
-        or profiling. Operators with infrastructure access may still be able to access stored
-        files when required to operate, secure or troubleshoot the service.</li>
-    </ul>`,
+    <p>We do not collect passwords (there are none) or payment-card details (Lemon Squeezy handles
+      payment). The product does not read your artifacts' contents for analytics, advertising or
+      profiling; people with infrastructure access could technically reach stored files when that
+      is needed to operate, secure or troubleshoot the service.</p>`,
   },
   {
     id: "dashboard-analytics",
     heading: "Session recording and error tracking",
-    html: `<p>The dashboard at <code>/admin</code> — and only the dashboard; never this page, the
-      docs, sign-in, or an artifact you open — can use
-      <a href="https://posthog.com" rel="noopener">PostHog</a> to record what a session looked like
-      and to catch errors, so a broken page gets fixed instead of quietly abandoned. It is off until
-      you say yes.</p>
+    html: `<p>The dashboard at <code>/admin</code> — and only the dashboard; never the public pages,
+      sign-in, or an artifact you open — can use <a href="https://posthog.com" rel="noopener">PostHog</a>
+      to record what a session looked like and to catch errors. It is off until you say yes.</p>
     <h3>What it asks, and when</h3>
-    <p>The first time you open the dashboard after signing in, a banner asks you to accept or
-      decline. Accept, and it loads immediately and on every visit after, without asking again.
-      Decline, and nothing loads — not quietly disabled, not present-but-silent, simply never
-      requested by your browser. If your browser sends Do Not Track or Global Privacy Control, you
-      are not asked at all: every visit behaves as if you had declined, automatically.</p>
+    <p>The first time you open the dashboard, a banner asks you to accept or decline. Decline, and
+      nothing loads. If your browser sends Do Not Track or Global Privacy Control, you are not asked:
+      every visit behaves as if you had declined.</p>
     <h3>What is recorded</h3>
     <ul>
-      <li>Mouse movement, clicks, scrolling and page navigation inside the dashboard, reconstructed
-        as a session replay.</li>
-      <li>Unhandled JavaScript errors and unhandled promise rejections — not <code>console.error</code>
-        calls, which are not captured.</li>
+      <li>Mouse movement, clicks, scrolling and navigation inside the dashboard, as a session replay.</li>
+      <li>Unhandled JavaScript errors and unhandled promise rejections.</li>
     </ul>
-    <h3>What is masked, and what is never captured</h3>
-    <p>Every input's value is masked before it leaves your browser, and so is every piece of text on
-      the page — artifact titles, grantee email addresses, API token ids, view-log rows, even your
-      own email address in the header. A recording shows shapes, motion and layout; it never shows
-      what any of it says. We also turn off PostHog's default of logging the text and attributes of
-      whatever you click as an analytics event — on a page built out of other people's email
-      addresses, that default is exactly the leak this deployment does not take.</p>
-    <h3>Sub-processor</h3>
-    <p>PostHog processes this data as our sub-processor, under its own
-      <a href="https://posthog.com/privacy" rel="noopener">privacy policy</a>. Accepting sets one
-      cookie, described in the table in the next section.</p>`,
+    <p>Every input value and every piece of on-page text is masked before it leaves your browser: a
+      recording shows shapes, motion and layout, never what any of it says. PostHog processes this data
+      as our sub-processor, under its own <a href="https://posthog.com/privacy" rel="noopener">privacy
+      policy</a>.</p>`,
   },
   {
     id: "cookies",
-    heading: "Cookies and local storage",
-    html: `<p>The public pages set nothing beyond what keeps the site working — no consent banner
-      asks you to accept anything there, because there is nothing optional to accept. The dashboard
-      ${analytics ? "adds exactly one optional cookie, set only after you accept session recording" : "adds no optional cookies at all"} (previous
-      section). Everything else below is strictly necessary and cannot be declined while you use
-      the product.</p>
+    heading: "Cookies and browser storage",
+    html: `<p>rtfx.pro sets no advertising cookies${analytics ? ", and its only analytics cookie is PostHog's optional one, below" : " and no analytics cookies"}. The
+      cookies are strictly necessary for signing in and for shared access; the local-storage items only
+      remember preferences.</p>
     <div class="table-wrap"><table class="data">
-      <thead><tr><th scope="col">Name</th><th scope="col">Kind</th><th scope="col">What it is for</th></tr></thead>
+      <thead><tr><th scope="col">Name</th><th scope="col">What it is for</th><th scope="col">Lasts</th></tr></thead>
       <tbody>
         <tr><th scope="row"><code>rtfx_session</code></th>
-          <td>Cookie · strictly necessary</td>
-          <td>Set by rtfx.pro after you verify your email address. It is the reason you stay signed in;
-            without it there is no dashboard session. Cleared by signing out at <code>/logout</code>.</td></tr>
-        <tr><th scope="row"><code>__cf_bm</code> and similar</th>
-          <td>Cookie · strictly necessary</td>
-          <td>Cloudflare's own bot-management and security cookies, set by the network in front of
-            this service to tell automated abuse from real traffic. They are not used for
-            advertising or cross-site tracking.</td></tr>
-        <tr><th scope="row"><code>rtfx.cookie-notice</code></th>
-          <td>Local storage · strictly necessary</td>
-          <td>Remembers that you dismissed the cookie notice, so it does not reappear on every
-            page. Stored locally in your browser and never sent to our server. Clearing your
-            browser storage brings the notice back.</td></tr>
-        <tr><th scope="row"><code>rtfx.dashboard-analytics</code></th>
-          <td>Local storage · dashboard only</td>
-          <td>Remembers your accept/decline choice for dashboard session recording, so the banner
-            does not ask again. Stored locally, never sent to our server. Clearing it asks again the
-            next time you open the dashboard.</td></tr>
+          <td>Keeps you signed in after you verify your email.</td><td>30 days from sign-in</td></tr>
+        <tr><th scope="row"><code>rtfx_guest</code></th>
+          <td>Lets a person you shared one artifact with open it after verifying their email.</td><td>30 days</td></tr>
+        <tr><th scope="row"><code>rtfx_link_&lt;artifact&gt;</code></th>
+          <td>Remembers a share link you opened, so the page keeps working; the link's own expiry
+            and revocation still apply.</td><td>1 day</td></tr>
+        <tr><th scope="row"><code>rtfx_next</code></th>
+          <td>Remembers where to send you after sign-in.</td><td>30 minutes</td></tr>
+        <tr><th scope="row"><code>rtfx_oauth_csrf</code></th>
+          <td>Protects the screen where you connect an app (such as Claude) against forged requests.</td><td>10 minutes</td></tr>
+        <tr><th scope="row"><code>rtfx_account</code></th>
+          <td>Remembers which workspace you last switched to.</td><td>1 year</td></tr>
+        <tr><th scope="row"><code>rtfx.cookie-notice</code>, <code>rtfx.bar</code></th>
+          <td>Local storage in your browser (never sent to us): that you dismissed the cookie notice,
+            and how you like the artifact toolbar.</td><td>Until you clear it</td></tr>
         ${
           analytics
-            ? `<tr><th scope="row"><code>ph_&lt;project-key&gt;_posthog</code></th>
-          <td>Cookie + local storage · optional, dashboard only</td>
-          <td>Set by PostHog after you accept dashboard session recording — never before, never on
-            any other page. Holds an anonymous session/device id and nothing else. Decline, or never
-            accept, and it is never set.</td></tr>`
+            ? `<tr><th scope="row"><code>rtfx.dashboard-analytics</code></th>
+          <td>Local storage: your accept/decline choice for dashboard session recording.</td><td>Until you clear it</td></tr>
+        <tr><th scope="row"><code>ph_&lt;project-key&gt;_posthog</code></th>
+          <td>Cookie + local storage · optional, dashboard only: PostHog's anonymous session id, set
+            only after you accept session recording.</td><td>Set by PostHog</td></tr>`
             : ""
         }
       </tbody>
     </table></div>
-    <p>That is the one optional cookie on this site, and it exists only because you said yes to it.
-      Nothing else here is a choice: the public-page notice has nothing to opt out of, and the
-      strictly-necessary rows above cannot be declined while you use the product.</p>`,
+    <p>Cloudflare, which runs the network in front of rtfx.pro, may set its own security cookies
+      (such as <code>__cf_bm</code> or <code>cf_clearance</code>) if it needs to check whether traffic
+      is automated. Signing out clears <code>rtfx_session</code> and <code>rtfx_guest</code>; it does
+      not revoke share links. Blocking these cookies stops sign-in and shared access from working.</p>`,
   },
   {
     id: "why",
-    heading: "Why we are allowed to process it",
-    html: `<p>For readers in the UK/EEA, where a lawful basis has to be named:</p>
+    heading: "Why we process it",
+    html: `<p>Where EU or UK data-protection law applies, these are our legal bases:</p>
     <ul>
-      <li><b>Performance of a contract.</b> Your email address, account record, artifacts and
-        access lists — we cannot host access-controlled pages for you without them.</li>
-      <li><b>Legitimate interests.</b> The view log (an artifact's owner needs to know who opened
-        what they shared), API token metadata, and security/abuse prevention. We keep these to
-        the minimum that serves the purpose.</li>
-      <li><b>Consent.</b> Dashboard session recording and error tracking, which runs only if you
-        accept it and never again once you decline.</li>
-    </ul>`,
+      <li><b>To provide the service you signed up for</b> (contract): your account, hosting what you
+        publish, sharing it as you instruct, workspaces, and the plan you bought.</li>
+      <li><b>Legitimate interests</b>: verifying and admitting the people an artifact is shared with,
+        sending them the invitations and notices that sharing involves, the activity log (people who
+        share something need to know who opened it and to spot a leaked link), keeping accounts and
+        the service secure, preventing abuse, fixing problems, and answering messages. We keep the
+        activity log's IP addresses out of view after 90 days (see retention) because location and
+        device are rarely needed after that.</li>
+      <li><b>Legal obligations</b>: where a law requires us to keep or disclose something.</li>
+      ${analytics ? "<li><b>Consent</b>: dashboard session recording, only if you accept it.</li>" : ""}
+    </ul>
+    <p>Where we host personal data inside a customer's content, we act on that customer's
+      instructions, and the customer is responsible for having a lawful basis to publish and share
+      it.</p>`,
+  },
+  {
+    id: "provision",
+    heading: "What you have to give us",
+    html: `<p>An email address is needed to have an account or to open something shared with you by
+      name; without it we cannot sign you in. Content is needed only if you want us to host it.
+      Display names, chat messages and contact-form messages are optional. Payment details go to
+      Lemon Squeezy, not to us. Some technical data (such as your IP address) is unavoidable when
+      your browser talks to any website.</p>`,
   },
   {
     id: "sharing",
     heading: "Who can see what",
     html: `<ul>
-      <li><b>An artifact's owner</b> sees its view log, including the email address of every
-        signed-in person who opened it, and the IP address, approximate location and device of
-        everyone who opened it through a share link. If you open something shared with you, the person who
-        shared it can see that you did.</li>
-      <li><b>People you grant access to</b> see that artifact and nothing else. A grant never
-        reveals your other artifacts and never confers any management rights.</li>
-      <li><b>Administrators of this deployment</b> can see the people directory and run accounts
-        (suspend a workspace, change a plan, manage members). To run the service they can also see
-        an artifact's metadata: its owner, title, type, size, version count, dates, visibility and
-        how many views and grants it has. They cannot open your artifacts, read your files, see
-        who has viewed them or who they are shared with. The product gives them no way to. The one
-        thing they can do to an artifact is delete it for abuse, which is recorded in an audit
-        trail with a reason and never involves reading it.</li>
-      <li><b>Nobody else.</b> We do not sell personal data, we do not share it with advertisers,
-        and we do not use it to train anything.</li>
+      <li><b>People an artifact is shared with</b> — by name, through the workspace, or by holding a
+        share link — can open it. A viewer can only read. An editor signed in with a full account can
+        also publish new versions and roll back. A share link works for whoever has it, so it can be forwarded.</li>
+      <li><b>People who manage an artifact</b> — its owner and members (not viewers) of the workspace
+        it belongs to — see its activity log and sharing settings. The first time a signed-in person
+        other than the owner opens an artifact (not through a share link), the owner may get an email
+        saying so, unless read notices are turned off.</li>
+      <li><b>Chat</b> messages, with their author's email where known, are visible to everyone who
+        can open the artifact.</li>
+      <li><b>Chat and social apps</b> that fetch a valid share link to build a preview receive the
+        artifact's title and description.</li>
+      <li><b>Apps you connect</b>, such as Claude, receive what you ask them to do through rtfx.pro,
+        under their own terms and privacy policies.</li>
+      <li><b>Our administrators</b> can see accounts, workspaces and artifact metadata (owner, title,
+        size, dates, counts) to run the service, and can manage workspace memberships. Being an
+        administrator does not change what they can see: as administrators they
+        cannot open your artifacts, read your files or see who has viewed them — they get that only the way anyone does,
+        if you share it with them. An administrator who deletes
+        an artifact for abuse leaves an entry in an audit trail.</li>
     </ul>
-    <h3>Processors</h3>
-    <p>Cloudflare provides the platform: the network, Workers runtime, D1 database, R2 object
-      storage and Email Sending used for sign-in codes and workspace invitations.${
-        resend
-          ? ` If Cloudflare cannot deliver one of those emails, Resend sends it instead.`
-          : ""
-      } Data is processed on Cloudflare's
-      global network, which means it may be handled outside your own country under Cloudflare's
-      data-processing terms.${
-        analytics
-          ? ` PostHog processes
-      dashboard session recordings and error reports, but only for people who accepted them — see
-      <a href="#dashboard-analytics">Session recording and error tracking</a> above.`
-          : ""
-      }</p>
-    <p>Lemon Squeezy processes paid-plan checkout and subscription events when a workspace upgrades.
-      We disclose data to anyone else only where the law requires it.</p>`,
+    <h3>Service providers</h3>
+    <ul>
+      <li><a href="https://www.cloudflare.com/privacypolicy/" rel="noopener">Cloudflare</a> runs the
+        network, servers, databases, file storage (R2), chat and email sending.</li>
+      ${resend ? `<li><a href="https://resend.com/legal/privacy-policy" rel="noopener">Resend</a> sends our emails if Cloudflare cannot deliver them.</li>` : ""}
+      <li><a href="https://www.lemonsqueezy.com/privacy" rel="noopener">Lemon Squeezy</a> is the
+        merchant of record for paid plans: it takes payment, handles sales tax and VAT, issues
+        receipts and processes refunds, as a controller under its own policy.</li>
+      ${analytics ? `<li><a href="https://posthog.com/privacy" rel="noopener">PostHog</a> records dashboard sessions for people who accepted that.</li>` : ""}
+    </ul>
+    <p>Email providers see the messages they deliver, including sign-in codes. We do not sell or rent
+      personal data, and we disclose it to anyone else only where the law requires it or where it is
+      necessary to protect people, rights or the service.</p>`,
+  },
+  {
+    id: "transfers",
+    heading: "Where data is processed",
+    html: `<p>The operator is in Israel, which the European Commission recognises as providing adequate
+      protection for personal data. Our service providers are based in the United States and process
+      data on their global networks, so your data may be handled in the US and other countries. Where
+      EU or UK law requires it, those transfers rely on the safeguards in the providers'
+      data-processing terms, such as standard contractual clauses. Write to ${mail(op)} for details of the safeguards that apply.</p>`,
   },
   {
     id: "retention",
     heading: "How long we keep it",
     html: `<ul>
-      <li><b>Artifacts and their versions</b> — until you delete them. Deleting an artifact
-        deletes its versions, its files and its access list.</li>
-      <li><b>View log entries</b> — kept with the artifact, and deleted with it. The
-        <b>IP address</b> on an entry is erased after 90 days; the rest of the entry stays.</li>
-      <li><b>Your account record</b> — for as long as you have access. Pausing an account keeps
-        it; deletion removes it.</li>
-      <li><b>API tokens</b> — until revoked or expired.</li>
-      <li><b>Sign-in challenges</b> — expire after a short time and cannot be used once consumed.</li>
-      <li><b>Billing metadata</b> — kept while the workspace exists and as needed for accounting,
-        fraud prevention and dispute handling.</li>
-    </ul>`,
+      <li><b>Artifacts</b> stay until they are deleted. On the Free plan, each new publish keeps the
+        files of the latest five versions and removes older versions' files (their notes and dates
+        stay). Pro and Team keep every version.</li>
+      <li><b>Deleting an artifact</b> removes its files, versions, sharing settings, share links and
+        activity log, and then erases its chat (if that last step fails, the chat can remain until we
+        clear it). It does not remove entries about it in the email delivery log or the administrators'
+        audit trail.</li>
+      <li><b>Activity log</b> entries stay until the artifact is deleted. IP addresses older than 90
+        days are no longer shown to anyone and are erased from storage in batches as the artifact keeps
+        being used — so on an artifact nobody opens any more, an old IP address can stay in storage
+        (unseen) until the artifact is deleted.</li>
+      <li><b>Removing you from one workspace</b> removes only that membership. <b>Removing you from the
+        service</b> removes all your memberships and the artifacts shared with you by name, and revokes
+        your API tokens. Neither does by itself delete your personal workspace, what you published or
+        past activity — ask us at ${mail(op)} to close your account and delete those.</li>
+      <li><b>Sign-in codes</b> work for 15 minutes; <b>upload links</b> for 30 minutes; connected-app
+        access for an hour at a time, renewable for 30 days. Expired or revoked credentials stop working
+        immediately, but their records are kept.</li>
+      <li><b>Email delivery log, contact messages, audit trail and billing records</b> are kept while
+        the service runs, for security, support, accounting and disputes. Rate-limit counters expire
+        after their hour and are removed during later checks.</li>
+    </ul>
+    <p>Cloudflare and our other providers keep their own operational logs under their own terms.</p>`,
   },
   {
     id: "rights",
     heading: "Your rights",
-    html: `<p>You can ask for a copy of what we hold about you, ask us to correct it, ask us to
-      delete it, or object to a particular use. Much of it you can do yourself: you can delete an
-      artifact, revoke a token, or change who an artifact is shared with, from the dashboard.</p>
-    <p>For anything else, write to <code>${esc(CONTACT)}</code>. Note that we cannot delete the
-      view-log entries showing that you opened somebody else's artifact without also removing the
-      record they rely on; we will explain what applies when you ask. If you are in the UK/EEA you
-      also have the right to complain to your data protection authority.</p>`,
+    html: `<p>Depending on where you live, you can ask us for a copy of your personal data, to correct it,
+      to delete it, to restrict or object to how we use it, or for a portable copy. Israeli law gives
+      you rights to see and correct information held about you. Much of it you can do yourself:
+      delete an artifact, revoke a token, or change who something is shared with.</p>
+    <p>For anything else, write to ${mail(op)}. We may need to confirm it is you, and we will explain
+      any legal reason we cannot do all of what you ask. If the data is inside content another customer
+      published, we may need to involve them. You can also complain to Israel's Privacy Protection
+      Authority or, in the EU or UK, to your local data-protection authority.</p>`,
   },
   {
     id: "security",
     heading: "Security",
     html: `<ul>
-      <li>Every artifact is private by default and access-controlled per artifact. An
-        unauthorized request and a request for something that does not exist get the same 404.</li>
-      <li>Artifact files are served from a separate origin, so uploaded HTML can never run in the
-        same origin as the dashboard or the API.</li>
-      <li>API tokens are stored hashed, scoped, owner-bound and revocable.</li>
-      <li>Everything is served over TLS, and sign-in uses one-time email codes and magic links rather
-        than a password store.</li>
+      <li>Every artifact is private when published, and access is checked on every request.</li>
+      <li>Artifact files are served from a separate address (<code>a.rtfx.pro</code>), so uploaded
+        HTML cannot run alongside the dashboard or the API.</li>
+      <li>Sign-in uses one-time email codes instead of passwords; API tokens, share links and
+        sign-in codes are stored only as hashes; connections use HTTPS.</li>
     </ul>
-    <p>No system is perfect. If you find a security problem, please report it rather than test it
-      further — see the repository's security policy.</p>`,
+    <p>No system is perfectly secure. Report a security problem to ${mail(op)} (see also the
+      repository's security policy) rather than testing it further. If a breach affects your personal
+      data, we will notify you and the authorities where the law requires it.</p>`,
   },
   {
     id: "children",
-    heading: "Children",
-    html: `<p>rtfx.pro is a tool for professional work and is not directed at children. We do not
-      knowingly create accounts for anyone under 16.</p>`,
+    heading: "Age",
+    html: `<p>rtfx.pro is a tool for work and is not meant for children. You must be at least 16 to
+      create an account. We do not verify ages; if you believe a child has an account, tell us at
+      ${mail(op)} and we will remove it.</p>`,
+  },
+  {
+    id: "automated",
+    heading: "Automated decisions",
+    html: `<p>The service automatically checks sign-in, permissions, rate limits and plan limits — for
+      example, refusing a publish over your plan's limit. We do not use automated decision-making or
+      profiling that has legal or similarly significant effects on you.</p>`,
   },
   {
     id: "changes",
     heading: "Changes to this policy",
-    html: `<p>If this policy changes materially — new data, a new processor, a new purpose — the
-      date at the top changes and the cookie notice reappears. We will not start doing something
-      new with your data and tell you afterwards.</p>`,
+    html: `<p>The date at the top shows when this policy last changed. Before a material change — new kinds
+      of data, a new purpose or a new provider — takes effect, we will tell account holders by email or
+      in the dashboard. We will not start using your data for something new and tell you afterwards.</p>`,
   },
 ];
 
 export function privacyPage(env: Env): string {
-  // A deployment with no POSTHOG_KEY cannot record anything, so telling its
-  // users about a sub-processor it does not use would be its own kind of
-  // inaccuracy — the opposite of the one this section was written to fix.
+  const op = operatorOf(env);
   const analytics = !!posthogConfig(env);
   const resend = !!env.RESEND_API_KEY;
-  const parts = analytics
-    ? privacyParts(true, resend)
-    : privacyParts(false, resend).filter((part) => part.id !== "dashboard-analytics");
+  const parts = privacyParts(op, analytics, resend).filter(
+    (part) => analytics || part.id !== "dashboard-analytics"
+  );
 
   return legalPage(env, {
     current: "privacy",
@@ -490,8 +550,8 @@ export function privacyPage(env: Env): string {
     eyebrow: "Privacy",
     heading: "Privacy policy",
     lede:
-      "What rtfx.pro stores, why it stores it, and who can see it — written against what the " +
-      "software actually does rather than what a privacy policy usually says.",
+      "What rtfx.pro stores, why, who can see it and for how long — written against what the " +
+      "software actually does.",
     description: privacyDescription(analytics),
     parts,
   });
@@ -500,127 +560,174 @@ export function privacyPage(env: Env): string {
 // --- /terms -----------------------------------------------------------------
 
 const TERMS_DESCRIPTION =
-  "Terms of use for rtfx.pro: accounts, plans, what you may publish, who owns your content, " +
-  "how API tokens and agents are treated, and service limits.";
+  "Terms of use for rtfx.pro: accounts, plans and billing, cancellation, what you may publish, " +
+  "who owns your content, API and agent use, and service limits.";
 
-const TERMS_PARTS: readonly Part[] = [
+const termsParts = (op: Operator): readonly Part[] => [
   {
     id: "acceptance",
-    heading: "Accepting these terms",
-    html: `<p>These terms apply between you and ${esc(OPERATOR)}. Using
-      the service — signing in, publishing an artifact, opening one somebody shared with you, or
-      calling the API — means you accept them. If you are using rtfx.pro for an employer or a
-      client, you confirm you may accept them on that organisation's behalf.</p>`,
+    heading: "The service and these terms",
+    html: `<p>These terms are an agreement between you and ${operatorPhrase(op)} ("we") for the hosted
+      service at rtfx.pro: publishing pages and files to private links, the dashboard, and the API and
+      MCP server. By creating an account, buying a plan or otherwise using the service, you agree to
+      them. If you use rtfx.pro for an organisation, you confirm you may agree on its behalf.</p>
+    <p>The rtfx.pro software is open source under the MIT licence. That licence covers the source code;
+      these terms cover the hosted service. Nothing here takes away rights you have under laws that
+      cannot be overridden by contract.</p>`,
   },
   {
     id: "access",
-    heading: "Access and accounts",
+    heading: "Who can use it, and accounts",
     html: `<ul>
-      <li>You create an account by verifying control of an email address. Every workspace starts on
-        the Free plan and can be paused or removed by an administrator where needed.</li>
-      <li>Sign-in is passwordless: rtfx.pro emails you a one-time code and magic link. Keep control
-        of the mailbox behind your address — anyone with it can sign in as you.</li>
-      <li>One account is one person. Do not share an account; use per-person invitations, or an
-        API token for anything automated.</li>
+      <li>You must be at least 16 and able to enter into a binding agreement.</li>
+      <li>You sign in by proving you control an email address — there is no password. Keep that mailbox
+        secure: anyone who controls it can sign in as you. Tell us at ${mail(op)} if you think someone
+        else has access.</li>
+      <li>An account is for one person. Use workspace members or sharing for other people, and API
+        tokens for automation.</li>
+      <li>Only add people to a workspace, or share with them, if you are entitled to use their email
+        address and to show them the content. Adding someone sends them an email; they get access the
+        moment they sign in with that address.</li>
+      <li>You are responsible for what happens through your account, except where it is our fault.</li>
+    </ul>`,
+  },
+  {
+    id: "fees",
+    heading: "Plans, billing and cancellation",
+    html: `<ul>
+      <li><b>Plans.</b> Free costs nothing. Pro is US$${PLAN_PRICE.pro} per month and Team is US$${PLAN_PRICE.team} per month,
+        per workspace. Enterprise is arranged with us directly. The limits of each plan (artifacts,
+        storage, people, monthly views, version history) are shown on the pricing page before you buy.</li>
+      <li><b>Payment.</b> Paid plans are sold through Lemon Squeezy, which acts as merchant of record: it
+        charges you, handles any sales tax or VAT, and issues receipts. The total, including tax, is
+        shown at checkout, and Lemon Squeezy's buyer terms also apply to the purchase.</li>
+      <li><b>Renewal.</b> Subscriptions renew automatically every month until cancelled.</li>
+      <li><b>Cancelling.</b> You can cancel at any time, through the link in your Lemon Squeezy receipt
+        or by writing to ${mail(op)}. Your plan stays active until the end of the period you have already
+        paid for, then the workspace returns to Free.</li>
+      <li><b>Refunds.</b> We do not refund or credit partial periods, except where the law requires it —
+        for example, a statutory right to cancel a distance purchase. Those rights always take priority
+        over this paragraph.</li>
+      <li><b>Moving to a lower plan</b> never deletes your artifacts, but the lower limits apply: you may
+        not be able to publish more until you are within them, viewers may be turned away if the monthly
+        view limit is reached, and on Free each new publish keeps the files of only the latest five
+        versions.</li>
+      <li><b>Price changes</b> apply from your next billing period after we have told you about them.</li>
     </ul>`,
   },
   {
     id: "content",
     heading: "Your content",
-    html: `<p><b>You own what you publish.</b> Nothing here transfers ownership of your files, and
-      we claim no rights in them beyond what is needed to run the service.</p>
-    <p>You grant us the limited permission to store, copy, process and transmit your content for
-      one purpose: hosting it and serving it to the people you allowed. That permission ends when
-      you delete the content.</p>
-    <p>You are responsible for what you publish — that you have the right to publish it, that it
-      does not infringe anyone's rights, and that sharing it with the people you named is lawful.
-      In particular, think before publishing other people's personal data: an access-controlled
-      link is a control, not an exemption.</p>`,
+    html: `<p><b>You keep ownership of what you publish.</b> You give us a limited permission to store,
+      copy, process, transmit and display it only as needed to run the service: hosting it, serving it to
+      the people you allow, building link previews and notifications you ask for, and keeping the
+      service secure. That permission ends when the content is deleted, apart from what we must keep to
+      complete the deletion, comply with the law or resolve a dispute.</p>
+    <p>You are responsible for what you publish: that you have the right to publish it, that it does not
+      infringe anyone's rights, and that sharing it with the people you choose is lawful. Think before
+      publishing other people's personal data — a private link is a control, not a legal basis.</p>`,
   },
   {
     id: "acceptable-use",
-    heading: "Acceptable use",
+    heading: "Acceptable use and reporting abuse",
     html: `<p>Do not use rtfx.pro to:</p>
     <ul>
-      <li>publish or distribute malware, phishing pages, or anything designed to deceive a visitor
-        about who they are dealing with;</li>
-      <li>host content that is unlawful where it is published or where it is read, or that
-        infringes someone else's intellectual property;</li>
-      <li>attack, probe or circumvent the access controls — yours or anybody else's — or attempt
-        to reach artifacts you were not granted;</li>
-      <li>scrape, resell or redistribute other people's artifacts, or automate access in a way
-        that degrades the service for others;</li>
-      <li>use the platform as generic file storage, a CDN for unrelated traffic, or a way to
-        anonymise the origin of content.</li>
+      <li>publish malware, phishing pages, or anything meant to deceive people about who they are
+        dealing with;</li>
+      <li>publish unlawful content, or content that infringes someone else's rights;</li>
+      <li>get around access controls, or try to open artifacts that were not shared with you;</li>
+      <li>send unwanted invitations or messages, or use the service to harass anyone;</li>
+      <li>scrape or redistribute other people's artifacts, or overload the service;</li>
+      <li>use it as general file storage or a content-delivery network for unrelated traffic.</li>
     </ul>
-    <p>Publishing something is a deliberate act with your name on it. The view log records who
-      opened what; that log is visible to you as owner, not to administrators of this deployment.
-      Administrators can see that an artifact exists, who owns it and how large it is, and may
-      delete it if it breaches these terms.</p>`,
+    <p>A share link works for anyone who has it. You choose who gets it, and you can revoke it.</p>
+    <p>To report abuse or an infringement, write to ${mail(op)} with the artifact's address and what is
+      wrong. We may investigate, restrict access to or remove content, or suspend an account, where that
+      is reasonably necessary to enforce these terms or the law, and we will tell the publisher where we
+      can.</p>`,
   },
   {
     id: "tokens",
-    heading: "API tokens and agents",
-    html: `<p>An API token acts as you, within the scopes you gave it. If you hand one to an agent
-      — Claude Code, Hermes, a CI job — everything it publishes is published by you and is your
-      responsibility. Tokens are shown once, stored hashed, and can be revoked at any time; revoke
-      one the moment you think it has leaked.</p>
-    <p>A token can never exceed its owner's own access, so it cannot become an administrator, read
-      other people's artifacts, or manage anybody's account.</p>`,
+    heading: "API, MCP and AI agents",
+    html: `<p>API tokens and connected apps (such as Claude, connected over OAuth) act as you, within the
+      permissions you grant. An agent can publish, change sharing and delete content if you let it, and
+      what it does is your responsibility. Keep tokens and share links secret and revoke them as soon as
+      you think one has leaked. A token never has more access than its owner.</p>
+    <p>rtfx.pro is an independent service and is not affiliated with or endorsed by Anthropic. Claude
+      and other apps you connect are governed by their own terms and privacy policies.</p>`,
   },
   {
     id: "availability",
     heading: "Availability and changes to the service",
-    html: `<p>The service is provided as it is, without a service-level commitment unless one is agreed separately. We may change, suspend or discontinue features, and we may impose reasonable
-      limits on storage, file size or request volume. Where a change would remove something you
-      rely on, we will give notice we reasonably can.</p>
-    <p>Keep your own copy of anything you cannot afford to lose. rtfx.pro versions what you
-      publish, but it is a hosting service, not a backup service.</p>`,
-  },
-  {
-    id: "fees",
-    heading: "Fees",
-    html: `<p>Every workspace starts on the Free plan. Paid Pro and Team plans are optional monthly
-      upgrades handled by Lemon Squeezy, and the dashboard shows the plan limits before you upgrade.
-      Downgrading never makes existing artifacts disappear, but lower limits may stop new publishing
-      until usage fits the selected plan.</p>`,
+    html: `<p>We work to keep rtfx.pro available but do not promise any particular uptime unless we agree a
+      service level with you in writing. We may change, add or remove features. If a change materially
+      reduces what a paid plan includes, we will tell you in advance, and you can cancel.</p>
+    <p>Keep your own copies of anything important. Version history depends on your plan and is not a
+      backup.</p>`,
   },
   {
     id: "suspension",
-    heading: "Suspension and termination",
-    html: `<p>An administrator may pause or remove an account that breaches these terms, or where
-      it is necessary to protect the service or other people using it. Where circumstances allow,
-      you will be told why and given a chance to put it right.</p>
-    <p>You can stop using the service at any time. Ask an administrator to remove your account,
-      and delete your artifacts first if you want them gone — deletion removes the files, their
-      versions and their view log.</p>`,
+    heading: "Suspension, closing your account and your data",
+    html: `<p>We may suspend an account or remove content where it seriously or repeatedly breaches these
+      terms, where the law requires it, or to protect the service or other people. Where we lawfully can,
+      we will tell you why and give you a chance to fix it.</p>
+    <p>You can stop using rtfx.pro at any time. To close your account and delete what you published,
+      write to ${mail(op)}; cancelling a subscription and deleting content are separate steps. Download
+      anything you want to keep first. What happens to your data afterwards is described in the
+      <a href="/privacy#retention">privacy policy</a>.</p>`,
   },
   {
     id: "disclaimer",
-    heading: "Disclaimers and liability",
-    html: `<p>To the extent the law allows, the service is provided "as is" and without warranties
-      of any kind, including fitness for a particular purpose and uninterrupted availability. We
-      do not warrant that content you publish will always be reachable, or that access controls
-      will defeat every possible attack.</p>
-    <p>To the extent the law allows, the operator is not liable for indirect or consequential
-      loss, lost profits, or lost data. Nothing here excludes liability that cannot lawfully be
-      excluded — including for death or personal injury caused by negligence, or for fraud.</p>
-    <p>You agree to cover the operator for claims arising from content you published or from your
-      breach of these terms.</p>`,
+    heading: "Warranties and liability",
+    html: `<p>To the extent the law allows, the service is provided "as is" and "as available", without
+      implied warranties of fitness for a particular purpose or of uninterrupted availability. We do not
+      guarantee that access controls will stop every possible attack.</p>
+    <p>If you use rtfx.pro for business, then to the extent the law allows: we are not liable for
+      indirect or consequential loss, lost profits or lost data, and our total liability for any claim is
+      limited to the amount you paid us in the 12 months before it arose (or US$100 if you paid
+      nothing).</p>
+    <p>Nothing in these terms limits liability that cannot lawfully be limited, including for fraud or for
+      death or personal injury caused by negligence, or the rights consumers have under mandatory
+      consumer-protection law.</p>`,
+  },
+  {
+    id: "indemnity",
+    heading: "Claims about your content",
+    html: `<p>If you use rtfx.pro for business, you agree to cover our reasonable costs of third-party claims
+      that arise from content you published unlawfully or from your serious breach of these terms, to the
+      extent you caused them. We will tell you promptly about such a claim and let you take part in
+      responding to it. This does not apply to consumers, or to anything we caused.</p>`,
   },
   {
     id: "law",
     heading: "Governing law",
-    html: `<p>These terms are intended to be governed by the laws that apply to ${esc(OPERATOR)}. If a dispute cannot be resolved informally, the courts with jurisdiction over the operator will apply unless mandatory consumer or data-protection law says otherwise. For the current operator details, contact <code>${esc(CONTACT)}</code>.</p>`,
+    html: op.law
+      ? `<p>These terms are governed by the laws of ${esc(op.law)}${op.courts ? `, and disputes will be heard by ${esc(op.courts)}` : ""}.
+      If you are a consumer, this does not take away the protection of the mandatory laws of the country
+      you live in, or your right to bring proceedings there. It also does not limit your data-protection
+      rights or your right to complain to a data-protection authority.</p>
+    <p>Please write to ${mail(op)} first — most problems are quicker to solve directly.</p>`
+      : `<p>The operator of this deployment has not stated which law governs these terms. Contact
+      ${mail(op)} for details.</p>`,
   },
   {
     id: "contact",
     heading: "Changes and contact",
-    html: `<p>If these terms change materially, the date at the top changes. Continuing to use the
-      service after that means accepting the new version; if you do not, ask for your account to
-      be removed.</p>
-    <p>Questions go to <code>${esc(CONTACT)}</code>. How your data is handled is a separate
-      document: read the <a href="/privacy">privacy policy</a>.</p>`,
+    html: `<p>If we change these terms materially, we will tell account holders by email or in the dashboard
+      before the change takes effect, and the date at the top will change. Changes apply from then on, not
+      backwards. If you do not accept them, you can stop using the service and cancel.</p>
+    <p>Questions about these terms, billing, support or abuse go to ${mail(op)}; a postal address is
+      available on request. How we handle personal data is described in the
+      <a href="/privacy">privacy policy</a>.</p>`,
+  },
+  {
+    id: "general",
+    heading: "General",
+    html: `<p>If part of these terms turns out to be unenforceable, the rest still applies. Not enforcing a
+      term is not giving it up. These terms, the plan details shown when you buy, and anything we agree
+      with you in writing are the whole agreement; a written agreement signed by both of us wins where it
+      expressly differs. We may transfer this agreement to someone who takes over the service, and will
+      tell you if that happens; it will not reduce your rights.</p>`,
   },
 ];
 
@@ -631,9 +738,9 @@ export function termsPage(env: Env): string {
     eyebrow: "Terms",
     heading: "Terms of use",
     lede:
-      "The agreement between you and the rtfx.pro operator: how access works, what " +
-      "you may publish, what you keep, and what the service does not promise.",
+      "The agreement for using rtfx.pro: accounts, plans and cancellation, what you may publish, what " +
+      "you keep, and what the service does not promise.",
     description: TERMS_DESCRIPTION,
-    parts: TERMS_PARTS,
+    parts: termsParts(operatorOf(env)),
   });
 }

@@ -1379,7 +1379,24 @@ export async function purgeArtifact(
   const versions = (await listVersions(env, slug)).length;
   const removed = await deletePrefix(env, slug);
   await deleteArtifactRow(env, slug);
+  await purgeChat(env, slug);
   return { versions, ...removed };
+}
+
+/**
+ * Erase the artifact's chat room (src/chat.ts). Rooms are keyed by slug, so a
+ * room left behind would greet a *new* artifact published later under the same
+ * slug with the old conversation. Best-effort: the artifact itself is already
+ * gone, and a chat failure must not turn a completed delete into an error.
+ */
+async function purgeChat(env: Env, slug: string): Promise<void> {
+  if (!env.CHAT) return;
+  try {
+    const room = env.CHAT.get(env.CHAT.idFromName(slug)) as unknown as { purge(): Promise<number> };
+    await room.purge();
+  } catch (e) {
+    console.warn(JSON.stringify({ event: "chat_purge_failed", slug, error: String(e) }));
+  }
 }
 
 /**
