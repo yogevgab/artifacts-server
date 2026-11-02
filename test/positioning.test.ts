@@ -220,7 +220,10 @@ describe("llms.txt gives an answer engine the comparison and the gaps", () => {
     expect(t).toMatch(/free tier, Pro, Team and Enterprise/i);
     expect(t).toMatch(/self-serve/i);
     expect(t).toMatch(/\/signup/);
-    expect(t).toMatch(/Team is NOT self-serve today/i);
+    expect(t).toMatch(/Team is self-serve too/i);
+    expect(t).toContain("/upgrade/team");
+    expect(t).not.toMatch(/Team is NOT self-serve/i);
+    expect(t).not.toMatch(/invite email is not built/i);
     expect(t).toMatch(/Enterprise is a conversation/i);
     expect(t).toMatch(/dedicated URL for every artifact/i);
     expect(t).toMatch(/not a custom domain/i);
