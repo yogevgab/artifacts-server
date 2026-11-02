@@ -71,8 +71,8 @@ describe("pricing section", () => {
     const html = await landing();
     // Free signs up; Pro is a "Buy" button whose route signs up first and then
     // lands on checkout (see test/upgrade-route.test.ts) — never a raw checkout link.
-    const selfServeHref: Record<string, string> = { free: "/signup", pro: "/upgrade/pro" };
-    for (const plan of ["free", "pro"]) {
+    const selfServeHref: Record<string, string> = { free: "/signup", pro: "/upgrade/pro", team: "/upgrade/team" };
+    for (const plan of ["free", "pro", "team"]) {
       const card = html.slice(html.indexOf(`data-tier="${plan}"`));
       const cta = card.slice(0, card.indexOf("</div>"));
       expect(cta, plan).toContain(`href="${selfServeHref[plan]}"`);
@@ -80,7 +80,7 @@ describe("pricing section", () => {
       expect(cta, plan).not.toContain("#waitlist");
       expect(cta, plan).not.toContain("lemonsqueezy");
     }
-    for (const plan of ["team", "enterprise"]) {
+    for (const plan of ["enterprise"]) {
       const card = html.slice(html.indexOf(`data-tier="${plan}"`));
       const cta = card.slice(0, card.indexOf("</div>"));
       expect(cta, plan).toContain(`href="/contact?plan=${plan}"`);

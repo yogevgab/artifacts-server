@@ -340,20 +340,13 @@ describe("membersPage rendering", () => {
    * `membersPanel` (src/members.ts). This test is the thing that stops somebody
    * from "improving" the copy back into a promise the code does not keep.
    */
-  it("never claims an email was sent, because none is", () => {
+  it("says that adding somebody emails them a link", () => {
     const input: MembersPageInput = { viewer, account, members: rows, canManage: true, viewerEmail: ALICE };
     const html = membersPage(input);
-    expect(html).toContain("data-no-invite-mail");
-    expect(html).toMatch(/No email is sent/);
-    for (const claim of [
-      /invitation sent/i,
-      /invite sent/i,
-      /we(?:'|&#39;)?ve emailed/i,
-      /email(?:ed)? them/i,
-      /check their inbox/i,
-    ]) {
-      expect(html, String(claim)).not.toMatch(claim);
-    }
+    expect(html).toContain("data-invite-mail");
+    expect(html).toMatch(/We email them a link to this workspace/);
+    expect(html).not.toContain("data-no-invite-mail");
+    expect(html).not.toMatch(/No email is sent/);
   });
 
   it("shows seat usage against the plan", () => {

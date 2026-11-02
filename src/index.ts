@@ -68,6 +68,7 @@ import { canonicalPath } from "./canonical";
 
 import { shareRoutes } from "./share-routes";
 import { billingRoutes } from "./billing-routes";
+import { teamRoutes } from "./team-routes";
 import { membersRoutes } from "./members-routes";
 import { receiptsRoutes } from "./receipts-routes";
 import { accessRequestRoutes } from "./access-request-routes";
@@ -520,6 +521,9 @@ app.route("/", accountSlugRoutes);
 
 // Anything else under /admin is not a section. Render the portal shell so the
 // person still has navigation, but answer 404 so a mistyped URL is never a 200.
+// Before the /admin/* catch-all: /admin/join/:id lives here (src/team-routes.ts).
+app.route("/", teamRoutes);
+
 app.get("/admin/*", requireUser, async (c) =>
   c.html(portalNotFound(await viewerOf(c), "That page"), 404)
 );

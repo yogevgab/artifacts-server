@@ -27,7 +27,11 @@ function esc(s: string): string {
  * same way. Inline styles only, and a light ground that survives both a light
  * and a dark mail client without inverting into something unreadable.
  */
-function shell(bodyHtml: string): string {
+const DEFAULT_FOOTER =
+  "You received this because somebody entered this address at rtfx.pro. " +
+  "If that wasn't you, no action is needed &mdash; nothing happens until the code is used.";
+
+function shell(bodyHtml: string, footerHtml: string = DEFAULT_FOOTER): string {
   return `<!doctype html>
 <html><body style="margin:0;padding:0;background:#f2f3f7;">
   <div style="max-width:520px;margin:0 auto;padding:32px 24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#14182b;">
@@ -35,8 +39,7 @@ function shell(bodyHtml: string): string {
     ${bodyHtml}
     <hr style="border:0;border-top:1px solid #d3d7e4;margin:28px 0 16px;">
     <div style="font-size:12px;color:#565d78;line-height:1.5;">
-      You received this because somebody entered this address at rtfx.pro.
-      If that wasn't you, no action is needed &mdash; nothing happens until the code is used.
+      ${footerHtml}
     </div>
   </div>
 </body></html>`;
@@ -179,4 +182,46 @@ export function accessRequestMail(o: {
   ].join("\n");
 
   return { subject: `${o.requesterEmail} is asking for access to ${o.title}`, html, text };
+}
+
+/**
+ * "You were added to a workspace." Sent by `POST /api/workspace/:id/members`
+ * (src/members-routes.ts) to the person just added. The link is
+ * `/admin/join/<workspace id>`, which signs them in if needed and then opens
+ * that workspace rather than their personal one.
+ */
+export function memberInviteMail(o: {
+  inviterEmail: string;
+  workspaceName: string;
+  roleLabel: string;
+  inviteeEmail: string;
+  joinUrl: string;
+}): RenderedMail {
+  const inviter = esc(o.inviterEmail);
+  const workspace = esc(o.workspaceName);
+  const role = esc(o.roleLabel.toLowerCase());
+  const invitee = esc(o.inviteeEmail);
+  const url = esc(o.joinUrl);
+
+  const html = shell(
+    `<p style="font-size:16px;line-height:1.5;margin:0 0 12px;"><b>${inviter}</b> added you to the
+       <b>${workspace}</b> workspace on rtfx.pro as ${role === "admin" ? "an" : "a"} ${role}.</p>
+     <p style="font-size:15px;line-height:1.5;margin:0 0 20px;color:#3a405a;">rtfx.pro gives Claude
+       artifacts private links. Sign in with <b>${invitee}</b> &mdash; a one-time code, no password
+       &mdash; and the workspace is waiting for you.</p>
+     <a href="${url}" style="display:inline-block;background:#2438c8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-size:15px;font-weight:500;">Open ${workspace}</a>`,
+    `You received this because ${inviter} added this address to a workspace on rtfx.pro.
+      If you don't want to be in it, ignore this email or ask them to remove you.`
+  );
+
+  const text = [
+    `${o.inviterEmail} added you to the ${o.workspaceName} workspace on rtfx.pro as a ${o.roleLabel.toLowerCase()}.`,
+    "",
+    `Sign in with ${o.inviteeEmail} (a one-time code, no password) to open it:`,
+    o.joinUrl,
+    "",
+    `If you don't want to be in it, ignore this email or ask ${o.inviterEmail} to remove you.`,
+  ].join("\n");
+
+  return { subject: `${o.inviterEmail} added you to ${o.workspaceName} on rtfx.pro`, html, text };
 }

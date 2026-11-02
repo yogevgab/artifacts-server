@@ -94,15 +94,11 @@ export function isPlanName(tier: PublicTier): tier is PlanName {
  *    src/billing.ts), the same link Settings and Billing show.
  *  - `contact` — a person has to be involved. The button says so.
  *
- * **Team is `contact`, and that is not a pricing decision — it is an accuracy
- * one.** The Team *plan* is real and enforced (50 GB, 25 seats, roles), and the
- * checkout exists; what is missing is the part that makes a team plan usable
- * without us: `POST /api/workspace/:id/members` writes the membership row and
- * sends the invitee nothing at all (see src/members-routes.ts — there is no
- * mail call on that path). Somebody who bought Team alone would invite four
- * colleagues, none of whom would ever hear about it. So we set Team workspaces
- * up with the customer until invite mail ships, and the button says "Talk to
- * us" rather than implying a flow that would strand them.
+ * **Team is `self-serve` too**, since adding a member emails them a link to the
+ * workspace (src/members-routes.ts) and anyone signed in can create the team
+ * workspace the plan belongs on (`/upgrade/team`, src/team-routes.ts). Before
+ * both of those shipped it was `contact`, because a team bought alone would
+ * have stranded everybody it added.
  *
  * Enterprise is `contact` for the ordinary reason: nothing about it is
  * automated, and the page is careful to frame SSO/SCIM/SLAs as things to talk
@@ -114,6 +110,8 @@ export type TierCta =
 
 /** Where every public "Buy Pro" button points — see the `/upgrade/pro` route in src/index.ts. */
 export const UPGRADE_PRO_PATH = "/upgrade/pro";
+/** Where every public "Buy Team" button points — see src/team-routes.ts. */
+export const UPGRADE_TEAM_PATH = "/upgrade/team";
 
 export function tierCta(tier: PublicTier): TierCta {
   switch (tier) {
@@ -125,7 +123,9 @@ export function tierCta(tier: PublicTier): TierCta {
       // tied to a workspace, so there is no checkout before an account.
       return { kind: "self-serve", href: UPGRADE_PRO_PATH, label: `Buy Pro \u2014 ${priceLabel("pro")}` };
     case "team":
-      return { kind: "contact", href: "/contact?plan=team", label: "Talk to us" };
+      // `/upgrade/team` signs the visitor up if needed, has them name the team
+      // workspace they will own, and lands them on its checkout (src/team-routes.ts).
+      return { kind: "self-serve", href: UPGRADE_TEAM_PATH, label: `Buy Team \u2014 ${priceLabel("team")}` };
     case "enterprise":
       return { kind: "contact", href: "/contact?plan=enterprise", label: "Talk to us" };
   }

@@ -269,10 +269,10 @@ describe("only the tiers that are genuinely self-serve get a checkout", () => {
     expect(body).toContain('href="https://store.lemonsqueezy.com/checkout/buy/pro"');
   });
 
-  it("sends Team and Enterprise to /contact — even when a Team checkout URL exists", () => {
-    // The Team variant is real and `checkoutUrl` builds a link for it. The page
-    // must still not offer it: member invites send no mail yet, so a Team bought
-    // unattended would strand everybody it added. See tierCta in plan-copy.ts.
+  it("sends Team to /upgrade/team (never a raw checkout) and Enterprise to /contact", () => {
+    // Team is self-serve now (member invites send mail), but this page may be
+    // about a personal workspace, so it links to /upgrade/team — which picks or
+    // creates the team workspace — rather than to a Team checkout for this one.
     const body = billingPage(
       input({
         checkout: {
@@ -282,10 +282,10 @@ describe("only the tiers that are genuinely self-serve get a checkout", () => {
       })
     );
     const teamRow = block(body, 'data-tier="team"');
-    expect(teamRow).toContain('data-contact="team"');
-    expect(teamRow).toContain('href="/contact?plan=team"');
+    expect(teamRow).toContain('data-checkout="team"');
+    expect(teamRow).toContain('href="/upgrade/team"');
+    expect(teamRow).toContain("Buy Team");
     expect(teamRow).not.toContain("lemonsqueezy");
-    expect(teamRow).not.toContain("data-checkout");
 
     const enterpriseRow = block(body, 'data-tier="enterprise"');
     expect(enterpriseRow).toContain('data-contact="enterprise"');

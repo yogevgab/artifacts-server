@@ -317,6 +317,13 @@ function changePlanPanel(input: BillingPageInput): string {
         ? `<a class="ghost link-button small-link" href="${esc(url)}" data-checkout="pro">Upgrade to Pro &rarr;</a>`
         : `<span class="hint" data-checkout-unavailable="pro">Checkout isn't configured on this
              deployment — <a href="/contact?plan=pro">talk to us</a> and we'll set it up.</span>`;
+    } else if (cta.kind === "self-serve") {
+      // Team: `/upgrade/team` picks (or has them name) the team workspace the
+      // plan belongs on, then sends them to its checkout — never a raw link here,
+      // because this page may be about a personal workspace.
+      action = `<a class="ghost link-button small-link" href="${esc(cta.href)}" data-checkout="${esc(
+        tier
+      )}">${esc(cta.label)} &rarr;</a>`;
     } else {
       action = `<a class="ghost link-button small-link" href="${esc(cta.href)}" data-contact="${esc(
         tier
@@ -345,10 +352,9 @@ function changePlanPanel(input: BillingPageInput): string {
   return `<section class="panel" data-panel="billing-change-plan" aria-labelledby="billing-plans-h">
     <div class="panel-head"><div>
       <h2 id="billing-plans-h">Change plan</h2>
-      <p class="hint">Pro is the only tier you can buy without us. Team and Enterprise are set up
-        with a person on our side — that is a limitation of what has shipped, not a sales tactic:
-        adding a member sends no invitation email yet, so a team bought unattended would strand
-        everybody it invited.</p>
+      <p class="hint">Pro upgrades this workspace. Team lives on a team workspace: buying it has you
+        name one (you'll own it), and everybody you add there gets an email with a link to it.
+        Enterprise is set up with a person on our side.</p>
     </div></div>
     ${rows}
   </section>`;

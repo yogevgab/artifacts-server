@@ -50,7 +50,13 @@ export function isRetryable(code: string | undefined): boolean {
 }
 
 /** What a message was for. Used to read the log by purpose. */
-export type MailKind = "signin" | "magic_link" | "share_notice" | "view_notice" | "access_request";
+export type MailKind =
+  | "signin"
+  | "magic_link"
+  | "share_notice"
+  | "view_notice"
+  | "access_request"
+  | "member_invite";
 
 /**
  * Record a delivery outcome. Best-effort, exactly like `api_tokens.last_used_at`

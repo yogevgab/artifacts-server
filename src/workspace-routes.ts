@@ -50,7 +50,7 @@ for (const path of [SWITCH_PATH, SWITCH_ALIAS, ACTIVE_PATH]) {
 /** A year. The selection is a preference, not a credential — see WORKSPACE_COOKIE. */
 const SELECTOR_MAX_AGE = 365 * 24 * 60 * 60;
 
-function selectorCookie(accountId: string): string {
+export function selectorCookie(accountId: string): string {
   return [
     `${WORKSPACE_COOKIE}=${encodeURIComponent(accountId)}`,
     "Path=/",
