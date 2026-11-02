@@ -68,6 +68,7 @@ import { canonicalPath } from "./canonical";
 
 import { shareRoutes } from "./share-routes";
 import { billingRoutes } from "./billing-routes";
+import { teamRoutes } from "./team-routes";
 import { membersRoutes } from "./members-routes";
 import { receiptsRoutes } from "./receipts-routes";
 import { accessRequestRoutes } from "./access-request-routes";
@@ -520,6 +521,9 @@ app.route("/", accountSlugRoutes);
 
 // Anything else under /admin is not a section. Render the portal shell so the
 // person still has navigation, but answer 404 so a mistyped URL is never a 200.
+// Before the /admin/* catch-all: /admin/join/:id lives here (src/team-routes.ts).
+app.route("/", teamRoutes);
+
 app.get("/admin/*", requireUser, async (c) =>
   c.html(portalNotFound(await viewerOf(c), "That page"), 404)
 );
@@ -558,7 +562,7 @@ app.route("/", oauthRoutes);
 // Public landing-page waitlist signup (unauthenticated).
 app.route("/waitlist", waitlist);
 
-// POST /contact — the "Talk to us" form behind the Team and Enterprise CTAs.
+// POST /contact — the "Talk to us" form behind the Enterprise CTA (and support).
 // Unauthenticated by necessity: the whole point is that somebody who has no
 // account can reach a person. Rate-limited per address and per IP, exactly like
 // the waitlist. See src/contact.ts.
@@ -621,7 +625,7 @@ app.get("/enterprise", (c) =>
 );
 
 /**
- * The contact/support page. `?plan=team|enterprise` only preselects the
+ * The contact/support page. `?plan=enterprise` only preselects the
  * dropdown — an unrecognized value is dropped rather than refused
  * (`normalizePlan`), because it arrives from a query string anybody can edit
  * and a mistyped one should still deliver the enquiry.

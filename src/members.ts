@@ -146,14 +146,10 @@ function membersPanel(info: MembersPageInput): string {
   const used = info.members.length;
   const atCap = used >= max;
 
-  // COPY RULE, and it is load-bearing: this form sends nothing. `POST
-  // /api/workspace/:id/members` writes the membership row and makes no mail
-  // call at all (see src/members-routes.ts, and the note in src/plan-copy.ts on
-  // why Team is still a "talk to us" tier because of it). So nothing here may
-  // say "invited", "invitation sent" or "we've emailed them" — the honest
-  // description of what the button does is "adds them, and they're in as soon
-  // as they sign in with that address". Change this copy only when a send
-  // actually ships alongside it.
+  // `POST /api/workspace/:id/members` adds the row and emails the person a
+  // link to this workspace (src/members-routes.ts). The send is best-effort and
+  // rate-limited; when it does not go out the response says so and the script
+  // below tells the adder to pass the news on themselves.
   const inviteForm = info.canManage
     ? `<form id="memberform" class="userform" data-invite-form data-account-id="${esc(info.account.id)}">
       <input id="newmember" type="email" placeholder="person@example.com" autocomplete="off"
@@ -166,8 +162,8 @@ function membersPanel(info: MembersPageInput): string {
       <button type="submit" class="small"${atCap ? " disabled" : ""}>Add member</button>
       <span id="members-status" class="status" data-status hidden></span>
     </form>
-    <p class="hint" data-no-invite-mail>No email is sent. Adding somebody grants them this
-      workspace the moment they sign in with that address — tell them yourself that they're in.</p>
+    <p class="hint" data-invite-mail>We email them a link to this workspace. They're in as soon as
+      they sign in with that address.</p>
     <p class="hint" data-seat-summary>${used} of ${max} ${max === 1 ? "seat" : "seats"} used on the ${esc(
         planLabel(plan)
       )} plan.${atCap ? " You're at the limit — remove somebody or upgrade to add more." : ""}</p>`
@@ -234,6 +230,13 @@ if(memberForm && MEMBERS_BASE){
       });
       if(needsReauth(res)){ reauth(status); return; }
       if(!res.ok){ setStatus(status, (await detail(res)) || 'Could not add that person.', 'error'); return; }
+      var added = await res.json().catch(function(){ return null; });
+      if(added && added.invite && !added.invite.sent){
+        setStatus(status, 'Added — but the email did not go out. Tell them they are in.', 'error');
+        setTimeout(function(){ location.reload(); }, 3000);
+        return;
+      }
+      setStatus(status, 'Added — we emailed them a link.');
       location.reload();
     } catch(err){ setStatus(status, 'Network error — try again.', 'error'); }
     finally { btn.disabled = false; }

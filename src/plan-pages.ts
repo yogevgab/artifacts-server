@@ -348,28 +348,18 @@ export function teamPage(env: Env): string {
       ${factList(TEAM_FACTS, "included")}
     </section>
 
-    <section class="plan-section" data-plan-section="why-contact">
-      <div class="plan-callout" data-plan-callout="team-honesty">
-        <h2>Why this is "talk to us" and not a checkout button</h2>
-        <p>The Team plan itself is real and enforced — the limits above are the ones the product
-          applies. What is not finished is the part that would let you set it up entirely alone:
-          <b>inviting somebody adds them to the workspace but does not email them</b>. They get
-          access the next time they sign in, and nothing tells them to.</p>
-        <p>A checkout button here would sell you a plan whose first action strands four colleagues
-          waiting for a message that never arrives. So until invite mail ships, we set Team
-          workspaces up together — usually the same day — and you are not paying for a queue.</p>
-      </div>
-    </section>
-
-    <section class="plan-section" data-plan-section="meanwhile">
-      <h2>In the meantime</h2>
-      <p>Nothing about Team is a prerequisite for starting.</p>
-      <ul class="plan-list" data-plan-facts="meanwhile">
-        <li><b>Start free today.</b> <a href="/signup">Create a workspace</a> and publish. Moving it
-          onto Team later changes nothing about what you have already published or shared.</li>
-        <li><b>Or start on <a href="/pro">Pro</a>.</b> Self-serve, and it already covers
-          ${PLANS.pro.maxSeats} people — enough for a lot of what gets called a team.</li>
+    <section class="plan-section" data-plan-section="how-it-works">
+      <h2>How buying Team works</h2>
+      <ul class="plan-list" data-plan-facts="how-it-works">
+        <li><b>Sign in or sign up</b> with your email &mdash; a one-time code, no password.</li>
+        <li><b>Name the team workspace.</b> You become its owner. Your personal workspace stays
+          as it is.</li>
+        <li><b>Check out</b> &mdash; ${tierPrice("team")}, billed monthly through Lemon Squeezy.</li>
+        <li><b>Add your colleagues</b> from Settings &rarr; Members. Each one gets an email with a
+          link straight into the workspace.</li>
       </ul>
+      <p>Only a few people? <a href="/pro">Pro</a> already covers ${PLANS.pro.maxSeats} on your own
+        workspace.</p>
     </section>`;
 
   return planPage(
@@ -380,18 +370,18 @@ export function teamPage(env: Env): string {
       heading: `Team — one workspace, up to ${PLANS.team.maxSeats} people`,
       lead:
         `${num(PLANS.team.maxArtifacts)} artifacts and ${bytes(PLANS.team.maxStorageBytes)} shared ` +
-        "across a workspace with real roles. Set up with a person, because the invite email that " +
-        "would make it self-serve is not built yet.",
+        "across a workspace with real roles. Buy it here: name the workspace, check out, and add " +
+        "your colleagues — each one gets an email with a link in.",
       priceNote: "per workspace",
       secondary: { href: "/signup", label: "Start free instead" },
       ctaNote:
-        "Tell us how many people and what you publish, and we will set the workspace up with you. " +
-        "A person answers by email — there is no queue and no automatic reply.",
+        "Self-serve: the button signs you up (or in), has you name the team workspace, and takes " +
+        "you to checkout. Need more than 25 people or custom terms? Talk to us about Enterprise.",
       sections,
     },
     `Team plan \u2014 ${SITE.name}, private links for Claude (MCP)`,
     `rtfx.pro Team, ${tierPrice("team")}: private links for Claude artifacts (MCP) in one workspace for up to ` +
-      `${PLANS.team.maxSeats} people, with roles. Set up with us.`
+      `${PLANS.team.maxSeats} people, with roles. Self-serve checkout.`
   );
 }
 

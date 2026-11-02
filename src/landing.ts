@@ -278,9 +278,8 @@ function pricingSection(): string {
     <div class="band-head">
       <p class="eyebrow-c">Pricing</p>
       <h2>Free to start. Upgrade only if you outgrow it.</h2>
-      <p>Every workspace starts on Free. Buy Pro here or from Settings whenever you need it. Team and Enterprise
-        are set up with a person, because the parts that would make them self-serve aren't built
-        yet.</p>
+      <p>Every workspace starts on Free. Buy Pro or Team here, or upgrade from Settings whenever
+        you need it. Enterprise is set up with a person.</p>
     </div>
     <div class="pricing-grid">
       ${PUBLIC_TIERS.map(tierCard).join("")}

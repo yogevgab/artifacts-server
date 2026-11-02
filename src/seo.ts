@@ -458,8 +458,6 @@ product:
 - SCIM or any directory-driven provisioning. Workspace membership is managed by hand, and
   nothing deprovisions automatically when somebody leaves your organisation.
 - A contractual uptime SLA, a negotiated DPA, data residency, or invoicing/purchase orders.
-- Invite email. Adding somebody to a workspace grants them access but sends them nothing —
-  which is exactly why Team is "talk to us" rather than a checkout.
 - Customer-facing audit exports, SOC 2, ISO 27001 or a third-party compliance attestation.
   The operator has an internal admin audit trail for support/safety actions, but that is
   not the same as a compliance package a buyer can rely on.
@@ -508,8 +506,8 @@ ${PUBLIC_PAGES.map((p) => `- [${p.title}](${canonicalUrl(env, p.path)}): ${p.sum
 - [FAQ](${origin}/#faq): short answers to what people ask before connecting.
 - [Signup](${origin}/signup): create an account on the Free plan.
 - [Pricing](${origin}/#pricing): Free, Pro, Team and Enterprise side by side.
-- [Talk to us](${origin}/contact): the route for a Team or Enterprise workspace, and for
-  support on an existing one.
+- [Talk to us](${origin}/contact): the route for an Enterprise workspace, and for support
+  on an existing one. Pro and Team are bought on the site.
 
 ## Not indexed
 

@@ -408,3 +408,37 @@ const GUEST_SCRIPT = `(function(){
     });
   });
 })();`;
+
+/**
+ * Step two of "Buy Team" (`/upgrade/team`, src/team-routes.ts): name the team
+ * workspace this person is about to own, then go to checkout. A plain form POST
+ * — it works without the page script.
+ */
+export function teamNamePage(env: Env, o: { price: string; error?: string; name?: string }): string {
+  const error = o.error
+    ? `<p class="status" data-auth-status data-kind="error" role="alert">${esc(o.error)}</p>`
+    : "";
+  return layout(
+    "Name your team workspace \u00b7 rtfx.pro",
+    sheet(
+      "team-name",
+      `<p class="eyebrow">Team \u00b7 ${esc(o.price)}</p>
+       <h1>Name your team workspace</h1>
+       <p class="lede">You'll be its owner. After checkout, add your colleagues from
+         Settings \u2192 Members \u2014 each one gets an email with a link to it.</p>
+       <form class="auth-form" method="post" action="/upgrade/team" data-team-name-form>
+         <label class="field">
+           <span class="field-label">Workspace name</span>
+           <input type="text" name="name" maxlength="60" autocomplete="organization"
+                  placeholder="Acme design team" value="${esc(o.name ?? "")}" required autofocus>
+         </label>
+         <button type="submit" class="link-button" data-cta="team-checkout">Continue to checkout \u2014 ${esc(o.price)}</button>
+       </form>
+       ${error}
+       <hr class="divider">
+       <p class="hint">Only need it for yourself, or for up to 3 people? <a href="/upgrade/pro">Pro</a>
+         covers that on your own workspace.</p>`
+    ),
+    LOGIN_STYLE
+  );
+}
