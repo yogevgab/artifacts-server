@@ -266,9 +266,9 @@ const TOPICS: Record<"views" | "password", Topic> = {
   views: {
     h1: "Can you see who viewed a Claude artifact?",
     lead:
-      "Not from Claude's own sharing — its help article doesn't describe any view analytics. Publish " +
-      "the artifact to an rtfx.pro private link instead and every artifact gets a view log: who " +
-      "opened it, when, on what device, and through which link.",
+      "Claude's help article on sharing artifacts doesn't describe view analytics. Publish the artifact " +
+      "to an rtfx.pro private link and it gets a view log: who opened it if they were signed in, which " +
+      "share link was used if not, when, and on what device.",
     sections: [
       {
         heading: "What the view log records",
@@ -282,16 +282,17 @@ const TOPICS: Record<"views" | "password", Topic> = {
           <li><b>Attempts</b> — someone trying an expired or revoked link, and the previews chat apps
             build when a link is pasted.</li>
         </ul>
-        <p>Repeated opens of the same share link from the same network within a few minutes count as one,
-          so a reload is not a second visitor.</p>`,
+        <p>Opens of the same share link from the same IP address within five minutes are recorded once,
+          so a reload doesn't add an entry (two people on one office network can merge, too). Signed-in
+          opens are each recorded.</p>`,
       },
       {
         heading: "How to see it",
         html: `<ul>
           <li><b>Ask Claude.</b> <q>Who has opened q3-report?</q> Claude reads the recent views for you.</li>
           <li><b>Open the artifact's Share page</b> on rtfx.pro for the full log. <a href="/guide#views">See it in the guide &rarr;</a></li>
-          <li><b>Get an email.</b> The first time a signed-in person opens your artifact, you can be told
-            by email. Turn these read notices off per artifact.</li>
+          <li><b>Get an email.</b> As the owner, you can be emailed the first time a signed-in person other
+            than you opens it (share-link opens don't send these). Turn read notices off per artifact.</li>
         </ul>`,
       },
       {
@@ -338,9 +339,9 @@ const TOPICS: Record<"views" | "password", Topic> = {
       {
         heading: "Why a shared password is weak",
         html: `<ul>
-          <li>Anyone who has it can pass it on, and you will never know.</li>
-          <li>To shut one person out you have to change it for everyone.</li>
-          <li>It can't tell you who actually opened the page.</li>
+          <li>It can be forwarded, and nothing records who it was forwarded to.</li>
+          <li>Shutting one person out means changing it for everyone.</li>
+          <li>On its own, a shared password doesn't identify who opened the page.</li>
         </ul>`,
       },
       {
@@ -350,10 +351,12 @@ const TOPICS: Record<"views" | "password", Topic> = {
             that address — no password, no Claude account — and you can remove her at any time.</li>
           <li><b>Share links, when names aren't practical.</b> A share link opens for anyone who has it.
             Each one has a name, can expire, can be revoked on its own without touching the others, and
-            every open through it is logged.</li>
-          <li><b>Your workspace.</b> Open it to everyone in your workspace in one step.</li>
+            opens through it are logged.</li>
+          <li><b>Your workspace.</b> Members of the workspace you publish to can always open it — on a
+            personal workspace that's just you.</li>
         </ul>
-        <p>Every artifact is private when it is published, and only you can open it until you share it.</p>`,
+        <p>Every artifact is private when it is published: only you, and members of its workspace if it
+          belongs to a team, can open it until you share it.</p>`,
       },
     ],
     faqs: [
@@ -361,8 +364,8 @@ const TOPICS: Record<"views" | "password", Topic> = {
         q: "Can I put a password on a Claude artifact?",
         a:
           "Claude's help article on sharing artifacts doesn't describe a password option. With rtfx.pro you " +
-          "don't need one: the people you choose sign in with a one-time email code, and everyone else " +
-          "gets the same page as a link that doesn't exist.",
+          "don't need one: the people you choose sign in with a one-time email code. Only they, members of " +
+          "the artifact's workspace and holders of a valid share link you created can open it.",
       },
       {
         q: "Does rtfx.pro use passwords on links?",

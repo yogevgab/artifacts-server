@@ -435,7 +435,8 @@ export function landingPage(env: Env): string {
       <div>
         <h1>Publish from Claude to a private link.</h1>
         <p class="lead">Share reports, prototypes and client drafts with exactly the people you
-          choose. They don't need a Claude account, and you see who opened each one.</p>
+          choose. They don't need a Claude account, and you see who opened each one — by name, or by
+          the link they used.</p>
         <div class="cta">
           <a class="link-button" href="/signup" data-cta="signup">Start free</a>
           <a class="ghost link-button" href="#start" data-cta="connect">How it works</a>
@@ -453,13 +454,14 @@ export function landingPage(env: Env): string {
           <p>Each person signs in with a one-time code we email them. No password, no Claude
             account.</p></div>
         <div class="mini"><h3>Your workspace</h3>
-          <p>Everyone in your workspace can open it. Viewers read; members and editors can publish
-            new versions.</p></div>
+          <p>Members of a team workspace can open what's published to it. Viewers read; members can
+            publish new versions.</p></div>
         <div class="mini"><h3>Share links</h3>
           <p>Anyone holding the link can open it without signing in. Name it, set an expiry, revoke it
             any time.</p></div>
       </div>
-      <p class="band-note">Every artifact is private when it is published. Signed-in opens show who it
+      <p class="band-note">Every artifact is private when it is published: only you, and members of its
+        workspace if it belongs to a team, can open it. Signed-in opens show who it
         was; share-link opens show which link was used.</p>
     </section>
 
@@ -471,7 +473,7 @@ export function landingPage(env: Env): string {
           <p>Add rtfx as a custom connector in claude.ai or Claude Desktop — it then works on mobile
             too — and sign in with an email code.</p></div>
         <div class="mini"><span class="step-n" aria-hidden="true">2</span><h3>Ask Claude to publish</h3>
-          <p><q>Publish this as a private link.</q> You get a link that only you can open until you
+          <p><q>Publish this as a private link.</q> You get a link that stays private until you
             share it.</p></div>
         <div class="mini"><span class="step-n" aria-hidden="true">3</span><h3>Share, then see who opened it</h3>
           <p><q>Share it with dana@acme.com.</q> Later: <q>Who has opened it?</q> — or open its view

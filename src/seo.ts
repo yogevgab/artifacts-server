@@ -96,8 +96,8 @@ export const ANSWER_META = {
     path: "/claude-artifact-password",
     title: "Put a password on a Claude artifact? · rtfx.pro",
     description:
-      "Claude's sharing has no password option. rtfx.pro uses something stronger: each person sig" +
-      "ns in with an email code, and you see who opened it.",
+      "Claude's docs don't describe a password option. rtfx.pro gives named access instead: each " +
+      "person signs in with an email code, and you see who opened it.",
     summary:
       "Whether you can put a password on a Claude artifact, why a shared password is weak, and what " +
       "rtfx.pro does instead: per-person email sign-in, expiring revocable share links, a view log.",

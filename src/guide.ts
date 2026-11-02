@@ -121,7 +121,7 @@ const B: Shot[] = [
     width: 1000,
     height: 420,
     alt: "Claude's reply containing the private rtfx.pro link to the published page",
-    text: `Claude replies with your private link. Only you can open it until you share it.`,
+    text: `Claude replies with your private link. Only you (and your workspace, if it is a team's) can open it until you share it.`,
   },
   {
     name: "09-artifact",

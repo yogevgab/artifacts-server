@@ -26,7 +26,8 @@ export const FAQS: readonly Faq[] = [
     q: "How do I share a Claude artifact privately?",
     a:
       `Add rtfx.pro to Claude as a custom connector (${MCP_URL}), then ask Claude to publish ` +
-      "your artifact. You get a private link that only you can open. Then ask Claude to share it " +
+      "your artifact. You get a private link that only you (and your workspace, if it is a team's) can " +
+      "open. Then ask Claude to share it " +
       "with named people as viewers or editors, or with everyone in your workspace. For someone " +
       "without an account, create a named share link on the artifact's Share page; it can " +
       "expire, and you can extend or revoke it any time.",
@@ -112,7 +113,7 @@ export const WALKTHROUGH: readonly WalkthroughSection[] = [
     id: "publish",
     heading: "2. Publish",
     asks: [
-      "<q>Publish this as a private link.</q> Claude replies with your link, like <code>https://rtfx.pro/your-workspace/q3-report</code>. It is private to you until you share it.",
+      "<q>Publish this as a private link.</q> Claude replies with your link, like <code>https://rtfx.pro/your-workspace/q3-report</code>. Only you (and your workspace, if it is a team's) can open it until you share it.",
       "<q>Publish the fix to the same link.</q> A new version at the same URL. <q>Roll back to version 2.</q> The link points at the earlier version again.",
     ],
     note: `For big sites or images, Claude gives you an upload link instead. <a href="/guide#publish">See it step by step &rarr;</a>`,
