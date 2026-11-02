@@ -61,7 +61,7 @@ ${GUIDE_VIDEO_STYLE}
 .hero h1{font-size:clamp(2.3rem,5.4vw,3.8rem);line-height:1.02;letter-spacing:-.06em;font-weight:760;margin:0 0 1rem;text-wrap:balance}
 .hero p.lead{font-size:clamp(1.05rem,2vw,1.22rem);color:var(--muted);margin:0 0 1.6rem;letter-spacing:-.01em;max-width:34rem}
 /* Example card: a stylised artifact, built from the product's own vocabulary. */
-.example{position:relative;background:var(--card);border:1px solid var(--border-strong);border-radius:var(--radius);
+.example{margin:0;min-width:0;position:relative;background:var(--card);border:1px solid var(--border-strong);border-radius:var(--radius);
   box-shadow:var(--shadow);padding:1.25rem 1.25rem 1rem;backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}
 .example .ex-tag{position:absolute;top:-.7rem;right:1rem;font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;
   background:var(--bg2,var(--card));border:1px solid var(--border-strong);border-radius:999px;padding:.15rem .6rem;color:var(--faint)}
@@ -90,7 +90,10 @@ ${GUIDE_VIDEO_STYLE}
 .band-note{color:var(--faint);font-size:.88rem;margin:1rem 0 0}
 .setup{margin:1.4rem 0 0;display:grid;gap:.6rem}
 .setup details{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-sm);padding:.15rem 1rem}
-.setup summary{cursor:pointer;font-weight:600;padding:.75rem 0;min-height:44px;display:flex;align-items:center}
+.setup summary{cursor:pointer;font-weight:600;padding:.75rem 0;min-height:44px;display:flex;align-items:center;gap:.75rem;list-style:none}
+.setup summary::-webkit-details-marker{display:none}
+.setup summary::after{content:"+";margin-left:auto;flex:none;font-weight:500;font-size:1.2rem;color:var(--muted)}
+.setup details[open]>summary::after{content:"\\2212"}
 .setup details[open]{padding-bottom:1rem}
 .setup ol{margin:0 0 .8rem;padding-left:1.25rem;color:var(--muted);display:grid;gap:.3rem}
 .setup p{color:var(--muted);margin:0 0 .8rem}

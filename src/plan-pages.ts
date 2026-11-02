@@ -51,9 +51,11 @@ const PLAN_PAGE_STYLE = `${PUBLIC_CHROME_STYLE}
   backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}
 .plan-list li b{color:var(--fg);font-weight:650;letter-spacing:-.015em;display:inline-block;margin:0 0 .2rem}
 .plan-list li .plan-detail{display:block}
+.plan-url{font-family:var(--mono);font-size:.86em;overflow-wrap:anywhere;color:var(--fg)}
+.plan-fact-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:.25rem .55rem}
 /* Same real-markup flag as /docs#why-rtfx — never a CSS pseudo-element, or the
    one word that keeps this page honest exists only in the stylesheet. */
-.plan-flag{display:inline-block;margin-left:.55rem;border:1px solid var(--border);border-radius:999px;
+.plan-flag{display:inline-block;margin-left:0;border:1px solid var(--border);border-radius:999px;
   padding:.12rem .55rem;font-size:.7rem;font-weight:600;letter-spacing:.04em;color:var(--faint);
   text-transform:uppercase;white-space:nowrap;vertical-align:.05em}
 .plan-callout{border:1px solid var(--border-strong);border-radius:var(--radius);padding:1.3rem 1.4rem;
@@ -75,9 +77,9 @@ function factList(facts: readonly PlanFact[], marker: string): string {
   const items = facts
     .map(
       (f) =>
-        `<li><b>${f.title}</b>${
-          f.flag ? ` <span class="plan-flag">${esc(f.flag)}</span>` : ""
-        } <span class="plan-detail">${f.detail}</span></li>`
+        `<li><span class="plan-fact-head"><b>${f.title}</b>${
+          f.flag ? `<span class="plan-flag">${esc(f.flag)}</span>` : ""
+        }</span> <span class="plan-detail">${f.detail}</span></li>`
     )
     .join("\n        ");
   return `<ul class="plan-list" data-plan-facts="${esc(marker)}">
@@ -196,7 +198,7 @@ const PRO_FACTS: readonly PlanFact[] = [
   {
     title: "Dedicated URL for every artifact.",
     detail:
-      "Every artifact gets a stable rtfx.pro/<workspace>/<name> URL you can keep sending after republish or rollback. " +
+      "Every artifact gets a stable <code class=\"plan-url\">rtfx.pro/&lt;workspace&gt;/&lt;name&gt;</code> URL you can keep sending after republish or rollback. " +
       "This is not a custom domain; those are not built yet.",
   },
   {
@@ -228,11 +230,11 @@ const PRO_FACTS: readonly PlanFact[] = [
       "or viewer — and a viewer can open what the workspace owns without being able to change it.",
   },
   {
-    title: "Everything the product does, unchanged.",
+    title: "The same publishing and sharing tools.",
     detail:
       "Publishing from Claude Code, the MCP server, Hermes, the CLI and the API; access by named " +
-      "identity; the view log; share links with an expiry. None of that is gated behind a plan — " +
-      "Pro raises limits, it does not unlock features.",
+      "identity; the view log; share links with an expiry. None of that is gated behind a plan. " +
+      "Pro adds a branded workspace address and higher limits.",
   },
 ];
 
@@ -281,7 +283,7 @@ export function proPage(env: Env): string {
 
     <section class="plan-section" data-plan-section="not-included">
       <h2>What Pro does not add</h2>
-      <p>Worth saying out loud, because every other plan page in this category implies otherwise.</p>
+      <p>These are not available on any plan today.</p>
       ${factList(PRO_NOT_INCLUDED, "not-included")}
     </section>`;
 

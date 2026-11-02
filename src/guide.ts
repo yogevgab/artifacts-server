@@ -253,7 +253,7 @@ const STYLE = `${PUBLIC_CHROME_STYLE}${CONSENT_STYLE}
 .mcp-box code{flex:1;min-width:0;font-family:var(--mono);font-size:.92rem;overflow-x:auto;white-space:nowrap}
 .mcp-box button{flex:none}
 ${GUIDE_VIDEO_STYLE}
-.jump{display:flex;gap:.4rem 1.1rem;flex-wrap:wrap;margin:0;font-size:.92rem;color:var(--faint)}
+.jump{display:flex;gap:.4rem 1.1rem;flex-wrap:wrap;margin:1.6rem 0 0;font-size:.92rem;color:var(--faint)}
 /* Desktop: the section links stay reachable below the sticky site header while
    scrolling a long guide. Phones keep them static (the header is static there). */
 @media(min-width:761px){
@@ -318,9 +318,10 @@ export function guidePage(env: Env): string {
         <code id="mcp-url">${MCP_URL}</code>
         <button type="button" class="ghost" data-copy="${MCP_URL}">Copy</button>
       </div>
-      <p class="jump"><a href="#connect">A. Connect</a> <a href="#publish">B. Publish</a> <a href="#share">C. Share</a> <a href="#views">D. See who opened it</a></p>
       ${guideVideo()}
     </section>
+
+    <nav class="jump" aria-label="Guide sections"><a href="#connect">A. Connect</a> <a href="#publish">B. Publish</a> <a href="#share">C. Share</a> <a href="#views">D. See who opened it</a></nav>
 
     ${GUIDE_PARTS.map((p) => part(p.id, p.letter, p.title, p.shots as Shot[])).join("\n    ")}
 

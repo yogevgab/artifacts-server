@@ -350,8 +350,8 @@ header.top{position:sticky;top:0;z-index:5;margin:-.75rem 0 2.2rem;padding:.72re
 footer.site{color:var(--muted);font-size:.88rem;padding:2.6rem 0 1.2rem;border-top:1px solid var(--border);margin-top:3rem}
 footer.site .foot-grid{display:grid;gap:1.6rem 1.4rem;grid-template-columns:repeat(2,minmax(0,1fr));margin:0 0 1.8rem}
 @media(min-width:760px){footer.site .foot-grid{grid-template-columns:3fr 1fr 1fr}}
-footer.site nav[aria-label="Footer"]{display:grid;gap:1.6rem 1.4rem;grid-template-columns:repeat(2,minmax(0,1fr));grid-column:1/-1}
-@media(min-width:760px){footer.site nav[aria-label="Footer"]{grid-template-columns:repeat(3,minmax(0,1fr));grid-column:auto}}
+footer.site nav[aria-label="Footer"]{display:contents}
+@media(min-width:760px){footer.site nav[aria-label="Footer"]{display:grid;gap:1.6rem 1.4rem;grid-template-columns:repeat(3,minmax(0,1fr))}}
 footer.site .foot-col{display:flex;flex-direction:column;gap:.5rem;min-width:0}
 footer.site .foot-h{margin:0 0 .2rem;font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--faint);font-weight:600}
 footer.site a{color:var(--muted);min-height:24px}
