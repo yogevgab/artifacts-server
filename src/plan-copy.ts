@@ -89,8 +89,9 @@ export function isPlanName(tier: PublicTier): tier is PlanName {
  * to. Two kinds, and the distinction is the whole point of this table:
  *
  *  - `self-serve` — they can complete it alone, right now, with no human in the
- *    loop. Free and Pro qualify: verify an email, and upgrade from Settings
- *    against a real hosted checkout (`checkoutUrl`, src/billing.ts).
+ *    loop. Free and Pro qualify: verify an email — and for Pro, `/upgrade/pro`
+ *    then sends them straight to a real hosted checkout (`checkoutUrl`,
+ *    src/billing.ts), the same link Settings and Billing show.
  *  - `contact` — a person has to be involved. The button says so.
  *
  * **Team is `contact`, and that is not a pricing decision — it is an accuracy
@@ -111,12 +112,18 @@ export type TierCta =
   | { kind: "self-serve"; href: string; label: string }
   | { kind: "contact"; href: string; label: string };
 
+/** Where every public "Buy Pro" button points — see the `/upgrade/pro` route in src/index.ts. */
+export const UPGRADE_PRO_PATH = "/upgrade/pro";
+
 export function tierCta(tier: PublicTier): TierCta {
   switch (tier) {
     case "free":
       return { kind: "self-serve", href: "/signup", label: "Start free" };
     case "pro":
-      return { kind: "self-serve", href: "/signup", label: "Start free, upgrade anytime" };
+      // `/upgrade/pro` signs the visitor up (or in) first and then lands them
+      // on the hosted checkout for their own workspace — the payment has to be
+      // tied to a workspace, so there is no checkout before an account.
+      return { kind: "self-serve", href: UPGRADE_PRO_PATH, label: `Buy Pro \u2014 ${priceLabel("pro")}` };
     case "team":
       return { kind: "contact", href: "/contact?plan=team", label: "Talk to us" };
     case "enterprise":

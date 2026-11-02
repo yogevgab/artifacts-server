@@ -68,6 +68,10 @@ const MANAGEMENT_PREFIXES = [
   "/guide",
   // `/media/<name>`: the guide video and poster, served from R2 (src/media.ts).
   "/media",
+  // `/upgrade/<plan>`: the public "Buy" button's landing (src/index.ts) — it
+  // either sends a visitor to sign up or redirects to a checkout prefilled with
+  // their workspace, so it must never be served by a content host.
+  "/upgrade",
   // The chat socket for the viewer (src/index.ts). It authorizes with the
   // app-host session / link cookie exactly like the viewer, so it lives on the
   // app host and a content host must 404 it. `_chat` can never be a slug

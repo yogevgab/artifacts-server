@@ -203,7 +203,7 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
 ];
 
 /** Paths that are gated and must never be crawled or indexed. */
-const CRAWLER_DISALLOW = ["/admin", "/api/", "/gallery", "/v/", "/whoami", "/health"];
+const CRAWLER_DISALLOW = ["/admin", "/api/", "/gallery", "/v/", "/whoami", "/health", "/upgrade/"];
 
 /**
  * `robots.txt` for the canonical app host: crawl the product pages, stay out of

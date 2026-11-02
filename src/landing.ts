@@ -278,7 +278,7 @@ function pricingSection(): string {
     <div class="band-head">
       <p class="eyebrow-c">Pricing</p>
       <h2>Free to start. Upgrade only if you outgrow it.</h2>
-      <p>Every workspace starts on Free, and Pro is a switch inside Settings. Team and Enterprise
+      <p>Every workspace starts on Free. Buy Pro here or from Settings whenever you need it. Team and Enterprise
         are set up with a person, because the parts that would make them self-serve aren't built
         yet.</p>
     </div>

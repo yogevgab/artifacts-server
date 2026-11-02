@@ -297,8 +297,9 @@ export function proPage(env: Env): string {
       priceNote: "per workspace",
       secondary: { href: "/signup", label: "Start free" },
       ctaNote:
-        "Pro is self-serve: create the workspace first, then upgrade from Settings. Checkout needs " +
-        "an account to attach the subscription to, which is why the button starts you free.",
+        "Pro is self-serve: the button signs you up (or in) with one email code and takes you " +
+        "straight to checkout. Checkout needs a workspace to attach the subscription to, which is " +
+        "why it asks for your email first.",
       sections,
     },
     `Pro plan \u2014 ${SITE.name}, private links for Claude (MCP)`,
