@@ -320,7 +320,7 @@ describe("the legal pages on a deployment with a configured operator (rtfx.pro)"
     expect(body).toContain("erased from storage in batches");
     expect(body).not.toContain("is erased after 90 days");
     // Removing a user does not delete their workspace.
-    expect(body).toContain("does not by itself delete");
+    expect(body).toContain("by itself delete your personal workspace");
     // Workspace members, not just owners, see the activity log.
     expect(body).toContain("members (not viewers)");
     // Every cookie the Worker sets is listed.

@@ -292,7 +292,8 @@ const privacyParts = (op: Operator, analytics: boolean, resend: boolean): readon
             from it; device type, operating system and browser, and the browser's User-Agent text
             (up to 300 characters); the referring page (up to 500 characters). Link previews built
             by chat and social apps, and attempts to use an expired or revoked link, are logged too.
-            Repeat opens of a share link from the same address are combined. A log entry shows
+            Repeated opens of the same share link from the same IP address within a few minutes
+            produce one entry. A log entry shows
             that a page was loaded — not that a person read it.</td></tr>
         <tr><th scope="row">Chat</th>
           <td>Messages written in an artifact's chat, with the author's email where known, their
@@ -303,8 +304,8 @@ const privacyParts = (op: Operator, analytics: boolean, resend: boolean): readon
             (such as Claude) and their authorisations; short-lived upload links.</td></tr>
         <tr><th scope="row">Email delivery log</th>
           <td>For every email we send — sign-in codes, invitations, share and read notices, access
-            requests — the recipient, the kind of message, whether it was delivered, and when. Not
-            the message itself.</td></tr>
+            requests — the recipient, the kind of message, whether the sending provider accepted it or
+            the send failed, and when. Not the message itself.</td></tr>
         <tr><th scope="row">Billing</th>
           <td>When you buy a plan we send your email and workspace id to Lemon Squeezy's checkout.
             From its notifications we store the resulting plan and a record that the notification
@@ -351,7 +352,7 @@ const privacyParts = (op: Operator, analytics: boolean, resend: boolean): readon
       <thead><tr><th scope="col">Name</th><th scope="col">What it is for</th><th scope="col">Lasts</th></tr></thead>
       <tbody>
         <tr><th scope="row"><code>rtfx_session</code></th>
-          <td>Keeps you signed in after you verify your email.</td><td>30 days (renewed while you use it)</td></tr>
+          <td>Keeps you signed in after you verify your email.</td><td>30 days from sign-in</td></tr>
         <tr><th scope="row"><code>rtfx_guest</code></th>
           <td>Lets a person you shared one artifact with open it after verifying their email.</td><td>30 days</td></tr>
         <tr><th scope="row"><code>rtfx_link_&lt;artifact&gt;</code></th>
@@ -359,6 +360,8 @@ const privacyParts = (op: Operator, analytics: boolean, resend: boolean): readon
             and revocation still apply.</td><td>1 day</td></tr>
         <tr><th scope="row"><code>rtfx_next</code></th>
           <td>Remembers where to send you after sign-in.</td><td>30 minutes</td></tr>
+        <tr><th scope="row"><code>rtfx_oauth_csrf</code></th>
+          <td>Protects the screen where you connect an app (such as Claude) against forged requests.</td><td>10 minutes</td></tr>
         <tr><th scope="row"><code>rtfx_account</code></th>
           <td>Remembers which workspace you last switched to.</td><td>1 year</td></tr>
         <tr><th scope="row"><code>rtfx.cookie-notice</code>, <code>rtfx.bar</code></th>
@@ -414,11 +417,12 @@ const privacyParts = (op: Operator, analytics: boolean, resend: boolean): readon
     heading: "Who can see what",
     html: `<ul>
       <li><b>People an artifact is shared with</b> — by name, through the workspace, or by holding a
-        share link — can open it. A viewer can only read; an editor can also publish new versions
-        and roll back. A share link works for whoever has it, so it can be forwarded.</li>
+        share link — can open it. A viewer can only read. An editor signed in with a full account can
+        also publish new versions and roll back. A share link works for whoever has it, so it can be forwarded.</li>
       <li><b>People who manage an artifact</b> — its owner and members (not viewers) of the workspace
-        it belongs to — see its activity log and sharing settings. The first time a named person opens
-        an artifact, its owner may get an email saying so, unless read notices are turned off.</li>
+        it belongs to — see its activity log and sharing settings. The first time a signed-in person
+        other than the owner opens an artifact (not through a share link), the owner may get an email
+        saying so, unless read notices are turned off.</li>
       <li><b>Chat</b> messages, with their author's email where known, are visible to everyone who
         can open the artifact.</li>
       <li><b>Chat and social apps</b> that fetch a valid share link to build a preview receive the
@@ -426,9 +430,11 @@ const privacyParts = (op: Operator, analytics: boolean, resend: boolean): readon
       <li><b>Apps you connect</b>, such as Claude, receive what you ask them to do through rtfx.pro,
         under their own terms and privacy policies.</li>
       <li><b>Our administrators</b> can see accounts, workspaces and artifact metadata (owner, title,
-        size, dates, counts) to run the service. They cannot open your artifacts, read your files, or
-        see who has viewed them — the product gives them no way to. An administrator who deletes an
-        artifact for abuse leaves an entry in an audit trail.</li>
+        size, dates, counts) to run the service, and can manage workspace memberships. Being an
+        administrator does not change what they can see: as administrators they
+        cannot open your artifacts, read your files or see who has viewed them — they get that only the way anyone does,
+        if you share it with them. An administrator who deletes
+        an artifact for abuse leaves an entry in an audit trail.</li>
     </ul>
     <h3>Service providers</h3>
     <ul>
@@ -450,33 +456,34 @@ const privacyParts = (op: Operator, analytics: boolean, resend: boolean): readon
     html: `<p>The operator is in Israel, which the European Commission recognises as providing adequate
       protection for personal data. Our service providers are based in the United States and process
       data on their global networks, so your data may be handled in the US and other countries. Where
-      EU or UK law requires it, those transfers rely on the providers' data-processing terms, including
-      standard contractual clauses. Write to ${mail(op)} for details of the safeguards that apply.</p>`,
+      EU or UK law requires it, those transfers rely on the safeguards in the providers'
+      data-processing terms, such as standard contractual clauses. Write to ${mail(op)} for details of the safeguards that apply.</p>`,
   },
   {
     id: "retention",
     heading: "How long we keep it",
     html: `<ul>
-      <li><b>Artifacts</b> stay until they are deleted. On the Free plan only the latest five
-        versions keep their files; older versions' files are removed (their notes and dates stay).
-        Pro and Team keep every version.</li>
-      <li><b>Deleting an artifact</b> removes its files, versions, sharing settings, share links,
-        activity log and chat. It does not remove entries about it in the email delivery log or the
-        administrators' audit trail.</li>
+      <li><b>Artifacts</b> stay until they are deleted. On the Free plan, each new publish keeps the
+        files of the latest five versions and removes older versions' files (their notes and dates
+        stay). Pro and Team keep every version.</li>
+      <li><b>Deleting an artifact</b> removes its files, versions, sharing settings, share links and
+        activity log, and then erases its chat (if that last step fails, the chat can remain until we
+        clear it). It does not remove entries about it in the email delivery log or the administrators'
+        audit trail.</li>
       <li><b>Activity log</b> entries stay until the artifact is deleted. IP addresses older than 90
         days are no longer shown to anyone and are erased from storage in batches as the artifact keeps
         being used — so on an artifact nobody opens any more, an old IP address can stay in storage
         (unseen) until the artifact is deleted.</li>
-      <li><b>Removing you from a workspace or from the service</b> removes your memberships and the
-        artifacts shared with you by name, and revokes your API tokens. It does not by itself delete
-        your personal workspace, what you published or past activity — ask us at ${mail(op)} to close
-        your account and delete those.</li>
+      <li><b>Removing you from one workspace</b> removes only that membership. <b>Removing you from the
+        service</b> removes all your memberships and the artifacts shared with you by name, and revokes
+        your API tokens. Neither does by itself delete your personal workspace, what you published or
+        past activity — ask us at ${mail(op)} to close your account and delete those.</li>
       <li><b>Sign-in codes</b> work for 15 minutes; <b>upload links</b> for 30 minutes; connected-app
         access for an hour at a time, renewable for 30 days. Expired or revoked credentials stop working
         immediately, but their records are kept.</li>
       <li><b>Email delivery log, contact messages, audit trail and billing records</b> are kept while
-        the service runs, for security, support, accounting and disputes. Rate-limit counters are
-        deleted after their hour passes.</li>
+        the service runs, for security, support, accounting and disputes. Rate-limit counters expire
+        after their hour and are removed during later checks.</li>
     </ul>
     <p>Cloudflare and our other providers keep their own operational logs under their own terms.</p>`,
   },
@@ -603,8 +610,8 @@ const termsParts = (op: Operator): readonly Part[] => [
         over this paragraph.</li>
       <li><b>Moving to a lower plan</b> never deletes your artifacts, but the lower limits apply: you may
         not be able to publish more until you are within them, viewers may be turned away if the monthly
-        view limit is reached, and on Free only the latest five versions of an artifact keep their
-        files.</li>
+        view limit is reached, and on Free each new publish keeps the files of only the latest five
+        versions.</li>
       <li><b>Price changes</b> apply from your next billing period after we have told you about them.</li>
     </ul>`,
   },
