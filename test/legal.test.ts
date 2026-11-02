@@ -207,9 +207,9 @@ describe("the cookie notice", () => {
     expect(body).toContain("no analytics, no advertising");
     expect(body).toContain("nothing on this page to opt out of");
     expect(body).toContain('href="/privacy#cookies"');
-    // The dashboard is different, and this notice says so rather than implying
-    // the same "nothing optional" claim covers the whole site.
-    expect(body).toContain('href="/privacy#dashboard-analytics"');
+    // No PostHog on this deployment, so there is no dashboard recording and no
+    // /privacy#dashboard-analytics section — the notice must not link to one.
+    expect(body).not.toContain('href="/privacy#dashboard-analytics"');
   });
 
   it("keeps the short notice consistent with the privacy cookie inventory", async () => {

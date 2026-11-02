@@ -1,4 +1,5 @@
 import { MCP_URL } from "./seo";
+import { priceLabel } from "./plan-copy";
 
 /**
  * The home page's copy as data, so the page, its structured data and
@@ -32,11 +33,12 @@ export const FAQS: readonly Faq[] = [
     more: { href: "/share-claude-artifacts-privately", label: "Read more" },
   },
   {
-    q: "Isn't Claude's own Publish enough?",
+    q: "Isn't Claude's own sharing enough?",
     a:
-      "On Free, Pro and Max plans, Claude's own Publish makes an artifact public to anyone with " +
-      "the link (on Team and Enterprise it is limited to your organization). rtfx is for when you " +
-      "want only the people you choose to open it: every artifact is private by default.",
+      "Claude can share an artifact with anyone who has the link or with people you invite by " +
+      "email, but the people opening it generally need a Claude account, and Claude's help article " +
+      "doesn't describe expiring links or a view log. rtfx is for sharing with exactly the people " +
+      "you choose — no Claude account needed — and seeing who opened it.",
     more: { href: "/claude-publish-vs-private-link", label: "Read more" },
   },
   {
@@ -70,8 +72,9 @@ export const FAQS: readonly Faq[] = [
   {
     q: "Is it free?",
     a:
-      "There is a Free plan; sign up with your email. Pro, Team and Enterprise are for more " +
-      "artifacts, storage and people. See the pricing section below for the limits.",
+      `There is a Free plan; sign up with your email. Pro is ${priceLabel("pro")} and Team is ${priceLabel("team")}, both bought ` +
+      "right here on the site (email code, then checkout); Enterprise is a conversation. See the " +
+      "pricing section below for the limits.",
   },
 ];
 

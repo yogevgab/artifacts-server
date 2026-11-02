@@ -269,10 +269,10 @@ export function proPage(env: Env): string {
       <h2>How you get it</h2>
       <p>Self-serve, start to finish, with nobody in the loop.</p>
       <ol class="plan-list" data-plan-facts="how">
-        <li><b>Create a workspace.</b> <a href="/signup">Sign up</a> with one emailed code. No
-          password, no card, no review — every workspace starts on Free.</li>
-        <li><b>Upgrade from Settings.</b> The Pro upgrade link inside your workspace goes to a
-          hosted checkout; the plan changes as soon as it completes.</li>
+        <li><b>Click Buy Pro.</b> Sign in or sign up with one emailed code — no password, no
+          review.</li>
+        <li><b>Check out.</b> The button lands you on a hosted checkout for your workspace; the plan
+          changes as soon as it completes. (Already signed up? The same upgrade is in Settings.)</li>
         <li><b>Nothing you published changes.</b> Upgrading never alters who can see or open an
           existing artifact — it only raises what you may publish next.</li>
       </ol>
@@ -292,8 +292,8 @@ export function proPage(env: Env): string {
       heading: "Pro — the same product, without the ceiling",
       lead:
         `${num(PLANS.pro.maxArtifacts)} artifacts, ${bytes(PLANS.pro.maxStorageBytes)} of storage and ` +
-        "every version kept, for one person or a handful. Start free and upgrade from Settings when " +
-        "you outgrow the free limits.",
+        "every version kept, for one person or a handful. Buy it now — one email code, then " +
+        "checkout — or start free and upgrade when you outgrow the free limits.",
       priceNote: "per workspace",
       secondary: { href: "/signup", label: "Start free" },
       ctaNote:

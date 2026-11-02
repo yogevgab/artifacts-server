@@ -51,7 +51,7 @@ export const CONSENT_KEY = "rtfx.cookie-notice";
  * and a visitor with JavaScript off never sees a banner whose dismiss button
  * could not possibly work.
  */
-export function cookieNotice(): string {
+export function cookieNotice(dashboardRecording = false): string {
   return `<aside class="cnotice" id="cookie-notice" data-cookie-notice hidden
       role="region" aria-labelledby="cookie-notice-title">
       <div class="cnotice-body">
@@ -59,9 +59,15 @@ export function cookieNotice(): string {
         <p>We use only necessary storage on this page: our own sign-in session cookie, Cloudflare's
           edge security cookies, and this notice's first-party localStorage dismissal. There is no
           analytics, no advertising and no third-party tracking here — so there is
-          nothing on this page to opt out of. The dashboard, once you sign in, is different: it
+          nothing on this page to opt out of.${
+            // Only a deployment that can record (POSTHOG_KEY set) has that section
+            // of /privacy to link to; describing it anywhere else is untrue.
+            dashboardRecording
+              ? ` The dashboard, once you sign in, is different: it
           offers optional session recording with its own accept/decline choice —
-          <a href="/privacy#dashboard-analytics" data-legal="dashboard-analytics">see what it collects</a>.
+          <a href="/privacy#dashboard-analytics" data-legal="dashboard-analytics">see what it collects</a>.`
+              : ""
+          }
           <a href="/privacy#cookies" data-legal="cookies">What we store and why</a>.</p>
       </div>
       <button type="button" class="ghost small" data-cookie-dismiss>Got it</button>

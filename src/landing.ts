@@ -18,6 +18,8 @@ import {
 import { num, bytes } from "./portal";
 import type { PlanName } from "./quota";
 import {
+  PLAN_LABEL,
+  PLAN_PRICE,
   PUBLIC_TIERS,
   TIER_LABEL,
   isPlanName,
@@ -187,16 +189,33 @@ function structuredData(env: Env): unknown[] {
           operatingSystem: "Web",
           description: SITE.description,
           isAccessibleForFree: true,
-          softwareVersion: "1.0.0",
           codeRepository: SOURCE_URL,
           license: "https://opensource.org/licenses/MIT",
-          offers: {
-            "@type": "Offer",
-            price: "0",
-            priceCurrency: "USD",
-            availability: "https://schema.org/InStock",
-            url: canonicalUrl(env, "/signup"),
-          },
+          offers: [
+            {
+              "@type": "Offer",
+              name: "Free",
+              price: "0",
+              priceCurrency: "USD",
+              availability: "https://schema.org/InStock",
+              url: canonicalUrl(env, "/signup"),
+            },
+            ...(["pro", "team"] as const).map((plan) => ({
+              "@type": "Offer",
+              name: PLAN_LABEL[plan],
+              price: String(PLAN_PRICE[plan]),
+              priceCurrency: "USD",
+              availability: "https://schema.org/InStock",
+              url: canonicalUrl(env, `/${plan}`),
+              priceSpecification: {
+                "@type": "UnitPriceSpecification",
+                price: PLAN_PRICE[plan],
+                priceCurrency: "USD",
+                billingDuration: "P1M",
+                unitText: "month",
+              },
+            })),
+          ],
           featureList: [
             "Publish a Claude artifact to a private link over MCP",
             "Publish new versions at the same link and roll back",
@@ -228,10 +247,10 @@ function seatsLine(name: PlanName): string {
 /**
  * The CTA is read from `tierCta` (src/plan-copy.ts) rather than decided here,
  * because that table encodes something this file has no business guessing: what
- * a person can actually finish on their own today. Free and Pro are a real
- * self-serve path — sign up, then a hosted checkout from Settings. Team and
- * Enterprise are not, and the button says so instead of sending somebody into a
- * flow that ends with them waiting on us anyway.
+ * a person can actually finish on their own today. Free, Pro and Team are a
+ * real self-serve path (`/upgrade/pro`, `/upgrade/team`). Enterprise is not, and
+ * the button says so instead of sending somebody into a flow that ends with
+ * them waiting on us anyway.
  */
 /** Plain-text lines of a plan's card — the card renders them, `/llms-full.txt` prints them. */
 export function tierLimitLines(name: PlanName): string[] {
@@ -278,8 +297,8 @@ function pricingSection(): string {
     <div class="band-head">
       <p class="eyebrow-c">Pricing</p>
       <h2>Free to start. Upgrade only if you outgrow it.</h2>
-      <p>Every workspace starts on Free. Buy Pro or Team here, or upgrade from Settings whenever
-        you need it. Enterprise is set up with a person.</p>
+      <p>Every workspace starts on Free. Buy Pro or Team here in a minute — one email code, then
+        checkout. Enterprise is set up with a person.</p>
     </div>
     <div class="pricing-grid">
       ${PUBLIC_TIERS.map(tierCard).join("")}
@@ -365,7 +384,7 @@ export function landingPage(env: Env): string {
         <pre class="code"><code>${CLAUDE_CODE_CMD}</code></pre>
         <pre class="code"><code>${MCP_JSON}</code></pre>
         <p>No OAuth in your client? Create a token under Settings → Integrations
-          (<a href="/admin/integrations">rtfx.pro/admin/integrations</a>) and send it as
+          (<a href="/admin/integrations" rel="nofollow">rtfx.pro/admin/integrations</a>) and send it as
           <code>Authorization: Bearer &lt;token&gt;</code>.</p>
       </div>
     </section>

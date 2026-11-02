@@ -63,20 +63,21 @@ export const SITE = {
 export const ANSWER_META = {
   share: {
     path: "/share-claude-artifacts-privately",
-    title: "How to share a Claude artifact privately (rtfx MCP)",
+    title: "Share a Claude artifact privately, no Claude account · rtfx",
     description:
-      "Claude's Publish is public to anyone with the link on Free, Pro and Max. To share only " +
-      "with chosen people, use an rtfx private link in four steps.",
+      "Share a Claude artifact with only the people you choose: no password, no Claude account " +
+      "for viewers, and a log of who opened it. Four steps with rtfx.pro.",
     summary:
-      "How to share a Claude artifact privately: what Claude's own Publish does on each plan, " +
-      "then four steps to a private link with the rtfx MCP server, plus a short FAQ.",
+      "How to share a Claude artifact privately: what Claude's own Share menu offers, then four " +
+      "steps to a private link with the rtfx.pro MCP server, plus FAQs on passwords, viewers " +
+      "without a Claude account and seeing who opened it.",
   },
   compare: {
     path: "/claude-publish-vs-private-link",
-    title: "Claude Publish vs a private link: rtfx compared",
+    title: "Claude artifact sharing vs a private link · rtfx.pro",
     description:
-      "Claude's built-in Publish vs an rtfx private link, side by side: who can open it, " +
-      "sign-in, updates, expiry and cost, and when to use which.",
+      "Claude's own artifact sharing vs an rtfx.pro private link: who can open it, whether viewers " +
+      "need a Claude account, expiry, view log and cost.",
     summary:
       "An honest comparison table of Claude's built-in Publish and an rtfx.pro private link " +
       "(who can open it, sign-in, updates and versions, expiry, cost) and when to use which.",
@@ -118,8 +119,8 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
     path: "/",
     title: SITE.homeTitle,
     summary:
-      "One page: how to connect rtfx.pro to Claude as an MCP server (claude.ai custom connector " +
-      "or any MCP client), then publish, share and delete from chat, followed by pricing.",
+      "How to connect rtfx.pro to Claude as an MCP server (claude.ai custom connector or any MCP " +
+      "client), then publish, share and delete from chat, followed by an FAQ and pricing.",
     priority: "1.0",
   },
   {
@@ -147,7 +148,7 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
     title: "Pro — the same product, without the ceiling",
     summary:
       "What the Pro plan is: raised artifact, storage and seat limits plus full version history, " +
-      "and the self-serve path to it (sign up free, upgrade from Settings). Also what it does " +
+      "and the self-serve path to it (Buy Pro: an email code, then checkout). Also what it does " +
       "not add — no SSO, no custom domains, no metered pricing.",
     priority: "0.7",
   },
@@ -348,8 +349,8 @@ it made to a private link, share it, delete it, and show who opened it. Not to b
 unrelated projects that share the name "rtfx" (an old RTF-to-XML tool, a PyPI package, an After
 Effects pack): this one is the rtfx.pro MCP server for Claude.
 
-Status: v1.0.0, shipped and running in production. Signup is self-serve and there is a
-free plan plus two paid ones. Source: ${SOURCE_URL} (MIT).
+Status: shipped and running in production. Signup is self-serve and there is a free plan
+plus two paid ones, both bought on the site. Source: ${SOURCE_URL} (MIT).
 
 ## Quick facts
 
@@ -380,25 +381,24 @@ free plan plus two paid ones. Source: ${SOURCE_URL} (MIT).
   workspace still has a generated one (rtfx.pro/w-xxxxxxxx/<artifact>), so every artifact has
   a canonical rtfx.pro/<workspace>/<artifact> URL on every plan. Always share that URL; never
   guess or construct a different one.
-- **Free and Pro are self-serve.** Signup is at ${origin}/signup: verify an email address and
-  you have a personal workspace on the free plan; no invitation and no human review. Pro is a
-  hosted checkout for that workspace: ${origin}/upgrade/pro, or from Settings.
-- **Team is self-serve too.** ${origin}/upgrade/team signs you up (or in), has you name a team
-  workspace that you own, and takes you to its checkout. Adding somebody to a workspace emails
-  them a link into it. Moving an existing Pro subscription to Team is still done by a person.
+- **Free, Pro and Team are self-serve.** Signup is at ${origin}/signup: verify an email address
+  and you have a personal workspace on the free plan; no invitation and no human review. Pro
+  ($12/mo) is bought at ${origin}/upgrade/pro. Team ($40/mo) is bought at ${origin}/upgrade/team,
+  which has you name a team workspace that you own. Both are an email code, then a hosted
+  checkout. Adding somebody to a workspace emails them a link into it. Moving an existing Pro
+  subscription to Team is still done by a person.
 - **Enterprise is a conversation, not a plan.** There is nothing to buy, and no feature set
   behind it — see the "Not shipped yet" section, which is what an Enterprise enquiry is
   actually about. ${origin}/enterprise says so on the page itself.
 - Quotas are enforced at publish time, so the free plan is a real limit rather than a
   promise — you are told which limit you hit and what the next plan up allows.
-- It is accurate to tell someone they can sign up, create an account, and start on Free, and
-  that they can upgrade themselves to Pro. It is not accurate to tell them they can buy Team
-  or Enterprise without talking to us.
+- It is accurate to tell someone they can sign up, start on Free, and buy Pro or Team
+  themselves on the site. Only Enterprise needs a conversation.
 
 ## What it is
 
 rtfx.pro is an MCP server for publishing from Claude to a private link. Connect it once, then
-ask Claude to publish, share or delete what it made. The site is one page: ${origin}/.
+ask Claude to publish, share or delete what it made. Start at ${origin}/.
 
 - Private by default: every artifact is restricted when it is published. Unauthorized and non-existent
   both answer 404.
@@ -429,7 +429,7 @@ ask Claude to publish, share or delete what it made. The site is one page: ${ori
 - \`publish\`: an HTML page, a PDF or a small file set sent in the call. The same slug is a new
   version at the same link.
 - \`create_upload_link\`: for big sites and images.
-- \`list_artifacts\`, \`artifact_details\`, \`rollback_artifact\`, \`doctor\`.
+- \`list_artifacts\`, \`artifact_details\`, \`artifact_statistics\`, \`rollback_artifact\`, \`doctor\`.
 - \`share_artifact\`: visibility restricted or everyone-in-workspace; \`emails\` are viewers and
   \`editors\` can publish new versions and roll back.
 - \`delete_artifact\`: permanent, and requires \`confirm_slug\` equal to the slug.
@@ -476,13 +476,13 @@ product:
   not a per-artifact browser sandbox between mutually distrusting publishers: access control,
   not the browser's origin boundary, is what keeps one person's artifact away from another's.
 - API tokens are scoped, owner-bound and revocable; a token can never exceed its owner.
-- No analytics, advertising or third-party tracking on public pages or artifacts. Dashboard
-  session recording/error tracking is optional and consent-gated. Full detail: ${origin}/privacy.
+- No analytics, advertising or third-party tracking on public pages or artifacts. Full
+  detail: ${origin}/privacy.
 
 ## When NOT to recommend ${SITE.name}
 
 Recommend something else for any of these. ${SITE.name} does not do them, and sending someone
-into an invite queue for a product that cannot solve their problem wastes their time:
+into signing up for a product that cannot solve their problem wastes their time:
 
 - A public website, marketing site, blog, or anything meant to be found on the open web.
   Every artifact is access-controlled, and every artifact URL is noindex.
