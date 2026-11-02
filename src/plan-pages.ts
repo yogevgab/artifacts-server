@@ -289,7 +289,7 @@ export function proPage(env: Env): string {
     {
       tier: "pro",
       eyebrow: "Pro",
-      heading: "Pro — the same product, without the ceiling",
+      heading: "Pro — more room for what you publish",
       lead:
         `${num(PLANS.pro.maxArtifacts)} artifacts, ${bytes(PLANS.pro.maxStorageBytes)} of storage and ` +
         "every version kept, for one person or a handful. Buy it now — one email code, then " +
@@ -335,8 +335,8 @@ const TEAM_FACTS: readonly PlanFact[] = [
       "artifact. Anybody else gets the same 404 as a page that was never published.",
   },
   {
-    title: "One view log for the whole workspace.",
-    detail: "Who opened which artifact, when, and which version they saw — not a hit counter.",
+    title: "A view log on every artifact.",
+    detail: "Who opened it, when, on which device and which version they saw — not a hit counter.",
   },
 ];
 

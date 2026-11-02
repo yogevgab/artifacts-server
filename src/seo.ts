@@ -162,7 +162,7 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
   },
   {
     path: "/pro",
-    title: "Pro — the same product, without the ceiling",
+    title: "Pro — more room for what you publish",
     summary:
       "What the Pro plan is: raised artifact, storage and seat limits plus full version history, " +
       "and the self-serve path to it (Buy Pro: an email code, then checkout). Also what it does " +

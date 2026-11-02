@@ -140,10 +140,9 @@ export const WALKTHROUGH: readonly WalkthroughSection[] = [
 /** Enterprise has no row in PLANS to render; these are the lines both the card and llms-full show. */
 export const ENTERPRISE_LINES: readonly string[] = [
   "Dedicated URL for every artifact",
-  "Branded workspace address",
   "Everything in Team, plus a conversation",
-  "SSO, SCIM and contractual SLAs — none built yet",
-  "Security review, DPA, invoicing",
+  "Security review, DPA and invoicing",
+  "Not available yet: SSO, SCIM, contractual SLAs",
   "Or self-host it: the source is MIT",
 ];
 

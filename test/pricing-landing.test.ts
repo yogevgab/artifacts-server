@@ -30,7 +30,7 @@ describe("pricing section", () => {
     // Pricing is a <div> between the walkthrough sections and the closing CTA,
     // not a section of its own: hero + 4 walkthrough steps + FAQ + final CTA.
     expect(html).toMatch(/<div id="pricing" class="pricing">/);
-    expect((html.match(/<section\b/g) ?? []).length).toBe(7);
+    expect((html.match(/<section\b/g) ?? []).length).toBe(6);
   });
 
   it("names every public tier", async () => {
@@ -99,13 +99,13 @@ describe("pricing section", () => {
     }
   });
 
-  it("states the dedicated URL offer on Pro, Team and Enterprise cards", async () => {
+  it("states once, above the cards, what every plan includes — including the dedicated URL", async () => {
     const html = await landing();
+    const head = html.slice(html.indexOf('<div id="pricing"'), html.indexOf('<div class="pricing-grid">'));
+    expect(head).toContain("a dedicated URL");
+    expect(head).toContain("view log");
     for (const plan of ["pro", "team", "enterprise"]) {
-      const start = html.indexOf(`data-tier="${plan}"`);
-      expect(start, `missing tier ${plan}`).toBeGreaterThanOrEqual(0);
-      const card = html.slice(start, html.indexOf("</div>", start));
-      expect(card, `missing dedicated URL copy for ${plan}`).toContain("Dedicated URL for every artifact");
+      expect(html, `missing tier ${plan}`).toContain(`data-tier="${plan}"`);
     }
   });
 

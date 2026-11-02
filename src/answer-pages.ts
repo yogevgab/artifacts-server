@@ -59,12 +59,11 @@ const imgPath = (name: string) => `/guide/${name}.webp?v=${GUIDE_IMAGES[name]!.h
 const SHARE_H1 = "How to share a Claude artifact privately";
 
 const SHARE_LEAD =
-  "Claude artifacts start private, and Claude's Share menu can open one to anyone with the link or " +
-  "to people you invite by email — but the people opening it generally need a Claude account, and " +
-  "Claude's help article doesn't describe passwords, expiring links or a view log. To share with " +
-  "exactly the people you choose, with or without a Claude account, and see who opened it, publish " +
-  "to a private link instead: add the rtfx.pro MCP server to Claude once, then ask Claude to " +
-  "publish and share from chat.";
+  "Add the rtfx.pro MCP server to Claude once, ask Claude to publish your artifact to a private " +
+  "link, then choose exactly who can open it — they sign in with an email code and don't need a " +
+  "Claude account — and see who opened it. (Claude artifacts start private too, but the people " +
+  "you share them with generally need a Claude account, and Claude's help article doesn't " +
+  "describe passwords, expiring links or a view log.)";
 
 interface AnswerStep {
   name: string;
@@ -431,6 +430,14 @@ export function comparePage(env: Env): string {
       `<td role="cell"><span class="cell-label" aria-hidden="true">rtfx private link</span>${r.rtfx}</td></tr>`
   ).join("\n        ");
   const main = `
+    <section aria-labelledby="when-h">
+      <h2 class="sec" id="when-h">When to use which</h2>
+      <div class="when">
+        <div><h3>Claude's own sharing is fine when</h3><ul>${WHEN_CLAUDE.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>
+        <div><h3>Use a private link when</h3><ul>${WHEN_RTFX.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>
+      </div>
+    </section>
+
     <section aria-labelledby="cmp-h">
       <h2 class="sec" id="cmp-h">Side by side</h2>
       <table class="cmp" role="table">
@@ -443,13 +450,6 @@ export function comparePage(env: Env): string {
       <p class="note">${esc(COMPARE_NOTE)}</p>
     </section>
 
-    <section aria-labelledby="when-h">
-      <h2 class="sec" id="when-h">When to use which</h2>
-      <div class="when">
-        <div><h3>Claude's own sharing is fine when</h3><ul>${WHEN_CLAUDE.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>
-        <div><h3>Use a private link when</h3><ul>${WHEN_RTFX.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>
-      </div>
-    </section>
 
     <p class="related">To set it up, follow <a href="${ANSWER_META.share.path}">how to share a Claude artifact privately</a> or the <a href="/guide">screenshot guide</a>.</p>
 
