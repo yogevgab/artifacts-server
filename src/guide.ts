@@ -254,7 +254,15 @@ const STYLE = `${PUBLIC_CHROME_STYLE}${CONSENT_STYLE}
 .mcp-box button{flex:none}
 ${GUIDE_VIDEO_STYLE}
 .jump{display:flex;gap:.4rem 1.1rem;flex-wrap:wrap;margin:0;font-size:.92rem;color:var(--faint)}
-.part{margin:3.6rem 0 0;scroll-margin-top:1rem}
+/* Desktop: the section links stay reachable below the sticky site header while
+   scrolling a long guide. Phones keep them static (the header is static there). */
+@media(min-width:761px){
+  .jump{position:sticky;top:4.6rem;z-index:4;padding:.6rem .9rem;border:1px solid var(--border);
+    border-radius:999px;background:var(--card);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
+    box-shadow:var(--shadow);width:max-content;max-width:100%}
+}
+.part{margin:3.6rem 0 0;scroll-margin-top:8.5rem}
+@media(max-width:760px){.part{scroll-margin-top:1rem}}
 .part>h2{font-size:clamp(1.4rem,3.2vw,1.8rem);letter-spacing:-.045em;line-height:1.1;margin:0 0 1.4rem}
 .part>h2 span{color:var(--faint);font-weight:600;margin-right:.5rem}
 ol.steps{list-style:none;margin:0;padding:0;display:grid;gap:2.4rem;counter-reset:none}

@@ -49,7 +49,8 @@ const PLAN_PAGE_STYLE = `${PUBLIC_CHROME_STYLE}
 .plan-list li{border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--card);
   padding:.85rem 1rem;margin:0;color:var(--muted);box-shadow:var(--shadow);
   backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}
-.plan-list li b{color:var(--fg);font-weight:650;letter-spacing:-.015em}
+.plan-list li b{color:var(--fg);font-weight:650;letter-spacing:-.015em;display:inline-block;margin:0 0 .2rem}
+.plan-list li .plan-detail{display:block}
 /* Same real-markup flag as /docs#why-rtfx — never a CSS pseudo-element, or the
    one word that keeps this page honest exists only in the stylesheet. */
 .plan-flag{display:inline-block;margin-left:.55rem;border:1px solid var(--border);border-radius:999px;
@@ -76,7 +77,7 @@ function factList(facts: readonly PlanFact[], marker: string): string {
       (f) =>
         `<li><b>${f.title}</b>${
           f.flag ? ` <span class="plan-flag">${esc(f.flag)}</span>` : ""
-        } ${f.detail}</li>`
+        } <span class="plan-detail">${f.detail}</span></li>`
     )
     .join("\n        ");
   return `<ul class="plan-list" data-plan-facts="${esc(marker)}">
@@ -291,15 +292,12 @@ export function proPage(env: Env): string {
       eyebrow: "Pro",
       heading: "Pro — more room for what you publish",
       lead:
-        `${num(PLANS.pro.maxArtifacts)} artifacts, ${bytes(PLANS.pro.maxStorageBytes)} of storage and ` +
-        "every version kept, for one person or a handful. Buy it now — one email code, then " +
-        "checkout — or start free and upgrade when you outgrow the free limits.",
+        `${num(PLANS.pro.maxArtifacts)} artifacts, ${bytes(PLANS.pro.maxStorageBytes)} of storage, every ` +
+        `version kept and up to ${PLANS.pro.maxSeats} people in one workspace — for one person or a handful.`,
       priceNote: "per workspace",
       secondary: { href: "/signup", label: "Start free" },
       ctaNote:
-        "Pro is self-serve: the button signs you up (or in) with one email code and takes you " +
-        "straight to checkout. Checkout needs a workspace to attach the subscription to, which is " +
-        "why it asks for your email first.",
+        "Sign in or sign up with an email code, then check out. Cancel any time.",
       sections,
     },
     `Pro plan \u2014 ${SITE.name}, private links for Claude (MCP)`,
@@ -369,14 +367,13 @@ export function teamPage(env: Env): string {
       eyebrow: "Team",
       heading: `Team — one workspace, up to ${PLANS.team.maxSeats} people`,
       lead:
-        `${num(PLANS.team.maxArtifacts)} artifacts and ${bytes(PLANS.team.maxStorageBytes)} shared ` +
-        "across a workspace with real roles. Buy it here: name the workspace, check out, and add " +
-        "your colleagues — each one gets an email with a link in.",
+        `One workspace for up to ${PLANS.team.maxSeats} people: ${num(PLANS.team.maxArtifacts)} artifacts and ` +
+        `${bytes(PLANS.team.maxStorageBytes)} of storage, roles that mean something, and every version kept.`,
       priceNote: "per workspace",
       secondary: { href: "/signup", label: "Start free instead" },
       ctaNote:
-        "Self-serve: the button signs you up (or in), has you name the team workspace, and takes " +
-        "you to checkout. Need more than 25 people or custom terms? Talk to us about Enterprise.",
+        "Sign in with an email code, name your team workspace, then check out. More than 25 people? " +
+        "Talk to us about Enterprise.",
       sections,
     },
     `Team plan \u2014 ${SITE.name}, private links for Claude (MCP)`,

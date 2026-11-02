@@ -286,45 +286,51 @@ export function siteHeader(current: PublicPage = "home"): string {
  */
 export function siteFooter(): string {
   return `<footer class="site">
-      <nav aria-label="Footer">
-        <a href="/">Home</a>
-        <a href="/guide" data-nav="guide">Guide</a>
-        <a href="/share-claude-artifacts-privately" data-nav="share-privately">Share privately</a>
-        <a href="/claude-publish-vs-private-link" data-nav="publish-vs-private">Publish vs private link</a>
-        <a href="/see-who-viewed-claude-artifact" data-nav="who-viewed">Who viewed it</a>
-        <a href="/claude-artifact-password" data-nav="password">Artifact passwords</a>
-        <a href="/signup" data-cta="signup">Start free</a>
-        <a href="/login" data-cta="sign-in">Sign in</a>
-        <!-- Every tier that is not self-serve needs a route a person can take
-             without guessing an address, and somebody with a broken workspace
-             needs the same route. One link, both jobs — and it is in the footer
-             rather than only on a pricing card because "where do I get help?"
-             is a question asked from whichever page went wrong. -->
-        <a href="/contact" data-nav="contact">Talk to us</a>
-        <!-- The strongest thing a security product can offer somebody before they
-             sign up: read the code and the threat model. The repository is public
-             and the product is MIT-licensed, so this costs nothing and answers the
-             question every secure-hosting product has to earn — "what am I being
-             asked to trust?" -->
-        <a href="${SOURCE_URL}" data-nav="source" rel="noopener">Source</a>
-        <a href="${SOURCE_URL}/blob/main/SECURITY.md" data-nav="security" rel="noopener">Security</a>
-        <a href="/llms.txt">llms.txt</a>
-      </nav>
-      <!-- Its own row for the same reason the legal row has one: "which plan?"
-           is a different question from "where do I go?", and each tier now has a
-           page rather than a card on somebody else's page. -->
-      <nav class="legal" aria-label="Plans">
-        <a href="/#pricing" data-plan-nav="pricing">Pricing</a>
-        <a href="/pro" data-plan-nav="pro">Pro</a>
-        <a href="/team" data-plan-nav="team">Team</a>
-        <a href="/enterprise" data-plan-nav="enterprise">Enterprise</a>
-      </nav>
-      <nav class="legal" aria-label="Legal">
-        <a href="/privacy" data-legal="privacy">Privacy</a>
-        <a href="/terms" data-legal="terms">Terms</a>
-        <a href="/privacy#cookies" data-legal="cookies">Cookies</a>
-      </nav>
-      <div>rtfx.pro — secure, access-protected hosting for pages and artifacts.</div>
+      <div class="foot-grid">
+        <nav aria-label="Footer">
+          <div class="foot-col"><p class="foot-h">Product</p>
+            <a href="/">Home</a>
+            <a href="/guide" data-nav="guide">Guide</a>
+            <a href="/signup" data-cta="signup">Start free</a>
+            <a href="/login" data-cta="sign-in">Sign in</a>
+            <!-- Every tier that is not self-serve needs a route a person can take
+                 without guessing an address, and somebody with a broken workspace
+                 needs the same route — asked from whichever page went wrong. -->
+            <a href="/contact" data-nav="contact">Talk to us</a>
+          </div>
+          <div class="foot-col"><p class="foot-h">Answers</p>
+            <a href="/share-claude-artifacts-privately" data-nav="share-privately">Share privately</a>
+            <a href="/claude-publish-vs-private-link" data-nav="publish-vs-private">Publish vs private link</a>
+            <a href="/see-who-viewed-claude-artifact" data-nav="who-viewed">Who viewed it</a>
+            <a href="/claude-artifact-password" data-nav="password">Artifact passwords</a>
+          </div>
+          <div class="foot-col"><p class="foot-h">Open source</p>
+            <!-- The strongest thing a security product can offer before sign-up:
+                 read the code and the threat model (MIT, public repository). -->
+            <a href="${SOURCE_URL}" data-nav="source" rel="noopener">Source</a>
+            <a href="${SOURCE_URL}/blob/main/SECURITY.md" data-nav="security" rel="noopener">Security</a>
+            <a href="/llms.txt">llms.txt</a>
+          </div>
+        </nav>
+        <!-- Plans and legal keep their own landmarks: "which plan?" and "what am I
+             agreeing to?" are different questions from "where do I go?" (issue #36). -->
+        <nav class="legal" aria-label="Plans">
+          <div class="foot-col"><p class="foot-h">Plans</p>
+            <a href="/#pricing" data-plan-nav="pricing">Pricing</a>
+            <a href="/pro" data-plan-nav="pro">Pro</a>
+            <a href="/team" data-plan-nav="team">Team</a>
+            <a href="/enterprise" data-plan-nav="enterprise">Enterprise</a>
+          </div>
+        </nav>
+        <nav class="legal" aria-label="Legal">
+          <div class="foot-col"><p class="foot-h">Legal</p>
+            <a href="/privacy" data-legal="privacy">Privacy</a>
+            <a href="/terms" data-legal="terms">Terms</a>
+            <a href="/privacy#cookies" data-legal="cookies">Cookies</a>
+          </div>
+        </nav>
+      </div>
+      <div class="foot-line">rtfx.pro — private links for what Claude makes.</div>
     </footer>`;
 }
 
@@ -341,12 +347,16 @@ header.top{position:sticky;top:0;z-index:5;margin:-.75rem 0 2.2rem;padding:.72re
 .nav a:hover{color:var(--fg)}
 .nav a.primary{color:var(--fg);border:1px solid var(--border);border-radius:999px;
   padding:.42rem .78rem;background:rgba(255,255,255,.05)}
-footer.site{text-align:center;color:var(--muted);font-size:.88rem;padding:2.4rem 0 1rem;
-  border-top:1px solid var(--border);margin-top:3rem}
-footer.site nav{display:flex;gap:1.1rem;justify-content:center;flex-wrap:wrap;margin-bottom:.9rem}
-footer.site nav.legal{gap:.9rem;font-size:.84rem;margin-bottom:1.1rem}
-footer.site nav.legal a{color:var(--muted)}
-footer.site nav.legal a:hover{color:var(--fg)}
+footer.site{color:var(--muted);font-size:.88rem;padding:2.6rem 0 1.2rem;border-top:1px solid var(--border);margin-top:3rem}
+footer.site .foot-grid{display:grid;gap:1.6rem 1.4rem;grid-template-columns:repeat(2,minmax(0,1fr));margin:0 0 1.8rem}
+@media(min-width:760px){footer.site .foot-grid{grid-template-columns:3fr 1fr 1fr}}
+footer.site nav[aria-label="Footer"]{display:grid;gap:1.6rem 1.4rem;grid-template-columns:repeat(2,minmax(0,1fr));grid-column:1/-1}
+@media(min-width:760px){footer.site nav[aria-label="Footer"]{grid-template-columns:repeat(3,minmax(0,1fr));grid-column:auto}}
+footer.site .foot-col{display:flex;flex-direction:column;gap:.5rem;min-width:0}
+footer.site .foot-h{margin:0 0 .2rem;font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--faint);font-weight:600}
+footer.site a{color:var(--muted);min-height:24px}
+footer.site a:hover{color:var(--fg)}
+footer.site .foot-line{color:var(--faint);font-size:.84rem;text-align:center;padding-top:1.2rem;border-top:1px solid var(--border)}
 @media(max-width:760px){
   header.top{position:static;border-radius:22px}
   .nav{gap:.55rem}

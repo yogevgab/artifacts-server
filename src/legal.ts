@@ -104,6 +104,18 @@ table.data thead th{font-size:.76rem;text-transform:uppercase;letter-spacing:.07
 table.data tbody th{font-weight:650;color:var(--fg);white-space:nowrap}
 table.data td{color:var(--muted)}
 table.data tr:last-child th,table.data tr:last-child td{border-bottom:0}
+/* Phones: each row becomes a record (heading, then its text) instead of a table
+   that scrolls sideways inside its box. Table semantics stay in the markup. */
+@media(max-width:600px){
+  table.data{min-width:0}
+  table.data thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  table.data tr{display:block;padding:.8rem 1rem;border-bottom:1px solid var(--border)}
+  table.data tr:last-child{border-bottom:0}
+  table.data th,table.data td{display:block;padding:0;border:0;white-space:normal}
+  table.data tbody th{margin:0 0 .3rem}
+  table.data.cookies td:last-child{margin-top:.35rem;color:var(--faint);font-size:.84rem}
+  table.data.cookies td:last-child::before{content:"Lasts: "}
+}
 `;
 
 /** One entry in a page's table of contents — the anchor and its heading agree by construction. */
@@ -348,7 +360,7 @@ const privacyParts = (op: Operator, analytics: boolean, resend: boolean): readon
     html: `<p>rtfx.pro sets no advertising cookies${analytics ? ", and its only analytics cookie is PostHog's optional one, below" : " and no analytics cookies"}. The
       cookies are strictly necessary for signing in and for shared access; the local-storage items only
       remember preferences.</p>
-    <div class="table-wrap"><table class="data">
+    <div class="table-wrap"><table class="data cookies">
       <thead><tr><th scope="col">Name</th><th scope="col">What it is for</th><th scope="col">Lasts</th></tr></thead>
       <tbody>
         <tr><th scope="row"><code>rtfx_session</code></th>
