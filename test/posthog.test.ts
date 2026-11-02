@@ -420,11 +420,18 @@ describe("the privacy page describes PostHog honestly", () => {
   });
 });
 
-describe("the public cookie notice points at the dashboard's separate choice", () => {
-  it("no longer implies the whole site has nothing to opt out of", async () => {
+describe("the public cookie notice only mentions dashboard recording when it can happen", () => {
+  it("says nothing about it on a deployment that cannot record", async () => {
     const body = (await (await req("/", { headers: { "X-Dev-Anonymous": "true" } })).text()).toLowerCase();
     expect(body).toContain("nothing on this page to opt out of");
-    expect(body).toContain("dashboard");
+    expect(body).not.toContain("optional session recording");
+  });
+
+  it("points at the dashboard's separate choice when asked to", async () => {
+    const { cookieNotice } = await import("../src/consent");
+    const html = cookieNotice(true);
+    expect(html).toContain("optional session recording");
+    expect(html).toContain("/privacy#dashboard-analytics");
   });
 });
 

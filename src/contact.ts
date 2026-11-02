@@ -157,10 +157,11 @@ const CONTACT_SCRIPT = `(function(){
   });
 })();`;
 
-const TITLE = "Talk to us — rtfx.pro";
+const TITLE = "Contact rtfx.pro — Enterprise and support";
 
 const DESCRIPTION =
-  "Ask about an Enterprise workspace on rtfx.pro, or get help with an existing one. " +
+  "Ask about an Enterprise workspace on rtfx.pro, or get help with an existing one. Pro and Team " +
+  "are bought on the site. " +
   "A person answers by email.";
 
 /** The plan `<select>`, with `selected` on whichever tier the visitor arrived from. */
@@ -216,8 +217,9 @@ export function contactPage(env: Env, plan: PublicTier | null): string {
     <div class="contact-else">
       <p>Not what you were looking for?</p>
       <ul>
-        <li><a href="/signup" data-cta="signup">Free and Pro are self-serve</a> — verify an email and
-          you have a workspace; upgrade to Pro from Settings whenever you want.</li>
+        <li><a href="/signup" data-cta="signup">Free, Pro and Team are self-serve</a> — sign up with an
+          email code, or go straight to <a href="/upgrade/pro">Buy Pro</a> or
+          <a href="/upgrade/team">Buy Team</a>.</li>
         <li><a href="/#start">How it works</a> covers connecting Claude, publishing, sharing and deleting.</li>
         <li><a href="/privacy">Privacy</a> and <a href="/terms">terms</a> answer what we hold and
           under what agreement.</li>

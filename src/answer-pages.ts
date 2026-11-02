@@ -18,15 +18,21 @@ import { priceLabel } from "./plan-copy";
  * BreadcrumbList) and the matching sections of `/llms-full.txt`
  * (`answerPagesMarkdown`) read the same arrays, so none of them can drift.
  *
- * Claims about Claude's own Publish are limited to what Anthropic's support
- * article states: public to anyone with the link on Free, Pro and Max; inside
- * the organization on Team and Enterprise (viewers must be logged in to it);
- * unpublishing deletes the artifact and it cannot be republished at the same link.
- * Do not add more without a source.
+ * Claims about Claude's own sharing are limited to what Anthropic's help
+ * article "Share artifacts" (CLAUDE_SHARING_URL) states, re-checked 2026-11-02:
+ * artifacts start private; Pro/Max/Ultra can choose "Only you", "Anyone with
+ * the link" or email invitations (beta); Team/Enterprise add organization-wide
+ * sharing; viewers generally need a Claude account (only legacy published
+ * artifacts open without one); pending invitations expire after 30 days;
+ * unpublishing a legacy published artifact revokes it for good. Where the
+ * article says nothing (passwords, view analytics, link expiry) the copy says
+ * "the help article doesn't describe" — never "Claude can't". Do not add more
+ * without a source, and bump MODIFIED when this changes.
  */
 
 const PUBLISHED = "2026-10-26";
-const CLAUDE_SUPPORT_URL = "https://support.claude.com";
+const MODIFIED = "2026-11-02";
+const CLAUDE_SHARING_URL = "https://support.claude.com/en/articles/9547008-share-artifacts";
 
 // --- shared bits --------------------------------------------------------------
 
@@ -53,10 +59,12 @@ const imgPath = (name: string) => `/guide/${name}.webp?v=${GUIDE_IMAGES[name]!.h
 const SHARE_H1 = "How to share a Claude artifact privately";
 
 const SHARE_LEAD =
-  "Claude's own Publish makes an artifact public to anyone with the link on the Free, Pro and Max " +
-  "plans; on Team and Enterprise it stays inside your organization. To share with only the people " +
-  "you choose, publish to a private link instead: add the rtfx.pro MCP server to Claude once, then " +
-  "ask Claude to publish and share from chat.";
+  "Claude artifacts start private, and Claude's Share menu can open one to anyone with the link or " +
+  "to people you invite by email — but the people opening it generally need a Claude account, and " +
+  "Claude's help article doesn't describe passwords, expiring links or a view log. To share with " +
+  "exactly the people you choose, with or without a Claude account, and see who opened it, publish " +
+  "to a private link instead: add the rtfx.pro MCP server to Claude once, then ask Claude to " +
+  "publish and share from chat.";
 
 interface AnswerStep {
   name: string;
@@ -105,23 +113,43 @@ const SHARE_STEPS: readonly AnswerStep[] = [
 ];
 
 const PRICE_LINE =
-  `There is a Free plan. Pro is ${priceLabel("pro")} and Team is ${priceLabel("team")}, for more ` +
-  `artifacts, storage and people. rtfx staff (operators) see metadata only, never artifact content.`;
+  `There is a Free plan. Pro is ${priceLabel("pro")} and Team is ${priceLabel("team")}, bought on the ` +
+  `site, for more artifacts, storage and people. rtfx staff (operators) see metadata only, never ` +
+  `artifact content.`;
 
 const SHARE_FAQS: readonly Faq[] = [
   {
-    q: "Can anyone with the link open an artifact I publish with Claude?",
+    q: "Can I password protect a Claude artifact?",
     a:
-      "On the Free, Pro and Max plans, yes: Claude's own Publish makes the artifact public to " +
-      "anyone with the link. On Team and Enterprise, sharing stays inside your organization and " +
-      "viewers must be logged in to it.",
+      "Claude's help article describes sharing an artifact with only you, anyone with the link, " +
+      "people invited by email or (on Team and Enterprise) your organization; it doesn't describe a " +
+      "password option. rtfx doesn't use a shared " +
+      "password either: each person you add signs in with a one-time code sent to their email, so " +
+      "you can remove one person without changing anything for the others, and the view log shows " +
+      "who actually opened it.",
   },
   {
-    q: "Do the people I share with need an account?",
+    q: "Can someone without a Claude account open it?",
     a:
-      "People you add by email sign in with a one-time code we email them. For someone without an " +
-      "account, create a named share link on the artifact's Share page: they open the page with no " +
-      "sign-in, and you can set an expiry or revoke the link at any time.",
+      "With rtfx, yes — viewers never need a Claude account. People you add by email sign in with a " +
+      "one-time code we send them. For someone you don't want to add, create a named share link on " +
+      "the artifact's Share page: they open the page with no sign-in, and you can set an expiry, " +
+      "extend it or revoke it at any time. (Claude's own sharing generally requires a Claude account.)",
+  },
+  {
+    q: "Can I see who viewed my Claude artifact?",
+    a:
+      "Claude's help article doesn't describe view analytics. With rtfx, every artifact has a view " +
+      "log on its Share page — who opened it, when, and on what device — and you can ask Claude " +
+      "who has opened it.",
+  },
+  {
+    q: "Can anyone with the link open an artifact I share from Claude?",
+    a:
+      "Only if you choose \u201cAnyone with the link\u201d in Claude's Share menu; artifacts start " +
+      "private. On Team and Enterprise an owner has to allow that kind of sharing. People opening a " +
+      "shared artifact generally need a Claude account — only legacy published artifacts open " +
+      "without one.",
   },
   {
     q: "What does it cost?",
@@ -131,12 +159,13 @@ const SHARE_FAQS: readonly Faq[] = [
 
 // --- page 2: Publish vs private link ------------------------------------------
 
-const COMPARE_H1 = "Claude Publish vs a private link";
+const COMPARE_H1 = "Claude artifact sharing vs a private link";
 
 const COMPARE_LEAD =
-  "Claude has a built-in Publish button, and rtfx.pro adds private links to Claude as an MCP " +
-  "server. They solve different problems: Publish is for sharing publicly (or organization-wide on " +
-  "Team and Enterprise), a private link is for sharing with only the people you choose. Here is how they differ.";
+  "Claude can share an artifact from its Share menu, and rtfx.pro adds private links to Claude as an " +
+  "MCP server. Claude's sharing is built for people who use Claude: the people opening a shared " +
+  "artifact generally need a Claude account. A private link is for sharing with exactly the people " +
+  "you choose, whether or not they use Claude, with a record of who opened it. Here is how they differ.";
 
 interface CompareRow {
   label: string;
@@ -150,7 +179,9 @@ const COMPARE_ROWS: readonly CompareRow[] = [
   {
     label: "Who can open it",
     claude:
-      "Free, Pro and Max: anyone with the link. Team and Enterprise: people in your organization.",
+      "Starts private. Pro, Max and Ultra: only you, anyone with the link, or people you invite by " +
+      "email. Team and Enterprise: invited people, your organization, or anyone with the link " +
+      "if an owner allows it.",
     rtfx:
       "Private by default. You, people you add as viewers or editors, everyone in your workspace, " +
       "or anyone holding a named share link you created.",
@@ -158,46 +189,51 @@ const COMPARE_ROWS: readonly CompareRow[] = [
   {
     label: "Sign-in for viewers",
     claude:
-      "Free, Pro and Max: public to anyone with the link. Team and Enterprise: viewers must be " +
-      "logged in to your organization.",
+      "Generally a Claude account; people you invite by email sign in with that address. Only legacy " +
+      "published artifacts open without an account.",
     rtfx:
       "People you add sign in with a one-time email code. Someone with a share link needs no " +
       "account and no sign-in.",
   },
   {
     label: "Updating and versions",
-    claude: "Unpublishing deletes the artifact, and it can't be republished at the same link.",
+    claude: "Unpublishing a legacy published artifact revokes it, and it can't be republished.",
     rtfx:
       "Publish again to the same name and the same link shows the new version. Every publish is a " +
       "version, and you can roll back from chat.",
   },
   {
     label: "Expiry and revoking",
-    claude: "Unpublishing takes it down, and that deletes it.",
+    claude: "Change who has access in the Share menu. Pending email invitations expire after 30 days; the help article doesn't describe expiring links.",
     rtfx:
       "Named share links with an optional expiry that you can extend or revoke. You can also " +
       "delete the artifact, with every version and share link.",
   },
   {
+    label: "Who opened it",
+    claude: "Not described in Claude's help article.",
+    rtfx: "A view log on the artifact's Share page: who opened it, when, and on what device. You can also ask Claude.",
+  },
+  {
     label: "Cost",
-    claude: `Built into Claude; see <a href="${CLAUDE_SUPPORT_URL}">Claude's support site</a> for plan details.`,
+    claude: `Built into Claude; see <a href="${CLAUDE_SHARING_URL}">Claude's help article on sharing</a> for plan details.`,
     rtfx: `Free plan. Pro ${priceLabel("pro")}, Team ${priceLabel("team")}. Operators see metadata only, never your content.`,
   },
 ];
 
 const COMPARE_NOTE =
-  "This table only covers what Claude's support documentation states about Publish, so it has no " +
-  "row for features we could not confirm. The rtfx view log (who opened it, when, on what device) " +
-  "is described in the private-sharing steps.";
+  "The Claude column only states what Anthropic's help article on sharing artifacts says (checked " +
+  "2026-11-02). Where it says nothing, we say so rather than guess.";
 
 const WHEN_CLAUDE: readonly string[] = [
+  "Everyone who should open it already uses Claude.",
   "Anyone may see it: a demo, a public write-up, something you would post openly.",
-  "You do not need to know who opened it or control who can.",
-  "You want no setup beyond the Publish button.",
+  "You do not need to know who opened it.",
+  "You want no setup beyond Claude's Share menu.",
 ];
 
 const WHEN_RTFX: readonly string[] = [
-  "Only chosen people should open it: a client draft, an internal report, a prototype under review.",
+  "Only chosen people should open it — including people who don't use Claude: a client draft, an internal report, a prototype under review.",
   "You want to see who opened it.",
   "You will keep updating it and want the same link to show the latest version, with rollback.",
   "You want a link that expires, or one you can revoke without deleting the work.",
@@ -224,7 +260,7 @@ function article(env: Env, path: string, headline: string, description: string):
     description,
     inLanguage: "en",
     datePublished: PUBLISHED,
-    dateModified: PUBLISHED,
+    dateModified: MODIFIED,
     image: [canonicalUrl(env, "/og.png")],
     mainEntityOfPage: url,
     author: organization(env),
@@ -328,7 +364,7 @@ function wrapPage(h1: string, lead: string, main: string): string {
     <section class="hero">
       <h1>${h1}</h1>
       <p class="lead">${esc(lead)}</p>
-      <p class="meta">Updated ${PUBLISHED}</p>
+      <p class="meta">Updated ${MODIFIED}</p>
     </section>
     ${main}
     </main>
@@ -369,7 +405,7 @@ export function sharePrivatelyPage(env: Env): string {
       </div>
     </section>
 
-    <p class="related">Not sure you need this? <a href="${ANSWER_META.compare.path}">Claude Publish vs a private link</a> compares the two. Every screenshot is in the <a href="/guide">full guide</a>.</p>
+    <p class="related">Not sure you need this? <a href="${ANSWER_META.compare.path}">Claude artifact sharing vs a private link</a> compares the two. Every screenshot is in the <a href="/guide">full guide</a>.</p>
 
     <section class="final">
       <h2>Make your next artifact private.</h2>
@@ -391,15 +427,15 @@ export function comparePage(env: Env): string {
   const rows = COMPARE_ROWS.map(
     (r) =>
       `<tr role="row"><th scope="row" role="rowheader">${esc(r.label)}</th>` +
-      `<td role="cell"><span class="cell-label" aria-hidden="true">Claude's built-in Publish</span>${r.claude}</td>` +
+      `<td role="cell"><span class="cell-label" aria-hidden="true">Claude's own sharing</span>${r.claude}</td>` +
       `<td role="cell"><span class="cell-label" aria-hidden="true">rtfx private link</span>${r.rtfx}</td></tr>`
   ).join("\n        ");
   const main = `
     <section aria-labelledby="cmp-h">
       <h2 class="sec" id="cmp-h">Side by side</h2>
       <table class="cmp" role="table">
-        <caption class="sr-only">Claude's built-in Publish compared with an rtfx private link</caption>
-        <thead role="rowgroup"><tr role="row"><th scope="col" role="columnheader"><span class="sr-only">Topic</span></th><th scope="col" role="columnheader">Claude's built-in Publish</th><th scope="col" role="columnheader">rtfx private link</th></tr></thead>
+        <caption class="sr-only">Claude's own artifact sharing compared with an rtfx private link</caption>
+        <thead role="rowgroup"><tr role="row"><th scope="col" role="columnheader"><span class="sr-only">Topic</span></th><th scope="col" role="columnheader">Claude's own sharing</th><th scope="col" role="columnheader">rtfx private link</th></tr></thead>
         <tbody role="rowgroup">
         ${rows}
         </tbody>
@@ -410,7 +446,7 @@ export function comparePage(env: Env): string {
     <section aria-labelledby="when-h">
       <h2 class="sec" id="when-h">When to use which</h2>
       <div class="when">
-        <div><h3>Claude Publish is fine when</h3><ul>${WHEN_CLAUDE.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>
+        <div><h3>Claude's own sharing is fine when</h3><ul>${WHEN_CLAUDE.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>
         <div><h3>Use a private link when</h3><ul>${WHEN_RTFX.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>
       </div>
     </section>
@@ -428,7 +464,7 @@ export function comparePage(env: Env): string {
     meta.title,
     wrapPage(COMPARE_H1, COMPARE_LEAD, main),
     STYLE,
-    head(env, meta, "Claude Publish vs a private link", [])
+    head(env, meta, "Claude artifact sharing vs a private link", [])
   );
 }
 
@@ -450,9 +486,9 @@ export function answerPagesMarkdown(env: Pick<Env, "PUBLIC_BASE_URL">): string[]
 
   out.push(`## ${COMPARE_H1} (${abs(ANSWER_META.compare.path)})`, "", COMPARE_LEAD, "");
   for (const r of COMPARE_ROWS) {
-    out.push(`### ${r.label}`, "", `- Claude's built-in Publish: ${md(r.claude)}`, `- rtfx private link: ${md(r.rtfx)}`, "");
+    out.push(`### ${r.label}`, "", `- Claude's own sharing: ${md(r.claude)}`, `- rtfx private link: ${md(r.rtfx)}`, "");
   }
-  out.push(COMPARE_NOTE, "", "### Claude Publish is fine when", "");
+  out.push(COMPARE_NOTE, "", "### Claude's own sharing is fine when", "");
   for (const x of WHEN_CLAUDE) out.push(`- ${x}`);
   out.push("", "### Use a private link when", "");
   for (const x of WHEN_RTFX) out.push(`- ${x}`);

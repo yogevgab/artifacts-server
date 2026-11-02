@@ -174,15 +174,15 @@ function legalPage(
 // --- /privacy ---------------------------------------------------------------
 
 const PRIVACY_DESCRIPTION_BASE =
-  "What rtfx.pro stores, why, and who can see it: your email address, the artifacts you " +
-  "publish, and the view log their owners see.";
+  "What rtfx.pro stores and who can see it: your email, the artifacts you publish, and the " +
+  "view log their owners see.";
 
 const privacyDescription = (analytics: boolean): string =>
   analytics
     ? `${PRIVACY_DESCRIPTION_BASE} The public pages carry no analytics or third-party tracking; ` +
       "the dashboard offers optional, consent-gated session recording and error tracking, " +
       "heavily masked, that you can decline."
-    : `${PRIVACY_DESCRIPTION_BASE} No analytics, no advertising and no third-party tracking.`;
+    : `${PRIVACY_DESCRIPTION_BASE} No analytics, ads or third-party tracking.`;
 
 /**
  * `analytics` is whether this deployment can record anything at all — i.e.
@@ -190,7 +190,7 @@ const privacyDescription = (analytics: boolean): string =>
  * dropped: describing a sub-processor an instance does not use is the same
  * class of inaccuracy as hiding one it does.
  */
-const privacyParts = (analytics: boolean): readonly Part[] => [
+const privacyParts = (analytics: boolean, resend = false): readonly Part[] => [
   {
     id: "summary",
     heading: "The short version",
@@ -275,9 +275,13 @@ const privacyParts = (analytics: boolean): readonly Part[] => [
     <ul>
       <li>No passwords — sign-in is passwordless, so none exist.</li>
       <li>No card numbers or bank details. Paid checkout is handled by Lemon Squeezy; rtfx.pro stores only plan/subscription metadata.</li>
-      <li>No advertising or fingerprinting. No analytics or session recording anywhere except the
+      <li>No advertising or fingerprinting.${
+        analytics
+          ? ` No analytics or session recording anywhere except the
         dashboard, and only there once you say yes — see the next section for exactly what that is
-        and how to say no.</li>
+        and how to say no.`
+          : " No analytics and no session recording, anywhere."
+      }</li>
       <li>The product code does not inspect your artifacts' contents for analytics, advertising
         or profiling. Operators with infrastructure access may still be able to access stored
         files when required to operate, secure or troubleshoot the service.</li>
@@ -397,7 +401,11 @@ const privacyParts = (analytics: boolean): readonly Part[] => [
     </ul>
     <h3>Processors</h3>
     <p>Cloudflare provides the platform: the network, Workers runtime, D1 database, R2 object
-      storage and Email Sending used for one-time-code messages. Data is processed on Cloudflare's
+      storage and Email Sending used for sign-in codes and workspace invitations.${
+        resend
+          ? ` If Cloudflare cannot deliver one of those emails, Resend sends it instead.`
+          : ""
+      } Data is processed on Cloudflare's
       global network, which means it may be handled outside your own country under Cloudflare's
       data-processing terms.${
         analytics
@@ -471,9 +479,10 @@ export function privacyPage(env: Env): string {
   // users about a sub-processor it does not use would be its own kind of
   // inaccuracy — the opposite of the one this section was written to fix.
   const analytics = !!posthogConfig(env);
+  const resend = !!env.RESEND_API_KEY;
   const parts = analytics
-    ? privacyParts(true)
-    : privacyParts(false).filter((part) => part.id !== "dashboard-analytics");
+    ? privacyParts(true, resend)
+    : privacyParts(false, resend).filter((part) => part.id !== "dashboard-analytics");
 
   return legalPage(env, {
     current: "privacy",
@@ -491,8 +500,8 @@ export function privacyPage(env: Env): string {
 // --- /terms -----------------------------------------------------------------
 
 const TERMS_DESCRIPTION =
-  "The terms of use for rtfx.pro: accounts, plans, what you may publish, who owns your " +
-  "content, how API tokens and agents are treated, and the limits of the service.";
+  "Terms of use for rtfx.pro: accounts, plans, what you may publish, who owns your content, " +
+  "how API tokens and agents are treated, and service limits.";
 
 const TERMS_PARTS: readonly Part[] = [
   {

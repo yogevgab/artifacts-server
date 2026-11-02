@@ -31,7 +31,7 @@ const attr = (html: string, re: RegExp) => re.exec(html)?.[1] ?? "";
 
 const PAGES = [
   { key: "share", meta: ANSWER_META.share, h1: "How to share a Claude artifact privately", faq: true },
-  { key: "compare", meta: ANSWER_META.compare, h1: "Claude Publish vs a private link", faq: false },
+  { key: "compare", meta: ANSWER_META.compare, h1: "Claude artifact sharing vs a private link", faq: false },
 ] as const;
 
 describe.each(PAGES)("$meta.path", ({ meta, h1, faq }) => {
@@ -92,7 +92,7 @@ describe.each(PAGES)("$meta.path", ({ meta, h1, faq }) => {
     const full = llmsFullTxt({ PUBLIC_BASE_URL: "https://rtfx.pro" });
     expect(full).toContain(`## ${h1} (https://rtfx.pro${meta.path})`);
     // Inline links survive the HTML→markdown conversion (a stray rel= used to drop the URL).
-    expect(full).toContain("](https://support.claude.com)");
+    expect(full).toContain("](https://support.claude.com/en/articles/9547008-share-artifacts)");
   });
 
   it("is app-host only and a reserved workspace slug", () => {
@@ -113,9 +113,11 @@ describe("/share-claude-artifacts-privately content", () => {
   it("answers in the first paragraph, then four numbered steps linking to the guide", async () => {
     const html = await (await get(path)).text();
     const lead = htmlToText(/<p class="lead">([\s\S]*?)<\/p>/.exec(html)![1]!);
-    expect(lead).toMatch(/Free, Pro and Max/);
-    expect(lead).toMatch(/public to anyone with the link/);
-    expect(lead).toMatch(/Team and Enterprise/);
+    // Claude's current sharing model (help article "Share artifacts", 2026-11-02),
+    // never the old "Publish = public to anyone with the link".
+    expect(lead).toMatch(/start private/);
+    expect(lead).toMatch(/Claude account/);
+    expect(lead).not.toMatch(/public to anyone with the link/);
     expect(lead).toMatch(/private link/);
     const steps = html.match(/<li id="step-\d">/g) ?? [];
     expect(steps).toHaveLength(4);
@@ -143,7 +145,7 @@ describe("/share-claude-artifacts-privately content", () => {
   it("FAQPage matches the visible FAQ question for question, answer for answer", async () => {
     const html = await (await get(path)).text();
     const faq = ld(html).find((b) => b["@type"] === "FAQPage")!;
-    expect(faq.mainEntity).toHaveLength(3);
+    expect(faq.mainEntity).toHaveLength(5);
     const section = /<section id="faq"[\s\S]*?<\/section>/.exec(html)![0];
     const visible = htmlToText(section);
     for (const q of faq.mainEntity) {
@@ -164,9 +166,9 @@ describe("/claude-publish-vs-private-link content", () => {
     expect(table).toContain('role="rowheader"');
     expect(table).toContain('role="cell"');
     expect(table).not.toContain("&nbsp;</th>");
-    // Only what Claude's support docs state about Publish — no inferred claims.
+    // Only what Claude's help article states about sharing — no inferred claims.
     expect(table).not.toContain("none needed");
-    expect(table).toContain("Claude's built-in Publish");
+    expect(table).toContain("Claude's own sharing");
     expect(table).toContain("rtfx private link");
     for (const row of ["Who can open it", "Sign-in for viewers", "Updating and versions", "Expiry and revoking", "Cost"]) {
       expect(table).toContain(row);
@@ -174,7 +176,7 @@ describe("/claude-publish-vs-private-link content", () => {
     expect(table).toContain("$12/mo");
     expect(table).toContain("$40/mo");
     expect(html).toContain("When to use which");
-    expect(html).toMatch(/Claude Publish is fine when/);
+    expect(html).toMatch(/Claude's own sharing is fine when/);
   });
 });
 

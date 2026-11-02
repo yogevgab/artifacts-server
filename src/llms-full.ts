@@ -82,6 +82,8 @@ export function llmsFullTxt(env: Pick<Env, "PUBLIC_BASE_URL">): string {
   }
   out.push(
     "Limits are per workspace, not per person. Storage counts every version you've kept, which is why Free keeps your last 5 and the paid plans keep every one.",
+    "",
+    `How to buy: Pro at ${abs("/upgrade/pro")} and Team at ${abs("/upgrade/team")} — self-serve, an email code then a hosted checkout. Adding somebody to a workspace emails them a link into it. Enterprise: ${abs("/contact")}.`,
     ""
   );
 

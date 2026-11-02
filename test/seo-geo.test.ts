@@ -88,7 +88,9 @@ describe("structured data per page", () => {
     const app = nodes.find((n) => n["@type"] === "SoftwareApplication")!;
     expect(app.applicationCategory).toBe("DeveloperApplication");
     expect(app.operatingSystem).toBe("Web");
-    expect(app.offers.price).toBe("0");
+    // Every self-serve plan, not just Free.
+    expect(app.offers.map((o: any) => o.price)).toEqual(["0", "12", "40"]);
+    expect(app.offers.every((o: any) => o.availability === "https://schema.org/InStock")).toBe(true);
     expect(app.featureList.length).toBeGreaterThanOrEqual(5);
     const video = nodes.find((n) => n["@type"] === "VideoObject")!;
     expect(video.thumbnailUrl).toBe(`${LOCAL}/media/${VIDEO.poster}?v=1`);
