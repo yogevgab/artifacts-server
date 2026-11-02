@@ -95,7 +95,8 @@ describe("structured data per page", () => {
     const video = nodes.find((n) => n["@type"] === "VideoObject")!;
     expect(video.thumbnailUrl).toBe(`${LOCAL}/media/${VIDEO.poster}?v=1`);
     expect(video.contentUrl).toBe(`${LOCAL}/media/${VIDEO.file}?v=1`);
-    expect(video.uploadDate).toBe("2026-10-26");
+    // Full date-time with a time zone (Search Console: "uploadDate is missing a time zone").
+    expect(video.uploadDate).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})$/);
     expect(video.duration).toBe("PT55S");
     expect(video.name && video.description).toBeTruthy();
   });

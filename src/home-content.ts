@@ -155,7 +155,8 @@ export const VIDEO = {
   height: 1080,
   /** ISO 8601 duration of the 55 s video. */
   duration: "PT55S",
-  uploadDate: "2026-10-26",
+  /** ISO 8601 with a time zone — Search Console flags a bare date as invalid for uploadDate. */
+  uploadDate: "2026-10-26T00:00:00+00:00",
   name: "rtfx.pro in 55 seconds: private links for Claude artifacts (MCP)",
   description:
     "Add the rtfx MCP server to Claude, publish a page to a private link, share it with " +
