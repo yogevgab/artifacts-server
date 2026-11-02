@@ -26,6 +26,8 @@ function baseConfig(overrides: Record<string, unknown> = {}) {
       LEMONSQUEEZY_VARIANT_FREE: "free",
       LEMONSQUEEZY_VARIANT_PRO: "pro",
       LEMONSQUEEZY_VARIANT_TEAM: "team",
+      LEMONSQUEEZY_CHECKOUT_PRO: "slug-pro",
+      LEMONSQUEEZY_CHECKOUT_TEAM: "slug-team",
     },
     ...overrides,
   };

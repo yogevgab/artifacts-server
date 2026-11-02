@@ -198,6 +198,8 @@ export function checkWranglerConfig(config) {
     "LEMONSQUEEZY_VARIANT_FREE",
     "LEMONSQUEEZY_VARIANT_PRO",
     "LEMONSQUEEZY_VARIANT_TEAM",
+    "LEMONSQUEEZY_CHECKOUT_PRO",
+    "LEMONSQUEEZY_CHECKOUT_TEAM",
   ]) {
     if (!vars[key]) pending.push(`vars.${key} is empty — set Lemon Squeezy billing config before paid launch`);
     else ok.push(`${key} is set`);

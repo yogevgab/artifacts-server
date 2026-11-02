@@ -116,6 +116,15 @@ export interface Env {
   /** Variant id for the `team` plan. Plain var. */
   LEMONSQUEEZY_VARIANT_TEAM?: string;
   /**
+   * Checkout slug (UUID) of the `pro` variant — the `slug` attribute of the
+   * variant, shown after `/checkout/buy/` in the dashboard's Share dialog when
+   * that variant is starred. Hosted checkout links address a variant by this,
+   * not by its numeric id. Plain var (public: it is in every checkout link).
+   */
+  LEMONSQUEEZY_CHECKOUT_PRO?: string;
+  /** Checkout slug (UUID) of the `team` variant. Plain var. */
+  LEMONSQUEEZY_CHECKOUT_TEAM?: string;
+  /**
    * Variant id for the store's free tier, if it sells one. Needed so a
    * downgrade to it writes `free` rather than resolving to null and leaving
    * the customer on the plan they just left. Plain var.

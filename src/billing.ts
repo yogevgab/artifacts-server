@@ -161,12 +161,20 @@ export function entitlementFor(
  * the resulting subscription back to this account (see `processWebhookEvent`).
  *
  * `checkout[custom][account_id]` is the documented query-param form for a
- * hosted "buy" link (`/checkout/buy/<variant>`) — the JSON API's checkout
- * endpoint instead nests this under a top-level `checkout_data.custom` object,
- * which is a different surface. Since this builds a plain link rather than
- * calling the Checkouts API, the query-param form is the correct one.
+ * hosted "buy" link — the JSON API's checkout endpoint instead nests this
+ * under a top-level `checkout_data.custom` object, which is a different
+ * surface. Since this builds a plain link rather than calling the Checkouts
+ * API, the query-param form is the correct one.
  *
- * Returns null when this deployment has no store/variant configured for
+ * The path segment is the variant's **checkout slug** (a UUID, the `slug`
+ * attribute of a Lemon Squeezy variant — what the dashboard's Share dialog puts
+ * after `/checkout/buy/` when that variant is starred), NOT the numeric variant
+ * id: `/checkout/buy/<numeric id>` is a 404 on a live store. And the slug is
+ * what selects the plan — `/checkout/buy/<product link>?enabled=<id>` lists the
+ * plan but leaves the product's default variant (the $0 Starter) in the cart.
+ * `enabled=<numeric id>` is added so the page offers only this plan.
+ *
+ * Returns null when this deployment has no store/variant/slug configured for
  * `plan`, so a caller can show "billing not available" instead of a broken link.
  */
 export function checkoutUrl(
@@ -177,9 +185,11 @@ export function checkoutUrl(
 ): string | null {
   const store = env.LEMONSQUEEZY_STORE_ID;
   const variantId = plan === "pro" ? env.LEMONSQUEEZY_VARIANT_PRO : env.LEMONSQUEEZY_VARIANT_TEAM;
-  if (!store || !variantId) return null;
+  const slug = plan === "pro" ? env.LEMONSQUEEZY_CHECKOUT_PRO : env.LEMONSQUEEZY_CHECKOUT_TEAM;
+  if (!store || !variantId || !slug) return null;
 
-  const url = new URL(`https://${store}.lemonsqueezy.com/checkout/buy/${encodeURIComponent(variantId)}`);
+  const url = new URL(`https://${store}.lemonsqueezy.com/checkout/buy/${encodeURIComponent(slug)}`);
+  url.searchParams.set("enabled", variantId);
   url.searchParams.set("checkout[email]", email);
   url.searchParams.set("checkout[custom][account_id]", account.id);
   return url.toString();

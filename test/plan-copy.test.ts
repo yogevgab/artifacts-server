@@ -131,13 +131,16 @@ describe("workspaceBilling", () => {
       LEMONSQUEEZY_STORE_ID: "test-store",
       LEMONSQUEEZY_VARIANT_PRO: "variant-pro",
       LEMONSQUEEZY_VARIANT_TEAM: "variant-team",
+      LEMONSQUEEZY_CHECKOUT_PRO: "slug-pro",
+      LEMONSQUEEZY_CHECKOUT_TEAM: "slug-team",
     };
     const billing = await workspaceBilling(configured, account, ALICE);
     expect(billing.checkout.pro).toContain("test-store.lemonsqueezy.com");
+    expect(billing.checkout.pro).toContain("/checkout/buy/slug-pro");
     expect(billing.checkout.pro).toContain("variant-pro");
     expect(billing.checkout.pro).toContain(encodeURIComponent(ALICE));
     expect(billing.checkout.pro).toContain(account.id);
-    expect(billing.checkout.team).toContain("variant-team");
+    expect(billing.checkout.team).toContain("/checkout/buy/slug-team");
   });
 
   it("offers no next plan and no upgrade for a team-plan workspace, even when billing is configured", async () => {
@@ -150,6 +153,8 @@ describe("workspaceBilling", () => {
       LEMONSQUEEZY_STORE_ID: "test-store",
       LEMONSQUEEZY_VARIANT_PRO: "variant-pro",
       LEMONSQUEEZY_VARIANT_TEAM: "variant-team",
+      LEMONSQUEEZY_CHECKOUT_PRO: "slug-pro",
+      LEMONSQUEEZY_CHECKOUT_TEAM: "slug-team",
     };
     const billing = await workspaceBilling(configured, { id: account.id, plan: "team" }, ALICE);
     expect(billing.nextPlan).toBeNull();
