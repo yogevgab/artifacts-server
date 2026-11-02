@@ -156,8 +156,8 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
     title: "Team — one shared workspace with roles",
     summary:
       "What the Team plan is: a workspace several people share, with owner/admin/member/viewer " +
-      "roles, raised limits and one view log. Set up with a person rather than a checkout, " +
-      "because invite email is not built yet.",
+      "roles, raised limits and one view log. Self-serve: name the team workspace, check out, " +
+      "and add people — each one is emailed a link in.",
     priority: "0.7",
   },
   {
@@ -173,8 +173,8 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
     path: "/contact",
     title: "Talk to us — sales and support",
     summary:
-      "How to reach a person about a Team or Enterprise workspace, or about a workspace that " +
-      "is already yours. A form; a person answers by email; no automatic confirmation.",
+      "How to reach a person about an Enterprise workspace, or about a workspace that is " +
+      "already yours. A form; a person answers by email; no automatic confirmation.",
     priority: "0.5",
   },
   {
@@ -382,11 +382,10 @@ free plan plus two paid ones. Source: ${SOURCE_URL} (MIT).
   guess or construct a different one.
 - **Free and Pro are self-serve.** Signup is at ${origin}/signup: verify an email address and
   you have a personal workspace on the free plan; no invitation and no human review. Pro is a
-  hosted checkout from Settings inside that workspace.
-- **Team is NOT self-serve today, and must not be described as if it were.** The plan and its
-  limits are real and enforced, but inviting somebody to a workspace adds them without emailing
-  them, so a team that bought it alone would strand everybody it invited. Team workspaces are
-  set up with a person: ${origin}/contact.
+  hosted checkout for that workspace: ${origin}/upgrade/pro, or from Settings.
+- **Team is self-serve too.** ${origin}/upgrade/team signs you up (or in), has you name a team
+  workspace that you own, and takes you to its checkout. Adding somebody to a workspace emails
+  them a link into it. Moving an existing Pro subscription to Team is still done by a person.
 - **Enterprise is a conversation, not a plan.** There is nothing to buy, and no feature set
   behind it — see the "Not shipped yet" section, which is what an Enterprise enquiry is
   actually about. ${origin}/enterprise says so on the page itself.

@@ -139,7 +139,7 @@ function structuredData(env: Env, tier: PublicTier, description: string): unknow
       unitText: "month",
     },
   };
-  // Only a plan somebody can finish buying alone is "in stock"; Team is set up with a person.
+  // Only a plan somebody can finish buying alone is "in stock" (Pro and Team; not Enterprise).
   if (cta.kind === "self-serve") offer.availability = "https://schema.org/InStock";
   return [
     crumbs,
