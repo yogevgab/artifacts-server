@@ -15,8 +15,8 @@ import {
  * `/contact` — the one place a "Talk to us" button can land, and the product's
  * visible support route.
  *
- * It exists because two pricing buttons now say "Talk to us" (Team and
- * Enterprise — see `tierCta` in src/plan-copy.ts) and a CTA that leads nowhere
+ * It exists because a pricing button says "Talk to us" (Enterprise; Team was
+ * one too until it went self-serve — see `tierCta` in src/plan-copy.ts) and a CTA that leads nowhere
  * is worse than no CTA. It is deliberately *not* a `mailto:` link: the only
  * address this repository contains is `privacy@rtfx.pro`, which src/legal.ts
  * itself flags as a placeholder, so publishing a sales address here would be
@@ -160,7 +160,7 @@ const CONTACT_SCRIPT = `(function(){
 const TITLE = "Talk to us — rtfx.pro";
 
 const DESCRIPTION =
-  "Ask about a Team or Enterprise workspace on rtfx.pro, or get help with an existing one. " +
+  "Ask about an Enterprise workspace on rtfx.pro, or get help with an existing one. " +
   "A person answers by email.";
 
 /** The plan `<select>`, with `selected` on whichever tier the visitor arrived from. */
@@ -182,8 +182,9 @@ export function contactPage(env: Env, plan: PublicTier | null): string {
     <main id="main">
     <div class="contact-head">
       <h1>Talk to us</h1>
-      <p>Team and Enterprise workspaces are set up with a person in the loop, and this is the
-        same address to write to if something is wrong with a workspace you already have.</p>
+      <p>Enterprise workspaces are set up with a person in the loop, and this is the same
+        address to write to if something is wrong with a workspace you already have. Pro and
+        Team are bought on the site.</p>
     </div>
 
     <div class="contact-card">

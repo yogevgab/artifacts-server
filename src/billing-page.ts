@@ -288,10 +288,9 @@ function usagePanel(input: BillingPageInput): string {
  * that works: a hosted Lemon Squeezy checkout where this deployment has the
  * variant configured, and `/contact` where the tier is sold by a person.
  *
- * Team is a contact link rather than a checkout even though the variant exists
- * — see the long note on `tierCta` (src/plan-copy.ts): member invites send no
- * mail yet, so somebody who bought Team alone would strand every colleague they
- * added. Enterprise has nothing to buy at all.
+ * Team links to `/upgrade/team` rather than to a checkout for this workspace:
+ * the plan belongs on a team workspace, which that route picks or has them name
+ * (src/team-routes.ts). Enterprise has nothing to buy at all.
  */
 function changePlanPanel(input: BillingPageInput): string {
   const { billing } = input;

@@ -11,8 +11,8 @@
  * safe to sell without a person in the loop.
  *
  * Guard rails, because "create a workspace" is now reachable by anyone signed in:
- *  - a person who already owns or administers an unpaid team workspace is sent
- *    to *its* checkout instead of getting another one;
+ *  - a person who already owns an unpaid team workspace is sent to *its*
+ *    checkout instead of getting another one (see `existingTeam`);
  *  - at most MAX_OWNED_TEAMS team workspaces per owner, and MAX_CREATES_PER_HOUR
  *    creations per person;
  *  - a new team workspace starts on Free (1 seat), so it is worth nothing until
@@ -56,24 +56,26 @@ export function signedOutTo(dest: "/signup" | "/login", path: string): Middlewar
   };
 }
 
-/** A team workspace this person may buy for: owner/admin, active, not yet paying. */
-function buyable(m: Membership): boolean {
-  return (
-    m.account.kind === "team" &&
-    m.account.status === "active" &&
-    (m.role === "owner" || m.role === "admin")
-  );
+/** An active team workspace that is not paying yet — the only kind "Buy Team" can mean. */
+function unpaidTeam(m: Membership): boolean {
+  return m.account.kind === "team" && m.account.status === "active" && m.account.plan === "free";
 }
 
 /**
- * Which existing team workspace "Buy Team" means for this person, if any: the
- * active one when it qualifies, otherwise the first they own or administer.
+ * Which existing team workspace "Buy Team" means for this person, if any:
+ *  - the ACTIVE workspace, when it is an unpaid team they own or administer
+ *    (they are explicitly in it, so an admin buying for it is what they mean);
+ *  - otherwise the first unpaid team workspace they OWN — never one they merely
+ *    administer, which would sell somebody else's workspace a plan on a click
+ *    meant to start their own.
+ * Null means "make a new one": a paid team workspace never swallows the click.
  */
 function existingTeam(ctx: Awaited<ReturnType<typeof accountsFor>>): AccountRow | null {
-  const candidates = ctx.memberships.filter(buyable);
-  if (candidates.length === 0) return null;
-  const active = candidates.find((m) => m.account.id === ctx.active?.id);
-  return (active ?? candidates[0]).account;
+  const active = ctx.memberships.find(
+    (m) => m.account.id === ctx.active?.id && unpaidTeam(m) && (m.role === "owner" || m.role === "admin")
+  );
+  if (active) return active.account;
+  return ctx.memberships.find((m) => unpaidTeam(m) && m.role === "owner")?.account ?? null;
 }
 
 /**

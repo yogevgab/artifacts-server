@@ -562,7 +562,7 @@ app.route("/", oauthRoutes);
 // Public landing-page waitlist signup (unauthenticated).
 app.route("/waitlist", waitlist);
 
-// POST /contact — the "Talk to us" form behind the Team and Enterprise CTAs.
+// POST /contact — the "Talk to us" form behind the Enterprise CTA (and support).
 // Unauthenticated by necessity: the whole point is that somebody who has no
 // account can reach a person. Rate-limited per address and per IP, exactly like
 // the waitlist. See src/contact.ts.
@@ -625,7 +625,7 @@ app.get("/enterprise", (c) =>
 );
 
 /**
- * The contact/support page. `?plan=team|enterprise` only preselects the
+ * The contact/support page. `?plan=enterprise` only preselects the
  * dropdown — an unrecognized value is dropped rather than refused
  * (`normalizePlan`), because it arrives from a query string anybody can edit
  * and a mistyped one should still deliver the enquiry.

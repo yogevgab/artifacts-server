@@ -193,12 +193,42 @@ describe("GET /upgrade/team", () => {
     expect(res.headers.get("Set-Cookie")).toContain(`rtfx_account=${encodeURIComponent(id)}`);
   });
 
-  it("sends a team workspace that already pays to Billing, not a second subscription", async () => {
+  it("lets the owner of a PAID team workspace start another one (name form, not Billing)", async () => {
     const h = harness();
     await teamOwnedBy(ALICE, "team");
     const res = await h.call(UPGRADE_TEAM_PATH, as(ALICE, { headers: HTML }));
-    expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/admin/billing");
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("data-team-name-form");
+  });
+
+  it("finds the unpaid team workspace even when a paid one comes first", async () => {
+    const h = harness();
+    await teamOwnedBy(ALICE, "team");
+    const unpaid = await teamOwnedBy(ALICE);
+    const res = await h.call(UPGRADE_TEAM_PATH, as(ALICE, { headers: HTML }));
+    expect(new URL(res.headers.get("Location")!).searchParams.get("checkout[custom][account_id]")).toBe(unpaid);
+  });
+
+  it("does not sell somebody else's workspace to an admin who isn't in it right now", async () => {
+    const h = harness();
+    const id = await teamOwnedBy(ALICE);
+    await upsertMember(env as any, { accountId: id, email: BOB, role: "admin", invitedBy: ALICE, now: now() });
+    // Signing in always gives Bob a personal workspace, which is active by default.
+    await ensurePersonalAccount(env as any, BOB, now());
+    const res = await h.call(UPGRADE_TEAM_PATH, as(BOB, { headers: HTML }));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("data-team-name-form");
+  });
+
+  it("does let an admin buy for the unpaid team workspace they have open", async () => {
+    const h = harness();
+    const id = await teamOwnedBy(ALICE);
+    await upsertMember(env as any, { accountId: id, email: BOB, role: "admin", invitedBy: ALICE, now: now() });
+    const res = await h.call(
+      UPGRADE_TEAM_PATH,
+      as(BOB, { headers: { ...HTML, Cookie: `rtfx_account=${encodeURIComponent(id)}` } })
+    );
+    expect(new URL(res.headers.get("Location")!).searchParams.get("checkout[custom][account_id]")).toBe(id);
   });
 
   it("does not sell a plain member a plan for the workspace they're in", async () => {
