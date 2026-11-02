@@ -118,7 +118,7 @@ const PRICE_LINE =
 
 const SHARE_FAQS: readonly Faq[] = [
   {
-    q: "Can I password protect a Claude artifact?",
+    q: "Can I put a password on a Claude artifact?",
     a:
       "Claude's help article describes sharing an artifact with only you, anyone with the link, " +
       "people invited by email or (on Team and Enterprise) your organization; it doesn't describe a " +
@@ -242,7 +242,7 @@ const WHEN_RTFX: readonly string[] = [
 
 /**
  * Short answer pages for questions people actually search ("can I see who viewed
- * my Claude artifact?", "can I password-protect one?"). Same rules as the two
+ * my Claude artifact?", "can I put a password on one?"). Same rules as the two
  * pages above: claims about Claude stop at what its help article says; claims
  * about rtfx are what the code does (view fields: src/db.ts logView/logLinkEvent;
  * read notices: src/read-receipts.ts; chat access to the log: artifact_details in
