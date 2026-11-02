@@ -121,8 +121,9 @@ const SHARE_FAQS: readonly Faq[] = [
   {
     q: "Can I password protect a Claude artifact?",
     a:
-      "Claude's help article describes three ways to share an artifact — only you, anyone with the " +
-      "link, or people invited by email — and no password option. rtfx doesn't use a shared " +
+      "Claude's help article describes sharing an artifact with only you, anyone with the link, " +
+      "people invited by email or (on Team and Enterprise) your organization; it doesn't describe a " +
+      "password option. rtfx doesn't use a shared " +
       "password either: each person you add signs in with a one-time code sent to their email, so " +
       "you can remove one person without changing anything for the others, and the view log shows " +
       "who actually opened it.",
@@ -196,7 +197,7 @@ const COMPARE_ROWS: readonly CompareRow[] = [
   },
   {
     label: "Updating and versions",
-    claude: "The shared artifact is the one in your chat. Unpublishing a legacy published artifact revokes it, and it can't be republished.",
+    claude: "Unpublishing a legacy published artifact revokes it, and it can't be republished.",
     rtfx:
       "Publish again to the same name and the same link shows the new version. Every publish is a " +
       "version, and you can roll back from chat.",

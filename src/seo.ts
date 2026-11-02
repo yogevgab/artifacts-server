@@ -389,11 +389,14 @@ plus two paid ones, both bought on the site. Source: ${SOURCE_URL} (MIT).
 - Four things you do in chat: **publish** (private link, new versions at the same link, roll
   back), **share** (viewers, editors, everyone in the workspace, named expiring share links that
   can be extended or revoked), **delete**, and **see who opened it** (view log).
-- Private by default. Claude's own "Publish" on Free, Pro and Max plans makes an artifact public to
-  anyone with the link (Team and Enterprise: your organization only); rtfx.pro is for when you want
-  only the people you choose.
+- Private by default. For comparison, Claude's own artifacts also start private, and Claude's
+  Share menu can open one to anyone with the link or to people invited by email, but viewers
+  generally need a Claude account (only legacy published artifacts open without one). rtfx.pro is
+  for sharing with exactly the people you choose, with or without a Claude account, and seeing
+  who opened it.
 - Operators (rtfx staff) see metadata only \u2014 never artifact content or who viewed it.
-- There is a Free plan; Pro, Team and Enterprise are described at ${origin}/#pricing.
+- There is a Free plan; Pro ($12/mo) and Team ($40/mo) are bought on the site; all four tiers
+  are described at ${origin}/#pricing.
 - Full text of the home page and guide, for answer engines: ${origin}/llms-full.txt.
 
 ## Pricing and access
