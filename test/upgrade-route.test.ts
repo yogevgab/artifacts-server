@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { env } from "cloudflare:test";
 import app from "../src/index";
-import { ensurePersonalAccount } from "../src/accounts";
+import { createAccount, ensurePersonalAccount, upsertMember } from "../src/accounts";
 import { createApiToken } from "../src/tokens";
 import { UPGRADE_PRO_PATH, tierCta } from "../src/plan-copy";
 import { as, clearR2, initDb, withToken } from "./fixtures";
@@ -103,6 +103,57 @@ describe("GET /upgrade/pro", () => {
     const res = await get(UPGRADE_PRO_PATH, withToken(token, { headers: HTML }));
     const location = res.headers.get("Location") ?? "";
     expect(location).not.toContain("lemonsqueezy");
+  });
+});
+
+describe("GET /upgrade/pro — who may buy", () => {
+  const BOB = "bob@test.com";
+
+  async function teamWithMember() {
+    const now = new Date().toISOString();
+    await ensurePersonalAccount(env as any, BOB, now);
+    const team = await createAccount(env as any, { name: "Acme", kind: "team", personalEmail: null, createdBy: ALICE, now });
+    await upsertMember(env as any, { accountId: team.id, email: ALICE, role: "owner", invitedBy: null, now });
+    await upsertMember(env as any, { accountId: team.id, email: BOB, role: "member", invitedBy: null, now });
+    return team.id;
+  }
+  const selecting = (who: string, accountId: string): RequestInit =>
+    as(who, { headers: { ...HTML, Cookie: `rtfx_account=${encodeURIComponent(accountId)}` } });
+
+  it("does not let a plain member buy a plan for somebody else's workspace", async () => {
+    const team = await teamWithMember();
+    const res = await get(UPGRADE_PRO_PATH, selecting(BOB, team));
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/admin/billing");
+  });
+
+  it("lets the team's owner buy for it", async () => {
+    const team = await teamWithMember();
+    const res = await get(UPGRADE_PRO_PATH, selecting(ALICE, team));
+    const location = new URL(res.headers.get("Location")!);
+    expect(location.hostname).toBe("test-store.lemonsqueezy.com");
+    expect(location.searchParams.get("checkout[custom][account_id]")).toBe(team);
+  });
+
+  it("shows a paused account the paused sheet instead of looping it through sign-up", async () => {
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      `INSERT INTO users (email, role, status, created_at, disabled_at)
+       VALUES (?, 'member', 'disabled', ?, ?)
+       ON CONFLICT(email) DO UPDATE SET status = 'disabled', disabled_at = excluded.disabled_at`
+    )
+      .bind(ALICE, now, now)
+      .run();
+    const res = await get(UPGRADE_PRO_PATH, as(ALICE, { headers: HTML }));
+    expect(res.status).toBe(403);
+    expect(res.headers.get("Location")).toBeNull();
+    const signup = await get(`/signup?next=${encodeURIComponent(UPGRADE_PRO_PATH)}`, as(ALICE, { headers: HTML }));
+    expect(signup.status).toBe(403);
+  });
+
+  it("answers a bad bearer token with 401, not a sign-up redirect", async () => {
+    const res = await get(UPGRADE_PRO_PATH, withToken("rtfx_not_a_real_token", { headers: HTML }));
+    expect(res.status).toBe(401);
   });
 });
 

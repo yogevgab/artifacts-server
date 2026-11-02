@@ -774,7 +774,8 @@ app.get("/:keyfile{[A-Za-z0-9-]{8,128}\\.txt}", (c) => {
 // cookie that /auth/verify redirects to after the code is accepted, and
 // re-validated by `safeNextPath`, so it can only ever be a path on this origin.
 app.get("/signup", async (c) => {
-  const { identity } = await resolveAuth(c);
+  const { identity, disabled, disabledEmail } = await resolveAuth(c);
+  if (disabled) return c.html(loginPage(c.env, { kind: "paused", email: disabledEmail }), 403);
   const next = safeNextPath(c.req.query("next"));
   if (identity?.email) {
     if (next) return c.redirect(next, 302);
@@ -794,17 +795,25 @@ app.get("/signup", async (c) => {
  * the code is accepted. Signed in, it is the same decision the Billing page
  * makes, done for them:
  *
- *  - can act on the active workspace's plan and it is below Pro → redirect to
+ *  - owner or admin of the active workspace, and it is below Pro → redirect to
  *    the hosted checkout (`checkoutUrl` via `workspaceBilling`, never built here);
- *  - already on Pro or above, or checkout isn't configured, or this caller may
- *    not see Billing (a bearer token, a guest) → the Billing page, which says
+ *  - already on Pro or above, checkout isn't configured, a plain member/viewer
+ *    (whose click would buy a plan for somebody else's workspace), or a caller
+ *    who may not see Billing (a bearer token) → the Billing page, which says
  *    which of those it is — never a checkout prefilled with somebody's email.
+ *
+ * The pre-check only decides "nobody is signed in → go sign up". A paused
+ * account and a bad bearer token are passed on to `requireUser`, which answers
+ * them properly; redirecting those to /signup would loop a paused person
+ * through sign-up forever.
  */
 app.get(
   UPGRADE_PRO_PATH,
   async (c, next) => {
-    const { identity } = await resolveAuth(c);
-    if (!identity) return c.redirect(`/signup?next=${encodeURIComponent(UPGRADE_PRO_PATH)}`, 302);
+    const { identity, disabled, invalidToken } = await resolveAuth(c);
+    if (!identity && !disabled && !invalidToken) {
+      return c.redirect(`/signup?next=${encodeURIComponent(UPGRADE_PRO_PATH)}`, 302);
+    }
     return next();
   },
   requireUser,
@@ -812,7 +821,8 @@ app.get(
     c.header("Cache-Control", "no-store");
     const viewer = await viewerOf(c);
     const ctx = await accountsFor(c);
-    if (!canSeeSection(viewer, "billing") || !ctx.active || !ctx.role) {
+    const canBuy = ctx.role === "owner" || ctx.role === "admin";
+    if (!canSeeSection(viewer, "billing") || !ctx.active || !canBuy) {
       return c.redirect("/admin/billing", 302);
     }
     const billing =
