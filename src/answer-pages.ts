@@ -496,8 +496,9 @@ const TOPICS: Record<TopicKey, Topic> = {
             artifact</b>, and drop the file (a <code>.html</code> page, a <code>.pdf</code>, or a
             <code>.zip</code> with <code>index.html</code> at its root, up to 50 MB) or choose
             <b>Or paste HTML</b>. Give it a title and publish. It starts private.</li>
-          <li><b>Share it.</b> On the artifact's page, add the email addresses of the people who should
-            open it, or create a named share link that can expire. The view log shows who opened it.</li>
+          <li><b>Share it.</b> Open the artifact and choose <b>Share</b>: add the email addresses of the
+            people who should open it, or create a named share link that can expire. The view log shows
+            who opened it.</li>
         </ul>`,
       },
       {

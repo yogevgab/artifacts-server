@@ -122,7 +122,7 @@ export const ANSWER_META = {
       "the people you choose. They need no Claude account.",
     summary:
       "Sharing a Claude artifact's HTML without connecting anything: sign up, drop a .html/.pdf/.zip " +
-      "or paste HTML in the rtfx.pro dashboard, then share it by email or an expiring link.",
+      "or paste HTML in the rtfx.pro dashboard, then share it from its Share page by email or an expiring link.",
   },
   public: {
     path: "/are-claude-artifacts-public",
