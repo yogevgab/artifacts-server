@@ -325,7 +325,7 @@ export function overviewPage(o: OverviewInput): string {
     actions.push({
       key: "publish",
       title: "Publish your first artifact",
-      body: "Drop a .html page, .pdf document or .zip bundle. It stays private to you until you share it.",
+      body: `Drop a .html page, .pdf document or .zip bundle. It stays ${privateTo(viewer)} until you share it.`,
       href: "/admin/artifacts",
       cta: "Publish",
     });
@@ -345,7 +345,7 @@ export function overviewPage(o: OverviewInput): string {
       title: "Give somebody access",
       body: `${
         unshared === 1 ? "1 artifact is" : `${num(unshared)} artifacts are`
-      } private to you. Add an email to send a link that works.`,
+      } ${privateTo(viewer)}. Add an email to send a link that works.`,
       href: "/admin/artifacts",
       cta: "Open artifacts",
     });
@@ -419,6 +419,15 @@ a.ghost.link-button.small-link{padding:.42rem .85rem;font-size:.82rem}
  * before they drop a file, not after; a publish into the wrong workspace is
  * visible to the wrong people and cannot be moved.
  */
+/**
+ * Who can open a new, unshared artifact — said accurately. Members of a team
+ * workspace can always open what is published into it (authz `belongsToCaller`),
+ * so "private to you" is only true on a personal workspace.
+ */
+function privateTo(viewer: PortalViewer): string {
+  return viewer.workspace?.kind === "team" ? "private to you and this team workspace" : "private to you";
+}
+
 function publishTarget(viewer: PortalViewer): string {
   const ws = viewer.workspace;
   if (!ws) return "";
@@ -438,8 +447,8 @@ function publishPanel(viewer: PortalViewer): string {
     <div class="panel-head">
       <div>
         <h2 id="publish-h">Publish an artifact</h2>
-        <p class="hint">Drop a file to ship it. New artifacts start private — only you can see them
-          until you grant access.</p>
+        <p class="hint">Drop a file to ship it. New artifacts start ${privateTo(viewer)} until you
+          grant access.</p>
         ${publishTarget(viewer)}
       </div>
     </div>
@@ -554,7 +563,7 @@ export function artifactsPage(o: ArtifactsInput): string {
   const emptyState = `<div class="empty" data-empty="artifacts">
     <h3>Nothing published yet</h3>
     <p>Drop a <span class="mono">.html</span> page, <span class="mono">.pdf</span> document or a <span class="mono">.zip</span> bundle into the
-      panel above to publish your first artifact. It stays private to you until you grant access —
+      panel above to publish your first artifact. It stays ${privateTo(viewer)} until you grant access —
       then you'll get a share link to send.</p>
   </div>`;
 

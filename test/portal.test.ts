@@ -204,6 +204,29 @@ describe("overview", () => {
     expect(html).toContain('data-panel="health"');
   });
 
+  it("says who can open a new artifact accurately: you on a personal workspace, plus members on a team one", async () => {
+    // Team members always reach what is published into their workspace
+    // (authz belongsToCaller), so "private to you" would be false there.
+    const personal = await page("/admin/artifacts", BOB);
+    expect(personal).toContain("start private to you until");
+    expect(personal).not.toContain("this team workspace until");
+
+    const created = await req(
+      "/api/accounts",
+      as(SUPER, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Acme", owner_email: BOB }),
+      })
+    );
+    expect(created.status).toBe(201);
+    const { id } = (await created.json()) as { id: string };
+    const team = await (
+      await req("/admin/artifacts", as(BOB, { headers: { Cookie: `rtfx_account=${id}` } }))
+    ).text();
+    expect(team).toContain("start private to you and this team workspace until");
+  });
+
   it("proposes publishing first when nothing has been published", async () => {
     const html = await page("/admin");
     expect(html).toContain('data-action="publish"');
