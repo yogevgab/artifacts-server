@@ -173,16 +173,51 @@ export const DXT_URL = `${SOURCE_URL}/releases/download/v1.2.0/rtfx.dxt`;
  * the social card's glow and the buttons were three different blues; the card
  * in `src/seo.ts` drew all three on one canvas. One accent, everywhere.
  */
-export const MARK_PATH = "M16 9 L24 23 L19.5 23 L16 16.5 L12.5 23 L8 23 Z";
+/*
+ * 2026-11-03: the mark now follows the header lockup instead of the old blue
+ * caret tile. The lockup is "rtfx" in near-black at 750 with ".pro" in grey,
+ * turning blue on hover; at 16px only its first letter and its full stop
+ * survive, so the mark is that: a near-black tile (`MARK_INK`, the light
+ * theme's --fg), a white "r", and a blue full stop (`MARK_BLUE`, the accent).
+ *
+ * The "r" is a path, not <text>, so every renderer draws the same thing. It is
+ * Inter ExtraBold's "r" (SIL Open Font License, which permits this) at 27.5
+ * grid units, left edge x=7.3, baseline y=23.6 — Inter because the site's own
+ * face, SF Pro, may not be turned into logo artwork. The dot sits on the same
+ * baseline so the pair is optically centred on the 32-unit grid.
+ */
+export const MARK_INK = "#1d1d1f";
+export const MARK_PATH =
+  "M12.08 23.6L7.3 23.6L7.3 8.6L11.94 8.6L11.94 11.33L12.09 11.33Q12.51 9.85 13.43 9.12Q14.36 8.39 15.59 8.39" +
+  "L15.59 8.39Q15.92 8.39 16.27 8.44Q16.63 8.48 16.93 8.57L16.93 8.57L16.93 12.72Q16.59 12.6 16.04 12.54" +
+  "Q15.48 12.47 15.05 12.47L15.05 12.47Q14.2 12.47 13.53 12.84Q12.85 13.22 12.46 13.89Q12.08 14.56 12.08 15.46" +
+  "L12.08 15.46L12.08 23.6Z";
 export const MARK_BLUE = "#0a84ff";
+export const MARK_DOT = { cx: 21.6, cy: 20.6, r: 3 } as const;
+
+/**
+ * The mark's shapes on its 32×32 grid, for every place that draws it: the
+ * favicon, `brandMark`, the logo, the apple-touch icon and the social card.
+ * `rx` is the tile's corner radius (0 for iOS, which rounds the icon itself);
+ * `outline` adds a faint edge for dark backgrounds, where a near-black tile
+ * would otherwise vanish.
+ */
+export function markShapes(o: { rx?: number; outline?: boolean } = {}): string {
+  const rx = o.rx ?? 8;
+  const edge = o.outline ? ` stroke="#ffffff" stroke-opacity="0.22" stroke-width="0.75"` : "";
+  return (
+    `<rect width="32" height="32" rx="${rx}" fill="${MARK_INK}"${edge}/>` +
+    `<path d="${MARK_PATH}" fill="#ffffff"/>` +
+    `<circle cx="${MARK_DOT.cx}" cy="${MARK_DOT.cy}" r="${MARK_DOT.r}" fill="${MARK_BLUE}"/>`
+  );
+}
 
 // Inline SVG mark for browsers that take it. `/favicon.ico` and
 // `/apple-touch-icon.png` are real files too (src/index.ts), because crawlers,
 // feed readers and iOS ask for them by name whatever the <head> says.
 const FAVICON =
-  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E" +
-  `%3Crect width='32' height='32' rx='8' fill='%23${MARK_BLUE.slice(1)}'/%3E` +
-  `%3Cpath d='${MARK_PATH}' fill='white'/%3E%3C/svg%3E`;
+  "data:image/svg+xml," +
+  encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">${markShapes()}</svg>`);
 
 /**
  * The rtfx mark as inline SVG. Inline rather than an `<img>` because the one
@@ -195,8 +230,7 @@ const FAVICON =
  */
 export function brandMark(size = 28): string {
   return `<svg class="mark" width="${size}" height="${size}" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-    <rect width="32" height="32" rx="8" fill="${MARK_BLUE}"></rect>
-    <path d="${MARK_PATH}" fill="white"></path>
+    ${markShapes()}
   </svg>`;
 }
 
