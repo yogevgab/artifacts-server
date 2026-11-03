@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { req } from "./fixtures";
 import { decodePng, hexRgb, type DecodedPng } from "./png";
-import { MARK_BLUE } from "../src/pages";
+import { MARK_BLUE, MARK_INK, MARK_DOT } from "../src/pages";
 import {
   LOGO_PNG_SIZE,
   LOGO_SVG_SHA256,
@@ -57,6 +57,7 @@ function expectColor(actual: readonly number[], expected: readonly number[], whe
 }
 
 const BLUE = hexRgb(MARK_BLUE);
+const INK = hexRgb(MARK_INK);
 const WHITE = [255, 255, 255];
 
 /**
@@ -110,14 +111,14 @@ describe("the checked-in rasters are the current artwork", () => {
     // Inside the tile, above and below the glyph. The lower sample is the one
     // that pins the lockup's position and size: the previous card's tile ended
     // well above it, so a stale raster reads background here.
-    expectColor(image.pixel(...at(16, 4)), BLUE, "tile above the mark");
-    expectColor(image.pixel(...at(16, 30)), BLUE, "tile below the mark");
-    expectColor(image.pixel(...at(4, 20)), BLUE, "tile left of the mark");
+    expectColor(image.pixel(...at(16, 4)), INK, "tile above the mark");
+    expectColor(image.pixel(...at(16, 28)), INK, "tile below the mark");
+    expectColor(image.pixel(...at(4, 20)), INK, "tile left of the mark");
 
-    // Inside the glyph. White only because MARK_PATH is filled; when the card
-    // drew it as a 2.5-wide white outline this point was the blue gap between
-    // the two strokes.
-    expectColor(image.pixel(...at(16, 12)), WHITE, "the mark itself");
+    // The "r" stem is white, and the full stop is the accent blue: the two
+    // samples a raster of the old caret tile (blue tile, white caret) fails.
+    expectColor(image.pixel(...at(9.7, 18)), WHITE, "the r's stem");
+    expectColor(image.pixel(...at(MARK_DOT.cx, MARK_DOT.cy)), BLUE, "the blue full stop");
 
     // Outside the tile: the card's own dark background, never the mark's blue.
     const outside = image.pixel(...at(16, 36));
@@ -137,9 +138,10 @@ describe("the square logo", () => {
 
   it("is the mark and nothing else — the same tile, full bleed", async () => {
     const { image } = await png("/logo.png");
-    expectColor(image.pixel(...logoGrid(16, 4)), BLUE, "tile above the mark");
-    expectColor(image.pixel(...logoGrid(16, 30)), BLUE, "tile below the mark");
-    expectColor(image.pixel(...logoGrid(16, 12)), WHITE, "the mark itself");
+    expectColor(image.pixel(...logoGrid(16, 4)), INK, "tile above the mark");
+    expectColor(image.pixel(...logoGrid(16, 28)), INK, "tile below the mark");
+    expectColor(image.pixel(...logoGrid(9.7, 18)), WHITE, "the r's stem");
+    expectColor(image.pixel(...logoGrid(MARK_DOT.cx, MARK_DOT.cy)), BLUE, "the blue full stop");
     // Transparent outside the rounded corner, so it sits on a light or a dark
     // panel equally well.
     expect(image.pixel(...logoGrid(1, 1))[3], "the corner outside the tile radius").toBe(0);
