@@ -50,7 +50,9 @@ export const SITE = {
    * After Effects pack), so every title and description pairs the name with
    * "Claude", "MCP" and "private link". Kept at or under 60 characters.
    */
-  homeTitle: "rtfx.pro \u2014 private links for Claude artifacts (MCP)",
+  // Leads with the phrase people search ("share Claude artifacts"); "MCP" is in
+  // the description and on the page, where it explains rather than filters.
+  homeTitle: "Share Claude artifacts with private links \u00b7 rtfx.pro",
   guideTitle: "rtfx.pro guide: private links for Claude (MCP)",
 } as const;
 
@@ -102,7 +104,90 @@ export const ANSWER_META = {
       "Whether you can put a password on a Claude artifact, why a shared password is weak, and what " +
       "rtfx.pro does instead: per-person email sign-in, expiring revocable share links, a view log.",
   },
+  noAccount: {
+    path: "/open-claude-artifact-without-account",
+    title: "Open a Claude artifact without a Claude account? · rtfx",
+    description:
+      "Claude's help article says viewers need a Claude account, except for legacy published " +
+      "artifacts. With rtfx.pro, viewers sign in with an email code.",
+    summary:
+      "Whether someone without a Claude account can open a Claude artifact (shared, legacy published, " +
+      "Claude Code public links), and how to share privately with people who don't use Claude.",
+  },
+  public: {
+    path: "/are-claude-artifacts-public",
+    title: "Are Claude artifacts public? Who can see yours · rtfx.pro",
+    description:
+      "Claude artifacts start private. What makes one public, who can open a shared link, what to " +
+      "check before sharing, and how to keep one private.",
+    summary:
+      "Whether Claude artifacts are public: each sharing choice and who it lets in, what to check " +
+      "before sharing (chat attachments, shared storage, invitees), and private links on rtfx.pro.",
+  },
+  expiry: {
+    path: "/claude-artifact-link-expiry",
+    title: "Make a Claude artifact link expire · rtfx.pro",
+    description:
+      "Claude's help article doesn't describe expiring links for shared artifacts. rtfx.pro share " +
+      "links can expire after 1–365 days or be revoked.",
+    summary:
+      "What expires in Claude's own artifact sharing (pending invitations after 30 days) and how " +
+      "rtfx.pro share links expire after 1–365 days, get extended, or are revoked one by one.",
+  },
+  people: {
+    path: "/share-claude-artifact-with-specific-people",
+    title: "Share a Claude artifact with specific people · rtfx.pro",
+    description:
+      "Share a Claude artifact with only the people you choose: Claude's email invitations, or " +
+      "rtfx.pro named access where viewers need no Claude account.",
+    summary:
+      "Sharing a Claude artifact with chosen people: Claude's email invitations step by step and their " +
+      "limits, then rtfx.pro viewers and editors added from chat, with no Claude account needed.",
+  },
+  stopSharing: {
+    path: "/stop-sharing-claude-artifact",
+    title: "Stop sharing a Claude artifact, revoke access · rtfx.pro",
+    description:
+      "How to unshare a Claude artifact or remove one person, what happens to email invitees, and " +
+      "how revoking works on an rtfx.pro private link.",
+    summary:
+      "Stopping sharing in Claude (Only you, Remove, Unpublish, Unshare) and the invitee caveat on " +
+      "Pro, Max and Ultra, then removing people, revoking links and deleting on rtfx.pro.",
+  },
+  claudeCode: {
+    path: "/share-claude-code-html-privately",
+    title: "Share Claude Code HTML output privately · rtfx.pro",
+    description:
+      "Claude Code artifacts are shared within your organization or by public link. To share with " +
+      "chosen people outside it, publish to an rtfx.pro link.",
+    summary:
+      "What Claude Code artifacts offer for sharing (organization, public link, versions, where they " +
+      "can't publish) and publishing from Claude Code to an rtfx.pro private link instead.",
+  },
+  answers: {
+    path: "/answers",
+    title: "Sharing Claude artifacts: questions answered · rtfx.pro",
+    description:
+      "Short, sourced answers about sharing Claude artifacts: accounts, public links, expiry, " +
+      "specific people, revoking access, passwords and view logs.",
+    summary:
+      "Index of every rtfx.pro answer page about sharing Claude artifacts, each with what Claude's " +
+      "own sharing does and how an rtfx.pro private link compares.",
+  },
 } as const;
+
+/** The answer pages rendered by `topicPage` (src/answer-pages.ts), in the order the hub lists them. */
+export const TOPIC_KEYS = [
+  "noAccount",
+  "public",
+  "people",
+  "expiry",
+  "stopSharing",
+  "views",
+  "password",
+  "claudeCode",
+] as const;
+export type TopicKey = (typeof TOPIC_KEYS)[number];
 
 /** Absolute origin for canonical URLs, with any trailing slash removed. */
 export function siteOrigin(env: Pick<Env, "PUBLIC_BASE_URL">): string {
@@ -194,6 +279,13 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
     priority: "0.7",
     updated: "2026-11-02",
   },
+  ...(["noAccount", "public", "people", "expiry", "stopSharing", "claudeCode", "answers"] as const).map((k) => ({
+    path: ANSWER_META[k].path,
+    title: ANSWER_META[k].title,
+    summary: ANSWER_META[k].summary,
+    priority: k === "answers" ? "0.6" : "0.7",
+    updated: "2026-11-03",
+  })),
   {
     path: "/pro",
     title: "Pro — more room for what you publish",

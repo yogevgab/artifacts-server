@@ -303,6 +303,7 @@ export function siteFooter(): string {
             <a href="/claude-publish-vs-private-link" data-nav="publish-vs-private">Publish vs private link</a>
             <a href="/see-who-viewed-claude-artifact" data-nav="who-viewed">Who viewed it</a>
             <a href="/claude-artifact-password" data-nav="password">Artifact passwords</a>
+            <a href="/answers" data-nav="answers">All answers</a>
           </div>
           <div class="foot-col"><p class="foot-h">Open source</p>
             <!-- The strongest thing a security product can offer before sign-up:

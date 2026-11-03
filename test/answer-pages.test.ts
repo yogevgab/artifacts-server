@@ -29,14 +29,23 @@ function ld(html: string): Node[] {
 }
 const attr = (html: string, re: RegExp) => re.exec(html)?.[1] ?? "";
 
+const B1 = { published: "2026-10-26", footer: true } as const;
+// Batch 2 is linked from the hub and every answer page's "More answers", not the footer.
+const B2 = { published: "2026-11-03", footer: false } as const;
 const PAGES = [
-  { key: "share", meta: ANSWER_META.share, h1: "How to share a Claude artifact privately", faq: true },
-  { key: "compare", meta: ANSWER_META.compare, h1: "Claude artifact sharing vs a private link", faq: false },
-  { key: "views", meta: ANSWER_META.views, h1: "Can you see who viewed a Claude artifact?", faq: true },
-  { key: "password", meta: ANSWER_META.password, h1: "Can you put a password on a Claude artifact?", faq: true },
+  { key: "share", meta: ANSWER_META.share, h1: "How to share a Claude artifact privately", faq: true, ...B1 },
+  { key: "compare", meta: ANSWER_META.compare, h1: "Claude artifact sharing vs a private link", faq: false, ...B1 },
+  { key: "views", meta: ANSWER_META.views, h1: "Can you see who viewed a Claude artifact?", faq: true, ...B1 },
+  { key: "password", meta: ANSWER_META.password, h1: "Can you put a password on a Claude artifact?", faq: true, ...B1 },
+  { key: "noAccount", meta: ANSWER_META.noAccount, h1: "Can someone open a Claude artifact without a Claude account?", faq: true, ...B2 },
+  { key: "public", meta: ANSWER_META.public, h1: "Are Claude artifacts public?", faq: true, ...B2 },
+  { key: "expiry", meta: ANSWER_META.expiry, h1: "Can a shared Claude artifact link expire?", faq: true, ...B2 },
+  { key: "people", meta: ANSWER_META.people, h1: "How to share a Claude artifact with specific people", faq: true, ...B2 },
+  { key: "stopSharing", meta: ANSWER_META.stopSharing, h1: "How to stop sharing a Claude artifact", faq: true, ...B2 },
+  { key: "claudeCode", meta: ANSWER_META.claudeCode, h1: "How to share a Claude Code page privately", faq: true, ...B2 },
 ] as const;
 
-describe.each(PAGES)("$meta.path", ({ meta, h1, faq }) => {
+describe.each(PAGES)("$meta.path", ({ meta, h1, faq, published, footer: inFooter }) => {
   it("renders 200 with the h1, a unique title <= 60 and description <= 155", async () => {
     const res = await get(meta.path);
     expect(res.status).toBe(200);
@@ -72,7 +81,7 @@ describe.each(PAGES)("$meta.path", ({ meta, h1, faq }) => {
     const article = blocks.find((b) => b["@type"] === "Article")!;
     expect(article.headline.length).toBeLessThanOrEqual(110);
     expect(article.description).toBeTruthy();
-    expect(article.datePublished).toBe("2026-10-26");
+    expect(article.datePublished).toBe(published);
     expect(article.image).toEqual([`${LOCAL}/og.png`]);
     for (const who of [article.author, article.publisher]) {
       expect(who["@type"]).toBe("Organization");
@@ -102,10 +111,50 @@ describe.each(PAGES)("$meta.path", ({ meta, h1, faq }) => {
     expect(isReservedAccountSlug(meta.path.slice(1))).toBe(true);
   });
 
-  it("is linked from the footer of the home page", async () => {
+  it("is linked from the footer (batch 1) or the hub (batch 2), and links to every other answer", async () => {
     const home = await (await get("/")).text();
     const footer = /<footer class="site">[\s\S]*?<\/footer>/.exec(home)![0];
-    expect(footer).toContain(`href="${meta.path}"`);
+    expect(footer).toContain(`href="${ANSWER_META.answers.path}"`);
+    if (inFooter) expect(footer).toContain(`href="${meta.path}"`);
+    const hub = await (await get(ANSWER_META.answers.path)).text();
+    expect(hub).toContain(`href="${meta.path}"`);
+    const html = await (await get(meta.path)).text();
+    const more = /<nav class="more-answers"[\s\S]*?<\/nav>/.exec(html)![0];
+    for (const other of PAGES) {
+      if (other.meta.path !== meta.path) expect(more).toContain(`href="${other.meta.path}"`);
+    }
+    expect(more).not.toContain(`href="${meta.path}"`);
+  });
+});
+
+describe("/answers hub", () => {
+  it("renders an indexable ItemList of every answer page, in the sitemap and llms.txt", async () => {
+    const res = await get(ANSWER_META.answers.path);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect((html.match(/<h1\b/g) ?? []).length).toBe(1);
+    expect(html).not.toContain("noindex");
+    const title = attr(html, /<title>(.*?)<\/title>/).replace(/&#39;/g, "'");
+    expect(title).toBe(ANSWER_META.answers.title);
+    expect(title.length).toBeLessThanOrEqual(60);
+    expect(ANSWER_META.answers.description.length).toBeLessThanOrEqual(155);
+    const list = ld(html).find((b) => b["@type"] === "ItemList")!;
+    expect(list.itemListElement.map((i: Node) => i.url).sort()).toEqual(PAGES.map((p) => `${LOCAL}${p.meta.path}`).sort());
+    expect(sitemapXml({ PUBLIC_BASE_URL: "https://rtfx.pro" })).toContain(`<loc>https://rtfx.pro/answers</loc>`);
+    expect(llmsTxt({ PUBLIC_BASE_URL: "https://rtfx.pro" })).toContain("https://rtfx.pro/answers");
+    expect(isManagementPath("/answers")).toBe(true);
+    expect(isReservedAccountSlug("answers")).toBe(true);
+  });
+});
+
+describe("batch-2 pages cite their sources", () => {
+  it("every batch-2 page links Anthropic's help article or Claude Code's docs", async () => {
+    for (const p of PAGES.filter((x) => x.published === "2026-11-03")) {
+      const html = await (await get(p.meta.path)).text();
+      expect(html, p.meta.path).toMatch(
+        /href="https:\/\/(support\.claude\.com\/en\/articles\/9547008-share-artifacts|code\.claude\.com\/docs\/en\/artifacts)"/
+      );
+    }
   });
 });
 

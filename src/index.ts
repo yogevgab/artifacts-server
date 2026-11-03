@@ -78,7 +78,7 @@ import { workspaceBilling, UPGRADE_PRO_PATH } from "./plan-copy";
 import { verifyFrameToken } from "./session";
 import { landingPage } from "./landing";
 import { guidePage, guideImageResponse } from "./guide";
-import { sharePrivatelyPage, comparePage, topicPage } from "./answer-pages";
+import { sharePrivatelyPage, comparePage, topicPage, answersHubPage } from "./answer-pages";
 import { mediaResponse } from "./media";
 import { proPage, teamPage, enterprisePage } from "./plan-pages";
 import { contactRoutes, contactPage, normalizePlan } from "./contact";
@@ -118,6 +118,7 @@ import {
   securityTxt,
   SECURITY_TXT_PATHS,
   ANSWER_META,
+  TOPIC_KEYS,
 } from "./seo";
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVars }>();
@@ -646,11 +647,13 @@ app.get(ANSWER_META.share.path, (c) =>
 app.get(ANSWER_META.compare.path, (c) =>
   c.html(comparePage(c.env), 200, { "Cache-Control": PUBLIC_HTML_CACHE })
 );
-app.get(ANSWER_META.views.path, (c) =>
-  c.html(topicPage(c.env, "views"), 200, { "Cache-Control": PUBLIC_HTML_CACHE })
-);
-app.get(ANSWER_META.password.path, (c) =>
-  c.html(topicPage(c.env, "password"), 200, { "Cache-Control": PUBLIC_HTML_CACHE })
+for (const key of TOPIC_KEYS) {
+  app.get(ANSWER_META[key].path, (c) =>
+    c.html(topicPage(c.env, key), 200, { "Cache-Control": PUBLIC_HTML_CACHE })
+  );
+}
+app.get(ANSWER_META.answers.path, (c) =>
+  c.html(answersHubPage(c.env), 200, { "Cache-Control": PUBLIC_HTML_CACHE })
 );
 // The guide video and its poster, from R2 (src/media.ts).
 app.get("/media/:file", (c) =>

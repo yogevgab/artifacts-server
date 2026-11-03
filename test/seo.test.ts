@@ -267,7 +267,7 @@ describe("social card", () => {
 describe("public page metadata", () => {
   it("the landing page carries title, description, canonical, OG and Twitter tags", async () => {
     const html = await (await canonicalReq("/")).text();
-    expect(html).toContain("<title>rtfx.pro — private links for Claude artifacts (MCP)</title>");
+    expect(html).toContain("<title>Share Claude artifacts with private links · rtfx.pro</title>");
     /**
      * Upper bound as well as lower. Without one, `SITE.description` drifted to
      * 319 characters — about twice what a search result renders — and nothing
