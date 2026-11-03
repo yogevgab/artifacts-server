@@ -49,7 +49,9 @@ export const FAQS: readonly Faq[] = [
       "Desktop (Customize → Connectors → + Add → Add custom connector, with the URL " +
       `${MCP_URL}) and it is available in the Claude mobile apps too. In Claude Code, run: ` +
       `claude mcp add --transport http rtfx ${MCP_URL}. ` +
-      "Other MCP clients connect with the same URL. Sign-in is OAuth, so there is nothing to paste.",
+      "Other MCP clients connect with the same URL. Sign-in is OAuth, so there is nothing to paste. " +
+      "Connecting is optional: you can also sign up and publish from the dashboard in your browser " +
+      "by dropping an HTML file or pasting HTML.",
   },
   {
     q: "Who can see my artifacts?",

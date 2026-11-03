@@ -27,6 +27,7 @@ const MANAGEMENT_PATHS = new Set([
   "/claude-publish-vs-private-link",
   // Batch-2 answer pages and their hub (src/answer-pages.ts, ANSWER_META in src/seo.ts).
   "/open-claude-artifact-without-account",
+  "/share-claude-html-file-privately",
   "/are-claude-artifacts-public",
   "/claude-artifact-link-expiry",
   "/share-claude-artifact-with-specific-people",

@@ -3,6 +3,7 @@ import { isAutoAccountSlug } from "./account-slugs";
 import type { ViewerSummary, VersionViewSummary, ViewSources, MailStatusSummary, ViewEvent } from "./db";
 import { esc } from "./pages";
 import { MAX_UPLOAD_BYTES } from "./upload";
+import { MCP_URL } from "./seo";
 import { tokenState } from "./integrations";
 import type { PublicApiToken } from "./tokens";
 import type { UsersInfo } from "./people";
@@ -328,6 +329,16 @@ export function overviewPage(o: OverviewInput): string {
       href: "/admin/artifacts",
       cta: "Publish",
     });
+    // A claude.ai connector signs in with OAuth, not an API token, so the token
+    // check below can't tell whether Claude is connected. New accounts get the
+    // pointer regardless; it is optional because the browser publish works alone.
+    actions.push({
+      key: "connect",
+      title: "Optional: publish from Claude itself",
+      body: `Add rtfx to Claude as a custom connector (Customize → Connectors, URL ${MCP_URL}) and ask Claude to publish or share without leaving the chat.`,
+      href: "/guide#connect",
+      cta: "See how",
+    });
   } else if (unshared) {
     actions.push({
       key: "share",
@@ -435,6 +446,13 @@ function publishPanel(viewer: PortalViewer): string {
 
     <form id="up" data-publish-form>
       ${dropzone("Drop a .html page, .pdf document or .zip bundle here", `Single-file pages/PDFs, or a zip with index.html at the root · up to ${cap}`)}
+      <details class="paste" data-paste>
+        <summary>Or paste HTML</summary>
+        <label for="pub-paste" class="sr-only">HTML to publish</label>
+        <textarea id="pub-paste" data-paste-html rows="6" spellcheck="false"
+          placeholder="&lt;!doctype html&gt;&lt;html&gt;… paste a complete HTML page, such as one Claude wrote …&lt;/html&gt;"></textarea>
+        <p class="hint">Published as a single page. Used only when no file is chosen above.</p>
+      </details>
       <div class="field-grid">
         <div><label for="pub-title">Title *</label>
           <input id="pub-title" name="title" required placeholder="Q3 Landing Page" autocomplete="off"></div>
@@ -1620,8 +1638,19 @@ if(upForm){
   upForm.addEventListener('submit', async function(e){
     e.preventDefault();
     if(!hasPick(upForm)){
-      setStatus(publishMsg, 'Add a .html page, .pdf document or .zip bundle before publishing.', 'error');
-      return;
+      /* No file chosen: fall back to pasted HTML, sent as a single index.html. */
+      var paste = $('[data-paste-html]', upForm);
+      var text = paste ? paste.value.trim() : '';
+      if(!text){
+        setStatus(publishMsg, 'Add a .html page, .pdf document or .zip bundle, or paste HTML, before publishing.', 'error');
+        return;
+      }
+      if(text.charAt(0) !== '<'){
+        setStatus(publishMsg, 'That doesn\\u2019t look like an HTML page \\u2014 it should start with <!doctype html> or <html>. If Claude wrote a React component, ask it for a single self-contained HTML file instead.', 'error');
+        return;
+      }
+      var err = setPick(upForm, new File([text], 'index.html', { type: 'text/html' }));
+      if(err){ setStatus(publishMsg, err, 'error'); return; }
     }
     var btn = $('button[type=submit]', upForm);
     btn.disabled = true;
@@ -1665,6 +1694,7 @@ if(success){
   $('[data-artifact-url]', success).addEventListener('focus', function(e){ e.target.select(); });
   $('[data-publish-another]', success).addEventListener('click', function(){
     upForm.reset(); clearPick(upForm);
+    var pasted = $('[data-paste-html]', upForm); if(pasted) pasted.value = '';
     success.hidden = true; upForm.hidden = false;
     setStatus(publishMsg, '');
     var t = $('#pub-title'); if(t) t.focus();
@@ -1885,6 +1915,10 @@ const ARTIFACTS_STYLE = `
 .sr-file{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;opacity:0}
 .publish{background:linear-gradient(145deg,var(--card),rgba(10,132,255,.08))}
 .publish form{display:grid;gap:.95rem}
+.paste{margin:.8rem 0 .2rem}
+.paste summary{cursor:pointer;color:var(--muted);font-size:.92rem;min-height:44px;display:flex;align-items:center}
+.paste textarea{width:100%;font-family:var(--mono);font-size:.85rem}
+.paste .hint{margin:.35rem 0 0}
 .publish-foot{display:flex;align-items:center;gap:.9rem;flex-wrap:wrap}
 .publish-foot .hint{flex:1;min-width:14rem}
 
