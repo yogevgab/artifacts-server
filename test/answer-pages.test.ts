@@ -38,6 +38,7 @@ const PAGES = [
   { key: "views", meta: ANSWER_META.views, h1: "Can you see who viewed a Claude artifact?", faq: true, ...B1 },
   { key: "password", meta: ANSWER_META.password, h1: "Can you put a password on a Claude artifact?", faq: true, ...B1 },
   { key: "noAccount", meta: ANSWER_META.noAccount, h1: "Can someone open a Claude artifact without a Claude account?", faq: true, ...B2 },
+  { key: "htmlFile", meta: ANSWER_META.htmlFile, h1: "How to share a Claude artifact's HTML file privately", faq: true, ...B2 },
   { key: "public", meta: ANSWER_META.public, h1: "Are Claude artifacts public?", faq: true, ...B2 },
   { key: "expiry", meta: ANSWER_META.expiry, h1: "Can a shared Claude artifact link expire?", faq: true, ...B2 },
   { key: "people", meta: ANSWER_META.people, h1: "How to share a Claude artifact with specific people", faq: true, ...B2 },

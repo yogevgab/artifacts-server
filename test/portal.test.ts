@@ -210,6 +210,34 @@ describe("overview", () => {
     expect(html).toContain('data-empty="recent"');
   });
 
+  it("points a new account at connecting Claude, as an optional step, and drops it once they publish", async () => {
+    // A claude.ai connector uses OAuth, not an API token, so the token prompt
+    // alone never told a new user that Claude itself can publish.
+    const html = await page("/admin");
+    expect(html).toContain('data-action="connect"');
+    expect(html).toContain('href="/guide#connect"');
+    expect(html).toContain("https://mcp.rtfx.pro/mcp");
+    await publish("first", "First");
+    expect(await page("/admin")).not.toContain('data-action="connect"');
+  });
+
+  it("offers a paste-HTML box in the publish form, and a pasted page publishes as index.html", async () => {
+    const html = await page("/admin/artifacts");
+    expect(html).toContain("data-paste-html");
+    expect(html).toContain("Or paste HTML");
+    // The form's script sends pasted text as a single index.html file: the same
+    // request the API already accepts for a dropped .html.
+    const pasted = "<!doctype html><html><body><h1>Pasted</h1></body></html>";
+    const res = await req(
+      "/api/artifacts",
+      as(SUPER, { method: "POST", body: htmlForm({ title: "Pasted" }, "index.html", strToU8(pasted)) })
+    );
+    expect(res.ok).toBe(true);
+    const data = (await res.json()) as { type: string; file_count: number };
+    expect(data.type).toBe("single");
+    expect(data.file_count).toBe(1);
+  });
+
   it("switches to sharing once something exists but nobody can open it", async () => {
     await publish("lonely", "Lonely");
     const html = await page("/admin");

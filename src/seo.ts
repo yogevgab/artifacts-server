@@ -114,6 +114,16 @@ export const ANSWER_META = {
       "Whether someone without a Claude account can open a Claude artifact (shared, legacy published, " +
       "Claude Code public links), and how to share privately with people who don't use Claude.",
   },
+  htmlFile: {
+    path: "/share-claude-html-file-privately",
+    title: "Share a Claude artifact's HTML file privately · rtfx.pro",
+    description:
+      "No setup in Claude: sign up, drop or paste the HTML Claude made, and get a private link for " +
+      "the people you choose. They need no Claude account.",
+    summary:
+      "Sharing a Claude artifact's HTML without connecting anything: sign up, drop a .html/.pdf/.zip " +
+      "or paste HTML in the rtfx.pro dashboard, then share it from its Share page by email or an expiring link.",
+  },
   public: {
     path: "/are-claude-artifacts-public",
     title: "Are Claude artifacts public? Who can see yours · rtfx.pro",
@@ -179,6 +189,7 @@ export const ANSWER_META = {
 /** The answer pages rendered by `topicPage` (src/answer-pages.ts), in the order the hub lists them. */
 export const TOPIC_KEYS = [
   "noAccount",
+  "htmlFile",
   "public",
   "people",
   "expiry",
@@ -279,7 +290,7 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
     priority: "0.7",
     updated: "2026-11-03",
   },
-  ...(["noAccount", "public", "people", "expiry", "stopSharing", "claudeCode", "answers"] as const).map((k) => ({
+  ...(["noAccount", "htmlFile", "public", "people", "expiry", "stopSharing", "claudeCode", "answers"] as const).map((k) => ({
     path: ANSWER_META[k].path,
     title: ANSWER_META[k].title,
     summary: ANSWER_META[k].summary,
@@ -555,6 +566,10 @@ plus two paid ones, both bought on the site. Source: ${SOURCE_URL} (MIT).
 
 rtfx.pro is an MCP server for publishing from Claude to a private link. Connect it once, then
 ask Claude to publish, share or delete what it made. Start at ${origin}/.
+
+Connecting Claude is optional: after signing up, anyone can publish from the dashboard in a
+browser by dropping a .html page, a .pdf or a .zip (index.html at the root, up to 50 MB), or by
+pasting a complete HTML page. Sharing and the view log work the same either way.
 
 - Private by default: every artifact is restricted when it is published. Unauthorized and non-existent
   both answer 404.

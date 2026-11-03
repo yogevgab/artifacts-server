@@ -476,6 +476,66 @@ const TOPICS: Record<TopicKey, Topic> = {
     ],
     finalH: "Share with people who don't use Claude.",
   },
+  htmlFile: {
+    published: BATCH_2,
+    modified: BATCH_2,
+    h1: "How to share a Claude artifact's HTML file privately",
+    lead:
+      "You don't have to connect anything to Claude. Sign up for rtfx.pro with your email, then drop " +
+      "the HTML file Claude made into the dashboard — or paste its HTML — and you get a private link. " +
+      "Add the people who should see it; they sign in with a one-time email code and need no Claude " +
+      "account. It's free to start.",
+    sections: [
+      {
+        heading: "Three steps in your browser",
+        html: `<ul>
+          <li><b>Get the HTML.</b> Save the page Claude made as an <code>.html</code> file, or copy its
+            code. If Claude wrote a React component rather than a full page, ask it for <q>a single
+            self-contained HTML file</q> first.</li>
+          <li><b>Publish it.</b> <a href="/signup">Sign up</a> with an email code, open <b>Publish an
+            artifact</b>, and drop the file (a <code>.html</code> page, a <code>.pdf</code>, or a
+            <code>.zip</code> with <code>index.html</code> at its root, up to 50 MB) or choose
+            <b>Or paste HTML</b>. Give it a title and publish. It starts private.</li>
+          <li><b>Share it.</b> Open the artifact and choose <b>Share</b>: add the email addresses of the
+            people who should open it, or create a named share link that can expire. The view log shows
+            who opened it.</li>
+        </ul>`,
+      },
+      {
+        heading: "Updating it later",
+        html: `<ul>
+          <li>Publish again to the same slug and the same link shows the new version. Earlier versions are
+            kept, and you can roll back.</li>
+          <li>Tired of downloading and uploading? Add rtfx to Claude once as a connector and ask Claude to
+            publish for you. <a href="${ANSWER_META.share.path}">How to share from Claude directly &rarr;</a></li>
+        </ul>
+        <p>For what Claude's own Share menu offers, see <a href="${CLAUDE_SHARING_URL}">Claude's help
+          article on sharing artifacts</a>.</p>`,
+      },
+    ],
+    faqs: [
+      {
+        q: "Do I need to connect rtfx to Claude?",
+        a:
+          "No. You can publish from the rtfx.pro dashboard in your browser by dropping an HTML file or " +
+          "pasting HTML. Connecting rtfx to Claude as an MCP server is optional; it lets Claude publish " +
+          "and share for you from the chat.",
+      },
+      {
+        q: "What files can I upload?",
+        a:
+          "A single .html page, a .pdf document, or a .zip with index.html at its root, up to 50 MB. You " +
+          "can also paste a complete HTML page.",
+      },
+      {
+        q: "Do the people I share with need an account?",
+        a:
+          "They don't need a Claude account. People you add by email sign in with a one-time code sent to " +
+          "that address; someone with a share link you created opens it with no sign-in.",
+      },
+    ],
+    finalH: "Publish an HTML file privately, free.",
+  },
   public: {
     published: BATCH_2,
     modified: BATCH_2,

@@ -146,7 +146,8 @@ const SCRIPT = `
       if (!(top in tops)) { tops[top] = 1; n++; }
       if (slash !== -1 && p.slice(slash + 1) === 'index.html') nested = true;
     }
-    if (items.length === 1 && /\\.html?$/i.test(items[0].file.name)) return true;
+    // A lone .html or .pdf is a whole artifact on its own; the server accepts both.
+    if (items.length === 1 && /\\.(html?|pdf)$/i.test(items[0].file.name)) return true;
     return hasRoot || (n === 1 && !('' in tops) && nested);
   }
 

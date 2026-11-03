@@ -35,7 +35,7 @@ const PUBLIC_PATHS = [
   // The answer pages discuss passwords most directly, so they need the guard most.
   "/share-claude-artifacts-privately", "/claude-publish-vs-private-link",
   "/see-who-viewed-claude-artifact", "/claude-artifact-password",
-  "/open-claude-artifact-without-account", "/are-claude-artifacts-public",
+  "/open-claude-artifact-without-account", "/share-claude-html-file-privately", "/are-claude-artifacts-public",
   "/claude-artifact-link-expiry", "/share-claude-artifact-with-specific-people",
   "/stop-sharing-claude-artifact", "/share-claude-code-html-privately", "/answers",
 ];
