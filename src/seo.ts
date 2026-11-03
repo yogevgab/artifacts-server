@@ -240,7 +240,7 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
       "How to connect rtfx.pro to Claude as an MCP server (claude.ai custom connector or any MCP " +
       "client), then publish, share and delete from chat, followed by an FAQ and pricing.",
     priority: "1.0",
-    updated: "2026-11-02",
+    updated: "2026-11-03",
   },
   {
     path: "/guide",
@@ -256,28 +256,28 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
     title: ANSWER_META.share.title,
     summary: ANSWER_META.share.summary,
     priority: "0.7",
-    updated: "2026-11-02",
+    updated: "2026-11-03",
   },
   {
     path: ANSWER_META.compare.path,
     title: ANSWER_META.compare.title,
     summary: ANSWER_META.compare.summary,
     priority: "0.7",
-    updated: "2026-11-02",
+    updated: "2026-11-03",
   },
   {
     path: ANSWER_META.views.path,
     title: ANSWER_META.views.title,
     summary: ANSWER_META.views.summary,
     priority: "0.7",
-    updated: "2026-11-02",
+    updated: "2026-11-03",
   },
   {
     path: ANSWER_META.password.path,
     title: ANSWER_META.password.title,
     summary: ANSWER_META.password.summary,
     priority: "0.7",
-    updated: "2026-11-02",
+    updated: "2026-11-03",
   },
   ...(["noAccount", "public", "people", "expiry", "stopSharing", "claudeCode", "answers"] as const).map((k) => ({
     path: ANSWER_META[k].path,

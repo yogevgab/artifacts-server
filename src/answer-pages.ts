@@ -10,7 +10,9 @@ import type { Faq } from "./home-content";
 import { priceLabel } from "./plan-copy";
 
 /**
- * Two short "answer" pages for the searches people actually type:
+ * Short "answer" pages for the searches people actually type: the two below,
+ * the TOPICS pages further down (one question each, TOPIC_KEYS in src/seo.ts),
+ * and the /answers hub that lists them all:
  *
  *  - `/share-claude-artifacts-privately`: how to share a Claude artifact privately.
  *  - `/claude-publish-vs-private-link`: Claude's built-in Publish vs an rtfx private link.
@@ -32,7 +34,7 @@ import { priceLabel } from "./plan-copy";
  */
 
 const PUBLISHED = "2026-10-26";
-const MODIFIED = "2026-11-02";
+const MODIFIED = "2026-11-03";
 const CLAUDE_SHARING_URL = "https://support.claude.com/en/articles/9547008-share-artifacts";
 /**
  * Claude Code's own artifacts documentation. Claims about artifacts made in
@@ -111,7 +113,8 @@ const SHARE_STEPS: readonly AnswerStep[] = [
     name: "Ask Claude to publish it",
     html:
       `Say <em>publish it with rtfx as a private link</em>. Claude replies with your link, and only you ` +
-      `can open it until you share it. Publish again to the same name and the same link shows the new ` +
+      `(plus members of your team workspace, if you publish to one) can open it until you share it. ` +
+      `Publish again to the same name and the same link shows the new ` +
       `version; you can roll back from chat.`,
     guide: { href: "/guide#publish", label: "Publish, with screenshots" },
   },
@@ -202,8 +205,8 @@ const COMPARE_ROWS: readonly CompareRow[] = [
     label: "Who can open it",
     claude:
       "Starts private. Pro, Max and Ultra: only you, anyone with the link, or people you invite by " +
-      "email. Team and Enterprise: invited people, your organization, or anyone with the link " +
-      "if an owner allows it.",
+      "email. Team and Enterprise: invited people, your organization, or anyone with the link; an " +
+      "Owner controls link sharing and invitations outside the organization.",
     rtfx:
       "Private by default. You, people you add as viewers or editors, everyone in your workspace, " +
       "or anyone holding a named share link you created.",
@@ -318,7 +321,7 @@ const TOPICS: Record<TopicKey, Topic> = {
         html: `<ul>
           <li><b>Ask Claude.</b> <q>Who has opened q3-report?</q> Claude reads the recent views for you.</li>
           <li><b>Open the artifact's Share page</b> on rtfx.pro for the full log. <a href="/guide#views">See it in the guide &rarr;</a></li>
-          <li><b>Get an email.</b> As the owner, you can be emailed the first time a signed-in person other
+          <li><b>Get an email.</b> As the owner, you can be emailed the first time each signed-in person other
             than you opens it (share-link opens don't send these). Turn read notices off per artifact.</li>
         </ul>`,
       },
@@ -343,7 +346,7 @@ const TOPICS: Record<TopicKey, Topic> = {
       {
         q: "Can I get notified when someone opens it?",
         a:
-          "Yes. The first time a signed-in person other than you opens the artifact (not through a share " +
+          "Yes. The first time each signed-in person other than you opens the artifact (not through a share " +
           "link), rtfx.pro can email you. Read notices can be turned off for each artifact.",
       },
       {
@@ -426,7 +429,8 @@ const TOPICS: Record<TopicKey, Topic> = {
             shared artifact, even with the link,</q> says <a href="${CLAUDE_SHARING_URL}">Claude's help
             article</a>. People you invite by email sign in to Claude with the address you invited.</li>
           <li><b>Legacy artifacts published from a chat.</b> Anyone with the link can view and use them
-            without a Claude account. That makes them public: there is no list of who may open one.</li>
+            without a Claude account (they're asked to sign up only for features that use Claude). That makes
+            them public: there is no list of who may open one.</li>
           <li><b>Claude Code artifacts.</b> <a href="${CLAUDE_CODE_ARTIFACTS_URL}">Claude Code's docs</a>
             describe a public link that anyone on the internet can open with no sign-in, and, on Team and
             Enterprise plans, sharing within your organization.</li>
@@ -501,8 +505,8 @@ const TOPICS: Record<TopicKey, Topic> = {
       {
         heading: "Check before you share",
         html: `<ul>
-          <li><b>Chat attachments.</b> On Team and Enterprise, sharing an artifact made in a chat also gives
-            viewers access to the attachments and files in that chat.</li>
+          <li><b>Chat attachments.</b> On Team and Enterprise, sharing an artifact made in a chat with
+            Share &amp; copy link also gives viewers access to the attachments and files in that chat.</li>
           <li><b>Shared storage.</b> Some artifacts save information that everyone who opens them can see,
             such as items in a shared tracker.</li>
           <li><b>Invitees stay.</b> On Pro, Max and Ultra, switching back to “Only you” leaves people
@@ -513,8 +517,9 @@ const TOPICS: Record<TopicKey, Topic> = {
       {
         heading: "Keeping it private on rtfx.pro",
         html: `<ul>
-          <li>Every artifact is private when it is published. Someone without access gets the same
-            “not found” answer as for a page that doesn't exist.</li>
+          <li>Every artifact is private when it is published: only you, and members of its workspace if it
+            belongs to a team. A signed-in person without access sees the same “not found” page as for
+            an artifact that doesn't exist.</li>
           <li>Artifact pages are kept out of search engines: excluded in robots.txt, and every artifact
             response tells search engines not to index it.</li>
           <li>You choose who opens it: named people, everyone in your workspace, or named share links that
@@ -606,7 +611,8 @@ const TOPICS: Record<TopicKey, Topic> = {
     h1: "How to share a Claude artifact with specific people",
     lead:
       "In Claude, open the artifact, click Share and invite people by email (Pro, Max, Ultra, Team and " +
-      "Enterprise); each person needs a Claude account with that address. With the rtfx.pro MCP server, " +
+      "Enterprise; on Team and Enterprise, inviting people outside your organization is an Owner " +
+      "setting); each person needs a Claude account with that address. With the rtfx.pro MCP server, " +
       "ask Claude to share the artifact with their email addresses: they sign in with a one-time code, " +
       "need no Claude account, and you can see who opened it.",
     sections: [
@@ -628,11 +634,13 @@ const TOPICS: Record<TopicKey, Topic> = {
         heading: "With rtfx.pro",
         html: `<ul>
           <li><b>Ask Claude.</b> <q>Share q3-report with dana@acme.com and lee@acme.com.</q> The list you give
-            is the full list: anyone left out loses access.</li>
+            is the full list: anyone you had added who is left out loses access. Members of the artifact's
+            workspace always keep theirs — on a personal workspace, that's just you.</li>
           <li><b>Send them the link.</b> Sharing doesn't email anyone. They sign in with a one-time code sent
             to their address — no Claude account, no password.</li>
           <li><b>Viewers or editors.</b> Viewers can open it. Editors can also publish new versions and roll
-            back, but can't change sharing, manage links, see the view log or delete it.</li>
+            back — they need their own rtfx account for that, since an email code alone is enough to view,
+            not to edit — but can't change sharing, manage links, see the view log or delete it.</li>
           <li><b>Or your whole workspace.</b> Share with everyone in the workspace instead of a list.</li>
           <li><b>See who opened it</b> in the view log, or ask Claude.</li>
         </ul>
@@ -649,14 +657,15 @@ const TOPICS: Record<TopicKey, Topic> = {
       {
         q: "Can I let someone edit it?",
         a:
-          "In Claude, give them Can edit access. On rtfx.pro, add them as an editor: they can publish new " +
-          "versions and roll back, but can't change who has access or delete it.",
+          "In Claude, give them Can edit access. On rtfx.pro, add them as an editor: with their own rtfx " +
+          "account they can publish new versions and roll back, but can't change who has access or delete it.",
       },
       {
         q: "How do I remove one person?",
         a:
           "In Claude, open their access level in the Share menu and choose Remove. On rtfx.pro, ask Claude " +
-          "to share the artifact with the list minus that person.",
+          "to share the artifact with the list minus that person. A member of the artifact's workspace " +
+          "keeps access until they leave the workspace.",
       },
     ],
     finalH: "Share with exactly the people you choose.",
@@ -688,9 +697,10 @@ const TOPICS: Record<TopicKey, Topic> = {
         heading: "On rtfx.pro",
         html: `<ul>
           <li><b>Remove a person:</b> ask Claude to share the artifact with the list minus that person. An
-            empty list leaves only you.</li>
+            empty list removes everyone you had added.</li>
           <li><b>Revoke a share link</b> on the artifact's Share page. Only that link stops working.</li>
-          <li><b>Stop workspace-wide sharing</b> by sharing it with a list of people instead.</li>
+          <li><b>Workspace members</b> can always open what's in their workspace. To keep something to named
+            people only, publish it to your personal workspace, where that's just you.</li>
           <li><b>Delete it:</b> ask Claude to delete the artifact. Every version, the link and its share links
             go, permanently.</li>
         </ul>
