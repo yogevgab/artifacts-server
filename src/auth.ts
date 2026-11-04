@@ -683,7 +683,7 @@ export function requireScope(scope: Scope): MiddlewareHandler<AuthApp> {
 export const denyApiToken: MiddlewareHandler<AuthApp> = async (c, next) => {
   if (c.get("identity")?.token) {
     return c.json(
-      { error: "forbidden", detail: "API tokens cannot manage users or tokens — sign in instead" },
+      { error: "forbidden", detail: "API tokens cannot do this — sign in instead" },
       403
     );
   }

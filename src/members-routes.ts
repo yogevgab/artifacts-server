@@ -17,7 +17,7 @@
 
 import { Hono, type Context } from "hono";
 import type { Env } from "./env";
-import { requireUser, accountsFor, type AuthVars } from "./auth";
+import { requireUser, denyApiToken, accountsFor, type AuthVars } from "./auth";
 import { canManageMembers, canReadAccount, memberChangeDenial } from "./authz";
 import {
   effectivePlan,
@@ -52,6 +52,14 @@ const MEMBER_PATH = "/api/workspace/:id/members/:email";
 
 membersRoutes.use(LIST_PATH, requireUser);
 membersRoutes.use(MEMBER_PATH, requireUser);
+// Changing who is in a workspace hands out reach over its artifacts, so — like
+// `/api/accounts/*` in src/api.ts — it takes an interactive sign-in, never an
+// API token of any scope. Reading the list stays open to a token.
+for (const path of [LIST_PATH, MEMBER_PATH]) {
+  membersRoutes.use(path, async (c, next) =>
+    c.req.method === "GET" || c.req.method === "HEAD" ? next() : denyApiToken(c, next)
+  );
+}
 
 /**
  * The workspace, if the caller may at least read it (any member, viewer
