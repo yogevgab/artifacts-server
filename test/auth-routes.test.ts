@@ -503,3 +503,77 @@ describe("signed-out access to a dashboard page", () => {
     expect(res.status).toBe(403);
   });
 });
+
+describe("login CSRF", () => {
+  it("refuses a magic link redeemed by a form on another site", async () => {
+    await post("/auth/start", { email: "mallory@evil.example" });
+    const token = mailedToken();
+    const res = await app.request(
+      `https://rtfx.pro/auth/m/${token}`,
+      { method: "POST", headers: { Origin: "https://evil.example" } },
+      testEnv()
+    );
+    expect(res.status).toBe(403);
+    expect(res.headers.get("Set-Cookie")).toBeNull();
+
+    // The same link from the instance's own confirm page still works.
+    const ok = await app.request(
+      `https://rtfx.pro/auth/m/${token}`,
+      { method: "POST", headers: { Origin: "https://rtfx.pro" } },
+      testEnv()
+    );
+    expect(ok.headers.get("Set-Cookie") ?? "").toContain(SESSION_COOKIE);
+  });
+
+  it("refuses a cross-site code verification even without an Origin header", async () => {
+    const res = await app.request(
+      "https://rtfx.pro/auth/verify",
+      {
+        method: "POST",
+        headers: { "Content-Type": "text/plain", "Sec-Fetch-Site": "cross-site" },
+        body: JSON.stringify({ email: "x@y.com", code: "123456" }),
+      },
+      testEnv()
+    );
+    expect(res.status).toBe(403);
+  });
+});
+
+describe("sign-in budgets", () => {
+  const startFrom = (email: string, ip: string) =>
+    app.request(
+      "/auth/start",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "CF-Connecting-IP": ip },
+        body: JSON.stringify({ email }),
+      },
+      testEnv()
+    );
+
+  it("a stranger hammering an address from elsewhere does not lock its owner out", async () => {
+    for (let i = 0; i < 5; i++) await startFrom("dana@acme.com", "203.0.113.9");
+    expect((await startFrom("dana@acme.com", "203.0.113.9")).status).toBe(429);
+    expect((await startFrom("dana@acme.com", "198.51.100.7")).status).toBe(202);
+  });
+
+  it("caps typed-code guesses per address per day", async () => {
+    let last: Response | null = null;
+    for (let i = 0; i < 26; i++) {
+      last = await post("/auth/verify", { email: "dana@acme.com", code: String(100000 + i) });
+    }
+    expect(last!.status).toBe(429);
+  });
+
+  it("does not accept a guest challenge's code as a member sign-in", async () => {
+    const { createChallenge } = await import("../src/otp");
+    const issued = await createChallenge(env as any, {
+      email: "guest@acme.com",
+      purpose: "guest",
+      slug: "q3",
+      now: new Date().toISOString(),
+    });
+    const res = await post("/auth/verify", { email: "guest@acme.com", code: (issued as any).code });
+    expect(res.status).toBe(401);
+  });
+});

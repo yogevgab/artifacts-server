@@ -124,7 +124,10 @@ async function consume(env: Env, id: string, now: string): Promise<boolean> {
 }
 
 /**
- * Redeem by typed code. Returns null for every failure — wrong code, expired,
+ * Redeem by typed code. Only sign-in challenges carry a code anyone is meant
+ * to type: a guest challenge's code is never mailed, so redeeming one here
+ * would only add guesses — and would turn a guest invitation into a member
+ * session. Returns null for every failure — wrong code, expired,
  * already used, wrong address, too many attempts — because the caller must not
  * be able to tell those apart, and neither must the person typing.
  */
@@ -139,7 +142,7 @@ export async function redeemCode(
 
   const row = await env.DB.prepare(
     `SELECT id, email, purpose, slug, attempts FROM auth_challenges
-      WHERE email = ? AND consumed_at IS NULL AND expires_at > ?
+      WHERE email = ? AND consumed_at IS NULL AND expires_at > ? AND purpose = 'signin'
       ORDER BY created_at DESC LIMIT 1`
   )
     .bind(addr, now)
