@@ -648,6 +648,7 @@ oauthRoutes.get("/oauth/authorize", async (c) => {
       scopes: outcome.request.scopes,
       resource: outcome.request.resource,
       email: who.identity.email!,
+      redirectUri: outcome.request.redirectUri,
       workspace: accounts.active?.name ?? null,
       expiresIn: "one hour, then it renews itself until you revoke it",
       csrf,

@@ -1101,6 +1101,21 @@ describe("the token endpoint", () => {
     expect((await json(replay)).error).toBe("invalid_grant");
   });
 
+  it("shows where the code will be sent on the consent screen", async () => {
+    const evil = "https://evil.example/cb";
+    const lookalike = await registerClient([evil]);
+    const page = await req(authorizeQuery(lookalike, { redirect_uri: evil }), as(BOB));
+    expect(page.status).toBe(200);
+    const html = await page.text();
+    expect(html).toContain("<strong>evil.example</strong>");
+    expect(html).toMatch(/That is a website, not an app on this computer/);
+
+    const local = await registerClient();
+    const localHtml = await (await req(authorizeQuery(local), as(BOB))).text();
+    expect(localHtml).toContain("an application on this computer (127.0.0.1:1455)");
+    expect(localHtml).not.toMatch(/That is a website/);
+  });
+
   /** A first grant for BOB: access token, refresh token, and the access token's row id. */
   async function grant(clientId: string) {
     const code = await authorizationCode(clientId);
