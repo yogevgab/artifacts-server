@@ -1046,7 +1046,7 @@ async function publish(c: Context<Vars>, args: any): Promise<ToolCallResult> {
   } catch (e) {
     if (e instanceof ToolError) return failure(e);
     if (e instanceof UploadError) return failure(new ToolError(e.message, { error: "bad_request" }));
-    return failure(new ToolError(e instanceof Error ? e.message : String(e), { error: "internal_error" }));
+    return failure(internalError(e));
   }
 }
 
@@ -1115,8 +1115,23 @@ async function createUploadLink(c: Context<Vars>, args: any): Promise<ToolCallRe
     );
   } catch (e) {
     if (e instanceof ToolError) return failure(e);
-    return failure(new ToolError(e instanceof Error ? e.message : String(e), { error: "internal_error" }));
+    return failure(internalError(e));
   }
+}
+
+/**
+ * An unexpected failure, as the caller sees it. The raw message of a D1 or R2
+ * error can carry SQL and schema detail, so it is logged here and replaced by
+ * a generic sentence with a reference the operator can grep for.
+ */
+function internalMessage(e: unknown): string {
+  const ref = crypto.randomUUID().slice(0, 8);
+  console.error(`mcp internal error ${ref}:`, e);
+  return `internal error (ref ${ref}) — try again; if it persists, report the ref`;
+}
+
+function internalError(e: unknown): ToolError {
+  return new ToolError(internalMessage(e), { error: "internal_error" });
 }
 
 function pageArgs(args: any): { limit: number; offset: number } {
@@ -1616,7 +1631,7 @@ mcpRoutes.post(MCP_PATH, async (c) => {
       return c.json(errorResponse(id, e.code, e.message), 200, JSON_HEADERS);
     }
     return c.json(
-      errorResponse(id, -32603, e instanceof Error ? e.message : String(e)),
+      errorResponse(id, -32603, internalMessage(e)),
       200,
       JSON_HEADERS
     );
