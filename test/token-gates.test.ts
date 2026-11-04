@@ -222,3 +222,46 @@ describe("plan limits hold under concurrent publishes", () => {
     expect(results[0].n).toBeLessThanOrEqual(10);
   });
 });
+
+describe("tokens reading artifact content", () => {
+  const contentEnv = () => ({
+    ...(env as any),
+    SESSION_SECRET: "test-secret-at-least-32-bytes-long-for-hs256!!",
+    DEV_LOGIN: undefined,
+    CONTENT_HOSTNAMES: "a.rtfx.pro",
+    PUBLIC_BASE_URL: "https://rtfx.pro",
+  });
+
+  it("need the read scope, and reach only their own workspace's artifacts", async () => {
+    const appMod = (await import("../src/index")).default;
+    const teamId = await teamOwnedByAlice();
+    // A private artifact in the team workspace, published by Alice there.
+    const form = new FormData();
+    form.set("slug", "board-memo");
+    form.set("title", "Board memo");
+    form.set("file", new File(["<h1>secret</h1>"], "index.html", { type: "text/html" }));
+    const { token: teamPublisher } = await createApiToken(env as any, {
+      name: "p", ownerEmail: ALICE, accountId: teamId, isAdmin: false, scopes: ["publish"],
+      createdBy: ALICE, expiresAt: null, now: new Date().toISOString(),
+    });
+    expect((await req("/api/artifacts", withToken(teamPublisher, { method: "POST", body: form }))).status).toBe(200);
+    // Make it the team's, not Alice's personally, so only membership opens it to other tokens.
+    await env.DB.prepare("UPDATE artifacts SET owner_email = 'someone-else@test.com' WHERE slug = 'board-memo'").run();
+
+    const fetchRaw = (token: string) =>
+      appMod.request("https://a.rtfx.pro/board-memo/?raw=1", withToken(token), contentEnv());
+
+    // Publish-only token in the right workspace: no read scope, no content.
+    expect((await fetchRaw(teamPublisher)).status).toBe(404);
+
+    // Read token pinned to the team: allowed.
+    const teamReader = await tokenFor(teamId, ["read"]);
+    expect((await fetchRaw(teamReader)).status).toBe(200);
+
+    // Read token pinned to Alice's personal workspace: her team membership doesn't carry over.
+    const { ensurePersonalAccount } = await import("../src/accounts");
+    const personal = await ensurePersonalAccount(env as any, ALICE, new Date().toISOString());
+    const personalReader = await tokenFor((personal as any).id, ["read"]);
+    expect((await fetchRaw(personalReader)).status).toBe(404);
+  });
+});

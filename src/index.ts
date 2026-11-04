@@ -29,7 +29,7 @@ import {
   viewsByVersion,
   viewSources,
 } from "./db";
-import { canView, canManage, canManageMembers, isOwner, belongsToCaller, operatesOrphan } from "./authz";
+import { canView, canManage, canManageMembers, isOwner, belongsToCaller, operatesOrphan, hasScope } from "./authz";
 import {
   listMembers,
   accountIdsWithAtLeast,
@@ -62,6 +62,7 @@ import {
   logDeadLinkAttempt,
   logViewInBackground,
   presentedKey,
+  tokenMayReachAccount,
 } from "./viewing";
 import { isAllowedOrigin } from "./cors";
 import { canonicalPath } from "./canonical";
@@ -1000,8 +1001,12 @@ async function manages(
   identity: Identity | null,
   art: ArtifactRow
 ): Promise<boolean> {
+  // Previews are reads of content: a token needs the `read` scope, and is
+  // confined to its own workspace (see `tokenMayReachAccount`).
+  if (identity?.token && !hasScope(identity, "read")) return false;
   if (canManage(identity, art)) return true;
   if (!art.account_id || !identity?.email) return false;
+  if (!tokenMayReachAccount(identity, art.account_id)) return false;
   return atLeast(await memberRole(env, art.account_id, identity.email), MANAGE_ARTIFACTS);
 }
 
