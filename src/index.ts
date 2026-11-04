@@ -213,7 +213,31 @@ app.use("*", async (c, next) => {
   ) {
     c.header("X-Frame-Options", "DENY");
   }
+  const path = new URL(c.req.url).pathname;
+  // Signed-in surfaces show tokens, grants, member lists and view logs. None of
+  // that may sit in a shared or back-button cache.
+  if (isPrivateSurface(path) && !c.res.headers.has("Cache-Control")) {
+    c.header("Cache-Control", "private, no-store");
+  }
+  // The portal's own pages: no framing (modern browsers prefer this to XFO),
+  // no <base> hijack, no plugins. Script policy is left to the pages, which
+  // use inline scripts; this is the part that holds without a nonce rollout.
+  if (
+    isPortalPage(path) &&
+    !c.res.headers.has("Content-Security-Policy") &&
+    (c.res.headers.get("Content-Type") ?? "").startsWith("text/html")
+  ) {
+    c.header("Content-Security-Policy", "frame-ancestors 'none'; base-uri 'self'; object-src 'none'");
+  }
 });
+
+function isPortalPage(path: string): boolean {
+  return path === "/admin" || path.startsWith("/admin/") || path.startsWith("/share/");
+}
+
+function isPrivateSurface(path: string): boolean {
+  return isPortalPage(path) || path.startsWith("/api/") || path.startsWith("/oauth/");
+}
 
 app.get("/health", (c) => c.text("ok"));
 

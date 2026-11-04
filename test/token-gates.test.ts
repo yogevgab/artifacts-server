@@ -265,3 +265,16 @@ describe("tokens reading artifact content", () => {
     expect((await fetchRaw(personalReader)).status).toBe(404);
   });
 });
+
+describe("portal response headers", () => {
+  it("dashboard pages are not cacheable and not frameable", async () => {
+    const res = await req("/admin", as(ALICE, { headers: { Accept: "text/html" } }));
+    expect(res.headers.get("Cache-Control")).toContain("no-store");
+    expect(res.headers.get("Content-Security-Policy") ?? "").toContain("frame-ancestors 'none'");
+  });
+
+  it("API responses are not cacheable", async () => {
+    const res = await req("/api/artifacts", as(ALICE));
+    expect(res.headers.get("Cache-Control")).toContain("no-store");
+  });
+});
