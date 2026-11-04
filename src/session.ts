@@ -20,6 +20,8 @@ export interface SessionClaims {
   kind: SessionKind;
   /** Guest sessions only: the single artifact this session was minted for. */
   slug?: string;
+  /** Issued-at, seconds since the epoch: what a server-side sign-out is compared against. */
+  iat?: number;
 }
 
 /** 30 days. Sliding — see `shouldRefresh`. */
@@ -85,7 +87,12 @@ export async function verifySession(
     if (kind !== "member" && kind !== "guest") return null;
     if (typeof payload.sub !== "string" || !payload.sub) return null;
     const slug = typeof payload.slug === "string" ? payload.slug : undefined;
-    return { email: payload.sub, kind, ...(slug ? { slug } : {}) };
+    return {
+      email: payload.sub,
+      kind,
+      ...(slug ? { slug } : {}),
+      ...(typeof payload.iat === "number" ? { iat: payload.iat } : {}),
+    };
   } catch {
     return null;
   }

@@ -24,7 +24,7 @@ import { canonicalPath } from "./canonical";
 import { GUEST_COOKIE } from "./viewing";
 import { siteOrigin } from "./seo";
 import { isContentHost, requestHostname } from "./host";
-import { getIdentity, readCookie } from "./auth";
+import { getIdentity, readCookie, revokeCurrentSession } from "./auth";
 import { hasGrant, getArtifact } from "./db";
 import { magicLinkConfirmPage } from "./login";
 import { safeNextPath } from "./util";
@@ -407,7 +407,8 @@ authRoutes.post("/auth/guest", async (c) => {
   return c.json(ACCEPTED, 202);
 });
 
-authRoutes.post("/auth/signout", (c) => {
+authRoutes.post("/auth/signout", async (c) => {
+  await revokeCurrentSession(c);
   const headers = new Headers({ "Content-Type": "application/json" });
   headers.append("Set-Cookie", sessionCookie("", 0));
   headers.append("Set-Cookie", guestCookie("", 0));

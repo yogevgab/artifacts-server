@@ -577,3 +577,24 @@ describe("sign-in budgets", () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe("signing out", () => {
+  it("voids the session server-side, so a copied cookie stops working", async () => {
+    await env.DB.prepare("DROP TABLE IF EXISTS session_revocations").run();
+    const minuteAgo = new Date(Date.now() - 60_000).toISOString();
+    const stolen = `${SESSION_COOKIE}=${await mintSession(SECRET, { email: "dana@acme.com", kind: "member" }, minuteAgo)}`;
+    const whoami = async (cookie: string) =>
+      (await (await app.request("https://rtfx.pro/whoami", { headers: { Cookie: cookie } }, testEnv())).json<any>()).email;
+
+    expect(await whoami(stolen)).toBe("dana@acme.com");
+
+    const out = await app.request("https://rtfx.pro/logout", { headers: { Cookie: stolen } }, testEnv());
+    expect(out.status).toBe(302);
+
+    expect(await whoami(stolen)).toBeNull();
+
+    // Signing in again afterwards works normally.
+    const fresh = `${SESSION_COOKIE}=${await mintSession(SECRET, { email: "dana@acme.com", kind: "member" }, new Date(Date.now() + 1000).toISOString())}`;
+    expect(await whoami(fresh)).toBe("dana@acme.com");
+  });
+});

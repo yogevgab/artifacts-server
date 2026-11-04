@@ -5,7 +5,7 @@ import { mcpRoutes } from "./mcp";
 import { oauthRoutes } from "./oauth-routes";
 import { waitlist } from "./waitlist";
 import { authRoutes, pendingNextCookie } from "./auth-routes";
-import { requireUser, accessEmail, accountsFor, getIdentity, resolveAuth, readCookie, SESSION_COOKIE, type AuthVars } from "./auth";
+import { requireUser, accessEmail, accountsFor, getIdentity, resolveAuth, readCookie, revokeCurrentSession, SESSION_COOKIE, type AuthVars } from "./auth";
 import { serveArtifact } from "./serve";
 import { safeNextPath, isValidSlug } from "./util";
 import {
@@ -970,8 +970,10 @@ app.get("/login", async (c) => {
 // hold an app session, an edge Access session, or both, and a "sign out" that
 // leaves either one standing is not a sign-out. Clearing a cookie that was never
 // set is harmless, so this is unconditional rather than clever.
-app.get("/logout", () =>
-  new Response(null, {
+app.get("/logout", async (c) => {
+  // Void the session server-side first, so a copied cookie dies with this one.
+  await revokeCurrentSession(c);
+  return new Response(null, {
     status: 302,
     headers: [
       ["Location", "/login"],
@@ -992,8 +994,8 @@ app.get("/logout", () =>
         "CF_AppSession=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; HttpOnly; SameSite=Lax",
       ],
     ],
-  })
-);
+  });
+});
 
 /**
  * The gallery is a dashboard section now (issue #35). This route is kept as a

@@ -3,6 +3,7 @@ import type { Context, MiddlewareHandler } from "hono";
 import type { Env } from "./env";
 import { canUseDashboard, hasScope } from "./authz";
 import { verifySession } from "./session";
+import { revokeSessionsFor, sessionRevoked } from "./session-revocation";
 import { resolveAccountContext, type AccountContext } from "./accounts";
 import {
   findApiToken,
@@ -371,6 +372,7 @@ async function identityFromSession(c: AuthContext): Promise<Identity | null> {
 
   const claims = await verifySession(secret, raw, new Date().toISOString());
   if (!claims) return null;
+  if (await sessionRevoked(c.env, claims.email, claims.iat)) return null;
 
   if (claims.kind === "guest") {
     return {
@@ -392,6 +394,20 @@ async function identityFromSession(c: AuthContext): Promise<Identity | null> {
     token: null,
     kind: "member",
   };
+}
+
+/**
+ * Sign-out, server side: void every session for whoever this request's
+ * session cookie belongs to, so a copy of the cookie stops working too.
+ * A request with no valid session changes nothing.
+ */
+export async function revokeCurrentSession(c: AuthContext): Promise<void> {
+  const secret = c.env.SESSION_SECRET;
+  if (!secret) return;
+  const raw = readCookie(c.req.header("Cookie") ?? c.req.header("cookie"), SESSION_COOKIE);
+  if (!raw) return;
+  const claims = await verifySession(secret, raw, new Date().toISOString());
+  if (claims) await revokeSessionsFor(c.env, claims.email, new Date().toISOString());
 }
 
 export async function resolveAuth(c: AuthContext): Promise<AuthResult> {

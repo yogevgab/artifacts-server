@@ -410,3 +410,10 @@ CREATE TABLE IF NOT EXISTS upload_sessions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_upload_sessions_expires ON upload_sessions (expires_at);
+
+-- Server-side sign-out (migration 0026): sessions for `email` issued before
+-- `revoked_before` are void. See src/session-revocation.ts.
+CREATE TABLE IF NOT EXISTS session_revocations (
+  email          TEXT PRIMARY KEY,
+  revoked_before TEXT NOT NULL
+);
