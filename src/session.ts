@@ -124,9 +124,20 @@ export function shouldRefresh(claims: { iat?: number }, now: string): boolean {
  */
 export const FRAME_TTL_SECONDS = 4 * 60 * 60;
 
-export async function mintFrameToken(secret: string, slug: string, now: string): Promise<string> {
+/**
+ * `artifactCreatedAt` pins the token to this artifact rather than to whatever
+ * holds the slug: if the artifact is deleted and somebody else publishes under
+ * the same slug within the token's lifetime, an old frame URL must not open
+ * the newcomer's content.
+ */
+export async function mintFrameToken(
+  secret: string,
+  slug: string,
+  now: string,
+  artifactCreatedAt?: string
+): Promise<string> {
   const issued = Math.floor(Date.parse(now) / 1000);
-  return new SignJWT({ use: "frame", slug })
+  return new SignJWT({ use: "frame", slug, ...(artifactCreatedAt ? { art: artifactCreatedAt } : {}) })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt(issued)
     .setExpirationTime(issued + FRAME_TTL_SECONDS)
@@ -138,12 +149,14 @@ export async function verifyFrameToken(
   secret: string,
   token: string,
   slug: string,
-  now: string
+  now: string,
+  artifactCreatedAt?: string
 ): Promise<boolean> {
   if (!token) return false;
   try {
     const { payload } = await jwtVerify(token, keyFrom(secret), { currentDate: new Date(now) });
-    return payload.use === "frame" && payload.slug === slug;
+    if (payload.use !== "frame" || payload.slug !== slug) return false;
+    return artifactCreatedAt === undefined || payload.art === artifactCreatedAt;
   } catch {
     return false;
   }

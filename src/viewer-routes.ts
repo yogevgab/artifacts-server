@@ -309,7 +309,7 @@ async function viewArtifact(
 
   const grants = art.visibility === "restricted" ? await listGrants(c.env, slug) : [];
   const frameToken = c.env.SESSION_SECRET
-    ? await mintFrameToken(c.env.SESSION_SECRET, slug, new Date().toISOString())
+    ? await mintFrameToken(c.env.SESSION_SECRET, slug, new Date().toISOString(), art.created_at)
     : undefined;
 
   if (linkGrantsThis && key.viaLink) {

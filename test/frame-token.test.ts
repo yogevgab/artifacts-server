@@ -153,6 +153,17 @@ describe("viewer frame token", () => {
     expect((await framed(`/site/~t/${token}/img/a.png`)).status).toBe(404);
   });
 
+  it("refuses an old frame URL once the slug belongs to a re-created artifact", async () => {
+    await publishSite();
+    const src = await frameSrc();
+    expect((await framed(src.replace(/\?raw=1$/, "") + "img/a.png")).status).toBe(200);
+    // The artifact is deleted and a new one takes the slug (simulated: a fresh created_at).
+    await (env as any).DB.prepare("UPDATE artifacts SET created_at = ? WHERE slug = 'site'")
+      .bind(new Date(Date.now() + 1000).toISOString())
+      .run();
+    expect((await framed(src.replace(/\?raw=1$/, "") + "img/a.png")).status).toBe(404);
+  });
+
   it("refuses an expired token", async () => {
     await publishSite();
     const old = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();

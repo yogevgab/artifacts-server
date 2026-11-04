@@ -1243,10 +1243,17 @@ app.get("*", async (c) => {
     if (c.req.method !== "GET" && c.req.method !== "HEAD") {
       return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
     }
+    const candidate = c.env.SESSION_SECRET ? await getArtifact(c.env, slug) : null;
     const valid =
-      !!c.env.SESSION_SECRET &&
-      (await verifyFrameToken(c.env.SESSION_SECRET, frameToken, slug, new Date().toISOString()));
-    const art = valid ? await getArtifact(c.env, slug) : null;
+      !!candidate &&
+      (await verifyFrameToken(
+        c.env.SESSION_SECRET!,
+        frameToken,
+        slug,
+        new Date().toISOString(),
+        candidate.created_at
+      ));
+    const art = valid ? candidate : null;
     if (!art) return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
     // Suspension is a takedown control and binds every path, this one included.
     const status = art.account_id
