@@ -102,9 +102,11 @@ one:
   stdio server's tool list, so it cannot grow silently when that one does.
 - **Scope is enforced by the handler, not by the advertised list.** `tools/list` is filtered for
   convenience, but `TOOL_SCOPE` is checked again in `route` before any handler runs. `read` covers
-  `list_artifacts`/`artifact_details`/`artifact_statistics`; `publish` covers `publish`; `manage`
-  covers `share_artifact`/`rollback_artifact`/`delete_artifact`. A read-only credential sees
-  `doctor` and the read tools and nothing else.
+  `list_artifacts`/`artifact_details`/`artifact_statistics`; `publish` covers `publish` and
+  `rollback_artifact` (a rollback makes an existing version live again, which is what a publish
+  does, so a CI token that can publish can also undo its own bad publish); `manage` covers
+  `share_artifact`/`delete_artifact`. A read-only credential sees `doctor` and the read tools and
+  nothing else.
 - **Reach is the REST surface's reach.** Every tool resolves the artifact through
   `manageableArtifact` or `visibleArtifacts` from `src/api.ts`, so an artifact the caller cannot
   manage is indistinguishable from one that does not exist.
