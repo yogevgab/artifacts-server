@@ -4,7 +4,7 @@ import { Unzip, UnzipInflate, type UnzipFile, type FlateError } from "fflate";
 // copy here would be a second thing to keep in step, and the failure mode of
 // drift is a leaked `.env` — so the server imports the same list rather than
 // restating it.
-import { isSensitivePath } from "../plugins/rtfx/scripts/rtfx.lib.mjs";
+import { isSensitivePath, classifyEntry, SKIPPED_DIRS, SKIP_SECRET, SKIP_FILE } from "../plugins/rtfx/scripts/rtfx.lib.mjs";
 
 export type UploadFile = { path: string; bytes: Uint8Array };
 
@@ -161,6 +161,18 @@ export function processZip(buf: Uint8Array, limits: ZipLimits = DEFAULT_ZIP_LIMI
     // a root `.env`). Root dotfiles must be treated the same as nested dotfiles:
     // agents often publish archives they did not assemble themselves.
     if (path.split("/").some((seg) => seg === "__MACOSX" || seg.startsWith("."))) return;
+
+    // A key or certificate inside the archive is refused outright, as the
+    // remote MCP and the local plugin promise: a published file is served to
+    // whoever is granted the artifact, so silently publishing `id_rsa` would be
+    // a leak and silently dropping it would hide that the archive held one.
+    // OS droppings (Thumbs.db) are just skipped.
+    const segments = path.split("/");
+    if (classifyEntry(segments[segments.length - 1], false) === SKIP_FILE) return;
+    if (segments.some((seg) => classifyEntry(seg, false) === SKIP_SECRET || SKIPPED_DIRS.has(seg))) {
+      violation = `Refusing to publish "${path}": it looks like a credential or a dependency/VCS directory`;
+      return;
+    }
 
     entryCount++;
     if (entryCount > limits.maxEntries) {

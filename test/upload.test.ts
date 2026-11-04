@@ -95,6 +95,18 @@ describe("processZip", () => {
     expect(r.files.map((f) => f.path).sort()).toEqual(["index.html"]);
   });
 
+  it("refuses credential-looking files and dependency directories inside an archive", () => {
+    for (const bad of ["id_rsa", "certs/server.pem", "deploy.key", "node_modules/x/index.js"]) {
+      const zip = zipSync({ "index.html": strToU8("<h1>hi</h1>"), [bad]: strToU8("secret") });
+      expect(() => processZip(zip), bad).toThrow(/Refusing to publish/);
+    }
+  });
+
+  it("skips OS droppings without refusing the archive", () => {
+    const zip = zipSync({ "index.html": strToU8("<h1>hi</h1>"), "img/Thumbs.db": strToU8("junk") });
+    expect(processZip(zip).files.map((f) => f.path)).toEqual(["index.html"]);
+  });
+
   describe("path traversal / unsafe path abuse", () => {
     it("rejects a parent-directory traversal entry", () => {
       const zip = zipSync({
