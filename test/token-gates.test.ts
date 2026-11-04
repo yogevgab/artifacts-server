@@ -118,3 +118,107 @@ describe("read-receipts toggle needs the manage scope", () => {
     expect(res.status).toBe(403);
   });
 });
+
+describe("workspace viewers cannot create artifacts", () => {
+  it("refuses a new slug from a viewer acting in the workspace, and allows a member", async () => {
+    const id = await teamOwnedByAlice();
+    const { upsertMember } = await import("../src/accounts");
+    const now = new Date().toISOString();
+    await upsertMember(env as any, { accountId: id, email: "vic@test.com", role: "viewer", now, invitedBy: ALICE });
+    await upsertMember(env as any, { accountId: id, email: "meg@test.com", role: "member", now, invitedBy: ALICE });
+
+    const publishAs = async (email: string, slug: string) => {
+      const { token } = await createApiToken(env as any, {
+        name: "ci",
+        ownerEmail: email,
+        accountId: id,
+        isAdmin: false,
+        scopes: ["publish"],
+        createdBy: email,
+        expiresAt: null,
+        now,
+      });
+      const form = new FormData();
+      form.set("slug", slug);
+      form.set("title", slug);
+      form.set("file", new File(["<h1>x</h1>"], "index.html", { type: "text/html" }));
+      return req("/api/artifacts", withToken(token, { method: "POST", body: form }));
+    };
+
+    const viewer = await publishAs("vic@test.com", "viewer-spam");
+    expect(viewer.status).toBe(403);
+    expect(await env.DB.prepare("SELECT slug FROM artifacts WHERE slug = 'viewer-spam'").first()).toBeNull();
+
+    const member = await publishAs("meg@test.com", "member-doc");
+    expect(member.status).toBe(200);
+  });
+});
+
+describe("a publish never lands on an artifact that changed hands mid-upload", () => {
+  const row = (over: Record<string, unknown> = {}) =>
+    ({
+      slug: "resume",
+      title: "Victim's resume",
+      description: null,
+      type: "html",
+      entry: "index.html",
+      file_count: 1,
+      size_bytes: 10,
+      created_by: "victim@x.com",
+      created_at: "2026-11-01T00:00:00.000Z",
+      updated_at: "2026-11-01T00:00:00.000Z",
+      visibility: "restricted",
+      current_version: 1,
+      owner_email: "victim@x.com",
+      account_id: null,
+      ...over,
+    }) as any;
+
+  it("a 'new artifact' publish does not overwrite a row created after it started", async () => {
+    const { upsertArtifact, getArtifact } = await import("../src/db");
+    expect(await upsertArtifact(env as any, row())).toBe(true);
+    const attacker = row({
+      title: "attacker",
+      created_at: "2026-11-02T00:00:00.000Z",
+      current_version: 2,
+      owner_email: MALLORY,
+    });
+    expect(await upsertArtifact(env as any, attacker, true)).toBe(false);
+    const after = await getArtifact(env as any, "resume");
+    expect(after?.title).toBe("Victim's resume");
+    expect(after?.current_version).toBe(1);
+  });
+
+  it("a republish does not land on a slug that was deleted and re-created", async () => {
+    const { upsertArtifact, getArtifact } = await import("../src/db");
+    await upsertArtifact(env as any, row());
+    // The publisher resolved an older artifact under this slug (different created_at).
+    const stale = row({ title: "stale", created_at: "2026-10-01T00:00:00.000Z", current_version: 2 });
+    expect(await upsertArtifact(env as any, stale, false)).toBe(false);
+    expect((await getArtifact(env as any, "resume"))?.current_version).toBe(1);
+
+    // A genuine republish of the same artifact still goes through.
+    expect(await upsertArtifact(env as any, row({ current_version: 2, title: "v2" }), false)).toBe(true);
+    expect((await getArtifact(env as any, "resume"))?.current_version).toBe(2);
+  });
+});
+
+describe("plan limits hold under concurrent publishes", () => {
+  it("parallel brand-new publishes cannot push a free workspace past its artifact cap", async () => {
+    const publish = (slug: string) => {
+      const form = new FormData();
+      form.set("slug", slug);
+      form.set("title", slug);
+      form.set("file", new File(["<h1>x</h1>"], "index.html", { type: "text/html" }));
+      return req("/api/artifacts", as("carol@test.com", { method: "POST", body: form }));
+    };
+    // Nine of ten used, then five at once.
+    for (let i = 0; i < 9; i++) expect((await publish(`seed-${i}`)).status).toBe(200);
+    await Promise.all([0, 1, 2, 3, 4].map((i) => publish(`burst-${i}`)));
+
+    const { results } = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM artifacts WHERE owner_email = 'carol@test.com'"
+    ).all<{ n: number }>();
+    expect(results[0].n).toBeLessThanOrEqual(10);
+  });
+});

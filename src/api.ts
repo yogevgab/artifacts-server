@@ -39,6 +39,7 @@ import {
   toPublicMember,
   upsertMember,
   MANAGE_ARTIFACTS,
+  atLeast,
   MAX_ACCOUNT_NAME_LENGTH,
   type AccountRole,
   type AccountRow,
@@ -391,7 +392,30 @@ export async function resolvePublishTarget(
       409
     );
   }
+  // A new artifact lands in the caller's active workspace, and a workspace
+  // viewer may look but not change anything there — creating counts. Without
+  // this a viewer could fill the team's artifact and storage quota.
+  if (!existing && accounts.active && !atLeast(accounts.role, MANAGE_ARTIFACTS)) {
+    return c.json(
+      {
+        error: "forbidden",
+        detail: "viewers of this workspace cannot publish to it — ask an owner or admin for member access",
+      },
+      403
+    );
+  }
   return { slug, existing, accounts };
+}
+
+/** Remove a reserved version and whatever of its files were written. Best-effort. */
+async function discardVersion(env: Env, slug: string, version: number, paths: string[]): Promise<void> {
+  try {
+    const keys = paths.map((p) => `${slug}/v${version}/${p}`);
+    for (let i = 0; i < keys.length; i += 1000) await env.FILES.delete(keys.slice(i, i + 1000));
+  } catch {
+    // Orphaned bytes under an unreferenced version are invisible; never fail on them.
+  }
+  await deleteVersion(env, slug, version);
 }
 
 /**
@@ -537,7 +561,62 @@ export async function storeUpload(
     // token) — the row then lives on `owner_email` alone, exactly as before.
     account_id: existing?.account_id ?? accounts.active?.id ?? null,
   };
-  await upsertArtifact(c.env, row);
+  let stored = await upsertArtifact(c.env, row, !existing);
+  const createdHere = stored && !existing;
+  if (!stored && !existing) {
+    // Somebody created this slug while the upload was in flight. When that
+    // somebody is the caller (two tabs, a retried request) or anyone whose
+    // artifact the caller may edit, this is simply its next version.
+    const winner = await getArtifact(c.env, slug);
+    if (winner && (await editableArtifact(c, slug))) {
+      stored = await upsertArtifact(
+        c.env,
+        {
+          ...row,
+          created_by: winner.created_by,
+          created_at: winner.created_at,
+          visibility: winner.visibility,
+          owner_email: winner.owner_email,
+          account_id: winner.account_id ?? null,
+        },
+        false
+      );
+    }
+  }
+  if (!stored) {
+    // The slug changed hands while this upload was in flight: somebody else
+    // created it (when it was free at the start), or it was deleted and
+    // re-created. The bytes just written are not theirs to receive, so undo
+    // the version and refuse, rather than make it live on their artifact.
+    await discardVersion(c.env, slug, version, processed.files.map((f) => f.path));
+    return c.json(
+      { error: "slug_taken", detail: `the slug "${slug}" is already in use — pick another` },
+      409
+    );
+  }
+
+  // The plan check above ran before anything was inserted, so N simultaneous
+  // brand-new publishes could each pass it against the same usage. Now that
+  // this artifact counts, check again; if the workspace is over, the publish
+  // that tipped it is undone. (Concurrent losers may all be undone — a retry
+  // succeeds once there is room. Republishes add bytes but no artifact, and are
+  // bounded by the per-publish size cap.)
+  if (createdHere && quotaAccountId) {
+    const usage = await usageFor(c.env, quotaAccountId);
+    if (exceeds(usage, limitsFor(accountPlan))) {
+      await c.env.DB.prepare("DELETE FROM artifacts WHERE slug = ? AND created_at = ?")
+        .bind(slug, row.created_at)
+        .run();
+      await discardVersion(c.env, slug, version, processed.files.map((f) => f.path));
+      return c.json(
+        {
+          error: "quota_exceeded",
+          detail: "this workspace reached its plan limit while the upload was in progress; delete something or upgrade, then try again",
+        },
+        413
+      );
+    }
+  }
 
   // Free plans keep a finite window of versions. Applied only after the publish
   // has fully succeeded, so a failure in housekeeping can never cost somebody
