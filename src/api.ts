@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import type { Env, ArtifactRow } from "./env";
+import { revokeRefreshGrant, revokeRefreshTokensForEmail } from "./oauth";
 import {
   requireAdmin,
   requireApiToken,
@@ -809,6 +810,9 @@ api.post("/users/:email/disable", async (c) => {
 
   await disableUser(c.env, target.email, target.role, now);
   await revokeTokensForEmail(c.env, target.email, now);
+  // And the refresh tokens behind any OAuth grants, or the next refresh would
+  // quietly mint a fresh access token — and re-enabling would restore it.
+  await revokeRefreshTokensForEmail(c.env, target.email, now);
 
   return c.json(await directory(c.env, { focus: target.email }));
 });
@@ -847,6 +851,7 @@ api.delete("/users/:email", async (c) => {
   const now = new Date().toISOString();
   await removeEmailFromAllGrants(c.env, target.email);
   await revokeTokensForEmail(c.env, target.email, now);
+  await revokeRefreshTokensForEmail(c.env, target.email, now);
   // Drop them from every workspace too, or a removed identity would still be
   // listed as a member (and would regain reach if the email were ever re-invited).
   // Their personal account and its artifacts survive — published work outlives
@@ -981,9 +986,31 @@ api.delete("/tokens/:id", async (c) => {
     (identity.isAdmin ||
       (!!row.owner_email && row.owner_email.toLowerCase() === identity.email?.toLowerCase()));
   if (!mine) return c.json({ error: "not_found" }, 404);
-  const revoked = await revokeApiToken(c.env, id, new Date().toISOString());
+  const now = new Date().toISOString();
+  const revoked = await revokeApiToken(c.env, id, now);
+  // An OAuth-issued access token is only the visible half of a grant: the
+  // client also holds a refresh token that would mint a replacement on its
+  // next refresh. Revoking it here is what makes "revoke" disconnect the app.
+  const clientId = await oauthClientOf(c.env, id);
+  if (clientId && row.owner_email) {
+    await revokeRefreshGrant(c.env, clientId, row.owner_email, now);
+  }
   return c.json({ revoked: id, already_revoked: !revoked });
 });
+
+/** The OAuth client an access token was issued to, or null (or pre-0019). */
+async function oauthClientOf(env: Env, tokenId: string): Promise<string | null> {
+  try {
+    const r = await env.DB.prepare(
+      "SELECT oauth_client_id FROM api_tokens WHERE id = ? AND issued_via = 'oauth'"
+    )
+      .bind(tokenId)
+      .first<{ oauth_client_id: string | null }>();
+    return r?.oauth_client_id ?? null;
+  } catch {
+    return null;
+  }
+}
 
 // --- Accounts / workspaces (issue #27) --------------------------------------
 //
