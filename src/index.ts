@@ -50,7 +50,7 @@ import { suspendedContentPage } from "./view-limit-page";
 export { ChatRoom } from "./chat";
 import { redeemShareLink } from "./share";
 import { accountSlugRoutes, addressNotice, brandedBase } from "./account-slug-routes";
-import { viewerRoute, redirectToViewer } from "./viewer-routes";
+import { viewerRoute, redirectToViewer, redirectToAppLegacy } from "./viewer-routes";
 import {
   callerIsInWorkspace,
   decideAccess,
@@ -901,8 +901,11 @@ app.get("/shared/:slug", async (c) => {
   const next = safeNextPath(c.req.query("next"));
   if (identity?.email) {
     if (next) return c.redirect(next, 302);
+    // Only to an artifact this person can actually open: redirecting for any
+    // slug that exists (to an address naming its workspace) would let anyone
+    // with a free account probe which slugs are real and whose they are.
     const art = await getArtifact(c.env, slug);
-    if (art) return redirectToViewer(c, art, "");
+    if (art && (await decideAccess(c.env, art, identity)).allowed) return redirectToViewer(c, art, "");
   }
   return c.html(guestSigninPage(c.env, slug, next));
 });
@@ -1236,9 +1239,8 @@ app.get("*", async (c) => {
     // tab"). Never serve artifact HTML as a top-level document on this origin;
     // send them to the viewer, which runs its own access check and re-frames.
     if (c.req.header("Sec-Fetch-Dest") === "document") {
-      const art = await getArtifact(c.env, slug);
-      if (art) return redirectToViewer(c, art, framedPath);
-      return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
+      // Same answer for a real slug and an invented one (see redirectToAppLegacy).
+      return redirectToAppLegacy(c, slug, framedPath);
     }
     if (c.req.method !== "GET" && c.req.method !== "HEAD") {
       return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
@@ -1277,11 +1279,12 @@ app.get("*", async (c) => {
 
   // A top-level browser navigation to the content origin — an old link, a
   // bookmark, `?raw=1` pasted into the address bar — goes to the canonical
-  // viewer. Share keys (`?k=`) ride along and are redeemed there. If there is no
-  // such artifact the request falls through to the same 404 as before.
+  // viewer by way of the app's plain `/<slug>` address, which answers a missing
+  // artifact and one the visitor cannot open alike. Share keys (`?k=`) ride
+  // along and are redeemed there. Redirecting only for an artifact that exists
+  // — and straight to its workspace address — told anyone both facts.
   if (c.req.method === "GET" && c.req.header("Sec-Fetch-Dest") === "document") {
-    const known = await getArtifact(c.env, slug);
-    if (known) return redirectToViewer(c, known, filePath);
+    return redirectToAppLegacy(c, slug, filePath);
   }
 
   // From here on this is the machine path: no viewer, no frame, no redirect to

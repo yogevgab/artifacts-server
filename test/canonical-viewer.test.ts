@@ -265,7 +265,7 @@ describe("the content host", () => {
     const src = /<iframe[^>]*\ssrc="([^"]+)"/.exec(html)![1].replace(/&amp;/g, "&");
     const res = await onContent(src.slice(CONTENT.length), NAV);
     expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe(`${APP}${await viewerPath("report")}`);
+    expect(res.headers.get("location")).toBe(`${APP}/report/`);
     expect(await res.text()).not.toContain("top-secret-artifact-bytes");
   });
 });
@@ -423,16 +423,30 @@ describe("old URLs redirect, in every form", () => {
       const res = await onContent(path, { ...NAV, Cookie: await cookie(OWNER) });
       expect(res.status, path).toBe(302);
       const rest = path.replace(/^\/report\/?/, "").replace(/\?.*$/, "");
-      expect(res.headers.get("location"), path).toBe(await canonical(rest));
+      // First to the app's plain /<slug> address (the same hop for any slug, real or not)...
+      const hop = res.headers.get("location")!;
+      expect(hop, path).toBe(`${APP}/report/${rest}`);
       expect(await res.text(), path).not.toContain("top-secret-artifact-bytes");
+      // ...which sends someone who can see it on to the canonical address.
+      const onward = await onApp(hop.slice(APP.length), { ...NAV, Cookie: await cookie(OWNER) });
+      expect(onward.headers.get("location"), path).toBe(await canonical(rest));
     }
+  });
+
+  it("a.rtfx.pro answers a browser identically for a real slug and an invented one", async () => {
+    const real = await onContent("/report/", NAV);
+    const fake = await onContent("/no-such-thing-here/", NAV);
+    expect(real.status).toBe(fake.status);
+    expect(real.headers.get("location")?.replace("report", "X")).toBe(
+      fake.headers.get("location")?.replace("no-such-thing-here", "X")
+    );
   });
 
   it("a.rtfx.pro/<slug>/?k= keeps the key for redemption at the canonical address", async () => {
     const link = await createShareLink(env as any, { slug: "report", createdBy: OWNER, now: NOW() });
     const res = await onContent(`/report/?k=${encodeURIComponent(link.key)}`, NAV);
     expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe(`${await canonical()}?k=${encodeURIComponent(link.key)}`);
+    expect(res.headers.get("location")).toBe(`${APP}/report/?k=${encodeURIComponent(link.key)}`);
     // and the redirect target redeems it
     const redeemed = await onApp(`${await viewerPath("report")}?k=${encodeURIComponent(link.key)}`, NAV);
     expect(redeemed.headers.get("set-cookie")).toContain("rtfx_link_report=");
@@ -460,10 +474,21 @@ describe("old URLs redirect, in every form", () => {
     expect(res.headers.get("location")).toBe("https://a.rtfx.pro/report/a/b.html?x=1");
   });
 
-  it("an unknown first segment is a 404", async () => {
+  it("an unknown first segment is a 404 to a signed-in caller", async () => {
     for (const headers of [NAV, {}]) {
-      const res = await onApp("/definitely-not-a-thing/at-all", headers);
+      const res = await onApp("/definitely-not-a-thing/at-all", { ...headers, Cookie: await cookie(OWNER) });
       expect(res.status).toBe(404);
+    }
+  });
+
+  it("answers a signed-out caller the same for an unknown slug as for a private one", async () => {
+    for (const headers of [NAV, {}]) {
+      const real = await onApp("/report/at-all", headers);
+      const fake = await onApp("/definitely-not-a-thing/at-all", headers);
+      expect(fake.status).toBe(real.status);
+      expect(fake.headers.get("location")?.replaceAll("definitely-not-a-thing", "X")).toBe(
+        real.headers.get("location")?.replaceAll("report", "X")
+      );
     }
   });
 

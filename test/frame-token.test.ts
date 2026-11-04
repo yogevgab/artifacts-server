@@ -198,7 +198,7 @@ describe("viewer frame token", () => {
     const base = (await frameSrc()).replace(/\?raw=1$/, "");
     const res = await navigate(`${base}work.html?raw=1`);
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe(`${APP}${await viewerPath("site", "work.html")}`);
+    expect(res.headers.get("Location")).toBe(`${APP}/site/work.html`);
     // And the raw bytes were not served on the way.
     expect(await res.text()).not.toContain("<h1>work</h1>");
   });
@@ -289,7 +289,7 @@ describe("artifact documents are sandboxed however they are reached", () => {
     await publishSite();
     const res = await navigate("/site/work.html?raw=1", true);
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe(`${APP}${await viewerPath("site", "work.html")}`);
+    expect(res.headers.get("Location")).toBe(`${APP}/site/work.html`);
     // ...and the app host does the same for a top-level ?raw=1: never the bare artifact.
     const onApp = await appHost(`${await viewerPath("site", "work.html")}?raw=1`, NAV, true);
     expect(onApp.status).toBe(302);

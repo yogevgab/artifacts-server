@@ -33,6 +33,7 @@ import type { Next } from "hono";
 import type { ArtifactRow, Env } from "./env";
 import { getIdentity, type Identity } from "./auth";
 import { getArtifact, listGrants } from "./db";
+import { isValidSlug } from "./util";
 import { canManage } from "./authz";
 import {
   ensureAccountPublicSlug,
@@ -106,6 +107,53 @@ export async function redirectToViewer(
     canonicalPath(ws, art.slug, rest) +
     (k ? `?k=${encodeURIComponent(k)}` : "");
   return c.redirect(location, 302);
+}
+
+/**
+ * Send a top-level navigation that landed on the content host to the app's
+ * plain `/<slug>/…` address, whether or not the slug exists. The app answers
+ * that address the same way for a missing artifact and for one the visitor
+ * cannot see; redirecting only when the artifact exists (and to its
+ * workspace-qualified address) would tell anybody both facts.
+ */
+export function redirectToAppLegacy(c: AppContext, slug: string, rest: string): Response {
+  const k = new URL(c.req.url).searchParams.get("k");
+  const tail = rest
+    .split("/")
+    .filter((s) => s !== "")
+    .map(encodeURIComponent)
+    .join("/");
+  return c.redirect(
+    `${appOriginFor(c.env, c.req.url)}/${encodeURIComponent(slug)}/${tail}${k ? `?k=${encodeURIComponent(k)}` : ""}`,
+    302
+  );
+}
+
+/**
+ * What a visitor presenting no credential at all gets for an artifact
+ * address — identical whether the artifact exists, belongs to someone else,
+ * or was never published, because nobody without a credential can open
+ * anything. A browser is sent to sign in and back; anything else is sent to
+ * the content host, which answers 404 for both cases.
+ */
+function anonymousAnswer(
+  c: AppContext,
+  slug: string,
+  rest: string,
+  twoHost: boolean,
+  next: Next
+): Response | Promise<Response | void> {
+  if (wantsShell(c)) return signInRedirect(c, slug);
+  if (twoHost) return c.redirect(rawLocation(c, slug, rest, new URL(c.req.url).search), 302);
+  return next();
+}
+
+/**
+ * Could this segment name an artifact? Router-owned words (`auth`, `admin`, …)
+ * never do, so an unknown path under one of them stays a plain 404.
+ */
+function artifactShaped(segment: string): boolean {
+  return isValidSlug(segment) && !isReservedAccountSlug(segment);
 }
 
 /** Where raw bytes for this artifact live (content host, or this origin on a single-host deploy). */
@@ -207,12 +255,19 @@ export async function viewerRoute(c: AppContext, next: Next): Promise<Response |
     // Nothing to show. A signed-out browser is sent to sign in rather than told
     // "no such artifact", so the namespace answers the same whether or not the
     // artifact exists.
-    if (wantsShell(c) && !(await hasAnyCredential(c, segs[1]))) return signInRedirect(c, segs[1]);
+    if (artifactShaped(segs[1]) && !(await hasAnyCredential(c, segs[1]))) {
+      return anonymousAnswer(c, segs[1], segs.slice(2).join("/"), twoHost, next);
+    }
     return notFound(c, segs[1]);
   }
 
   const art = await getArtifact(c.env, segs[0]);
-  if (!art) return notFound(c, segs[0]);
+  if (!art) {
+    if (artifactShaped(segs[0]) && !(await hasAnyCredential(c, segs[0]))) {
+      return anonymousAnswer(c, segs[0], segs.slice(1).join("/"), twoHost, next);
+    }
+    return notFound(c, segs[0]);
+  }
   return legacyForm(c, art, segs.slice(1), twoHost, next);
 }
 
@@ -229,6 +284,9 @@ async function legacyForm(
   next: Next
 ): Promise<Response | void> {
   const rest = restSegs.join("/");
+  // Before anything reveals the workspace (the canonical redirect below names
+  // it) or writes on the visitor's behalf: no credential, no difference.
+  if (!(await hasAnyCredential(c, art.slug))) return anonymousAnswer(c, art.slug, rest, twoHost, next);
   const ws = art.account_id ? await ensureAccountPublicSlug(c.env, art.account_id) : null;
   if (!ws) return viewArtifact(c, art, null, restSegs);
 

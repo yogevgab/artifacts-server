@@ -226,7 +226,10 @@ describe("old URL forms keep working", () => {
     await claim(OWNER, "yogev");
     const res = await contentReq("/q3-board-report/", navAs(OWNER));
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe(`${APP}/yogev/q3-board-report`);
+    // Via the app's plain address, which forwards someone who can see it.
+    expect(res.headers.get("Location")).toBe(`${APP}/q3-board-report/`);
+    const onward = await appReq("/q3-board-report/", navAs(OWNER));
+    expect(onward.headers.get("Location")).toBe(`${APP}/yogev/q3-board-report`);
   });
 
   it("sends a browser at the old app-host form to the canonical address", async () => {
