@@ -289,6 +289,18 @@ CREATE TABLE IF NOT EXISTS billing_events (
   processed_at TEXT NOT NULL
 );
 
+-- Lemon Squeezy subscription -> workspace binding (migration 0025). Bound on
+-- first sight, never rebound; accounts.plan is the best plan among a
+-- workspace's subscriptions. See src/billing.ts.
+CREATE TABLE IF NOT EXISTS billing_subscriptions (
+  subscription_id TEXT PRIMARY KEY,
+  account_id      TEXT NOT NULL,
+  plan            TEXT,
+  updated_at      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_billing_subscriptions_account ON billing_subscriptions (account_id);
+
 CREATE INDEX IF NOT EXISTS idx_billing_events_account ON billing_events (account_id);
 -- Operator audit trail (migration 0018). Append-only: nothing in the product
 -- UPDATEs or DELETEs a row here, which is what makes "append-only" a fact

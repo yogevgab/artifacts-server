@@ -281,6 +281,89 @@ export interface WebhookOutcome {
  * here would make Lemon Squeezy retry a delivery that, in fact, fully
  * succeeded).
  */
+// --- subscription ↔ workspace binding ----------------------------------------
+
+const PLAN_RANK: Record<string, number> = { free: 0, pro: 1, team: 2 };
+
+/**
+ * The Lemon Squeezy subscription an event is about. `subscription_*` events
+ * carry the subscription itself (`data.id`); the `subscription_payment_*`
+ * ones carry an invoice whose `attributes.subscription_id` names it.
+ */
+function subscriptionIdOf(
+  data: Record<string, unknown> | null,
+  attributes: Record<string, unknown> | null
+): string | null {
+  const raw =
+    data?.type === "subscription-invoices" ? attributes?.subscription_id : data?.id;
+  if (typeof raw === "number") return String(raw);
+  return typeof raw === "string" && raw ? raw : null;
+}
+
+async function ensureSubscriptionTable(env: Env): Promise<void> {
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS billing_subscriptions (
+       subscription_id TEXT PRIMARY KEY,
+       account_id      TEXT NOT NULL,
+       plan            TEXT,
+       updated_at      TEXT NOT NULL
+     )`
+  ).run();
+}
+
+/**
+ * Record what one subscription now entitles its workspace to, binding it to
+ * `claimedAccountId` if — and only if — it has never been seen before.
+ * Returns the workspace the subscription is bound to, or null when it is
+ * unbound and the event names none.
+ */
+async function bindSubscription(
+  env: Env,
+  subscriptionId: string,
+  claimedAccountId: string | null,
+  plan: PaidPlan | "free" | null,
+  now: string
+): Promise<string | null> {
+  await ensureSubscriptionTable(env);
+  if (claimedAccountId) {
+    await env.DB.prepare(
+      `INSERT INTO billing_subscriptions (subscription_id, account_id, plan, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT (subscription_id) DO NOTHING`
+    )
+      .bind(subscriptionId, claimedAccountId, plan, now)
+      .run();
+  }
+  const row = await env.DB.prepare(
+    "SELECT account_id FROM billing_subscriptions WHERE subscription_id = ?"
+  )
+    .bind(subscriptionId)
+    .first<{ account_id: string }>();
+  if (!row) return null;
+  if (plan) {
+    await env.DB.prepare(
+      "UPDATE billing_subscriptions SET plan = ?, updated_at = ? WHERE subscription_id = ?"
+    )
+      .bind(plan, now, subscriptionId)
+      .run();
+  }
+  return row.account_id;
+}
+
+/** The best plan any subscription bound to this workspace currently grants. */
+async function bestPlanFor(env: Env, accountId: string): Promise<PaidPlan | "free"> {
+  const rows = await env.DB.prepare(
+    "SELECT plan FROM billing_subscriptions WHERE account_id = ? AND plan IS NOT NULL"
+  )
+    .bind(accountId)
+    .all<{ plan: string }>();
+  let best: PaidPlan | "free" = "free";
+  for (const r of rows.results ?? []) {
+    if ((PLAN_RANK[r.plan] ?? -1) > PLAN_RANK[best]) best = r.plan as PaidPlan | "free";
+  }
+  return best;
+}
+
 export async function processWebhookEvent(
   env: Env,
   rawBody: string,
@@ -318,10 +401,28 @@ export async function processWebhookEvent(
       : impliedStatus(eventName);
   const plan = entitlementFor(status, planForVariant(env, attributes?.variant_id));
 
-  const account = accountId ? await getAccount(env, accountId) : null;
+  // Which workspace this subscription belongs to is decided once, the first
+  // time it is seen, and never again: `custom_data.account_id` comes from the
+  // checkout URL, which the buyer can edit, so it is only trusted to *claim* a
+  // subscription that nobody has claimed yet. And the plan an account ends up
+  // on is the best of all its subscriptions, so a stranger who buys a plan
+  // "for" somebody else's workspace and then pauses it can only ever have
+  // given a gift — never take away the plan the owner pays for themselves.
+  const subscriptionId = subscriptionIdOf(data, attributes);
+  let targetId = accountId;
+  let targetPlan = plan;
+  if (subscriptionId && (accountId || plan)) {
+    const bound = await bindSubscription(env, subscriptionId, accountId, plan, now);
+    targetId = bound;
+    targetPlan = bound && plan ? await bestPlanFor(env, bound) : null;
+  }
+
+  const account = targetId ? await getAccount(env, targetId) : null;
   let overridden = false;
   let effective: string | undefined;
-  if (accountId && plan && account) {
+  if (targetId && targetPlan && account) {
+    const accountId = targetId;
+    const plan = targetPlan;
     overridden = overrideActive(account, now);
     await env.DB.prepare("UPDATE accounts SET plan = ?, updated_at = ? WHERE id = ?")
       .bind(plan, now, accountId)
@@ -360,11 +461,17 @@ export async function processWebhookEvent(
     await env.DB.prepare(
       "INSERT INTO billing_events (id, event_name, account_id, processed_at) VALUES (?, ?, ?, ?)"
     )
-      .bind(id, eventName, accountId, now)
+      .bind(id, eventName, targetId, now)
       .run();
   } catch (e) {
     if (!isUniqueViolation(e)) throw e;
   }
 
-  return { ok: true, accountId, plan, overridden, ...(effective ? { effectivePlan: effective } : {}) };
+  return {
+    ok: true,
+    accountId: targetId,
+    plan: targetPlan,
+    overridden,
+    ...(effective ? { effectivePlan: effective } : {}),
+  };
 }

@@ -481,10 +481,19 @@ describe("the events the store actually sends", () => {
     LEMONSQUEEZY_VARIANT_FREE: "2020313",
   });
 
-  async function deliver(eventName: string, variantId: string, status: string, accountId: string) {
+  async function deliver(
+    eventName: string,
+    variantId: string,
+    status: string,
+    accountId: string,
+    subscriptionId?: string
+  ) {
     const body = JSON.stringify({
       meta: { event_name: eventName, custom_data: { account_id: accountId } },
-      data: { attributes: { variant_id: variantId, status } },
+      data: {
+        ...(subscriptionId ? { type: "subscriptions", id: subscriptionId } : {}),
+        attributes: { variant_id: variantId, status },
+      },
     });
     return billingRoutes.request(
       "/api/billing/webhook",
@@ -520,6 +529,37 @@ describe("the events the store actually sends", () => {
       await deliver(ev, "2020319", "active", id);
       expect(await planOf(id), ev).toBe("pro");
     }
+  });
+
+  it("a stranger's subscription aimed at a workspace cannot take its plan away", async () => {
+    const victim = await accountOnPlan("free");
+    // The owner pays for Team themselves.
+    await deliver("subscription_created", "2020323", "active", victim, "sub_owner");
+    expect(await planOf(victim)).toBe("team");
+
+    // Somebody else edits account_id in their own checkout URL, buys Pro, then pauses.
+    await deliver("subscription_created", "2020319", "active", victim, "sub_stranger");
+    expect(await planOf(victim)).toBe("team");
+    await deliver("subscription_paused", "2020319", "paused", victim, "sub_stranger");
+    expect(await planOf(victim)).toBe("team");
+  });
+
+  it("keeps a subscription bound to the workspace that first claimed it", async () => {
+    const mine = await accountOnPlan("free");
+    const theirs = await accountOnPlan("pro");
+    await deliver("subscription_created", "2020319", "active", mine, "sub_9");
+    // A later event for the same subscription naming another workspace still lands on the first.
+    await deliver("subscription_expired", "2020319", "expired", theirs, "sub_9");
+    expect(await planOf(theirs)).toBe("pro");
+    expect(await planOf(mine)).toBe("free");
+  });
+
+  it("drops to free when the workspace's only subscription ends", async () => {
+    const id = await accountOnPlan("free");
+    await deliver("subscription_created", "2020319", "active", id, "sub_only");
+    expect(await planOf(id)).toBe("pro");
+    await deliver("subscription_expired", "2020319", "expired", id, "sub_only");
+    expect(await planOf(id)).toBe("free");
   });
 
   it("revokes on pause", async () => {
