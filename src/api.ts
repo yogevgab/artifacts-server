@@ -104,6 +104,7 @@ import {
   listViewEvents,
 } from "./db";
 import { appOriginFor, canonicalArtifactLink } from "./canonical";
+import { customDomainLink, primaryDomainFor } from "./custom-domains";
 import { apiCors } from "./cors";
 
 type Vars = { Variables: AuthVars; Bindings: Env };
@@ -283,6 +284,12 @@ export async function viewUrl(
   slug: string,
   cache?: Map<string, Promise<string | null>>
 ): Promise<string> {
+  // A workspace with an ACTIVE PRIMARY custom domain shows that address
+  // everywhere (dashboard, share links, MCP results). Removing or deactivating
+  // the domain makes this null again, so links revert to rtfx.pro at once. With
+  // the flag off this is always null.
+  const customHost = await primaryDomainFor(c.env, accountId);
+  if (customHost) return customDomainLink(customHost, slug);
   let address: string | null = null;
   if (accountId) {
     // The promise is cached, not the value: callers resolve rows concurrently

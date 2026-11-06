@@ -1,7 +1,25 @@
 # Custom domains — design (draft, 2026-11-06)
 
-Status: **proposed, not built.** Until it ships, every public surface must keep saying custom
-domains are not available (test/positioning.test.ts enforces it).
+Status: **phase 1 (core) implemented behind `CUSTOM_DOMAINS_ENABLED="true"`; off by default.**
+Until phase 3 ships, every public surface must keep saying custom domains are not available
+(test/positioning.test.ts enforces it).
+
+### Phase 1 as built (operator notes)
+- Flag: `CUSTOM_DOMAINS_ENABLED` (Worker var, unset = off). Off means no code path reads the table
+  and behaviour is byte-for-byte what it was. Migrations `0025_custom_domains.sql` and `0026_auth_challenge_origin.sql` first.
+- Code: `src/custom-domains.ts` (registry, plan gate, hostname rules, `classifyHost`),
+  `src/customer-host.ts` (the customer-host allowlist + minimal pages), per-request
+  `frame-ancestors` via the frame token's `anc` claim (`src/session.ts`, `src/canonical.ts`).
+- Registering a domain by hand (platform super admin, signed in; 404 while the flag is off):
+  `PUT /api/platform/custom-domains/docs.acme.com` with JSON
+  `{ "account_id": "<workspace id>", "status": "active", "primary": true }`;
+  `GET /api/platform/custom-domains[?account_id=]`; `DELETE /api/platform/custom-domains/<host>`.
+  The workspace's effective plan must be Team or Enterprise (use a plan override for a trial) and
+  within its included count. Every write is audited (`domain.registered` / `domain.removed`).
+- Also allowed on a customer host beyond the list in §3: `GET /shared/<slug>` (the guest
+  sign-in page the viewer redirects to) and `POST /_access-request/<slug>` (the 404 page's form).
+- Owner-facing mails (read receipt, access request) still link to the rtfx.pro dashboard, because
+  management never exists on a customer host.
 
 ## Decisions (owner, 2026-11-06)
 
@@ -92,6 +110,18 @@ pending → active (or the Cloudflare error in plain language) → "Make primary
 Replaces the existing `data-placeholder="custom-domain"` row.
 
 ### 8. Security notes
+- **Credentials are host-bound.** The owner of a custom domain controls the server behind it
+  and can read every cookie and email link that reaches it, so nothing minted there may work on
+  rtfx.pro. Sessions and guest cookies carry an `aud` claim (the custom hostname); a customer host
+  accepts only tokens whose `aud` is exactly its own hostname, and the app hosts accept only tokens
+  with no `aud` (`verifySession(..., expectedAud)`). Sign-in challenges (`auth_challenges.origin`,
+  migration 0026) are bound to the origin that issued them: a code or magic token issued on
+  docs.acme.com is refused on rtfx.pro, and one issued on rtfx.pro is refused on docs.acme.com. A
+  refused magic token is not consumed. Share-link cookies are bearer capabilities re-validated per
+  request, so they stay as they are.
+- `/_chat/<slug>` on a customer host is scoped to the domain's workspace, like the viewer.
+- The rtfx.pro to custom-domain redirect is a 302 with `Cache-Control: private, no-store`, so a
+  removed domain is never remembered by browsers.
 - Host header trust: Cloudflare only forwards hostnames it has validated; the Worker still
   requires an `active` DB row and ignores everything else.
 - No management surface (OAuth issuer, API, MCP) is ever reachable on a customer host.

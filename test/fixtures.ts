@@ -1,5 +1,6 @@
 import { env } from "cloudflare:test";
 import app from "../src/index";
+import { clearCustomDomainCache } from "../src/custom-domains";
 
 /**
  * Recreate the D1 schema from scratch before each test. Tables are dropped
@@ -28,6 +29,7 @@ export async function initDb() {
     "oauth_codes",
     "oauth_refresh_tokens",
     "upload_sessions",
+    "custom_domains",
   ]) {
     await env.DB.prepare(`DROP TABLE IF EXISTS ${table}`).run();
   }
@@ -119,7 +121,7 @@ export async function initDb() {
       id TEXT PRIMARY KEY, email TEXT NOT NULL, code_hash TEXT NOT NULL,
       token_hash TEXT NOT NULL, purpose TEXT NOT NULL, slug TEXT,
       attempts INTEGER NOT NULL DEFAULT 0, expires_at TEXT NOT NULL,
-      consumed_at TEXT, created_at TEXT NOT NULL)`
+      consumed_at TEXT, created_at TEXT NOT NULL, origin TEXT)`
   ).run();
   await env.DB.prepare(
     `CREATE TABLE share_links (
@@ -176,6 +178,19 @@ export async function initDb() {
       title TEXT NOT NULL, description TEXT, note TEXT, created_at TEXT NOT NULL,
       expires_at TEXT NOT NULL, used_at TEXT)`
   ).run();
+  // Custom domains (migration 0025). Mirrors schema.sql.
+  await env.DB.prepare(
+    `CREATE TABLE custom_domains (
+      hostname TEXT PRIMARY KEY, account_id TEXT NOT NULL, status TEXT NOT NULL,
+      cf_hostname_id TEXT, ssl_status TEXT, verification_errors TEXT,
+      is_primary INTEGER NOT NULL DEFAULT 0, created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL, verified_at TEXT, updated_at TEXT)`
+  ).run();
+  await env.DB.prepare(
+    `CREATE UNIQUE INDEX idx_custom_domains_primary
+       ON custom_domains (account_id) WHERE is_primary = 1`
+  ).run();
+  clearCustomDomainCache();
 }
 
 /**

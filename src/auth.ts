@@ -3,6 +3,7 @@ import type { Context, MiddlewareHandler } from "hono";
 import type { Env } from "./env";
 import { canUseDashboard, hasScope } from "./authz";
 import { verifySession } from "./session";
+import { customerDomainOf } from "./custom-domains";
 import { resolveAccountContext, type AccountContext } from "./accounts";
 import {
   findApiToken,
@@ -369,7 +370,9 @@ async function identityFromSession(c: AuthContext): Promise<Identity | null> {
   const raw = readCookie(c.req.header("Cookie") ?? c.req.header("cookie"), SESSION_COOKIE);
   if (!raw) return null;
 
-  const claims = await verifySession(secret, raw, new Date().toISOString());
+  // A session is valid only on the host it was minted for (see SessionClaims.aud).
+  const aud = (await customerDomainOf(c.env, c.req.url ?? ""))?.hostname ?? null;
+  const claims = await verifySession(secret, raw, new Date().toISOString(), aud);
   if (!claims) return null;
 
   if (claims.kind === "guest") {

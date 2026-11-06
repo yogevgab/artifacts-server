@@ -13,6 +13,7 @@ import { Hono, type Context } from "hono";
 import type { AppBindings, Env } from "./env";
 import { SESSION_COOKIE } from "./auth";
 import { mintSession, SESSION_TTL_SECONDS } from "./session";
+import { customerDomainOf } from "./custom-domains";
 import { createChallenge, redeemCode, redeemReviewerCode, redeemToken, CHALLENGE_TTL_MINUTES } from "./otp";
 import { sendMail } from "./mail";
 import { signinMail, guestMail } from "./mail-templates";
@@ -136,7 +137,7 @@ function pendingNext(c: Context<AppBindings>): string | null {
  * only, never a content host (that origin serves uploaded HTML), and the host
  * must be the canonical site host or a subdomain of it.
  */
-function signinOrigin(c: Context<AppBindings>): string {
+async function signinOrigin(c: Context<AppBindings>): Promise<string> {
   const canonical = c.env.PUBLIC_BASE_URL || siteOrigin(c.env);
   let url: URL;
   try {
@@ -146,6 +147,10 @@ function signinOrigin(c: Context<AppBindings>): string {
   }
   if (url.protocol !== "https:") return canonical;
   if (isContentHost(c.env, c.req.url)) return canonical;
+  // A sign-in that started on an ACTIVE custom domain finishes there: cookies are
+  // host-only, so a link to rtfx.pro would sign the person in somewhere the page
+  // they were looking at cannot see. (Flag off: always null.)
+  if (await customerDomainOf(c.env, c.req.url)) return url.origin;
 
   const canonicalHost = requestHostname(canonical);
   const host = url.hostname.toLowerCase();
@@ -170,9 +175,16 @@ async function startChallenge(
     return;
   }
 
-  const issued = await createChallenge(c.env, { email, purpose, slug, now });
+  const customer = await customerDomainOf(c.env, c.req.url);
+  const issued = await createChallenge(c.env, {
+    email,
+    purpose,
+    slug,
+    now,
+    origin: customer ? `https://${customer.hostname}` : null,
+  });
 
-  const origin = signinOrigin(c);
+  const origin = await signinOrigin(c);
   const message = signinMail({
     code: issued.code,
     magicUrl: `${origin}/auth/m/${issued.token}`,
@@ -187,14 +199,14 @@ async function startChallenge(
  * Provisions the directory row and personal workspace on the way through, which
  * is what makes signup unattended.
  */
-async function establishSession(env: Env, email: string): Promise<string | null> {
+async function establishSession(env: Env, email: string, aud?: string): Promise<string | null> {
   if (!env.SESSION_SECRET) return null;
   const now = new Date().toISOString();
 
   await touchLastSeen(env, email, effectiveRole(env, email), now);
   await ensurePersonalAccount(env, email, now);
 
-  const token = await mintSession(env.SESSION_SECRET, { email, kind: "member" }, now);
+  const token = await mintSession(env.SESSION_SECRET, { email, kind: "member", ...(aud ? { aud } : {}) }, now);
   return sessionCookie(token, SESSION_TTL_SECONDS);
 }
 
@@ -245,12 +257,14 @@ authRoutes.post("/auth/verify", async (c) => {
   const nowIso = new Date().toISOString();
   const reviewer = reviewerConfig(c.env);
   const isReviewer = !!reviewer && reviewer.email === email;
+  const verifyCustomer = await customerDomainOf(c.env, c.req.url);
+  const verifyOrigin = verifyCustomer ? `https://${verifyCustomer.hostname}` : null;
   const challenge = isReviewer
-    ? await redeemReviewerCode(c.env, email, code, reviewer!.code, nowIso)
-    : await redeemCode(c.env, email, code, nowIso);
+    ? await redeemReviewerCode(c.env, email, code, reviewer!.code, nowIso, verifyOrigin)
+    : await redeemCode(c.env, email, code, nowIso, verifyOrigin);
   if (!challenge) return c.json({ error: "invalid_code" }, 401);
 
-  const cookie = await establishSession(c.env, challenge.email);
+  const cookie = await establishSession(c.env, challenge.email, verifyCustomer?.hostname);
   if (!cookie) return c.json({ error: "not_configured" }, 503);
   if (isReviewer) await noteReviewerSignin(c, challenge.email, nowIso);
 
@@ -260,7 +274,9 @@ authRoutes.post("/auth/verify", async (c) => {
   const headers = new Headers({ "Content-Type": "application/json; charset=UTF-8" });
   headers.append("Set-Cookie", cookie);
   headers.append("Set-Cookie", pendingNextCookie(null));
-  return new Response(JSON.stringify({ ok: true, redirect: pendingNext(c) ?? "/admin" }), {
+  // Nothing under /admin exists on a customer host; land on its root instead.
+  const home = (await customerDomainOf(c.env, c.req.url)) ? "/" : "/admin";
+  return new Response(JSON.stringify({ ok: true, redirect: pendingNext(c) ?? home }), {
     status: 200,
     headers,
   });
@@ -282,7 +298,13 @@ authRoutes.get("/auth/m/:token", (c) =>
 );
 
 authRoutes.post("/auth/m/:token", async (c) => {
-  const challenge = await redeemToken(c.env, c.req.param("token"), new Date().toISOString());
+  const tokenCustomer = await customerDomainOf(c.env, c.req.url);
+  const challenge = await redeemToken(
+    c.env,
+    c.req.param("token"),
+    new Date().toISOString(),
+    tokenCustomer ? `https://${tokenCustomer.hostname}` : null
+  );
   if (!challenge) return c.json({ error: "invalid_link" }, 401);
   // The reviewer has no link; refuse one even if a stray challenge somehow has it.
   if (challenge.purpose === "signin" && reviewerConfig(c.env)?.email === challenge.email) {
@@ -295,28 +317,43 @@ authRoutes.post("/auth/m/:token", async (c) => {
   // already signed in. It is its own cookie, bound to this one artifact, and only
   // the viewer and its chat socket ever read it. The visitor lands on the
   // artifact's canonical address.
+  // A guest challenge without a slug is malformed: refuse it rather than let it
+  // fall through to the member session below.
+  if (challenge.purpose === "guest" && !challenge.slug) return c.json({ error: "invalid_link" }, 401);
   if (challenge.purpose === "guest" && challenge.slug && c.env.SESSION_SECRET) {
     const token = await mintSession(
       c.env.SESSION_SECRET,
-      { email: challenge.email, kind: "guest", slug: challenge.slug },
+      {
+        email: challenge.email,
+        kind: "guest",
+        slug: challenge.slug,
+        ...(tokenCustomer ? { aud: tokenCustomer.hostname } : {}),
+      },
       new Date().toISOString()
     );
     const art = await getArtifact(c.env, challenge.slug);
-    const workspace = art?.account_id ? await ensureAccountPublicSlug(c.env, art.account_id) : null;
-    const headers = new Headers({
-      Location: art ? canonicalPath(workspace, art.slug) : "/",
-    });
+    // On a customer host the artifact lives at that host's own `/<slug>`.
+    const customer = await customerDomainOf(c.env, c.req.url);
+    let location: string;
+    if (customer) {
+      location = art && art.account_id === customer.account_id ? `/${encodeURIComponent(art.slug)}` : "/";
+    } else {
+      const workspace = art?.account_id ? await ensureAccountPublicSlug(c.env, art.account_id) : null;
+      location = art ? canonicalPath(workspace, art.slug) : "/";
+    }
+    const headers = new Headers({ Location: location });
     headers.append("Set-Cookie", guestCookie(token, SESSION_TTL_SECONDS));
     return new Response(null, { status: 302, headers });
   }
 
-  const cookie = await establishSession(c.env, challenge.email);
+  const cookie = await establishSession(c.env, challenge.email, tokenCustomer?.hostname);
   if (!cookie) return c.json({ error: "not_configured" }, 503);
 
   // Built by hand rather than with c.redirect(): that helper takes no headers,
   // and a redirect without the Set-Cookie would sign nobody in while looking
   // exactly like success.
-  const headers = new Headers({ Location: pendingNext(c) ?? "/admin" });
+  const home = (await customerDomainOf(c.env, c.req.url)) ? "/" : "/admin";
+  const headers = new Headers({ Location: pendingNext(c) ?? home });
   headers.append("Set-Cookie", cookie);
   headers.append("Set-Cookie", pendingNextCookie(null));
   return new Response(null, { status: 302, headers });
@@ -346,8 +383,19 @@ authRoutes.post("/auth/guest", async (c) => {
   const art = await getArtifact(c.env, slug);
   if (art && (await hasGrant(c.env, slug, email))) {
     const now = new Date().toISOString();
-    const issued = await createChallenge(c.env, { email, purpose: "guest", slug, now });
-    const origin = c.env.PUBLIC_BASE_URL || siteOrigin(c.env);
+    // The request's own host when it is an active custom domain of THIS
+    // artifact's workspace, so the guest lands where they were looking. The
+    // challenge is bound to that host: redeemable nowhere else.
+    const customer = await customerDomainOf(c.env, c.req.url);
+    const onCustom = !!customer && art.account_id === customer.account_id;
+    const origin = onCustom ? `https://${customer!.hostname}` : c.env.PUBLIC_BASE_URL || siteOrigin(c.env);
+    const issued = await createChallenge(c.env, {
+      email,
+      purpose: "guest",
+      slug,
+      now,
+      origin: onCustom ? origin : null,
+    });
     await sendMail(c.env, {
       to: email,
       kind: "share_notice",

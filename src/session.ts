@@ -20,6 +20,13 @@ export interface SessionClaims {
   kind: SessionKind;
   /** Guest sessions only: the single artifact this session was minted for. */
   slug?: string;
+  /**
+   * The custom-domain hostname this session was minted on. Absent = minted on an
+   * app host. A session is only valid on the host it was minted for: the owner of
+   * a custom domain controls the server behind it and can read every cookie sent
+   * there, so such a cookie must be worthless on rtfx.pro (and vice versa).
+   */
+  aud?: string;
 }
 
 /** 30 days. Sliding — see `shouldRefresh`. */
@@ -57,6 +64,7 @@ export async function mintSession(
   const jwt = new SignJWT({
     kind: claims.kind,
     ...(claims.slug ? { slug: claims.slug } : {}),
+    ...(claims.aud ? { aud: claims.aud } : {}),
   })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(normalize(claims.email))
@@ -74,18 +82,26 @@ export async function mintSession(
 export async function verifySession(
   secret: string,
   token: string,
-  now: string
+  now: string,
+  /**
+   * The custom-domain hostname of the request, or null on an app host. The
+   * token's `aud` must equal it exactly: tokens without `aud` (everything minted
+   * before custom domains) are accepted on app hosts only.
+   */
+  expectedAud: string | null = null
 ): Promise<SessionClaims | null> {
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, keyFrom(secret), {
       currentDate: new Date(now),
     });
+    const aud = typeof payload.aud === "string" ? payload.aud : undefined;
+    if ((aud ?? null) !== (expectedAud ?? null)) return null;
     const kind = payload.kind;
     if (kind !== "member" && kind !== "guest") return null;
     if (typeof payload.sub !== "string" || !payload.sub) return null;
     const slug = typeof payload.slug === "string" ? payload.slug : undefined;
-    return { email: payload.sub, kind, ...(slug ? { slug } : {}) };
+    return { email: payload.sub, kind, ...(slug ? { slug } : {}), ...(aud ? { aud } : {}) };
   } catch {
     return null;
   }
@@ -124,13 +140,42 @@ export function shouldRefresh(claims: { iat?: number }, now: string): boolean {
  */
 export const FRAME_TTL_SECONDS = 4 * 60 * 60;
 
-export async function mintFrameToken(secret: string, slug: string, now: string): Promise<string> {
+export async function mintFrameToken(
+  secret: string,
+  slug: string,
+  now: string,
+  /**
+   * Origin of the viewer that frames this content, when it is NOT the canonical
+   * app origin (a custom domain). The content host adds it to `frame-ancestors`
+   * only after re-checking it is an active domain of the artifact's workspace
+   * (src/custom-domains.ts `allowedFrameAncestor`), so the claim alone grants
+   * nothing. Omitted = exactly the token this has always been.
+   */
+  anc?: string
+): Promise<string> {
   const issued = Math.floor(Date.parse(now) / 1000);
-  return new SignJWT({ use: "frame", slug })
+  return new SignJWT({ use: "frame", slug, ...(anc ? { anc } : {}) })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt(issued)
     .setExpirationTime(issued + FRAME_TTL_SECONDS)
     .sign(keyFrom(secret));
+}
+
+/** The claims of an unexpired frame token minted for exactly this artifact, or null. */
+export async function readFrameToken(
+  secret: string,
+  token: string,
+  slug: string,
+  now: string
+): Promise<{ anc?: string } | null> {
+  if (!token) return null;
+  try {
+    const { payload } = await jwtVerify(token, keyFrom(secret), { currentDate: new Date(now) });
+    if (payload.use !== "frame" || payload.slug !== slug) return null;
+    return typeof payload.anc === "string" && payload.anc ? { anc: payload.anc } : {};
+  } catch {
+    return null;
+  }
 }
 
 /** True only for an unexpired frame token minted for exactly this artifact. */
@@ -140,11 +185,5 @@ export async function verifyFrameToken(
   slug: string,
   now: string
 ): Promise<boolean> {
-  if (!token) return false;
-  try {
-    const { payload } = await jwtVerify(token, keyFrom(secret), { currentDate: new Date(now) });
-    return payload.use === "frame" && payload.slug === slug;
-  } catch {
-    return false;
-  }
+  return (await readFrameToken(secret, token, slug, now)) !== null;
 }

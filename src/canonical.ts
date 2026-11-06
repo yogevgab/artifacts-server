@@ -130,6 +130,24 @@ export function frameAncestorOrigins(env: Env): string[] {
  * send no X-Frame-Options at all and `frame-ancestors` is the only, and
  * authoritative, framing policy.
  */
-export function frameAncestorsDirective(env: Env): string {
-  return `frame-ancestors 'self' ${frameAncestorOrigins(env).join(" ")}`.trim();
+export function frameAncestorsDirective(env: Env, extraOrigin?: string | null): string {
+  const origins = frameAncestorOrigins(env);
+  // A per-request addition (a custom domain the caller already verified belongs
+  // to this artifact's workspace). Never a content host, never anything that is
+  // not a plain https origin.
+  if (extraOrigin && !origins.includes(extraOrigin)) {
+    try {
+      const u = new URL(extraOrigin);
+      if (
+        u.protocol === "https:" &&
+        u.origin === extraOrigin &&
+        !parseHostnames(env.CONTENT_HOSTNAMES).has(u.hostname.toLowerCase())
+      ) {
+        origins.push(u.origin);
+      }
+    } catch {
+      /* ignore a malformed extra origin: the static list stands */
+    }
+  }
+  return `frame-ancestors 'self' ${origins.join(" ")}`.trim();
 }
