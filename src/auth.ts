@@ -401,23 +401,31 @@ async function identityFromSession(c: AuthContext): Promise<Identity | null> {
 
 /**
  * Sign-out, server side: void every session for whoever this request's
- * session (or, failing that, guest) cookie belongs to, so a copy of the cookie stops working too.
- * A request with no valid session changes nothing.
+ * session cookie and guest cookie belong to, so a copy of either stops working
+ * too. The two can name different addresses (a member who opened an
+ * invitation for another address); each is revoked. Nothing valid, no change.
  */
 export async function revokeCurrentSession(c: AuthContext): Promise<void> {
   const secret = c.env.SESSION_SECRET;
   if (!secret) return;
   const cookies = c.req.header("Cookie") ?? c.req.header("cookie");
-  // A guest-only visitor holds just the guest cookie (rtfx_guest, see
-  // GUEST_COOKIE in viewing.ts); signing out must void that address too.
-  const raw = readCookie(cookies, SESSION_COOKIE) ?? readCookie(cookies, "rtfx_guest");
-  if (!raw) return;
+  // rtfx_guest is GUEST_COOKIE in viewing.ts (not imported, to keep auth.ts
+  // free of a dependency on the viewer module).
+  const raws = [readCookie(cookies, SESSION_COOKIE), readCookie(cookies, "rtfx_guest")].filter(
+    (r): r is string => !!r
+  );
+  if (raws.length === 0) return;
   // Verified against the host this request arrived on, so a sign-out on a
   // customer domain (aud-bearing cookie) revokes just like one on an app host.
   // The revocation is per address, so it voids sessions minted on every host.
   const aud = (await customerDomainOf(c.env, c.req.url ?? ""))?.hostname ?? null;
-  const claims = await verifySession(secret, raw, new Date().toISOString(), aud);
-  if (claims) await revokeSessionsFor(c.env, claims.email, new Date().toISOString());
+  const now = new Date().toISOString();
+  const emails = new Set<string>();
+  for (const raw of raws) {
+    const claims = await verifySession(secret, raw, now, aud);
+    if (claims) emails.add(claims.email.trim().toLowerCase());
+  }
+  for (const email of emails) await revokeSessionsFor(c.env, email, now);
 }
 
 export async function resolveAuth(c: AuthContext): Promise<AuthResult> {

@@ -97,6 +97,14 @@ describe("session revocation and host-bound sessions", () => {
     expect((await get(`${CUSTOM}/report`, guest)).status).not.toBe(200);
   });
 
+  it("sign-out revokes the guest address too when a member session is also present", async () => {
+    const guest = `rtfx_guest=${await mintSession(SECRET, { email: OWNER, kind: "guest", slug: "report", aud: DOMAIN }, ago())}`;
+    const member = `${SESSION_COOKIE}=${await mintSession(SECRET, { email: "someone@else.com", kind: "member", aud: DOMAIN }, ago())}`;
+    expect((await get(`${CUSTOM}/report`, guest)).status).toBe(200);
+    expect((await post(`${CUSTOM}/auth/signout`, `${member}; ${guest}`)).status).toBe(200);
+    expect((await get(`${CUSTOM}/report`, guest)).status).not.toBe(200);
+  });
+
   it("a cross-site GET /logout clears this browser but does not revoke everywhere", async () => {
     const appCk = await cookie();
     const other = await cookie(DOMAIN);
