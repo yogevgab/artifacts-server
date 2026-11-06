@@ -11,6 +11,9 @@ import { GUIDE_IMAGES } from "./guide-images";
  *    URL is linked from each page). Where a doc is silent (ChatGPT plan tiers,
  *    Grok authentication and approvals, VS Code dynamic client registration,
  *    the Devin Desktop config snippet) the page says what the doc says or omits it.
+ *    The one exception is a run we did ourselves and dated on the page (ChatGPT,
+ *    2026-11-06): its steps, screenshots and troubleshooting FAQs describe what
+ *    we saw, and the page says which screenshot was captured separately.
  *  - Claims about messaging apps are generic: nothing here says how an app
  *    previews or handles .html attachments.
  *  - Claims about rtfx match the code: the MCP publish tool is a write tool
@@ -154,7 +157,7 @@ const chatgpt = toolTopic({
   vendor: "OpenAI's custom MCP server guide",
   vendorUrl: "https://developers.openai.com/api/docs/guides/custom-mcp-server",
   connect: `<p>${URL_NOTE} We connected ChatGPT to rtfx and published from it on 6 November 2026; the
-          screenshots are from that run.</p>
+          screenshots are from that run, except the rtfx consent screen, which we captured again afterwards.</p>
         <ol>
           <li>Open <b>Plugins</b> at chatgpt.com/plugins, select <b>Add</b>, then <b>Custom MCP server</b>.</li>
           <li>Enter a name, such as rtfx, put the server address above under <b>Connection</b>, and choose
@@ -167,15 +170,16 @@ const chatgpt = toolTopic({
         <ol start="4">
           <li>Select <b>Connect rtfx</b>. A new tab opens on rtfx.pro.</li>
         </ol>
-        ${shotFig("chatgpt-02-connect", 412, 405, "ChatGPT's Connect rtfx dialog", "ChatGPT asks before it connects.")}
+        ${shotFig("chatgpt-02-connect", 412, 405, "ChatGPT's Connect rtfx dialog", "ChatGPT asks before it connects to rtfx.")}
         <ol start="5">
           <li>Sign in with the code we email you. rtfx then lists exactly what ChatGPT is asking for, and
-            nothing is granted until you select <b>Allow access</b>. When we tested, ChatGPT asked to see,
-            publish, and also manage and delete artifacts; the screen marks that last one as destructive.
-            ChatGPT's <b>Advanced OAuth settings</b> include a <b>Default scopes</b> section, and you can revoke
-            the access at any time from Integrations in rtfx.</li>
+            nothing is granted until you select <b>Allow access</b>. When we connected, ChatGPT asked to see and
+            publish artifacts and also to manage and delete them; rtfx lists that last permission on its own line,
+            marked destructive. The screenshot below shows a request for the first two only. ChatGPT sets what it
+            asks for under <b>Default scopes</b> in <b>Advanced OAuth settings</b>, and you can revoke the access at
+            any time from Integrations in rtfx.</li>
         </ol>
-        ${shotFig("chatgpt-03-consent", 500, 865, "The rtfx consent screen: chatgpt.com (ChatGPT) wants access, with the permissions it asks for, the signed-in account, and Cancel and Allow access buttons", "rtfx's consent screen names each permission before you allow it.")}
+        ${shotFig("chatgpt-03-consent", 500, 865, "The rtfx consent screen: chatgpt.com (ChatGPT) wants access, with the permissions it asks for, the signed-in account, and Cancel and Allow access buttons", "rtfx's consent screen names each permission before you allow it (here, see and publish only).")}
         <p>OpenAI notes that workspace permissions and security restrictions apply, and to only connect servers
           you trust. Its guide doesn't state plan tiers, so check what your plan and workspace allow.</p>`,
   extra: [
@@ -187,7 +191,7 @@ const chatgpt = toolTopic({
         <p>ChatGPT writes the page, calls rtfx's publish tool, and replies with the link. In our test that took
           about half a minute.</p>
         ${shotFig("chatgpt-05-reply", 860, 380, "ChatGPT's reply: published your card, a link to open it, and a note that the page is private", "ChatGPT replies with the rtfx link.")}
-        ${shotFig("chatgpt-06-page", 560, 530, "The published Hello from ChatGPT card, open at its rtfx link", "The page at its link. Only you can open it until you share it.")}`,
+        ${shotFig("chatgpt-06-page", 560, 530, "The published Hello from ChatGPT card, open at its rtfx link", "The published page, open at its rtfx link. Only you can open it until you share it.")}`,
     },
   ],
   faqs: [
