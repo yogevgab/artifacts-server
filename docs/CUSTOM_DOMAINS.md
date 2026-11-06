@@ -10,6 +10,7 @@ domains are not available (test/positioning.test.ts enforces it).
 | Which plans | **Team** (and an optional paid add-on for more domains) and **Enterprise**. Not Free, not Pro. |
 | What a domain maps to | **The whole workspace**: `docs.acme.com/<artifact>` ≡ `rtfx.pro/acme/<artifact>`. |
 | Private artifacts | **Same rules as rtfx.pro**: private by default, email-code sign-in, share links, view log — all on the customer's domain. |
+| Included / add-on | **Team includes 1 domain; each extra domain is a US$5/month add-on.** Enterprise: by agreement (operator override). |
 
 ## How it works
 
@@ -110,8 +111,7 @@ Replaces the existing `data-placeholder="custom-domain"` row.
 ## Owner steps (cannot be done from code)
 - Enable Cloudflare for SaaS on the `rtfx.pro` zone; create the fallback record.
 - Create `CF_SAAS_API_TOKEN` (zone-scoped) and set it as a Worker secret.
-- Decide: domains included in Team (proposal: 1) and add-on price (proposal: US$5/month per
-  extra domain); create the Lemon Squeezy add-on variant.
+- Create the Lemon Squeezy add-on variant ("Extra custom domain", US$5/month) — phase 3.
 - A test domain you control (e.g. `docs.<your-domain>`).
 
 ## Unrelated finding from the code read (fix separately)
