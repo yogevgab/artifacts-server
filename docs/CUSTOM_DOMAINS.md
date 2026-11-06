@@ -1,7 +1,25 @@
 # Custom domains — design (draft, 2026-11-06)
 
-Status: **proposed, not built.** Until it ships, every public surface must keep saying custom
-domains are not available (test/positioning.test.ts enforces it).
+Status: **phase 1 (core) implemented behind `CUSTOM_DOMAINS_ENABLED="true"`; off by default.**
+Until phase 3 ships, every public surface must keep saying custom domains are not available
+(test/positioning.test.ts enforces it).
+
+### Phase 1 as built (operator notes)
+- Flag: `CUSTOM_DOMAINS_ENABLED` (Worker var, unset = off). Off means no code path reads the table
+  and behaviour is byte-for-byte what it was. Migration `0025_custom_domains.sql` first.
+- Code: `src/custom-domains.ts` (registry, plan gate, hostname rules, `classifyHost`),
+  `src/customer-host.ts` (the customer-host allowlist + minimal pages), per-request
+  `frame-ancestors` via the frame token's `anc` claim (`src/session.ts`, `src/canonical.ts`).
+- Registering a domain by hand (platform super admin, signed in; 404 while the flag is off):
+  `PUT /api/platform/custom-domains/docs.acme.com` with JSON
+  `{ "account_id": "<workspace id>", "status": "active", "primary": true }`;
+  `GET /api/platform/custom-domains[?account_id=]`; `DELETE /api/platform/custom-domains/<host>`.
+  The workspace's effective plan must be Team or Enterprise (use a plan override for a trial) and
+  within its included count. Every write is audited (`domain.registered` / `domain.removed`).
+- Also allowed on a customer host beyond the list in §3: `GET /shared/<slug>` (the guest
+  sign-in page the viewer redirects to) and `POST /_access-request/<slug>` (the 404 page's form).
+- Owner-facing mails (read receipt, access request) still link to the rtfx.pro dashboard, because
+  management never exists on a customer host.
 
 ## Decisions (owner, 2026-11-06)
 

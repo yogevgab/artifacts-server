@@ -36,6 +36,16 @@ import { deletePrefix } from "./api";
 import { isPlatformSuperAdmin } from "./authz";
 import { parseHostnames } from "./host";
 import { siteOrigin } from "./seo";
+import {
+  customDomainsEnabled,
+  DOMAIN_STATUSES,
+  listAllDomains,
+  listAccountDomains,
+  registerDomain,
+  removeDomain,
+  type DomainStatus,
+  type RegisterFailure,
+} from "./custom-domains";
 
 /**
  * The operator control plane's HTTP surface: `/admin/platform` and everything
@@ -419,4 +429,104 @@ platformRoutes.post(`${ACCOUNT_PATH}/notes`, async (c) => {
 
   await setAccountNotes(c.env, account, { notes, actor: actorOf(c), now: new Date().toISOString() });
   return back(c, account.id, "notes_saved");
+});
+
+
+// --- custom domains (phase 1: operator-only, no Cloudflare API) ---------------
+//
+// There is no self-serve UI yet. An operator adds the hostname in the Cloudflare
+// dashboard (Cloudflare for SaaS), then records it here. Same lock as the abuse
+// delete: a signed-in super admin, never a token, same-origin. 404 while the
+// feature flag is off, so the surface does not exist until it is switched on.
+//
+//   GET    /api/platform/custom-domains[?account_id=]
+//   PUT    /api/platform/custom-domains/:hostname
+//          { account_id, status?: pending|active|failed|removed (default active),
+//            primary?: boolean, cf_hostname_id?, ssl_status? }
+//   DELETE /api/platform/custom-domains/:hostname
+
+const DOMAIN_FAILURE_STATUS: Record<RegisterFailure, number> = {
+  bad_hostname: 400,
+  bad_status: 400,
+  primary_requires_active: 400,
+  no_account: 404,
+  plan_required: 409,
+  limit_reached: 409,
+  taken: 409,
+};
+
+const DOMAIN_FAILURE_DETAIL: Record<RegisterFailure, string> = {
+  bad_hostname: "not a valid customer hostname (rtfx.pro names, IPs and localhost are refused)",
+  bad_status: `status must be one of ${DOMAIN_STATUSES.join(", ")}`,
+  primary_requires_active: "only an active domain can be primary",
+  no_account: "no such workspace",
+  plan_required: "this workspace's plan does not include custom domains (Team or Enterprise)",
+  limit_reached: "this workspace already holds the custom domains its plan includes",
+  taken: "that hostname already belongs to another workspace",
+};
+
+/** The operator, if this request may use the domain controls; otherwise the response to give. */
+async function domainOperator(c: PortalContext): Promise<Response | null> {
+  const identity = c.get("identity");
+  if (
+    !customDomainsEnabled(c.env) ||
+    !(await operatorViewer(c)) ||
+    !isPlatformSuperAdmin(identity) ||
+    identity.token ||
+    identity.kind === "guest" ||
+    crossOrigin(c)
+  ) {
+    return c.json({ error: "not_found" }, 404);
+  }
+  return null;
+}
+
+platformRoutes.get("/api/platform/custom-domains", requireUser, async (c) => {
+  const refused = await domainOperator(c);
+  if (refused) return refused;
+  const accountId = c.req.query("account_id");
+  const rows = accountId ? await listAccountDomains(c.env, accountId) : await listAllDomains(c.env);
+  return c.json({ domains: rows });
+});
+
+platformRoutes.put("/api/platform/custom-domains/:hostname", requireUser, async (c) => {
+  const refused = await domainOperator(c);
+  if (refused) return refused;
+  const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!body || typeof body !== "object" || typeof body.account_id !== "string") {
+    return c.json({ error: "bad_request", detail: "send { account_id, status?, primary? }" }, 400);
+  }
+  const status = (body.status ?? "active") as DomainStatus;
+  const out = await registerDomain(c.env, {
+    hostname: decodeURIComponent(c.req.param("hostname") ?? ""),
+    accountId: body.account_id,
+    status,
+    primary: body.primary === true,
+    cfHostnameId: typeof body.cf_hostname_id === "string" ? body.cf_hostname_id : null,
+    sslStatus: typeof body.ssl_status === "string" ? body.ssl_status : null,
+    actor: actorOf(c),
+    now: new Date().toISOString(),
+  });
+  if (!out.ok) {
+    return c.json(
+      { error: out.reason, detail: DOMAIN_FAILURE_DETAIL[out.reason] },
+      DOMAIN_FAILURE_STATUS[out.reason] as 400 | 404 | 409
+    );
+  }
+  console.log(JSON.stringify({ event: "custom_domain_set", hostname: out.row.hostname, status: out.row.status }));
+  return c.json({ domain: out.row });
+});
+
+platformRoutes.delete("/api/platform/custom-domains/:hostname", requireUser, async (c) => {
+  const refused = await domainOperator(c);
+  if (refused) return refused;
+  const ok = await removeDomain(
+    c.env,
+    decodeURIComponent(c.req.param("hostname") ?? ""),
+    actorOf(c),
+    new Date().toISOString()
+  );
+  if (!ok) return c.json({ error: "not_found" }, 404);
+  console.log(JSON.stringify({ event: "custom_domain_removed", hostname: c.req.param("hostname") }));
+  return c.json({ ok: true });
 });

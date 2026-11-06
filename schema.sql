@@ -398,3 +398,25 @@ CREATE TABLE IF NOT EXISTS upload_sessions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_upload_sessions_expires ON upload_sessions (expires_at);
+
+-- Custom domains (migration 0025; docs/CUSTOM_DOMAINS.md). Inert unless
+-- CUSTOM_DOMAINS_ENABLED="true".
+CREATE TABLE IF NOT EXISTS custom_domains (
+  hostname            TEXT PRIMARY KEY,
+  account_id          TEXT NOT NULL REFERENCES accounts(id),
+  status              TEXT NOT NULL,   -- pending | active | failed | removed
+  cf_hostname_id      TEXT,            -- Cloudflare custom hostname id (phase 2)
+  ssl_status          TEXT,
+  verification_errors TEXT,
+  is_primary          INTEGER NOT NULL DEFAULT 0, -- the one links and emails use
+  created_by          TEXT NOT NULL,
+  created_at          TEXT NOT NULL,
+  verified_at         TEXT,
+  updated_at          TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_custom_domains_account ON custom_domains (account_id);
+
+-- At most one primary domain per workspace.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_custom_domains_primary
+  ON custom_domains (account_id) WHERE is_primary = 1;

@@ -124,13 +124,42 @@ export function shouldRefresh(claims: { iat?: number }, now: string): boolean {
  */
 export const FRAME_TTL_SECONDS = 4 * 60 * 60;
 
-export async function mintFrameToken(secret: string, slug: string, now: string): Promise<string> {
+export async function mintFrameToken(
+  secret: string,
+  slug: string,
+  now: string,
+  /**
+   * Origin of the viewer that frames this content, when it is NOT the canonical
+   * app origin (a custom domain). The content host adds it to `frame-ancestors`
+   * only after re-checking it is an active domain of the artifact's workspace
+   * (src/custom-domains.ts `allowedFrameAncestor`), so the claim alone grants
+   * nothing. Omitted = exactly the token this has always been.
+   */
+  anc?: string
+): Promise<string> {
   const issued = Math.floor(Date.parse(now) / 1000);
-  return new SignJWT({ use: "frame", slug })
+  return new SignJWT({ use: "frame", slug, ...(anc ? { anc } : {}) })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt(issued)
     .setExpirationTime(issued + FRAME_TTL_SECONDS)
     .sign(keyFrom(secret));
+}
+
+/** The claims of an unexpired frame token minted for exactly this artifact, or null. */
+export async function readFrameToken(
+  secret: string,
+  token: string,
+  slug: string,
+  now: string
+): Promise<{ anc?: string } | null> {
+  if (!token) return null;
+  try {
+    const { payload } = await jwtVerify(token, keyFrom(secret), { currentDate: new Date(now) });
+    if (payload.use !== "frame" || payload.slug !== slug) return null;
+    return typeof payload.anc === "string" && payload.anc ? { anc: payload.anc } : {};
+  } catch {
+    return null;
+  }
 }
 
 /** True only for an unexpired frame token minted for exactly this artifact. */
@@ -140,11 +169,5 @@ export async function verifyFrameToken(
   slug: string,
   now: string
 ): Promise<boolean> {
-  if (!token) return false;
-  try {
-    const { payload } = await jwtVerify(token, keyFrom(secret), { currentDate: new Date(now) });
-    return payload.use === "frame" && payload.slug === slug;
-  } catch {
-    return false;
-  }
+  return (await readFrameToken(secret, token, slug, now)) !== null;
 }

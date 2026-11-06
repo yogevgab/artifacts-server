@@ -44,6 +44,8 @@ export const AUDIT_ACTIONS = [
   "billing.plan_change_under_override",
   "artifact.operator_deleted",
   "auth.reviewer_signin",
+  "domain.registered",
+  "domain.removed",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
@@ -58,6 +60,8 @@ export const AUDIT_ACTION_LABEL: Record<AuditAction, string> = {
   "billing.plan_change_under_override": "Billing changed under an override",
   "artifact.operator_deleted": "Artifact deleted by operator",
   "auth.reviewer_signin": "Directory reviewer signed in",
+  "domain.registered": "Custom domain registered",
+  "domain.removed": "Custom domain removed",
 };
 
 export interface AuditRow {

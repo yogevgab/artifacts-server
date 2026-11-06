@@ -13,6 +13,7 @@ import { Hono, type Context } from "hono";
 import type { AppBindings, Env } from "./env";
 import { SESSION_COOKIE } from "./auth";
 import { mintSession, SESSION_TTL_SECONDS } from "./session";
+import { customerDomainOf } from "./custom-domains";
 import { createChallenge, redeemCode, redeemReviewerCode, redeemToken, CHALLENGE_TTL_MINUTES } from "./otp";
 import { sendMail } from "./mail";
 import { signinMail, guestMail } from "./mail-templates";
@@ -136,7 +137,7 @@ function pendingNext(c: Context<AppBindings>): string | null {
  * only, never a content host (that origin serves uploaded HTML), and the host
  * must be the canonical site host or a subdomain of it.
  */
-function signinOrigin(c: Context<AppBindings>): string {
+async function signinOrigin(c: Context<AppBindings>): Promise<string> {
   const canonical = c.env.PUBLIC_BASE_URL || siteOrigin(c.env);
   let url: URL;
   try {
@@ -146,6 +147,10 @@ function signinOrigin(c: Context<AppBindings>): string {
   }
   if (url.protocol !== "https:") return canonical;
   if (isContentHost(c.env, c.req.url)) return canonical;
+  // A sign-in that started on an ACTIVE custom domain finishes there: cookies are
+  // host-only, so a link to rtfx.pro would sign the person in somewhere the page
+  // they were looking at cannot see. (Flag off: always null.)
+  if (await customerDomainOf(c.env, c.req.url)) return url.origin;
 
   const canonicalHost = requestHostname(canonical);
   const host = url.hostname.toLowerCase();
@@ -172,7 +177,7 @@ async function startChallenge(
 
   const issued = await createChallenge(c.env, { email, purpose, slug, now });
 
-  const origin = signinOrigin(c);
+  const origin = await signinOrigin(c);
   const message = signinMail({
     code: issued.code,
     magicUrl: `${origin}/auth/m/${issued.token}`,
@@ -260,7 +265,9 @@ authRoutes.post("/auth/verify", async (c) => {
   const headers = new Headers({ "Content-Type": "application/json; charset=UTF-8" });
   headers.append("Set-Cookie", cookie);
   headers.append("Set-Cookie", pendingNextCookie(null));
-  return new Response(JSON.stringify({ ok: true, redirect: pendingNext(c) ?? "/admin" }), {
+  // Nothing under /admin exists on a customer host; land on its root instead.
+  const home = (await customerDomainOf(c.env, c.req.url)) ? "/" : "/admin";
+  return new Response(JSON.stringify({ ok: true, redirect: pendingNext(c) ?? home }), {
     status: 200,
     headers,
   });
@@ -295,6 +302,9 @@ authRoutes.post("/auth/m/:token", async (c) => {
   // already signed in. It is its own cookie, bound to this one artifact, and only
   // the viewer and its chat socket ever read it. The visitor lands on the
   // artifact's canonical address.
+  // A guest challenge without a slug is malformed: refuse it rather than let it
+  // fall through to the member session below.
+  if (challenge.purpose === "guest" && !challenge.slug) return c.json({ error: "invalid_link" }, 401);
   if (challenge.purpose === "guest" && challenge.slug && c.env.SESSION_SECRET) {
     const token = await mintSession(
       c.env.SESSION_SECRET,
@@ -302,10 +312,16 @@ authRoutes.post("/auth/m/:token", async (c) => {
       new Date().toISOString()
     );
     const art = await getArtifact(c.env, challenge.slug);
-    const workspace = art?.account_id ? await ensureAccountPublicSlug(c.env, art.account_id) : null;
-    const headers = new Headers({
-      Location: art ? canonicalPath(workspace, art.slug) : "/",
-    });
+    // On a customer host the artifact lives at that host's own `/<slug>`.
+    const customer = await customerDomainOf(c.env, c.req.url);
+    let location: string;
+    if (customer) {
+      location = art && art.account_id === customer.account_id ? `/${encodeURIComponent(art.slug)}` : "/";
+    } else {
+      const workspace = art?.account_id ? await ensureAccountPublicSlug(c.env, art.account_id) : null;
+      location = art ? canonicalPath(workspace, art.slug) : "/";
+    }
+    const headers = new Headers({ Location: location });
     headers.append("Set-Cookie", guestCookie(token, SESSION_TTL_SECONDS));
     return new Response(null, { status: 302, headers });
   }
@@ -316,7 +332,8 @@ authRoutes.post("/auth/m/:token", async (c) => {
   // Built by hand rather than with c.redirect(): that helper takes no headers,
   // and a redirect without the Set-Cookie would sign nobody in while looking
   // exactly like success.
-  const headers = new Headers({ Location: pendingNext(c) ?? "/admin" });
+  const home = (await customerDomainOf(c.env, c.req.url)) ? "/" : "/admin";
+  const headers = new Headers({ Location: pendingNext(c) ?? home });
   headers.append("Set-Cookie", cookie);
   headers.append("Set-Cookie", pendingNextCookie(null));
   return new Response(null, { status: 302, headers });
@@ -347,7 +364,13 @@ authRoutes.post("/auth/guest", async (c) => {
   if (art && (await hasGrant(c.env, slug, email))) {
     const now = new Date().toISOString();
     const issued = await createChallenge(c.env, { email, purpose: "guest", slug, now });
-    const origin = c.env.PUBLIC_BASE_URL || siteOrigin(c.env);
+    // The request's own host when it is an active custom domain of THIS
+    // artifact's workspace, so the guest lands where they were looking.
+    const customer = await customerDomainOf(c.env, c.req.url);
+    const origin =
+      customer && art.account_id === customer.account_id
+        ? `https://${customer.hostname}`
+        : c.env.PUBLIC_BASE_URL || siteOrigin(c.env);
     await sendMail(c.env, {
       to: email,
       kind: "share_notice",

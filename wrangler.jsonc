@@ -78,6 +78,11 @@
     // would 404 the very endpoints it exists to serve, and would strike it from
     // `appOrigins` (src/cors.ts) so its own consent form could not POST to itself.
     "CONTENT_HOSTNAMES": "a.rtfx.pro",
+    // Custom domains (docs/CUSTOM_DOMAINS.md, phase 1) are OFF unless this is the
+    // string "true". Leave it unset in production until migration 0025 is applied
+    // and Cloudflare for SaaS is enabled on the zone; then add
+    //   "CUSTOM_DOMAINS_ENABLED": "true",
+    // (public copy still says custom domains are not available — phase 3).
     // --- Lemon Squeezy billing. The signing secret is NOT here: it is set with
     //     `wrangler secret put LEMONSQUEEZY_WEBHOOK_SECRET`. ---
     // The store's SUBDOMAIN, not the numeric store id (#452239) — hosted

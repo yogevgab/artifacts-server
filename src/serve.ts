@@ -97,7 +97,7 @@ export async function serveArtifact<E extends { Bindings: Env }>(
   slug: string,
   version: number,
   path: string,
-  opts: { framed?: boolean } = {}
+  opts: { framed?: boolean; extraAncestor?: string | null } = {}
 ): Promise<Response> {
   let rel = path.replace(/^\/+/, "");
   if (rel === "" || rel.endsWith("/")) rel += "index.html";
@@ -141,7 +141,7 @@ export async function serveArtifact<E extends { Bindings: Env }>(
   // frame-ancestors is an exact allowlist ('self' plus the canonical app origin and
   // APP_ORIGINS), never 'none' and never '*': the viewer must be able to frame this
   // content, and nothing else on the internet may. See src/canonical.ts.
-  const ancestors = frameAncestorsDirective(c.env);
+  const ancestors = frameAncestorsDirective(c.env, opts.extraAncestor);
   // Keep artifact pages working: AI-built pages often load CDNs, fonts, images or iframes.
   // This CSP hardens the browser boundary that matters for the shared content origin
   // (no framing, no hostile <base>) without blocking those artifact subresources.
