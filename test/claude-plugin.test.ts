@@ -29,6 +29,7 @@ import {
   SOURCE_ENV,
   SOURCE_OAUTH,
   SOURCE_NONE,
+  pluginEnv,
 } from "../plugins/rtfx/scripts/rtfx.lib.mjs";
 import {
   LOGIN_SCOPES,
@@ -123,31 +124,17 @@ describe("plugin config resolution", () => {
 
   it("rejects a non-URL or non-http endpoint instead of failing at fetch time", () => {
     expect(() => resolveEndpoint({ ARTIFACTS_URL: "not a url" })).toThrow(/not a valid URL/);
-    expect(() => resolveEndpoint({ ARTIFACTS_URL: "ftp://x.example" })).toThrow(/http/);
+    expect(() => resolveEndpoint({ ARTIFACTS_URL: "ftp://x.example" })).toThrow(/https/);
   });
 
-  it("needs only a bearer token; Access headers are optional pass-through", () => {
-    const bare = resolveConfig({ [TOKEN_VAR]: "rtfx_abc123_secretvalue" });
-    expect(bare.hasToken).toBe(true);
-    expect(bare.access).toBeNull();
-    expect(authHeaders(bare)).toEqual({ Authorization: "Bearer rtfx_abc123_secretvalue" });
-
-    const gated = resolveConfig({
+  it("needs only a bearer token and sends no Access headers", () => {
+    const cfg = resolveConfig({
       [TOKEN_VAR]: "rtfx_abc123_secretvalue",
       CF_ACCESS_CLIENT_ID: "id.access",
       CF_ACCESS_CLIENT_SECRET: "shh",
     });
-    expect(authHeaders(gated)).toEqual({
-      Authorization: "Bearer rtfx_abc123_secretvalue",
-      "CF-Access-Client-Id": "id.access",
-      "CF-Access-Client-Secret": "shh",
-    });
-  });
-
-  it("half-configured Access headers are ignored rather than sent broken", () => {
-    const cfg = resolveConfig({ [TOKEN_VAR]: "rtfx_a_b", CF_ACCESS_CLIENT_ID: "id.access" });
-    expect(cfg.access).toBeNull();
-    expect(authHeaders(cfg)).not.toHaveProperty("CF-Access-Client-Id");
+    expect(cfg.hasToken).toBe(true);
+    expect(authHeaders(cfg)).toEqual({ Authorization: "Bearer rtfx_abc123_secretvalue" });
   });
 
   it("takes no Cloudflare account credential from the environment", () => {
@@ -963,5 +950,36 @@ describe("the product surfaces point at the plugin", () => {
     expect(panel).toContain("rtfx-mcp.mjs");
     // The example config must show a placeholder, never anything token-shaped.
     expect(panel).not.toMatch(/rtfx_[A-Za-z0-9]{4,}_[A-Za-z0-9_-]{8,}/);
+  });
+});
+
+describe("pluginEnv (no ambient credentials)", () => {
+  const ambient = {
+    RTFX_API_TOKEN: "rtfx_abc123_secret",
+    CF_ACCESS_CLIENT_ID: "id",
+    CF_ACCESS_CLIENT_SECRET: "s",
+    GITHUB_TOKEN: "ghp_x",
+    ARTIFACTS_URL: "https://rtfx.pro",
+    XDG_CONFIG_HOME: "/x",
+  };
+  it("drops everything but the allow-list, and the token unless asked", () => {
+    expect(pluginEnv(ambient)).toEqual({ ARTIFACTS_URL: "https://rtfx.pro", XDG_CONFIG_HOME: "/x" });
+    expect(pluginEnv(ambient, { token: true }).RTFX_API_TOKEN).toBe("rtfx_abc123_secret");
+  });
+  it("treats unresolved user_config placeholders and empty values as unset", () => {
+    const out = pluginEnv({ RTFX_API_TOKEN: "${user_config.api_token}", ARTIFACTS_URL: "  " }, { token: true });
+    expect(out).toEqual({});
+  });
+  it("fails closed on a bad endpoint: never falls back to the default host with the token", () => {
+    for (const bad of ["http://artifacts.lan:8787", "http://evil.example", "artifacts.example.com", "not a url", "ftp://x.example"]) {
+      const env = pluginEnv({ ARTIFACTS_URL: bad, RTFX_API_TOKEN: "rtfx_self_secret" }, { token: true });
+      expect(env.ARTIFACTS_URL, bad).toBe(bad);
+      expect(() => resolveConfig(env), bad).toThrow(/ARTIFACTS_URL/);
+    }
+  });
+  it("accepts https and loopback http endpoints", () => {
+    for (const ok of ["https://artifacts.example.com", "http://localhost:8787", "http://127.0.0.1:8787"]) {
+      expect(resolveConfig(pluginEnv({ ARTIFACTS_URL: ok, RTFX_API_TOKEN: "rtfx_a_b" }, { token: true })).endpoint).toBe(ok);
+    }
   });
 });

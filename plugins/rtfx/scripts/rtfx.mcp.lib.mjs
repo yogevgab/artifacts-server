@@ -51,7 +51,7 @@ import {
 export const SERVER_INFO = {
   name: "rtfx",
   title: "rtfx.pro publishing",
-  version: "1.2.1",
+  version: "1.2.2",
 };
 
 /**
@@ -309,8 +309,6 @@ export function redactSecrets(text, config = null) {
   let out = typeof text === "string" ? text : String(text);
   const secrets = [];
   if (config?.token) secrets.push([config.token, redactToken(config.token)]);
-  if (config?.access?.secret) secrets.push([config.access.secret, "[redacted]"]);
-  if (config?.access?.id) secrets.push([config.access.id, "[redacted]"]);
   // A refresh token mints access tokens, so it is at least as sensitive as one —
   // and it does not match the `rtfx_<id>_<secret>` shape below, which is exactly
   // why it has to be named here rather than left to the pattern.
@@ -446,7 +444,7 @@ async function requireToken(ctx) {
   const config = await resolveRuntimeConfig(ctx);
   if (!config.hasToken) {
     throw new ToolError("no rtfx credential is available", {
-      hint: `Run \`/rtfx:login\` to sign in with a browser, or set ${TOKEN_VAR} in the MCP server's env block (a token from ${config.endpoint}/admin/integrations, scopes: read, publish).`,
+      hint: `Run \`/rtfx:login\` to sign in with a browser, or set the plugin's "API token" option (/plugin → rtfx → Configure; a token from ${config.endpoint}/admin/integrations, scopes: read, publish).`,
     });
   }
   return config;
@@ -676,7 +674,6 @@ export function describeEnv(ctx) {
     // `describeCredential` reports the token *id*, never the token, and omits the
     // refresh token entirely — this object is rendered into a tool result.
     oauth: ctx.config.credential ? describeCredential(ctx.config.credential) : null,
-    access_headers: Boolean(ctx.config.access),
     access_tool_enabled: truthy(ctx.env[ACCESS_TOOL_VAR]),
     cloudflare_management_token: "ignored",
     node: ctx.node ?? null,
@@ -703,7 +700,7 @@ async function doctor(ctx) {
   if (!ctx.config.hasToken) {
     throw new ToolError("no rtfx credential is available", {
       detail: `endpoint ${facts.endpoint}; tools ${facts.tools.join(", ")}`,
-      hint: `Run \`/rtfx:login\` to sign in with a browser, or set ${TOKEN_VAR} in the MCP server's env block (a token from ${facts.endpoint}/admin/integrations, scopes: read, publish).`,
+      hint: `Run \`/rtfx:login\` to sign in with a browser, or set the plugin's "API token" option (/plugin → rtfx → Configure; a token from ${facts.endpoint}/admin/integrations, scopes: read, publish).`,
     });
   }
   const data = await api(ctx, "/api/artifacts");
@@ -712,7 +709,6 @@ async function doctor(ctx) {
       `endpoint  ${facts.endpoint}`,
       `auth      ${sourceLine(facts)}`,
       `token     ${facts.token}`,
-      `access    ${facts.access_headers ? "service-token headers set" : "not set (fine unless /api is Access-gated)"}`,
       `tools     ${facts.tools.join(", ")}`,
       `api       ok — ${(data.artifacts ?? []).length} artifact(s) visible to this credential`,
     ],

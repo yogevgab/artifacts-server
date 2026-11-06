@@ -90,6 +90,35 @@ export function isSensitivePath(path) {
 }
 
 /**
+ * The only environment variables the plugin's entry scripts look at.
+ *
+ * The plugin never reads a credential out of the user's ambient environment.
+ * The MCP server's token and endpoint arrive through the manifest's `userConfig`
+ * (`api_token` is `sensitive: true`), which Claude Code injects into that one
+ * process's `env` block; the CLI (`rtfx.mjs`) takes no token from the environment
+ * at all and uses the browser sign-in. Everything else in `source` — other
+ * tools' tokens, `CF_ACCESS_*`, cloud keys — is dropped here, before any other
+ * code can see it.
+ *
+ * A value that still reads `${user_config.…}` (an option the user never set) is
+ * treated as unset. An endpoint value that is not https (or loopback http) is
+ * kept as given, and `resolveEndpoint` refuses it: it never falls back to the
+ * default host, so a token configured for one instance cannot be sent to another.
+ */
+export function pluginEnv(source = {}, { token = false } = {}) {
+  const out = {};
+  const keys = [...ENDPOINT_VARS, "XDG_CONFIG_HOME", "RTFX_MCP_ALLOW_ACCESS", "RTFX_MCP_DEBUG", ...(token ? [TOKEN_VAR] : [])];
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value !== "string") continue;
+    const v = value.trim();
+    if (!v || v.includes("${")) continue;
+    out[key] = v;
+  }
+  return out;
+}
+
+/**
  * Resolve the instance URL from the environment. `ARTIFACTS_URL` is the name the
  * repo CLI already uses and wins; `RTFX_URL` is accepted as an alias so a person
  * who only ever saw rtfx.pro branding guesses right.
@@ -103,8 +132,9 @@ export function resolveEndpoint(env = {}) {
   } catch {
     throw new Error(`${ENDPOINT_VARS[0]} is not a valid URL: ${raw}`);
   }
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    throw new Error(`${ENDPOINT_VARS[0]} must be http(s), got ${parsed.protocol}`);
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname);
+  if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && loopback)) {
+    throw new Error(`${ENDPOINT_VARS[0]} must be https (or loopback http), got ${raw}`);
   }
   return trimmed;
 }
@@ -158,13 +188,9 @@ export function resolveConfig(env = {}, options = {}) {
   const credential = envToken ? null : (options.credential ?? null);
   const stored = typeof credential?.access_token === "string" ? credential.access_token.trim() : "";
   const token = envToken || stored;
-  const accessId = (env.CF_ACCESS_CLIENT_ID ?? "").trim();
-  const accessSecret = (env.CF_ACCESS_CLIENT_SECRET ?? "").trim();
-  const access = accessId && accessSecret ? { id: accessId, secret: accessSecret } : null;
   return {
     endpoint,
     token,
-    access,
     hasToken: Boolean(token),
     source: envToken ? SOURCE_ENV : stored ? SOURCE_OAUTH : SOURCE_NONE,
     credential: stored ? credential : null,
@@ -174,10 +200,6 @@ export function resolveConfig(env = {}, options = {}) {
 /** Request headers for a resolved config. Never logged. */
 export function authHeaders(config) {
   const headers = {};
-  if (config.access) {
-    headers["CF-Access-Client-Id"] = config.access.id;
-    headers["CF-Access-Client-Secret"] = config.access.secret;
-  }
   if (config.token) headers["Authorization"] = `Bearer ${config.token}`;
   return headers;
 }
@@ -244,7 +266,7 @@ export function describeNonJsonResponse(requestedUrl, finalUrl) {
   if (/(^|\.)cloudflareaccess\.com$/.test(to)) {
     return {
       message: `Cloudflare Access answered with a sign-in page (${to}) instead of the API`,
-      hint: `This instance is self-hosted behind an edge gate (rtfx.pro is not). Its operator has to let ${MACHINE_API_PREFIX} through — an Access "Bypass" policy for that path, see docs/DEPLOY_RTFX.md §5f. Until then, CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET (a Cloudflare service token they issue) are the only way through.`,
+      hint: `This instance is self-hosted behind an edge gate (rtfx.pro is not). Its operator has to let ${MACHINE_API_PREFIX} through — an Access "Bypass" policy for that path, see docs/DEPLOY_RTFX.md §5f. Until then, use the repo's artifacts CLI, which can pass an Access service token.`,
     };
   }
   if (to && from && to !== from) {

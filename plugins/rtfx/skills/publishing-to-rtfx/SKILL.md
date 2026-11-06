@@ -39,21 +39,19 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs" doctor
 ```
 
 The login stores a renewing OAuth credential at `~/.config/rtfx/credentials.json` with mode `0600`.
-The command prints only the token id and expiry, never the token or refresh token. If `RTFX_API_TOKEN`
-is set, it takes priority over the browser sign-in; that is intentional for CI and advanced scripts.
+The command prints only the token id and expiry, never the token or refresh token. The slash commands
+and `rtfx.mjs` use this browser sign-in only. The plugin's MCP tools use the plugin's "API token" option
+when one is set (it takes priority over the sign-in there); the plugin never reads a token from the shell
+environment.
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `RTFX_API_TOKEN` | no | Optional scoped token, `rtfx_…`; wins over browser login. |
-| `ARTIFACTS_URL` | no | The instance. Defaults to `https://rtfx.pro`. `RTFX_URL` also works. |
+| `ARTIFACTS_URL` | no | The instance, for `rtfx.mjs`. Defaults to `https://rtfx.pro`; must be https (or loopback http), otherwise the script refuses. `RTFX_URL` also works. A self-hoster sets the plugin's "rtfx endpoint" option for the MCP tools and also exports `ARTIFACTS_URL` for the slash commands. |
 
 The active credential is a bearer token on the wire: publishing goes to `/api/machine`, which
-authenticates the bearer token and nothing else. `CF_ACCESS_CLIENT_ID` /
-`CF_ACCESS_CLIENT_SECRET` are optional pass-through for a self-hosted instance that gates every
-path at the edge with Cloudflare Access. They are not a Cloudflare account credential, grant
-nothing inside the app, and are never needed on rtfx.pro — if a call reports that Cloudflare
-Access answered instead of the API, say so plainly and point the user at their operator rather
-than inventing a credential.
+authenticates the bearer token and nothing else. The plugin does not forward Cloudflare Access
+service-token headers; if a call reports that Cloudflare Access answered instead of the API, say so
+plainly and point the user at their operator rather than inventing a credential.
 
 ## Publishing
 

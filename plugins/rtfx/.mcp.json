@@ -2,7 +2,13 @@
   "mcpServers": {
     "rtfx": {
       "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/rtfx-mcp.mjs"]
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/scripts/rtfx-mcp.mjs"
+      ],
+      "env": {
+        "RTFX_API_TOKEN": "${user_config.api_token}",
+        "ARTIFACTS_URL": "${user_config.endpoint}"
+      }
     }
   }
 }

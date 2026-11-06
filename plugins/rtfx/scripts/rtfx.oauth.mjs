@@ -14,6 +14,7 @@ import { createServer } from "node:http";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { spawn } from "node:child_process";
+import { pluginEnv } from "./rtfx.lib.mjs";
 import {
   DIR_MODE,
   FILE_MODE,
@@ -47,8 +48,11 @@ import {
 
 export { OAuthError };
 
+// Only the few variables the plugin needs are ever read (see pluginEnv).
+const ENV = pluginEnv(process.env);
+
 /** Where the credential file lives on this machine. */
-export function credentialsPath(env = process.env) {
+export function credentialsPath(env = ENV) {
   return credentialsPathFor(env, homedir(), join);
 }
 
@@ -59,7 +63,7 @@ export function credentialsPath(env = process.env) {
  * because every command's recovery from both is the same (`login` rewrites it)
  * and a hard failure would make that advice impossible to follow.
  */
-export function loadStore(env = process.env) {
+export function loadStore(env = ENV) {
   const path = credentialsPath(env);
   let text;
   try {
@@ -78,7 +82,7 @@ export function loadStore(env = process.env) {
  * when the file already exists — so an explicit `chmodSync` afterwards is what
  * actually guarantees 0600 on a rewrite. The directory gets the same treatment.
  */
-export function saveStore(store, env = process.env) {
+export function saveStore(store, env = ENV) {
   const path = credentialsPath(env);
   const dir = dirname(path);
   mkdirSync(dir, { recursive: true, mode: DIR_MODE });
@@ -104,7 +108,7 @@ function saveOrRemove(store, env) {
 }
 
 /** The stored credential for an endpoint, or null. Synchronous, no network. */
-export function readCredential(endpoint, env = process.env) {
+export function readCredential(endpoint, env = ENV) {
   const issuer = issuerFor(endpoint);
   return issuer ? getCredential(loadStore(env), issuer) : null;
 }
@@ -117,7 +121,7 @@ export function readCredential(endpoint, env = process.env) {
  * spends the presented refresh token whether or not this process survives to use
  * the new one, so a rotation that is not persisted strands the credential.
  */
-export async function ensureAccessToken(endpoint, { env = process.env, fetchImpl = fetch, nowMs = Date.now() } = {}) {
+export async function ensureAccessToken(endpoint, { env = ENV, fetchImpl = fetch, nowMs = Date.now() } = {}) {
   const issuer = issuerFor(endpoint);
   if (!issuer) return null;
   const store = loadStore(env);
@@ -130,7 +134,7 @@ export async function ensureAccessToken(endpoint, { env = process.env, fetchImpl
 }
 
 /** Refresh one credential and write the rotation down. Shared by the CLI and MCP paths. */
-export async function refreshAndPersist({ credential, issuer, store = null, env = process.env, fetchImpl = fetch, nowMs = Date.now() }) {
+export async function refreshAndPersist({ credential, issuer, store = null, env = ENV, fetchImpl = fetch, nowMs = Date.now() }) {
   const next = await refreshCredential({ credential, fetchImpl, nowMs });
   saveStore(putCredential(store ?? loadStore(env), issuer, next), env);
   return next;
@@ -151,7 +155,7 @@ async function discover(issuer, fetchImpl) {
   if (!res.ok) {
     throw new OAuthError(`${issuer} has no OAuth discovery document (HTTP ${res.status})`, {
       status: res.status,
-      hint: "That instance may predate browser login. Mint a token at /admin/integrations and export RTFX_API_TOKEN instead.",
+      hint: "That instance may predate browser login. Mint a token at /admin/integrations and enter it as the plugin's \"API token\" option instead.",
     });
   }
   let body;
@@ -170,7 +174,7 @@ async function discover(issuer, fetchImpl) {
 async function register(metadata, redirectUris, fetchImpl) {
   if (!metadata.registration_endpoint) {
     throw new OAuthError("that instance does not offer dynamic client registration", {
-      hint: "Mint a token at /admin/integrations and export RTFX_API_TOKEN instead.",
+      hint: "Mint a token at /admin/integrations and enter it as the plugin's \"API token\" option instead.",
     });
   }
   const res = await fetchImpl(metadata.registration_endpoint, {
@@ -183,7 +187,7 @@ async function register(metadata, redirectUris, fetchImpl) {
     if (res.status === 429) {
       throw new OAuthError("that instance is rate-limiting client registration", {
         status: 429,
-        hint: "Too many login attempts from this address in the last hour. Wait, or export RTFX_API_TOKEN instead.",
+        hint: "Too many login attempts from this address in the last hour. Wait, or enter a token as the plugin's \"API token\" option instead.",
       });
     }
     throw new OAuthError(`registration was refused: ${body?.error ?? `HTTP ${res.status}`}`, {
@@ -335,7 +339,7 @@ export function openBrowser(url) {
 export async function login(
   endpoint,
   {
-    env = process.env,
+    env = ENV,
     fetchImpl = fetch,
     nowMs = () => Date.now(),
     randomBytes = (n) => crypto.getRandomValues(new Uint8Array(n)),
@@ -442,7 +446,7 @@ export const MANUAL_REDIRECT_URI = "http://127.0.0.1:53682/callback";
  * revoked — the access token so it stops working before its hour is up, and the
  * refresh token so it cannot mint more.
  */
-export async function logout(endpoint, { env = process.env, fetchImpl = fetch } = {}) {
+export async function logout(endpoint, { env = ENV, fetchImpl = fetch } = {}) {
   const issuer = issuerFor(endpoint);
   if (!issuer) throw new OAuthError(`${endpoint} is not a URL that can be signed out of`);
   const store = loadStore(env);

@@ -11,21 +11,17 @@
 // wraps the same two libraries — there is one auth path and one bundle safety
 // model, not two.
 //
-// Credentials — two ways, and `login` is the one to reach for first:
+// Credentials — a browser sign-in:
 //
-//   rtfx.mjs login    a browser sign-in (OAuth 2.1 + PKCE). The credential is
-//                     stored under ~/.config/rtfx/credentials.json with mode
-//                     0600 and renews itself until `logout`.
-//   RTFX_API_TOKEN    a scoped token from the dashboard → Integrations. Always
-//                     wins over a stored sign-in, so CI and scripts are
-//                     unaffected by whatever a developer logged into.
+//   rtfx.mjs login    OAuth 2.1 + PKCE. The credential is stored under
+//                     ~/.config/rtfx/credentials.json with mode 0600, renews
+//                     itself until `logout`, and is only ever sent to the issuer
+//                     (origin) that minted it.
 //
-//   ARTIFACTS_URL     your instance, default https://rtfx.pro (RTFX_URL also accepted)
-//
-// Optional, and only for a self-hosted instance that gates every path at the
-// edge (rtfx.pro does not — the machine API this talks to is reachable with the
-// bearer token alone):
-//   CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET   Access service token headers
+// This script reads no token from the environment. To publish with an API token
+// instead, set the plugin's "API token" option: the MCP tools (rtfx-mcp.mjs) use
+// it. The only variable read here is ARTIFACTS_URL (RTFX_URL also accepted), your
+// instance, default https://rtfx.pro, and it must be https (or loopback http).
 //
 // Usage:
 //   rtfx.mjs login [--manual] [--json]
@@ -44,7 +40,6 @@ import { deflateRawSync } from "node:zlib";
 import {
   DEFAULT_ENDPOINT,
   TOKEN_VAR,
-  SOURCE_ENV,
   SOURCE_OAUTH,
   resolveConfig,
   resolveEndpoint,
@@ -57,6 +52,7 @@ import {
   describeApiError,
   publishSummary,
   redactToken,
+  pluginEnv,
 } from "./rtfx.lib.mjs";
 import { BundleError, describeSkips, prepareBundle } from "./rtfx.bundle.mjs";
 import { describeCredential, needsRefresh } from "./rtfx.oauth.lib.mjs";
@@ -86,7 +82,7 @@ const USAGE = `rtfx — publish to rtfx.pro
   --dry-run   publish only: report what would be uploaded, send nothing
   --manual    login only: no browser or listener; paste the callback URL back
 
-credentials: \`login\` (recommended) or ${TOKEN_VAR}, which wins when both are set
+credentials: \`login\` (browser sign-in); an API token goes in the plugin's "API token" option
 env: ARTIFACTS_URL (default ${DEFAULT_ENDPOINT})`;
 
 let asJson = false;
@@ -107,6 +103,9 @@ function succeed(payload, lines) {
   else for (const line of lines) console.log(line);
 }
 
+// The CLI takes no token from the environment: it uses the browser sign-in.
+const ENV = pluginEnv(process.env);
+
 /**
  * The credential every API call runs on.
  *
@@ -118,12 +117,12 @@ function succeed(payload, lines) {
  * survives.
  */
 async function config() {
-  const fromEnv = resolveConfig(process.env);
+  const fromEnv = resolveConfig(ENV);
   if (fromEnv.hasToken) return fromEnv;
 
   let endpoint;
   try {
-    endpoint = resolveEndpoint(process.env);
+    endpoint = resolveEndpoint(ENV);
   } catch (e) {
     fail(e.message);
   }
@@ -142,10 +141,10 @@ async function config() {
   }
   if (!credential) {
     fail(`not signed in to ${endpoint}`, {
-      hint: `Run \`rtfx.mjs login\` (or /rtfx:login in Claude Code). For CI, export ${TOKEN_VAR} instead.`,
+      hint: `Run \`rtfx.mjs login\` (or /rtfx:login in Claude Code). To use an API token, set the plugin's "API token" option (the MCP tools use it); for CI use the repo \`artifacts\` CLI.`,
     });
   }
-  return resolveConfig(process.env, { credential });
+  return resolveConfig(ENV, { credential });
 }
 
 /** One HTTP attempt. Never throws: a transport failure exits with a hint. */
@@ -332,19 +331,9 @@ function prompt(question) {
 async function login(flags) {
   let endpoint;
   try {
-    endpoint = resolveEndpoint(process.env);
+    endpoint = resolveEndpoint(ENV);
   } catch (e) {
     fail(e.message);
-  }
-
-  if (resolveConfig(process.env).source === SOURCE_ENV && !asJson) {
-    // Not a refusal: the login still happens and is still stored. But without
-    // this, a person would sign in, see success, and watch every later command
-    // keep using the env token — with nothing on screen explaining why.
-    console.error(
-      `note: ${TOKEN_VAR} is set, and it takes priority over a browser sign-in.\n` +
-        `      Unset it if you want this login to be what publishes.\n`
-    );
   }
 
   let result;
@@ -376,7 +365,7 @@ async function login(flags) {
 async function logout() {
   let endpoint;
   try {
-    endpoint = resolveEndpoint(process.env);
+    endpoint = resolveEndpoint(ENV);
   } catch (e) {
     fail(e.message);
   }
@@ -414,12 +403,12 @@ async function logout() {
 async function doctor() {
   let endpoint;
   try {
-    endpoint = resolveEndpoint(process.env);
+    endpoint = resolveEndpoint(ENV);
   } catch (e) {
     fail(e.message);
   }
 
-  const fromEnv = resolveConfig(process.env);
+  const fromEnv = resolveConfig(ENV);
   const stored = fromEnv.hasToken ? readCredential(endpoint) : null;
   const shadowed = Boolean(fromEnv.hasToken && stored);
 
@@ -428,10 +417,10 @@ async function doctor() {
   if (!fromEnv.hasToken) {
     try {
       const credential = await ensureAccessToken(endpoint);
-      resolved = resolveConfig(process.env, { credential });
+      resolved = resolveConfig(ENV, { credential });
     } catch (e) {
       refreshFailure = e instanceof OAuthError ? e : new OAuthError(e.message);
-      resolved = resolveConfig(process.env, { credential: readCredential(endpoint) });
+      resolved = resolveConfig(ENV, { credential: readCredential(endpoint) });
     }
   }
 
@@ -445,7 +434,6 @@ async function doctor() {
     env_token_set: fromEnv.hasToken,
     oauth: credential ? { ...describeCredential(credential), shadowed_by_env: shadowed } : null,
     credentials_file: credentialsPath(),
-    access_headers: Boolean(resolved.access),
     node: process.version,
   };
 
@@ -459,7 +447,7 @@ async function doctor() {
   if (!resolved.hasToken) {
     fail(`no credential for ${endpoint}`, {
       ...facts,
-      hint: `Run \`rtfx.mjs login\` (or /rtfx:login in Claude Code). For CI, export ${TOKEN_VAR} instead.`,
+      hint: `Run \`rtfx.mjs login\` (or /rtfx:login in Claude Code). To use an API token, set the plugin's "API token" option (the MCP tools use it); for CI use the repo \`artifacts\` CLI.`,
     });
   }
 
@@ -470,14 +458,12 @@ async function doctor() {
     `auth      ${describeSource(reachable, credential)}`,
     `token     ${reachable.token}`,
     ...(shadowed ? [`note      a stored sign-in exists but ${TOKEN_VAR} takes priority`] : []),
-    `access    ${reachable.access_headers ? "service-token headers set" : "not set (not needed — the machine API takes the bearer token)"}`,
     `api       ok — ${reachable.artifact_count} artifact(s) visible to this credential`,
   ]);
 }
 
 /** The one line that says which credential is in play, and how healthy it is. */
 function describeSource(facts, credential) {
-  if (facts.credential_source === SOURCE_ENV) return `${TOKEN_VAR} (environment)`;
   if (facts.credential_source === SOURCE_OAUTH) {
     const scopes = credential?.scopes?.length ? ` · ${credential.scopes.join(", ")}` : "";
     const soon = credential && needsRefresh(credential, Date.now()) ? " · renewing on next call" : "";

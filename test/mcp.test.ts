@@ -266,15 +266,14 @@ describe("no credential can leave the process", () => {
     );
   });
 
-  it("redacts Cloudflare Access service-token headers too", () => {
+  it("no longer carries Cloudflare Access service-token headers", () => {
     const cfg = context({
       RTFX_API_TOKEN: TOKEN,
       CF_ACCESS_CLIENT_ID: "0123456789abcdef0123456789abcdef.access",
       CF_ACCESS_CLIENT_SECRET: "an-access-service-token-secret",
     }).config;
-    const text = redactSecrets("id 0123456789abcdef0123456789abcdef.access secret an-access-service-token-secret", cfg);
-    expect(text).not.toContain("an-access-service-token-secret");
-    expect(text).not.toContain("0123456789abcdef0123456789abcdef.access");
+    expect(JSON.stringify(cfg)).not.toContain("an-access-service-token-secret");
+    expect(cfg.access).toBeUndefined();
   });
 
   it("reports configuration as presence and an id, never a value", () => {
@@ -287,7 +286,6 @@ describe("no credential can leave the process", () => {
     );
     expect(facts.token_set).toBe(true);
     expect(facts.token).toBe("rtfx_9f2c1ab30d4e_…");
-    expect(facts.access_headers).toBe(true);
     const json = JSON.stringify(facts);
     expect(json).not.toContain("Xj7aBcDeFgHiJkLmNoP");
     expect(json).not.toContain("access-service-token-secret-value");
