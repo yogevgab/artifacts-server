@@ -174,7 +174,7 @@ Scope model:
 
 - `read`: list/details/statistics.
 - `publish`: content-based publishing.
-- `manage`: sharing, rollback, deletion.
+- `publish`: publishing and rollback. `manage`: sharing, deletion.
 
 Important boundary:
 

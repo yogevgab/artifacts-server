@@ -153,6 +153,17 @@ describe("viewer frame token", () => {
     expect((await framed(`/site/~t/${token}/img/a.png`)).status).toBe(404);
   });
 
+  it("refuses an old frame URL once the slug belongs to a re-created artifact", async () => {
+    await publishSite();
+    const src = await frameSrc();
+    expect((await framed(src.replace(/\?raw=1$/, "") + "img/a.png")).status).toBe(200);
+    // The artifact is deleted and a new one takes the slug (simulated: a fresh created_at).
+    await (env as any).DB.prepare("UPDATE artifacts SET created_at = ? WHERE slug = 'site'")
+      .bind(new Date(Date.now() + 1000).toISOString())
+      .run();
+    expect((await framed(src.replace(/\?raw=1$/, "") + "img/a.png")).status).toBe(404);
+  });
+
   it("refuses an expired token", async () => {
     await publishSite();
     const old = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();
@@ -187,7 +198,7 @@ describe("viewer frame token", () => {
     const base = (await frameSrc()).replace(/\?raw=1$/, "");
     const res = await navigate(`${base}work.html?raw=1`);
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe(`${APP}${await viewerPath("site", "work.html")}`);
+    expect(res.headers.get("Location")).toBe(`${APP}/site/work.html`);
     // And the raw bytes were not served on the way.
     expect(await res.text()).not.toContain("<h1>work</h1>");
   });
@@ -278,7 +289,7 @@ describe("artifact documents are sandboxed however they are reached", () => {
     await publishSite();
     const res = await navigate("/site/work.html?raw=1", true);
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe(`${APP}${await viewerPath("site", "work.html")}`);
+    expect(res.headers.get("Location")).toBe(`${APP}/site/work.html`);
     // ...and the app host does the same for a top-level ?raw=1: never the bare artifact.
     const onApp = await appHost(`${await viewerPath("site", "work.html")}?raw=1`, NAV, true);
     expect(onApp.status).toBe(302);

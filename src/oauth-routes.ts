@@ -59,6 +59,7 @@ import {
   normalizeRedirectUris,
   parseOAuthScopes,
   revokeRefreshToken,
+  revokeRefreshGrant,
   rowOAuthScopes,
   s256,
   timingSafeEqual,
@@ -647,6 +648,7 @@ oauthRoutes.get("/oauth/authorize", async (c) => {
       scopes: outcome.request.scopes,
       resource: outcome.request.resource,
       email: who.identity.email!,
+      redirectUri: outcome.request.redirectUri,
       workspace: accounts.active?.name ?? null,
       expiresIn: "one hour, then it renews itself until you revoke it",
       csrf,
@@ -926,6 +928,12 @@ oauthRoutes.post("/oauth/token", async (c) => {
       return tokenError(c, "invalid_grant", "that refresh token is not usable");
     }
     const row = await findRefreshToken(c.env, presented);
+    if (row && row.revoked_at && row.client_id === client.client_id) {
+      // A spent (rotated or revoked) token presented again: either the client
+      // lost track, or somebody else has a copy. Either way end the grant, so
+      // a stolen refresh token cannot race its rightful holder indefinitely.
+      await revokeRefreshGrant(c.env, row.client_id, row.email, now);
+    }
     if (!row || !isRefreshUsable(row, now) || row.client_id !== client.client_id) {
       return tokenError(c, "invalid_grant", "that refresh token is not usable");
     }
@@ -962,6 +970,7 @@ oauthRoutes.post("/oauth/token", async (c) => {
       scopes,
       resource: row.resource,
       now,
+      grantCreatedAt: row.created_at,
     });
     await touchOAuthClient(c.env, client.client_id, now);
 

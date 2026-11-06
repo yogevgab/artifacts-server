@@ -4,7 +4,9 @@ import { resolveAuth, SESSION_COOKIE } from "../src/auth";
 import { mintSession } from "../src/session";
 
 const SECRET = "test-secret-at-least-32-bytes-long-for-hs256!!";
-const AT = "2026-08-14T12:00:00.000Z";
+// Minted "now": a fixed date ages past the 30-day session lifetime and the
+// tests start failing on the calendar rather than on the code.
+const AT = new Date().toISOString();
 
 function ctx(cookie?: string, envOverrides: Record<string, unknown> = {}) {
   return {

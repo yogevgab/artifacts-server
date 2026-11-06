@@ -14,7 +14,7 @@
 
 import { Hono, type Context } from "hono";
 import type { AppBindings, Env } from "./env";
-import { requireUser, accountsFor, type AuthVars } from "./auth";
+import { requireUser, requireScope, accountsFor, type AuthVars } from "./auth";
 import { canManage } from "./authz";
 import { getArtifact, readReceiptsEnabled, setReadReceipts } from "./db";
 
@@ -33,14 +33,14 @@ async function manageable(c: ReceiptsContext, slug: string) {
   return canManage(identity, art, (await accountsFor(c)).roles) ? art : null;
 }
 
-receiptsRoutes.get("/api/artifacts/:slug/receipts", async (c) => {
+receiptsRoutes.get("/api/artifacts/:slug/receipts", requireScope("read"), async (c) => {
   const slug = c.req.param("slug");
   const art = await manageable(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
   return c.json({ enabled: readReceiptsEnabled(art) });
 });
 
-receiptsRoutes.put("/api/artifacts/:slug/receipts", async (c) => {
+receiptsRoutes.put("/api/artifacts/:slug/receipts", requireScope("manage"), async (c) => {
   const slug = c.req.param("slug");
   const art = await manageable(c, slug);
   if (!art) return c.json({ error: "not_found" }, 404);

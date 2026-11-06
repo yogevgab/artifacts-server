@@ -1101,6 +1101,108 @@ describe("the token endpoint", () => {
     expect((await json(replay)).error).toBe("invalid_grant");
   });
 
+  it("shows where the code will be sent on the consent screen", async () => {
+    const evil = "https://evil.example/cb";
+    const lookalike = await registerClient([evil]);
+    const page = await req(authorizeQuery(lookalike, { redirect_uri: evil }), as(BOB));
+    expect(page.status).toBe(200);
+    const html = await page.text();
+    expect(html).toContain("<strong>evil.example</strong>");
+    expect(html).toMatch(/That is a website, not an app on this computer/);
+
+    const local = await registerClient();
+    const localHtml = await (await req(authorizeQuery(local), as(BOB))).text();
+    expect(localHtml).toContain("an application on this computer (127.0.0.1:1455)");
+    expect(localHtml).not.toMatch(/That is a website/);
+  });
+
+  /** A first grant for BOB: access token, refresh token, and the access token's row id. */
+  async function grant(clientId: string) {
+    const code = await authorizationCode(clientId);
+    const t = await json(
+      await tokenRequest({
+        grant_type: "authorization_code",
+        code,
+        code_verifier: VERIFIER,
+        redirect_uri: CB,
+        client_id: clientId,
+      })
+    );
+    const row = await env.DB.prepare(
+      "SELECT id FROM api_tokens WHERE oauth_client_id = ? ORDER BY created_at DESC LIMIT 1"
+    )
+      .bind(clientId)
+      .first<{ id: string }>();
+    return { access: t.access_token as string, refresh: t.refresh_token as string, tokenId: row!.id };
+  }
+
+  const refreshWith = (clientId: string, refresh: string) =>
+    tokenRequest({ grant_type: "refresh_token", refresh_token: refresh, client_id: clientId });
+
+  it("revoking the OAuth access token from the dashboard also ends its refresh token", async () => {
+    const clientId = await registerClient();
+    const { refresh, tokenId } = await grant(clientId);
+
+    const del = await req(`/api/tokens/${tokenId}`, as(BOB, { method: "DELETE" }));
+    expect(del.status).toBe(200);
+
+    const after = await refreshWith(clientId, refresh);
+    expect(after.status).toBe(400);
+    expect((await json(after)).error).toBe("invalid_grant");
+  });
+
+  it("disabling a user ends their OAuth refresh tokens, and re-enabling does not restore them", async () => {
+    const clientId = await registerClient();
+    const { refresh } = await grant(clientId);
+
+    const disable = await req(`/api/users/${encodeURIComponent(BOB)}/disable`, as("admin@test.com", { method: "POST" }));
+    expect(disable.status).toBe(200);
+    await req(`/api/users/${encodeURIComponent(BOB)}/enable`, as("admin@test.com", { method: "POST" }));
+
+    expect((await refreshWith(clientId, refresh)).status).toBe(400);
+  });
+
+  it("ends the whole grant when a spent refresh token is presented again", async () => {
+    const clientId = await registerClient();
+    const { refresh: first } = await grant(clientId);
+    const second = await json(await refreshWith(clientId, first));
+    expect(second.refresh_token).toBeTruthy();
+
+    // Somebody replays the spent one: refused, and the live one dies with it.
+    expect((await refreshWith(clientId, first)).status).toBe(400);
+    expect((await refreshWith(clientId, second.refresh_token)).status).toBe(400);
+  });
+
+  it("does not let rotation outlive the grant's absolute lifetime", async () => {
+    const clientId = await registerClient();
+    const { refresh: first } = await grant(clientId);
+    const second = await json(await refreshWith(clientId, first));
+
+    // Consent given 91 days ago: rotation carried that start forward, so the
+    // current token is past the outer bound however recently it was issued.
+    const longAgo = new Date(Date.now() - 91 * 24 * 60 * 60 * 1000).toISOString();
+    await env.DB.prepare("UPDATE oauth_refresh_tokens SET created_at = ? WHERE client_id = ?")
+      .bind(longAgo, clientId)
+      .run();
+    expect((await refreshWith(clientId, second.refresh_token)).status).toBe(400);
+  });
+
+  it("carries the grant start across a rotation", async () => {
+    const clientId = await registerClient();
+    const { refresh: first } = await grant(clientId);
+    const before = await env.DB.prepare(
+      "SELECT created_at FROM oauth_refresh_tokens WHERE client_id = ? ORDER BY rowid LIMIT 1"
+    )
+      .bind(clientId)
+      .first<{ created_at: string }>();
+    await refreshWith(clientId, first);
+    const rows = await env.DB.prepare("SELECT created_at FROM oauth_refresh_tokens WHERE client_id = ?")
+      .bind(clientId)
+      .all<{ created_at: string }>();
+    expect(rows.results).toHaveLength(2);
+    for (const r of rows.results) expect(r.created_at).toBe(before!.created_at);
+  });
+
   /** RFC 6749 §6: a refresh may narrow the granted scope, never widen it. */
   it("lets a refresh narrow the scope but not widen it", async () => {
     const clientId = await registerClient();

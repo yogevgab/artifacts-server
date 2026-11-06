@@ -287,6 +287,13 @@ export const ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
 
 /** Refresh-token lifetime. Rotated on every use; this is the outer bound. */
 export const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
+/**
+ * The longest one consent can live, however diligently the client refreshes.
+ * Rotation hands out a fresh refresh token each time, so without an outer
+ * bound a grant would never end on its own. Every rotated token inherits the
+ * grant's `created_at`, and nothing is honoured past this much after it.
+ */
+export const MAX_GRANT_LIFETIME_SECONDS = 90 * 24 * 60 * 60;
 
 export interface OAuthClientRow {
   client_id: string;
@@ -483,9 +490,19 @@ export async function createRefreshToken(
     scopes: OAuthScope[];
     resource: string;
     now: string;
+    /**
+     * When the consent behind this token was given: the `created_at` of the
+     * token being rotated. Omitted for the first token of a grant.
+     */
+    grantCreatedAt?: string;
   }
 ): Promise<string> {
   const token = newRefreshToken();
+  const grantStart = input.grantCreatedAt ?? input.now;
+  const expiresAt = Math.min(
+    Date.parse(input.now) + REFRESH_TOKEN_TTL_SECONDS * 1000,
+    Date.parse(grantStart) + MAX_GRANT_LIFETIME_SECONDS * 1000
+  );
   await env.DB.prepare(
     `INSERT INTO oauth_refresh_tokens
        (id, token_hash, client_id, email, account_id, scopes, resource, created_at, expires_at)
@@ -499,8 +516,10 @@ export async function createRefreshToken(
       input.accountId,
       input.scopes.join(" "),
       input.resource,
-      input.now,
-      new Date(Date.parse(input.now) + REFRESH_TOKEN_TTL_SECONDS * 1000).toISOString()
+      // created_at is the grant's start, carried across rotations, so the
+      // absolute lifetime cannot be extended by refreshing.
+      grantStart,
+      new Date(expiresAt).toISOString()
     )
     .run();
   return token;
@@ -519,7 +538,50 @@ export async function findRefreshToken(env: Env, token: string): Promise<OAuthRe
 export function isRefreshUsable(row: OAuthRefreshRow, now: string): boolean {
   if (row.revoked_at) return false;
   if (row.expires_at && Date.parse(row.expires_at) <= Date.parse(now)) return false;
+  if (Date.parse(row.created_at) + MAX_GRANT_LIFETIME_SECONDS * 1000 <= Date.parse(now)) return false;
   return true;
+}
+
+/**
+ * Revoke every live refresh token one client holds for one person: what
+ * "disconnect this app" means. Used when the person (or an admin) revokes an
+ * OAuth-issued access token, and when an already-spent refresh token is
+ * presented again — a sign the token was copied, so the whole grant goes.
+ * Best-effort on an instance without the OAuth tables.
+ */
+export async function revokeRefreshGrant(
+  env: Env,
+  clientId: string,
+  email: string,
+  now: string
+): Promise<void> {
+  try {
+    await env.DB.prepare(
+      `UPDATE oauth_refresh_tokens SET revoked_at = ?
+        WHERE client_id = ? AND lower(email) = ? AND revoked_at IS NULL`
+    )
+      .bind(now, clientId, email.trim().toLowerCase())
+      .run();
+  } catch (e) {
+    if (!isMissingOAuthTable(e)) throw e;
+  }
+}
+
+/**
+ * Revoke every live refresh token for a person, across all clients. Paired
+ * with `revokeTokensForEmail` when a user is disabled or removed, so neither
+ * re-enabling them nor a refresh brings back access they lost.
+ */
+export async function revokeRefreshTokensForEmail(env: Env, email: string, now: string): Promise<void> {
+  try {
+    await env.DB.prepare(
+      "UPDATE oauth_refresh_tokens SET revoked_at = ? WHERE lower(email) = ? AND revoked_at IS NULL"
+    )
+      .bind(now, email.trim().toLowerCase())
+      .run();
+  } catch (e) {
+    if (!isMissingOAuthTable(e)) throw e;
+  }
 }
 
 /** Revoke one refresh token by id. Returns true when it was live before this. */

@@ -25,18 +25,52 @@ import { canonicalPath } from "./canonical";
 import { GUEST_COOKIE } from "./viewing";
 import { siteOrigin } from "./seo";
 import { isContentHost, requestHostname } from "./host";
-import { getIdentity, readCookie } from "./auth";
+import { getIdentity, readCookie, revokeCurrentSession } from "./auth";
 import { hasGrant, getArtifact } from "./db";
 import { magicLinkConfirmPage } from "./login";
 import { safeNextPath } from "./util";
 import { reviewerConfig } from "./reviewer";
 import { recordAudit } from "./audit";
+import { isAllowedOrigin } from "./cors";
 
 export const authRoutes = new Hono<AppBindings>();
+
+/**
+ * Login CSRF: every `/auth/*` POST either establishes a session or spends a
+ * sign-in budget, so none may be driven by another site. Without this, a page
+ * elsewhere could auto-submit the attacker's own magic link and sign the
+ * visitor into the attacker's account (SameSite=Lax still stores a cookie set
+ * on a top-level POST navigation). A present Origin must be this instance's;
+ * an absent one is accepted unless the browser says the request is
+ * cross-site. Non-browser clients send neither and are unaffected.
+ */
+authRoutes.use("/auth/*", async (c, next) => {
+  if (c.req.method !== "POST") return next();
+  const origin = c.req.header("Origin");
+  const crossSite = origin
+    ? !isAllowedOrigin(c.env, c.req.url, origin)
+    : c.req.header("Sec-Fetch-Site") === "cross-site";
+  if (crossSite) return c.json({ error: "forbidden", detail: "cross-site sign-in requests are refused" }, 403);
+  return next();
+});
 
 /** Per hour. Generous enough for a person retrying, tight enough to protect the domain. */
 const START_PER_EMAIL = 5;
 const START_PER_IP = 20;
+/**
+ * Sign-in starts for one address across every source, per hour. The per-email
+ * cap above is keyed on address AND client, so a stranger requesting codes for
+ * somebody else's address from elsewhere spends their own budget, not the
+ * owner's; this outer cap still bounds how much mail one address can receive.
+ */
+const START_PER_EMAIL_ALL_SOURCES = 15;
+/**
+ * Typed-code guesses for one address per day, across every challenge. Each
+ * challenge already burns after MAX_ATTEMPTS; without a longer horizon,
+ * requesting fresh codes renews the guessing budget every hour. Past this the
+ * code path stops for the day — the emailed magic link still signs in.
+ */
+const VERIFY_PER_EMAIL_PER_DAY = 25;
 
 /**
  * The one response `/auth/start` ever gives. Identical for a known address, an
@@ -231,11 +265,13 @@ authRoutes.post("/auth/start", async (c) => {
   const email = normalizeEmail((body as { email?: unknown } | null)?.email);
   if (!email) return c.json({ error: "bad_request", detail: "a valid email is required" }, 400);
 
-  const [emailOk, ipOk] = await Promise.all([
-    incrementRateLimitBucket(c, `auth:email:${email}`, START_PER_EMAIL),
-    incrementRateLimitBucket(c, `auth:ip:${clientAddress(c)}`, START_PER_IP),
+  const ip = clientAddress(c);
+  const [emailOk, allOk, ipOk] = await Promise.all([
+    incrementRateLimitBucket(c, `auth:email-ip:${email}:${ip}`, START_PER_EMAIL),
+    incrementRateLimitBucket(c, `auth:email:${email}`, START_PER_EMAIL_ALL_SOURCES),
+    incrementRateLimitBucket(c, `auth:ip:${ip}`, START_PER_IP),
   ]);
-  if (!emailOk || !ipOk) {
+  if (!emailOk || !allOk || !ipOk) {
     return c.json({ error: "rate_limited" }, 429, { "Retry-After": "3600" });
   }
 
@@ -252,6 +288,14 @@ authRoutes.post("/auth/verify", async (c) => {
   const code = String((body as { code?: unknown } | null)?.code ?? "").trim();
   if (!email || !/^\d{6}$/.test(code)) {
     return c.json({ error: "bad_request" }, 400);
+  }
+
+  if (!(await incrementRateLimitBucket(c, `auth:verify:${email}`, VERIFY_PER_EMAIL_PER_DAY, 24 * 60 * 60))) {
+    return c.json(
+      { error: "rate_limited", detail: "too many codes tried for this address today — use the link in the email instead" },
+      429,
+      { "Retry-After": "86400" }
+    );
   }
 
   const nowIso = new Date().toISOString();
@@ -411,7 +455,8 @@ authRoutes.post("/auth/guest", async (c) => {
   return c.json(ACCEPTED, 202);
 });
 
-authRoutes.post("/auth/signout", (c) => {
+authRoutes.post("/auth/signout", async (c) => {
+  await revokeCurrentSession(c);
   const headers = new Headers({ "Content-Type": "application/json" });
   headers.append("Set-Cookie", sessionCookie("", 0));
   headers.append("Set-Cookie", guestCookie("", 0));

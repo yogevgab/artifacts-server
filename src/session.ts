@@ -20,6 +20,8 @@ export interface SessionClaims {
   kind: SessionKind;
   /** Guest sessions only: the single artifact this session was minted for. */
   slug?: string;
+  /** Issued-at, seconds since the epoch: what a server-side sign-out is compared against. */
+  iat?: number;
   /**
    * The custom-domain hostname this session was minted on. Absent = minted on an
    * app host. A session is only valid on the host it was minted for: the owner of
@@ -101,7 +103,13 @@ export async function verifySession(
     if (kind !== "member" && kind !== "guest") return null;
     if (typeof payload.sub !== "string" || !payload.sub) return null;
     const slug = typeof payload.slug === "string" ? payload.slug : undefined;
-    return { email: payload.sub, kind, ...(slug ? { slug } : {}), ...(aud ? { aud } : {}) };
+    return {
+      email: payload.sub,
+      kind,
+      ...(slug ? { slug } : {}),
+      ...(aud ? { aud } : {}),
+      ...(typeof payload.iat === "number" ? { iat: payload.iat } : {}),
+    };
   } catch {
     return null;
   }
@@ -151,10 +159,22 @@ export async function mintFrameToken(
    * (src/custom-domains.ts `allowedFrameAncestor`), so the claim alone grants
    * nothing. Omitted = exactly the token this has always been.
    */
-  anc?: string
+  anc?: string,
+  /**
+   * `artifactCreatedAt` pins the token to this artifact rather than to whatever
+   * holds the slug: if the artifact is deleted and somebody else publishes under
+   * the same slug within the token's lifetime, an old frame URL must not open
+   * the newcomer's content.
+   */
+  artifactCreatedAt?: string
 ): Promise<string> {
   const issued = Math.floor(Date.parse(now) / 1000);
-  return new SignJWT({ use: "frame", slug, ...(anc ? { anc } : {}) })
+  return new SignJWT({
+    use: "frame",
+    slug,
+    ...(anc ? { anc } : {}),
+    ...(artifactCreatedAt ? { art: artifactCreatedAt } : {}),
+  })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt(issued)
     .setExpirationTime(issued + FRAME_TTL_SECONDS)
@@ -167,12 +187,15 @@ export async function readFrameToken(
   token: string,
   slug: string,
   now: string
-): Promise<{ anc?: string } | null> {
+): Promise<{ anc?: string; art?: string } | null> {
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, keyFrom(secret), { currentDate: new Date(now) });
     if (payload.use !== "frame" || payload.slug !== slug) return null;
-    return typeof payload.anc === "string" && payload.anc ? { anc: payload.anc } : {};
+    return {
+      ...(typeof payload.anc === "string" && payload.anc ? { anc: payload.anc } : {}),
+      ...(typeof payload.art === "string" && payload.art ? { art: payload.art } : {}),
+    };
   } catch {
     return null;
   }
@@ -183,7 +206,10 @@ export async function verifyFrameToken(
   secret: string,
   token: string,
   slug: string,
-  now: string
+  now: string,
+  artifactCreatedAt?: string
 ): Promise<boolean> {
-  return (await readFrameToken(secret, token, slug, now)) !== null;
+  const claims = await readFrameToken(secret, token, slug, now);
+  if (!claims) return false;
+  return artifactCreatedAt === undefined || claims.art === artifactCreatedAt;
 }

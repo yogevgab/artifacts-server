@@ -37,11 +37,12 @@ export function clientAddress(c: Context<AppBindings>): string {
 export async function incrementRateLimitBucket(
   c: Context<AppBindings>,
   bucketSeed: string,
-  max: number
+  max: number,
+  windowSeconds: number = RATE_LIMIT_WINDOW_SECONDS
 ): Promise<boolean> {
   const now = Math.floor(Date.now() / 1000);
-  const windowStart = now - (now % RATE_LIMIT_WINDOW_SECONDS);
-  const resetAt = windowStart + RATE_LIMIT_WINDOW_SECONDS;
+  const windowStart = now - (now % windowSeconds);
+  const resetAt = windowStart + windowSeconds;
   const id = await sha256Hex(`${bucketSeed}:${windowStart}`);
   await c.env.DB.prepare(
     `CREATE TABLE IF NOT EXISTS waitlist_rate_limits (

@@ -35,7 +35,7 @@
 
 import { Hono, type Context } from "hono";
 import type { Env } from "./env";
-import { requireUser, requireScope, accountsFor, type AuthVars } from "./auth";
+import { requireUser, requireScope, denyApiToken, accountsFor, type AuthVars } from "./auth";
 import { canReadAccount } from "./authz";
 import {
   atLeast,
@@ -271,7 +271,9 @@ export function addressNotice(code: string | undefined | null) {
  *
  * 303 so a reload of Settings does not re-post the change.
  */
-accountSlugRoutes.post(FORM_PATH, async (c) => {
+// The form is the portal's, so it is for a signed-in person only: an API token
+// changes the address through the JSON route, which demands the manage scope.
+accountSlugRoutes.post(FORM_PATH, denyApiToken, async (c) => {
   const ctx = await accountsFor(c);
   if (!ctx.active) return c.html(portalNotFound(await viewerOf(c), "That workspace"), 404);
   const form = await c.req.parseBody().catch(() => ({}) as Record<string, unknown>);

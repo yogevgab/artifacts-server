@@ -147,8 +147,11 @@ describe("reviewer sign-in", () => {
       .bind(REVIEWER)
       .first<{ attempts: number }>();
     expect(row!.attempts).toBeLessThanOrEqual(5);
-    // The challenge is spent: even the right code is refused now.
-    expect((await verify(REVIEWER, CODE)).status).toBe(401);
+    // The challenge is spent: even the right code is refused now (by the
+    // spent challenge, or by the daily per-address guess cap 40 tries tripped).
+    const last = await verify(REVIEWER, CODE);
+    expect([401, 429]).toContain(last.status);
+    expect(hasSession(last)).toBe(false);
   });
 
   it("an expired challenge does not accept the code", async () => {

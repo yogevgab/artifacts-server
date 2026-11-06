@@ -290,6 +290,18 @@ CREATE TABLE IF NOT EXISTS billing_events (
   processed_at TEXT NOT NULL
 );
 
+-- Lemon Squeezy subscription -> workspace binding (migration 0027). Bound on
+-- first sight, never rebound; accounts.plan is the best plan among a
+-- workspace's subscriptions. See src/billing.ts.
+CREATE TABLE IF NOT EXISTS billing_subscriptions (
+  subscription_id TEXT PRIMARY KEY,
+  account_id      TEXT NOT NULL,
+  plan            TEXT,
+  updated_at      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_billing_subscriptions_account ON billing_subscriptions (account_id);
+
 CREATE INDEX IF NOT EXISTS idx_billing_events_account ON billing_events (account_id);
 -- Operator audit trail (migration 0018). Append-only: nothing in the product
 -- UPDATEs or DELETEs a row here, which is what makes "append-only" a fact
@@ -400,6 +412,12 @@ CREATE TABLE IF NOT EXISTS upload_sessions (
 
 CREATE INDEX IF NOT EXISTS idx_upload_sessions_expires ON upload_sessions (expires_at);
 
+-- Server-side sign-out (migration 0028): sessions for `email` issued before
+-- `revoked_before` are void. See src/session-revocation.ts.
+CREATE TABLE IF NOT EXISTS session_revocations (
+  email          TEXT PRIMARY KEY,
+  revoked_before TEXT NOT NULL
+);
 -- Custom domains (migration 0025; docs/CUSTOM_DOMAINS.md). Inert unless
 -- CUSTOM_DOMAINS_ENABLED="true".
 CREATE TABLE IF NOT EXISTS custom_domains (
