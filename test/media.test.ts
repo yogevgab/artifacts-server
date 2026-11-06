@@ -50,6 +50,24 @@ describe("/media", () => {
     }
   });
 
+  it("shows the promo under the home-page hero, click-to-play, with its own VideoObject", async () => {
+    const html = await (await req("/", ANON)).text();
+    const hero = html.indexOf('<section class="hero">');
+    const promo = html.indexOf('<figure class="promo" data-landing="promo">');
+    const ways = html.indexOf('<section id="ways"');
+    expect(hero).toBeGreaterThan(-1);
+    expect(promo).toBeGreaterThan(hero);
+    expect(promo).toBeLessThan(ways);
+    const fig = html.slice(promo, html.indexOf("</figure>", promo));
+    expect(fig).toMatch(/<video controls playsinline preload="none" width="1920" height="1080"/);
+    expect(fig).not.toMatch(/autoplay/);
+    expect(fig).toContain('poster="/media/rtfx-promo-poster.jpg?v=');
+    expect(fig).toContain('<source src="/media/rtfx-promo.mp4?v=');
+    expect(fig).toMatch(/<track kind="captions" src="\/media\/rtfx-promo\.vtt\?v=[^"]+" srclang="en" label="English">/);
+    expect(html).toContain('"@id":"https://rtfx.pro/#promo-video"');
+    expect(html).toContain('"@id":"https://rtfx.pro/#video"');
+  });
+
   it("serves the WebVTT captions as text/vtt", async () => {
     await env.FILES.put("_site/rtfx-guide.vtt", "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHi\n");
     const res = await req("/media/rtfx-guide.vtt", ANON);

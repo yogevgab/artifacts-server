@@ -149,6 +149,22 @@ export const ENTERPRISE_LINES: readonly string[] = [
   "Or self-host it: the source is MIT",
 ];
 
+/** The short promo shown under the home-page hero. Its own soundtrack; never autoplays. */
+export const PROMO_VIDEO = {
+  file: "rtfx-promo.mp4",
+  poster: "rtfx-promo-poster.jpg",
+  captions: "rtfx-promo.vtt",
+  width: 1920,
+  height: 1080,
+  duration: "PT28S",
+  uploadDate: "2026-11-06T00:00:00+00:00",
+  name: "rtfx.pro in 28 seconds: share what Claude makes with only the people you choose",
+  description:
+    "Publish a page from Claude to a private link, choose who can open it (they sign in with a " +
+    "one-time code, no Claude account), share a link that expires, and see who opened it.",
+  caption: "28 seconds: publish from Claude, choose who can open it, see who did.",
+} as const;
+
 /** The walkthrough video's facts: one record for the player, the JSON-LD and llms-full. */
 export const VIDEO = {
   file: "rtfx-guide.mp4",
