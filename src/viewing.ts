@@ -16,7 +16,8 @@ import {
   readCookie,
 } from "./auth";
 import { getArtifact, hasGrant, logView } from "./db";
-import { canView, isOwner, operatesOrphan } from "./authz";
+import { sessionRevoked } from "./session-revocation";
+import { canView, hasScope, isOwner, operatesOrphan } from "./authz";
 import { memberRole } from "./accounts";
 import { inspectShareLink, redeemShareLink } from "./share";
 import { isLinkPreviewCrawler, linkPreviewPage } from "./link-preview";
@@ -67,6 +68,8 @@ export async function guestIdentityFor(c: AppContext, slug: string): Promise<Ide
   const aud = (await customerDomainOf(c.env, c.req.url))?.hostname ?? null;
   const claims = await verifySession(secret, raw, new Date().toISOString(), aud);
   if (!claims || claims.kind !== "guest" || claims.slug !== slug) return null;
+  // Sign-out voids guest credentials too, so a copied guest cookie dies with it.
+  if (await sessionRevoked(c.env, claims.email, claims.iat)) return null;
   return {
     email: claims.email,
     commonName: null,
@@ -164,6 +167,7 @@ export async function callerIsInWorkspace(
   identity: Identity | null
 ): Promise<boolean> {
   if (!art.account_id || !identity?.email) return false;
+  if (!tokenMayReachAccount(identity, art.account_id)) return false;
   return (await memberRole(env, art.account_id, identity.email)) !== null;
 }
 
@@ -255,6 +259,15 @@ export async function linkPreviewResponse(
 
 // --- the access decision --------------------------------------------------------
 
+/**
+ * A token is issued for one workspace; it reaches another workspace's
+ * artifacts only through the same rules as anyone else (ownership, grants),
+ * never through its owner's membership there. Sessions are not pinned.
+ */
+export function tokenMayReachAccount(identity: Identity, accountId: string): boolean {
+  return !identity.token || !identity.accountId || identity.accountId === accountId;
+}
+
 export interface AccessDecision {
   allowed: boolean;
   /** Owner, or any member of the artifact's workspace. */
@@ -273,8 +286,12 @@ export interface AccessDecision {
 export async function decideAccess(
   env: Env,
   art: ArtifactRow,
-  identity: Identity | null
+  caller: Identity | null
 ): Promise<AccessDecision> {
+  // An API token reads content only with the `read` scope — a publish-only CI
+  // token is not a way to download what it can reach. Without it the request
+  // is judged as if it carried no credential at all.
+  const identity = caller?.token && !hasScope(caller, "read") ? null : caller;
   if (identity?.kind === "guest" && identity.slug !== art.slug) return { allowed: false, owned: false };
   // No platform-admin path: an operator opens an artifact only as its owner, a
   // member of its workspace, or a named grantee — never by being an operator.
@@ -288,6 +305,7 @@ export async function decideAccess(
     !canView(identity, art.visibility, granted, owned) &&
     art.account_id &&
     identity?.email &&
+    tokenMayReachAccount(identity, art.account_id) &&
     (await memberRole(env, art.account_id, identity.email))
   ) {
     owned = true;

@@ -85,20 +85,33 @@ export async function getArtifact(env: Env, slug: string): Promise<ArtifactRow |
   return env.DB.prepare("SELECT * FROM artifacts WHERE slug = ?").bind(slug).first<ArtifactRow>();
 }
 
-export async function upsertArtifact(env: Env, row: ArtifactRow): Promise<void> {
+/**
+ * Insert a new artifact or move an existing one to a new version. Returns false
+ * when nothing was written because the slug now belongs to a different
+ * artifact than the one this publish was resolved against.
+ *
+ * The publish path decides "new artifact" or "new version of X" before the
+ * upload is processed, which can take a while. So a brand-new artifact is
+ * inserted only if the slug is still free (`isNew`: no update at all), and a
+ * republish updates only while `created_at` — set once at creation, carried
+ * unchanged by every republish — still matches, so it never lands on a slug
+ * that was deleted and re-created by somebody else in the meantime.
+ */
+export async function upsertArtifact(env: Env, row: ArtifactRow, isNew = false): Promise<boolean> {
   // visibility, owner_email and account_id are set on INSERT but intentionally
   // NOT in DO UPDATE SET, so publishing a new version preserves the artifact's
   // existing access setting and can never re-home it — to whoever uploaded last,
   // or into whichever workspace they happened to be acting in.
   try {
-    await env.DB.prepare(
+    const res = await env.DB.prepare(
       `INSERT INTO artifacts
          (slug, title, description, type, entry, file_count, size_bytes, created_by, created_at, updated_at, visibility, current_version, owner_email, account_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(slug) DO UPDATE SET
          title=excluded.title, description=excluded.description, type=excluded.type,
          entry=excluded.entry, file_count=excluded.file_count, size_bytes=excluded.size_bytes,
-         updated_at=excluded.updated_at, current_version=excluded.current_version`
+         updated_at=excluded.updated_at, current_version=excluded.current_version
+       WHERE ? = 0 AND artifacts.created_at = excluded.created_at`
     )
       .bind(
         row.slug,
@@ -114,19 +127,22 @@ export async function upsertArtifact(env: Env, row: ArtifactRow): Promise<void> 
         row.visibility,
         row.current_version,
         row.owner_email,
-        row.account_id ?? null
+        row.account_id ?? null,
+        isNew ? 1 : 0
       )
       .run();
+    return (res.meta?.changes ?? 0) > 0;
   } catch (e) {
     if (!isMissingAccountColumn(e)) throw e;
-    await env.DB.prepare(
+    const res = await env.DB.prepare(
       `INSERT INTO artifacts
          (slug, title, description, type, entry, file_count, size_bytes, created_by, created_at, updated_at, visibility, current_version, owner_email)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(slug) DO UPDATE SET
          title=excluded.title, description=excluded.description, type=excluded.type,
          entry=excluded.entry, file_count=excluded.file_count, size_bytes=excluded.size_bytes,
-         updated_at=excluded.updated_at, current_version=excluded.current_version`
+         updated_at=excluded.updated_at, current_version=excluded.current_version
+       WHERE ? = 0 AND artifacts.created_at = excluded.created_at`
     )
       .bind(
         row.slug,
@@ -141,9 +157,11 @@ export async function upsertArtifact(env: Env, row: ArtifactRow): Promise<void> 
         row.updated_at,
         row.visibility,
         row.current_version,
-        row.owner_email
+        row.owner_email,
+        isNew ? 1 : 0
       )
       .run();
+    return (res.meta?.changes ?? 0) > 0;
   }
 }
 

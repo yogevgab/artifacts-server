@@ -5,7 +5,7 @@ import { mcpRoutes } from "./mcp";
 import { oauthRoutes } from "./oauth-routes";
 import { waitlist } from "./waitlist";
 import { authRoutes, pendingNextCookie } from "./auth-routes";
-import { requireUser, accessEmail, accountsFor, getIdentity, resolveAuth, readCookie, SESSION_COOKIE, type AuthVars } from "./auth";
+import { requireUser, accessEmail, accountsFor, getIdentity, resolveAuth, readCookie, revokeCurrentSession, SESSION_COOKIE, type AuthVars } from "./auth";
 import { serveArtifact } from "./serve";
 import { safeNextPath, isValidSlug } from "./util";
 import {
@@ -29,7 +29,7 @@ import {
   viewsByVersion,
   viewSources,
 } from "./db";
-import { canView, canManage, canManageMembers, isOwner, belongsToCaller, operatesOrphan } from "./authz";
+import { canView, canManage, canManageMembers, isOwner, belongsToCaller, operatesOrphan, hasScope } from "./authz";
 import {
   listMembers,
   accountIdsWithAtLeast,
@@ -50,7 +50,7 @@ import { suspendedContentPage } from "./view-limit-page";
 export { ChatRoom } from "./chat";
 import { redeemShareLink } from "./share";
 import { accountSlugRoutes, addressNotice, brandedBase } from "./account-slug-routes";
-import { viewerRoute, redirectToViewer } from "./viewer-routes";
+import { viewerRoute, redirectToViewer, redirectToAppLegacy } from "./viewer-routes";
 import { customDomainsEnabled, classifyHost, allowedFrameAncestor, customerDomainOf } from "./custom-domains";
 import { customerHostGate } from "./customer-host";
 import {
@@ -64,6 +64,7 @@ import {
   logDeadLinkAttempt,
   logViewInBackground,
   presentedKey,
+  tokenMayReachAccount,
 } from "./viewing";
 import { isAllowedOrigin } from "./cors";
 import { canonicalPath } from "./canonical";
@@ -228,7 +229,31 @@ app.use("*", async (c, next) => {
   ) {
     c.header("X-Frame-Options", "DENY");
   }
+  const path = new URL(c.req.url).pathname;
+  // Signed-in surfaces show tokens, grants, member lists and view logs. None of
+  // that may sit in a shared or back-button cache.
+  if (isPrivateSurface(path) && !c.res.headers.has("Cache-Control")) {
+    c.header("Cache-Control", "private, no-store");
+  }
+  // The portal's own pages: no framing (modern browsers prefer this to XFO),
+  // no <base> hijack, no plugins. Script policy is left to the pages, which
+  // use inline scripts; this is the part that holds without a nonce rollout.
+  if (
+    isPortalPage(path) &&
+    !c.res.headers.has("Content-Security-Policy") &&
+    (c.res.headers.get("Content-Type") ?? "").startsWith("text/html")
+  ) {
+    c.header("Content-Security-Policy", "frame-ancestors 'none'; base-uri 'self'; object-src 'none'");
+  }
 });
+
+function isPortalPage(path: string): boolean {
+  return path === "/admin" || path.startsWith("/admin/") || path.startsWith("/share/");
+}
+
+function isPrivateSurface(path: string): boolean {
+  return isPortalPage(path) || path.startsWith("/api/") || path.startsWith("/oauth/");
+}
 
 app.get("/health", (c) => c.text("ok"));
 
@@ -916,8 +941,11 @@ app.get("/shared/:slug", async (c) => {
   const next = safeNextPath(c.req.query("next"));
   if (identity?.email) {
     if (next) return c.redirect(next, 302);
+    // Only to an artifact this person can actually open: redirecting for any
+    // slug that exists (to an address naming its workspace) would let anyone
+    // with a free account probe which slugs are real and whose they are.
     const art = await getArtifact(c.env, slug);
-    if (art) return redirectToViewer(c, art, "");
+    if (art && (await decideAccess(c.env, art, identity)).allowed) return redirectToViewer(c, art, "");
   }
   return c.html(guestSigninPage(c.env, slug, next));
 });
@@ -958,8 +986,17 @@ app.get("/login", async (c) => {
 // hold an app session, an edge Access session, or both, and a "sign out" that
 // leaves either one standing is not a sign-out. Clearing a cookie that was never
 // set is harmless, so this is unconditional rather than clever.
-app.get("/logout", () =>
-  new Response(null, {
+app.get("/logout", async (c) => {
+  // Void the session server-side first, so a copied cookie dies with this one —
+  // but only for a same-origin or typed-in navigation. A GET can be forced
+  // cross-site (SameSite=Lax sends the cookie on top-level navigations), and
+  // revocation reaches every device, so a hostile page must not trigger it.
+  // A cross-site hit still clears this browser's cookie, as before. Browsers
+  // always send Sec-Fetch-Site on a navigation, so its absence means a
+  // non-browser client (curl, the CLI), which a hostile page cannot drive.
+  const fetchSite = c.req.header("Sec-Fetch-Site");
+  if (fetchSite !== "cross-site" && fetchSite !== "same-site") await revokeCurrentSession(c);
+  return new Response(null, {
     status: 302,
     headers: [
       ["Location", "/login"],
@@ -980,8 +1017,8 @@ app.get("/logout", () =>
         "CF_AppSession=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; HttpOnly; SameSite=Lax",
       ],
     ],
-  })
-);
+  });
+});
 
 /**
  * The gallery is a dashboard section now (issue #35). This route is kept as a
@@ -1016,8 +1053,12 @@ async function manages(
   identity: Identity | null,
   art: ArtifactRow
 ): Promise<boolean> {
+  // Previews are reads of content: a token needs the `read` scope, and is
+  // confined to its own workspace (see `tokenMayReachAccount`).
+  if (identity?.token && !hasScope(identity, "read")) return false;
   if (canManage(identity, art)) return true;
   if (!art.account_id || !identity?.email) return false;
+  if (!tokenMayReachAccount(identity, art.account_id)) return false;
   return atLeast(await memberRole(env, art.account_id, identity.email), MANAGE_ARTIFACTS);
 }
 
@@ -1253,9 +1294,8 @@ app.get("*", async (c) => {
     // tab"). Never serve artifact HTML as a top-level document on this origin;
     // send them to the viewer, which runs its own access check and re-frames.
     if (c.req.header("Sec-Fetch-Dest") === "document") {
-      const art = await getArtifact(c.env, slug);
-      if (art) return redirectToViewer(c, art, framedPath);
-      return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
+      // Same answer for a real slug and an invented one (see redirectToAppLegacy).
+      return redirectToAppLegacy(c, slug, framedPath);
     }
     if (c.req.method !== "GET" && c.req.method !== "HEAD") {
       return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
@@ -1263,7 +1303,10 @@ app.get("*", async (c) => {
     const claims = c.env.SESSION_SECRET
       ? await readFrameToken(c.env.SESSION_SECRET, frameToken, slug, new Date().toISOString())
       : null;
-    const art = claims ? await getArtifact(c.env, slug) : null;
+    const candidate = claims ? await getArtifact(c.env, slug) : null;
+    // A token minted for an artifact is void once the slug belongs to a newer one.
+    const art =
+      candidate && claims!.art === candidate.created_at ? candidate : null;
     if (!art) return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
     // Suspension is a takedown control and binds every path, this one included.
     const status = art.account_id
@@ -1294,11 +1337,12 @@ app.get("*", async (c) => {
 
   // A top-level browser navigation to the content origin — an old link, a
   // bookmark, `?raw=1` pasted into the address bar — goes to the canonical
-  // viewer. Share keys (`?k=`) ride along and are redeemed there. If there is no
-  // such artifact the request falls through to the same 404 as before.
+  // viewer by way of the app's plain `/<slug>` address, which answers a missing
+  // artifact and one the visitor cannot open alike. Share keys (`?k=`) ride
+  // along and are redeemed there. Redirecting only for an artifact that exists
+  // — and straight to its workspace address — told anyone both facts.
   if (c.req.method === "GET" && c.req.header("Sec-Fetch-Dest") === "document") {
-    const known = await getArtifact(c.env, slug);
-    if (known) return redirectToViewer(c, known, filePath);
+    return redirectToAppLegacy(c, slug, filePath);
   }
 
   // From here on this is the machine path: no viewer, no frame, no redirect to

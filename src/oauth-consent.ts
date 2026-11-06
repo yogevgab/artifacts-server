@@ -11,7 +11,7 @@
 
 import { layout, esc, brandLockup, siteHeader, siteFooter, PUBLIC_CHROME_STYLE } from "./pages";
 import type { Env } from "./env";
-import { OAUTH_SCOPE_COPY, type OAuthScope } from "./oauth";
+import { OAUTH_SCOPE_COPY, isLoopbackHostname, type OAuthScope } from "./oauth";
 
 const CONSENT_PAGE_STYLE = `${PUBLIC_CHROME_STYLE}
 main.auth{display:flex;align-items:center;justify-content:center;min-height:62vh;padding:2rem 0}
@@ -51,6 +51,13 @@ export interface ConsentPageInput {
   resource: string;
   /** Who is granting. */
   email: string;
+  /**
+   * Where the authorization code is sent if the person allows: the exact,
+   * already-validated redirect URI. Shown because the client name is
+   * self-reported — the destination is the one fact on this page an attacker
+   * who registered a look-alike client cannot fake.
+   */
+  redirectUri: string;
   /** The workspace the credential will act inside, when there is one. */
   workspace: string | null;
   /** Access-token lifetime, in words. */
@@ -72,7 +79,17 @@ export interface ConsentPageInput {
  * is escaped here like any other untrusted string, and the page says plainly
  * that the name is self-reported rather than verified.
  */
+/** Where the code goes, in words a person can judge. */
+export function redirectDestination(redirectUri: string): { label: string; local: boolean } {
+  const url = new URL(redirectUri);
+  if (url.protocol === "http:" && isLoopbackHostname(url.hostname)) {
+    return { label: `an application on this computer (${url.host})`, local: true };
+  }
+  return { label: url.host, local: false };
+}
+
 export function consentPage(env: Env, input: ConsentPageInput): string {
+  const dest = redirectDestination(input.redirectUri);
   const hidden = Object.entries(input.params)
     .map(([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`)
     .join("\n       ");
@@ -100,6 +117,14 @@ export function consentPage(env: Env, input: ConsentPageInput): string {
      <ul class="grant">
        ${grants}
      </ul>
+
+     <p class="${dest.local ? "hint" : "warn"}" data-redirect-host>
+       Allowing sends you, and the access it grants, to <strong>${esc(dest.label)}</strong>.${
+         dest.local
+           ? ""
+           : ` That is a website, not an app on this computer. Allow only if you recognise it as ${esc(input.clientName)}'s.`
+       }
+     </p>
 
      <dl class="facts sheet-facts">
        <dt>Signed in as</dt><dd>${esc(input.email)}</dd>
