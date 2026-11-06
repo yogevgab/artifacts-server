@@ -16,6 +16,7 @@ import {
   readCookie,
 } from "./auth";
 import { getArtifact, hasGrant, logView } from "./db";
+import { sessionRevoked } from "./session-revocation";
 import { canView, hasScope, isOwner, operatesOrphan } from "./authz";
 import { memberRole } from "./accounts";
 import { inspectShareLink, redeemShareLink } from "./share";
@@ -67,6 +68,8 @@ export async function guestIdentityFor(c: AppContext, slug: string): Promise<Ide
   const aud = (await customerDomainOf(c.env, c.req.url))?.hostname ?? null;
   const claims = await verifySession(secret, raw, new Date().toISOString(), aud);
   if (!claims || claims.kind !== "guest" || claims.slug !== slug) return null;
+  // Sign-out voids guest credentials too, so a copied guest cookie dies with it.
+  if (await sessionRevoked(c.env, claims.email, claims.iat)) return null;
   return {
     email: claims.email,
     commonName: null,

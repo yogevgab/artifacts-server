@@ -211,5 +211,5 @@ export async function verifyFrameToken(
 ): Promise<boolean> {
   const claims = await readFrameToken(secret, token, slug, now);
   if (!claims) return false;
-  return artifactCreatedAt === undefined || claims.art === undefined || claims.art === artifactCreatedAt;
+  return artifactCreatedAt === undefined || claims.art === artifactCreatedAt;
 }

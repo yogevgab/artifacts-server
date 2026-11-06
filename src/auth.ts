@@ -401,13 +401,16 @@ async function identityFromSession(c: AuthContext): Promise<Identity | null> {
 
 /**
  * Sign-out, server side: void every session for whoever this request's
- * session cookie belongs to, so a copy of the cookie stops working too.
+ * session (or, failing that, guest) cookie belongs to, so a copy of the cookie stops working too.
  * A request with no valid session changes nothing.
  */
 export async function revokeCurrentSession(c: AuthContext): Promise<void> {
   const secret = c.env.SESSION_SECRET;
   if (!secret) return;
-  const raw = readCookie(c.req.header("Cookie") ?? c.req.header("cookie"), SESSION_COOKIE);
+  const cookies = c.req.header("Cookie") ?? c.req.header("cookie");
+  // A guest-only visitor holds just the guest cookie (rtfx_guest, see
+  // GUEST_COOKIE in viewing.ts); signing out must void that address too.
+  const raw = readCookie(cookies, SESSION_COOKIE) ?? readCookie(cookies, "rtfx_guest");
   if (!raw) return;
   // Verified against the host this request arrived on, so a sign-out on a
   // customer domain (aud-bearing cookie) revokes just like one on an app host.

@@ -987,8 +987,15 @@ app.get("/login", async (c) => {
 // leaves either one standing is not a sign-out. Clearing a cookie that was never
 // set is harmless, so this is unconditional rather than clever.
 app.get("/logout", async (c) => {
-  // Void the session server-side first, so a copied cookie dies with this one.
-  await revokeCurrentSession(c);
+  // Void the session server-side first, so a copied cookie dies with this one —
+  // but only for a same-origin or typed-in navigation. A GET can be forced
+  // cross-site (SameSite=Lax sends the cookie on top-level navigations), and
+  // revocation reaches every device, so a hostile page must not trigger it.
+  // A cross-site hit still clears this browser's cookie, as before. Browsers
+  // always send Sec-Fetch-Site on a navigation, so its absence means a
+  // non-browser client (curl, the CLI), which a hostile page cannot drive.
+  const fetchSite = c.req.header("Sec-Fetch-Site");
+  if (fetchSite !== "cross-site" && fetchSite !== "same-site") await revokeCurrentSession(c);
   return new Response(null, {
     status: 302,
     headers: [
@@ -1299,7 +1306,7 @@ app.get("*", async (c) => {
     const candidate = claims ? await getArtifact(c.env, slug) : null;
     // A token minted for an artifact is void once the slug belongs to a newer one.
     const art =
-      candidate && (claims!.art === undefined || claims!.art === candidate.created_at) ? candidate : null;
+      candidate && claims!.art === candidate.created_at ? candidate : null;
     if (!art) return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
     // Suspension is a takedown control and binds every path, this one included.
     const status = art.account_id

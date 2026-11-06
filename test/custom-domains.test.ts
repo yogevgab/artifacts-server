@@ -650,19 +650,23 @@ describe("frame-ancestors is per request", () => {
       e(extra)
     );
   const csp = (res: Response) => res.headers.get("content-security-policy") ?? "";
+  // Frame tokens are pinned to the artifact's created_at, as the viewer mints them.
+  const art = async () =>
+    (await env.DB.prepare("SELECT created_at FROM artifacts WHERE slug = 'report'").first<{ created_at: string }>())!.created_at;
+  const mint = async (anc?: string) => mintFrameToken(SECRET, "report", NOW(), anc, await art());
 
   it("a token without anc keeps today's static list", async () => {
     await activate(acme.id);
-    const res = await frame(await mintFrameToken(SECRET, "report", NOW()));
+    const res = await frame(await mint());
     expect(res.status).toBe(200);
     expect(csp(res)).toContain(`frame-ancestors 'self' ${APP};`);
     expect(csp(res)).not.toContain(DOMAIN);
-    expect(await verifyFrameToken(SECRET, await mintFrameToken(SECRET, "report", NOW()), "report", NOW())).toBe(true);
+    expect(await verifyFrameToken(SECRET, await mint(), "report", NOW())).toBe(true);
   });
 
   it("anc is honoured for an active domain of the artifact's workspace", async () => {
     await activate(acme.id);
-    const res = await frame(await mintFrameToken(SECRET, "report", NOW(), CUSTOM));
+    const res = await frame(await mint(CUSTOM));
     expect(res.status).toBe(200);
     expect(csp(res)).toContain(`frame-ancestors 'self' ${APP} ${CUSTOM};`);
   });
@@ -671,7 +675,7 @@ describe("frame-ancestors is per request", () => {
     await activate(acme.id);
     await activate(evil.id, "docs.evil.example");
     for (const anc of ["https://docs.evil.example", "https://unregistered.example.com", "http://docs.acme.com", `${CUSTOM}/x`, CONTENT, "javascript:alert(1)", "null"]) {
-      const res = await frame(await mintFrameToken(SECRET, "report", NOW(), anc));
+      const res = await frame(await mint(anc));
       expect(res.status).toBe(200);
       expect(csp(res), anc).toContain(`frame-ancestors 'self' ${APP};`);
     }
@@ -679,7 +683,7 @@ describe("frame-ancestors is per request", () => {
 
   it("anc stops working the moment the domain is deactivated", async () => {
     await activate(acme.id);
-    const token = await mintFrameToken(SECRET, "report", NOW(), CUSTOM);
+    const token = await mint(CUSTOM);
     expect(csp(await frame(token))).toContain(CUSTOM);
     await removeDomain(env as any, DOMAIN, { email: OPERATOR, role: "super_admin" }, NOW());
     expect(csp(await frame(token))).not.toContain(DOMAIN);
@@ -687,7 +691,7 @@ describe("frame-ancestors is per request", () => {
 
   it("anc is ignored entirely with the flag off", async () => {
     await activate(acme.id);
-    const res = await frame(await mintFrameToken(SECRET, "report", NOW(), CUSTOM), { CUSTOM_DOMAINS_ENABLED: undefined });
+    const res = await frame(await mint(CUSTOM), { CUSTOM_DOMAINS_ENABLED: undefined });
     expect(csp(res)).not.toContain(DOMAIN);
   });
 

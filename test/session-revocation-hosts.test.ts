@@ -88,4 +88,29 @@ describe("session revocation and host-bound sessions", () => {
     expect((await post(`${CUSTOM}/auth/signout`, custCk)).status).toBe(200);
     expect((await get(`${APP}/report`, appCk)).status).not.toBe(200);
   });
+
+  it("sign-out voids a guest cookie too, including a guest-only sign-out", async () => {
+    const guest = `rtfx_guest=${await mintSession(SECRET, { email: OWNER, kind: "guest", slug: "report", aud: DOMAIN }, ago())}`;
+    expect((await get(`${CUSTOM}/report`, guest)).status).toBe(200);
+    // The visitor holds only the guest cookie; signing out must still revoke.
+    expect((await post(`${CUSTOM}/auth/signout`, guest)).status).toBe(200);
+    expect((await get(`${CUSTOM}/report`, guest)).status).not.toBe(200);
+  });
+
+  it("a cross-site GET /logout clears this browser but does not revoke everywhere", async () => {
+    const appCk = await cookie();
+    const other = await cookie(DOMAIN);
+    const forced = await app.request(`${APP}/logout`, { headers: { Cookie: appCk, "Sec-Fetch-Site": "cross-site", ...NAV } }, e());
+    expect(forced.status).toBe(302);
+    expect(forced.headers.get("set-cookie") ?? "").toContain(`${SESSION_COOKIE}=;`);
+    expect((await get(`${CUSTOM}/report`, other)).status).toBe(200);
+  });
+
+  it("a same-origin GET /logout revokes every session for the address", async () => {
+    const appCk = await cookie();
+    const other = await cookie(DOMAIN);
+    const res = await app.request(`${APP}/logout`, { headers: { Cookie: appCk, "Sec-Fetch-Site": "same-origin", ...NAV } }, e());
+    expect(res.status).toBe(302);
+    expect((await get(`${CUSTOM}/report`, other)).status).not.toBe(200);
+  });
 });
