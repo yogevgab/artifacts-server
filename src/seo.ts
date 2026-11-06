@@ -174,6 +174,143 @@ export const ANSWER_META = {
       "What Claude Code artifacts offer for sharing (organization, public link, versions, where they " +
       "can't publish) and publishing from Claude Code to an rtfx.pro private link instead.",
   },
+  // Batch 3 (2026-11-06): Claude how-tos, one page per AI tool, one per messaging app.
+  updateLink: {
+    path: "/update-claude-artifact-same-link",
+    title: "Update a Claude artifact without changing the link · rtfx",
+    description:
+      "Claude Code artifacts keep their URL when you publish again. rtfx.pro does the same for any page, with rollback and a view log.",
+    summary:
+      "Updating a Claude artifact at the same link: what Claude Code's docs say about versions, and same-name republish with rollback on rtfx.pro.",
+  },
+  revert: {
+    path: "/revert-claude-artifact-earlier-version",
+    title: "Revert a Claude artifact to an earlier version · rtfx",
+    description:
+      "In Claude Code the Share control picks the version viewers see. On rtfx.pro, ask Claude to roll an artifact back; the link stays the same.",
+    summary:
+      "Reverting a Claude artifact to an earlier version: Claude Code's version picker and rtfx.pro's rollback from chat, with the version-retention limits.",
+  },
+  outOfGoogle: {
+    path: "/keep-claude-artifacts-out-of-google",
+    title: "Keep Claude artifacts out of Google search · rtfx",
+    description:
+      "Claude's help article doesn't say whether shared artifacts are indexed. rtfx.pro links are excluded in robots.txt and open only for people you choose.",
+    summary:
+      "Whether shared Claude artifacts can be found in search (Claude's docs don't say) and how rtfx.pro keeps artifact pages out of search and behind access.",
+  },
+  chatgpt: {
+    path: "/share-chatgpt-html-privately",
+    title: "Share ChatGPT-generated HTML privately · rtfx",
+    description:
+      "Add rtfx.pro to ChatGPT as a custom MCP server, publish the HTML it made to a private link, and see who opened it. Steps from OpenAI's docs.",
+    summary:
+      "Connecting rtfx.pro to ChatGPT as a custom MCP server (OpenAI's steps and write-action approval), then publishing, sharing and updating a private link.",
+  },
+  cursor: {
+    path: "/share-cursor-html-privately",
+    title: "Share Cursor-generated HTML privately · rtfx",
+    description:
+      "Add rtfx.pro to Cursor in mcp.json, ask the agent to publish a page, and share the private link with named people. Config from Cursor's docs.",
+    summary:
+      "Connecting rtfx.pro to Cursor with a url entry in mcp.json and OAuth sign-in, then publishing and sharing a private link.",
+  },
+  vscode: {
+    path: "/share-github-copilot-html-privately",
+    title: "Share GitHub Copilot HTML privately from VS Code · rtfx",
+    description:
+      "Add rtfx.pro to VS Code as an HTTP MCP server, ask Copilot Chat to publish a page, and share the private link. Steps from VS Code's docs.",
+    summary:
+      "Connecting rtfx.pro to GitHub Copilot in VS Code (Chat: Open Customizations, MCP Servers, HTTP) and publishing a private link.",
+  },
+  devin: {
+    path: "/use-rtfx-with-devin-desktop-windsurf",
+    title: "Use rtfx with Devin Desktop (formerly Windsurf)",
+    description:
+      "Devin Desktop, formerly Windsurf, can call remote MCP servers. Add rtfx.pro to Devin Desktop's MCP config and publish to private links.",
+    summary:
+      "Adding rtfx.pro to Devin Desktop (formerly Windsurf) from Customize, MCPs, where its config files live, OAuth sign-in and approvals.",
+  },
+  gemini: {
+    path: "/share-gemini-html-privately",
+    title: "Share Gemini and Antigravity HTML privately · rtfx",
+    description:
+      "Connect rtfx.pro to the Gemini app as a custom app or to Antigravity as an MCP server, then publish HTML to a private link. Limits from Google's docs.",
+    summary:
+      "Connecting rtfx.pro to the Gemini app (custom apps; US, 18+, personal accounts) and Antigravity (mcp_config.json serverUrl), then publishing a private link.",
+  },
+  grok: {
+    path: "/share-grok-html-privately",
+    title: "Share Grok-generated HTML privately · rtfx",
+    description:
+      "Add rtfx.pro to Grok as a custom connector from grok.com/connectors, publish the HTML it made to a private link, and see who opened it.",
+    summary:
+      "Adding rtfx.pro to Grok as a custom connector (New Connector, Custom), what xAI's docs state and don't, and publishing a private link.",
+  },
+  pi: {
+    path: "/share-pi-agent-html-privately",
+    title: "Share Pi coding agent HTML privately · rtfx",
+    description:
+      "Add rtfx.pro to the Pi coding agent in ~/.pi/agent/mcp.json, sign in with pi mcp login, and publish pages to private links.",
+    summary:
+      "Connecting rtfx.pro to the Pi coding agent (mcp.json entry, pi mcp login) and publishing a private link.",
+  },
+  opencode: {
+    path: "/share-opencode-html-privately",
+    title: "Share OpenCode HTML output privately · rtfx",
+    description:
+      "Add rtfx.pro to OpenCode as a remote MCP server in opencode.json, authenticate with one command, and publish pages to private links.",
+    summary:
+      "Connecting rtfx.pro to OpenCode (remote entry in opencode.json, opencode mcp auth) and publishing a private link.",
+  },
+  hermes: {
+    path: "/share-hermes-agent-html-privately",
+    title: "Share Hermes Agent HTML privately · rtfx",
+    description:
+      "Add rtfx.pro to Hermes Agent in config.yaml with auth: oauth, log in with hermes mcp login, and publish pages to private links.",
+    summary:
+      "Connecting rtfx.pro to Hermes Agent (mcp_servers entry with auth: oauth, hermes mcp login) and publishing a private link.",
+  },
+  slack: {
+    path: "/share-html-file-privately-in-slack",
+    title: "Share an HTML file privately in Slack · rtfx",
+    description:
+      "Publish an HTML file to a private rtfx.pro link and paste the link in Slack. You choose who can open it, and you see who did.",
+    summary:
+      "Sharing an HTML file in Slack as a private link: publish, choose who can open it, paste the link, see who opened it.",
+  },
+  whatsapp: {
+    path: "/share-html-file-privately-on-whatsapp",
+    title: "Share an HTML file privately on WhatsApp · rtfx",
+    description:
+      "Publish an HTML file to a private rtfx.pro link and send the link on WhatsApp. You choose who can open it, and you see who did.",
+    summary:
+      "Sharing an HTML file on WhatsApp as a private link: publish, choose who can open it, send the link, see who opened it.",
+  },
+  email: {
+    path: "/share-html-file-privately-by-email",
+    title: "Share an HTML file privately by email or Gmail · rtfx",
+    description:
+      "Publish an HTML file to a private rtfx.pro link and put the link in your Gmail or email instead of an attachment. See who opened it.",
+    summary:
+      "Sharing an HTML file by email or Gmail as a private link instead of an attachment: who can open it, expiry and the view log.",
+  },
+  teams: {
+    path: "/share-html-file-privately-in-microsoft-teams",
+    title: "Share an HTML file privately in Microsoft Teams · rtfx",
+    description:
+      "Publish an HTML file to a private rtfx.pro link and paste the link in Teams. You choose who can open it, and you see who did.",
+    summary:
+      "Sharing an HTML file in Microsoft Teams as a private link: publish, choose who can open it, paste the link, see who opened it.",
+  },
+  discord: {
+    path: "/share-html-file-privately-on-discord",
+    title: "Share an HTML file privately on Discord · rtfx",
+    description:
+      "Publish an HTML file to a private rtfx.pro link and paste the link in Discord. You choose who can open it, and you see who did.",
+    summary:
+      "Sharing an HTML file on Discord as a private link: publish, choose who can open it, paste the link, see who opened it, and why not to post a share link in a public server.",
+  },
   answers: {
     path: "/answers",
     title: "Sharing Claude artifacts: questions answered · rtfx.pro",
@@ -197,6 +334,24 @@ export const TOPIC_KEYS = [
   "views",
   "password",
   "claudeCode",
+  // Batch 3 (2026-11-06), grouped on the hub: Claude how-tos, AI tools, messaging apps.
+  "updateLink",
+  "revert",
+  "outOfGoogle",
+  "chatgpt",
+  "cursor",
+  "vscode",
+  "devin",
+  "gemini",
+  "grok",
+  "pi",
+  "opencode",
+  "hermes",
+  "slack",
+  "whatsapp",
+  "email",
+  "teams",
+  "discord",
 ] as const;
 export type TopicKey = (typeof TOPIC_KEYS)[number];
 
@@ -290,13 +445,28 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
     priority: "0.7",
     updated: "2026-11-06",
   },
-  ...(["noAccount", "htmlFile", "public", "people", "expiry", "stopSharing", "claudeCode", "answers"] as const).map((k) => ({
+  ...(["noAccount", "htmlFile", "public", "people", "expiry", "stopSharing", "claudeCode"] as const).map((k) => ({
     path: ANSWER_META[k].path,
     title: ANSWER_META[k].title,
     summary: ANSWER_META[k].summary,
-    priority: k === "answers" ? "0.6" : "0.7",
+    priority: "0.7",
     updated: "2026-11-06",
   })),
+  // Batch 3 pages, published 2026-11-06 (src/answer-pages-clients.ts).
+  ...(["updateLink", "revert", "outOfGoogle", "chatgpt", "cursor", "vscode", "devin", "gemini", "grok", "pi", "opencode", "hermes", "slack", "whatsapp", "email", "teams", "discord"] as const).map((k) => ({
+    path: ANSWER_META[k].path,
+    title: ANSWER_META[k].title,
+    summary: ANSWER_META[k].summary,
+    priority: "0.7",
+    updated: "2026-11-06",
+  })),
+  {
+    path: ANSWER_META.answers.path,
+    title: ANSWER_META.answers.title,
+    summary: ANSWER_META.answers.summary,
+    priority: "0.6",
+    updated: "2026-11-06",
+  },
   {
     path: "/pro",
     title: "Pro — more room for what you publish",

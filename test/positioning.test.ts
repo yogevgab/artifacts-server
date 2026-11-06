@@ -38,6 +38,24 @@ const PUBLIC_PATHS = [
   "/open-claude-artifact-without-account", "/share-claude-html-file-privately", "/are-claude-artifacts-public",
   "/claude-artifact-link-expiry", "/share-claude-artifact-with-specific-people",
   "/stop-sharing-claude-artifact", "/share-claude-code-html-privately", "/answers",
+  // Batch 3 (2026-11-06)
+  "/update-claude-artifact-same-link",
+  "/revert-claude-artifact-earlier-version",
+  "/keep-claude-artifacts-out-of-google",
+  "/share-chatgpt-html-privately",
+  "/share-cursor-html-privately",
+  "/share-github-copilot-html-privately",
+  "/use-rtfx-with-devin-desktop-windsurf",
+  "/share-gemini-html-privately",
+  "/share-grok-html-privately",
+  "/share-pi-agent-html-privately",
+  "/share-opencode-html-privately",
+  "/share-hermes-agent-html-privately",
+  "/share-html-file-privately-in-slack",
+  "/share-html-file-privately-on-whatsapp",
+  "/share-html-file-privately-by-email",
+  "/share-html-file-privately-in-microsoft-teams",
+  "/share-html-file-privately-on-discord",
 ];
 
 const anon = { headers: { "X-Dev-Anonymous": "true" } };
