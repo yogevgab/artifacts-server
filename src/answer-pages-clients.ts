@@ -34,6 +34,8 @@ export interface TopicSection {
 export interface TopicVideo {
   file: string;
   poster: string;
+  /** WebVTT captions file served from /media. */
+  captions: string;
   width: number;
   height: number;
   /** ISO 8601 duration, e.g. PT30S. */
@@ -205,6 +207,7 @@ const chatgpt = toolTopic({
   video: {
     file: "rtfx-chatgpt-guide.mp4",
     poster: "rtfx-chatgpt-guide-poster.jpg",
+    captions: "rtfx-chatgpt-guide.vtt",
     width: 1280,
     height: 720,
     duration: "PT30S",

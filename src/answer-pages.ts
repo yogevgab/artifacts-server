@@ -867,6 +867,7 @@ export function topicPage(env: Env, key: TopicKey): string {
     ? `<figure class="walk"><video controls playsinline preload="none" width="${v.width}" height="${v.height}"
           poster="${mediaUrl(v.poster)}" aria-label="${esc(v.name)}">
           <source src="${mediaUrl(v.file)}" type="video/mp4">
+          <track kind="captions" src="${mediaUrl(v.captions)}" srclang="en" label="English">
         </video><figcaption>${esc(v.caption)}</figcaption></figure>`
     : "";
   const main = `

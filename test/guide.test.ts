@@ -78,6 +78,7 @@ describe("/guide", () => {
     expect(html).toMatch(/<figure class="walk"><video controls playsinline preload="none" width="1280" height="720"/);
     expect(html).toContain('poster="/media/rtfx-chatgpt-guide-poster.jpg?v=');
     expect(html).toContain('<source src="/media/rtfx-chatgpt-guide.mp4?v=');
+    expect(html).toMatch(/<track kind="captions" src="\/media\/rtfx-chatgpt-guide\.vtt\?v=[^"]+" srclang="en" label="English">/);
     const ld = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)]
       .flatMap((m) => {
         const j = JSON.parse(m[1]!);

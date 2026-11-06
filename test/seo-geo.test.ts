@@ -4,6 +4,7 @@ import app from "../src/index";
 import { initDb, clearR2 } from "./fixtures";
 import { SITE, PUBLIC_PAGES, llmsTxt, robotsTxt, APPLE_TOUCH_SIZE, appleTouchIconSvg, APPLE_TOUCH_SVG_SHA256 } from "../src/seo";
 import { FAQS, VIDEO } from "../src/home-content";
+import { MEDIA_VERSION } from "../src/media";
 import { llmsFullTxt } from "../src/llms-full";
 import { guideSteps } from "../src/guide";
 import { PLAN_PRICE } from "../src/plan-copy";
@@ -93,8 +94,8 @@ describe("structured data per page", () => {
     expect(app.offers.every((o: any) => o.availability === "https://schema.org/InStock")).toBe(true);
     expect(app.featureList.length).toBeGreaterThanOrEqual(5);
     const video = nodes.find((n) => n["@type"] === "VideoObject")!;
-    expect(video.thumbnailUrl).toBe(`${LOCAL}/media/${VIDEO.poster}?v=1`);
-    expect(video.contentUrl).toBe(`${LOCAL}/media/${VIDEO.file}?v=1`);
+    expect(video.thumbnailUrl).toBe(`${LOCAL}/media/${VIDEO.poster}?v=${MEDIA_VERSION}`);
+    expect(video.contentUrl).toBe(`${LOCAL}/media/${VIDEO.file}?v=${MEDIA_VERSION}`);
     // Full date-time with a time zone (Search Console: "uploadDate is missing a time zone").
     expect(video.uploadDate).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})$/);
     expect(video.duration).toBe("PT55S");

@@ -378,6 +378,7 @@ export function guideVideo(): string {
           poster="${mediaUrl(VIDEO.poster)}"
           aria-label="One-minute walkthrough: add rtfx to Claude, publish, share and see who opened it">
           <source src="${mediaUrl(VIDEO.file)}" type="video/mp4">
+          <track kind="captions" src="${mediaUrl(VIDEO.captions)}" srclang="en" label="English">
         </video>
         <figcaption>One minute: connect, publish, share, see who opened it.
           <a href="/guide">Step by step with screenshots &rarr;</a></figcaption>

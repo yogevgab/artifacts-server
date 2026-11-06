@@ -10,6 +10,11 @@
  *
  *   npx wrangler r2 object put artifacts-files/_site/rtfx-guide.mp4 --file rtfx-guide.mp4 --remote
  *
+ * Each video has a WebVTT captions file next to it (<track kind="captions">).
+ * The music in both videos is synthesized for us (no third-party audio); the
+ * sources live outside the repo in ~/dev/rtfx-guide-claude-video and
+ * ~/dev/rtfx-guide-chatgpt/video.
+ *
  * Byte ranges are honoured because Safari will not play a <video> whose server
  * answers a Range request with a plain 200 (same reasoning as src/serve.ts).
  * URLs in the HTML carry `?v=`, so bump MEDIA_VERSION after a re-upload.
@@ -20,13 +25,16 @@ import type { Env } from "./env";
 export const MEDIA: Record<string, string> = {
   "rtfx-guide.mp4": "video/mp4",
   "rtfx-guide-poster.jpg": "image/jpeg",
+  "rtfx-guide.vtt": "text/vtt; charset=utf-8",
   // The ChatGPT walkthrough on /share-chatgpt-html-privately (src/answer-pages-clients.ts).
   "rtfx-chatgpt-guide.mp4": "video/mp4",
   "rtfx-chatgpt-guide-poster.jpg": "image/jpeg",
+  "rtfx-chatgpt-guide.vtt": "text/vtt; charset=utf-8",
 };
 
 /** Cache-buster for the URLs written into pages. Bump after re-uploading. */
-export const MEDIA_VERSION = "1";
+// 2: rtfx-guide.mp4 re-uploaded with a music track (2026-11-06).
+export const MEDIA_VERSION = "2";
 
 export const mediaUrl = (name: string) => `/media/${name}?v=${MEDIA_VERSION}`;
 
