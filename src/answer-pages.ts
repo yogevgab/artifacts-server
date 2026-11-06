@@ -22,11 +22,15 @@ import { priceLabel } from "./plan-copy";
  * (`answerPagesMarkdown`) read the same arrays, so none of them can drift.
  *
  * Claims about Claude's own sharing are limited to what Anthropic's help
- * article "Share artifacts" (CLAUDE_SHARING_URL) states, re-checked 2026-11-02:
+ * article "Share artifacts" (CLAUDE_SHARING_URL) states, re-checked 2026-11-06:
  * artifacts start private; Pro/Max/Ultra can choose "Only you", "Anyone with
  * the link" or email invitations (beta); Team/Enterprise add organization-wide
- * sharing; viewers generally need a Claude account (only legacy published
- * artifacts open without one); pending invitations expire after 30 days;
+ * sharing; "Most artifacts shared with 'Anyone with the link' open without a
+ * Claude account or sign-in" — but docs need sign-in, some artifacts show
+ * content only after sign-in, link-only visitors can't use the parts that use
+ * Claude or connected apps and can't see or add comments; people invited by
+ * email (or shared with in an organization) sign in to Claude, and an invitee
+ * needs a Claude account with that address; pending invitations expire after 30 days;
  * unpublishing a legacy published artifact revokes it for good. Where the
  * article says nothing (passwords, view analytics, link expiry) the copy says
  * "the help article doesn't describe" — never "Claude can't". Do not add more
@@ -34,7 +38,7 @@ import { priceLabel } from "./plan-copy";
  */
 
 const PUBLISHED = "2026-10-26";
-const MODIFIED = "2026-11-03";
+const MODIFIED = "2026-11-06";
 const CLAUDE_SHARING_URL = "https://support.claude.com/en/articles/9547008-share-artifacts";
 /**
  * Claude Code's own artifacts documentation. Claims about artifacts made in
@@ -46,9 +50,8 @@ const CLAUDE_SHARING_URL = "https://support.claude.com/en/articles/9547008-share
  * cloud-provider sessions, nor by default with -p or the Agent SDK.
  *
  * The help article was also re-checked 2026-11-03 for the batch-2 topic pages.
- * New facts used there: "Everyone needs a Claude account. People without one
- * can't open a shared artifact, even with the link" (legacy published chat
- * artifacts excepted); access levels Can view / Commenter / Can edit; up to 50
+ * (2026-11-06: the article no longer says everyone needs a Claude account — see
+ * above; the copy was updated to match.) Facts used there: access levels Can view / Commenter / Can edit; up to 50
  * outside invitees per artifact; on Pro, Max and Ultra, switching to "Only you"
  * leaves invited people their access; sharing settings can't be changed in the
  * iOS/Android apps; Team/Enterprise chat artifacts expose that chat's
@@ -86,9 +89,10 @@ const SHARE_H1 = "How to share a Claude artifact privately";
 const SHARE_LEAD =
   "Add the rtfx.pro MCP server to Claude once, ask Claude to publish your artifact to a private " +
   "link, then choose exactly who can open it — they sign in with an email code and don't need a " +
-  "Claude account — and see who opened it. (Claude artifacts start private too, but the people " +
-  "you share them with generally need a Claude account, and Claude's help article doesn't " +
-  "describe passwords, expiring links or a view log.)";
+  "Claude account — and see who opened it. (Claude artifacts start private too. Claude's " +
+  "“Anyone with the link” opens for anyone who gets the link, while sharing with specific " +
+  "people means each one needs a Claude account; Claude's help article doesn't describe " +
+  "passwords, expiring links or a view log.)";
 
 interface AnswerStep {
   name: string;
@@ -159,7 +163,8 @@ const SHARE_FAQS: readonly Faq[] = [
       "With rtfx, yes — viewers never need a Claude account. People you add by email sign in with a " +
       "one-time code we send them. For someone you don't want to add, create a named share link on " +
       "the artifact's Share page: they open the page with no sign-in, and you can set an expiry, " +
-      "extend it or revoke it at any time. (Claude's own sharing generally requires a Claude account.)",
+      "extend it or revoke it at any time. (In Claude, people you invite by name need a Claude " +
+      "account; “Anyone with the link” skips that but opens for anyone who has the link.)",
   },
   {
     q: "Can I see who viewed my Claude artifact?",
@@ -172,9 +177,10 @@ const SHARE_FAQS: readonly Faq[] = [
     q: "Can anyone with the link open an artifact I share from Claude?",
     a:
       "Only if you choose \u201cAnyone with the link\u201d in Claude's Share menu; artifacts start " +
-      "private. On Team and Enterprise an owner has to allow that kind of sharing. People opening a " +
-      "shared artifact generally need a Claude account — only legacy published artifacts open " +
-      "without one.",
+      "private. On Team and Enterprise an owner has to allow that kind of sharing. Once you do, " +
+      "Claude's help article says most such artifacts open for anyone who has the link without " +
+      "signing in (docs, and parts that use Claude or connected apps, still need sign-in) — so " +
+      "anyone the link is forwarded to can open it too.",
   },
   {
     q: "What does it cost?",
@@ -188,9 +194,10 @@ const COMPARE_H1 = "Claude artifact sharing vs a private link";
 
 const COMPARE_LEAD =
   "Claude can share an artifact from its Share menu, and rtfx.pro adds private links to Claude as an " +
-  "MCP server. Claude's sharing is built for people who use Claude: the people opening a shared " +
-  "artifact generally need a Claude account. A private link is for sharing with exactly the people " +
-  "you choose, whether or not they use Claude, with a record of who opened it. Here is how they differ.";
+  "MCP server. Claude gives you two kinds of sharing: “Anyone with the link”, which opens for " +
+  "whoever has the link, and invitations to specific people, who each need a Claude account. A " +
+  "private link is for sharing with exactly the people you choose, whether or not they use Claude, " +
+  "with a record of who opened it. Here is how they differ.";
 
 interface CompareRow {
   label: string;
@@ -214,8 +221,9 @@ const COMPARE_ROWS: readonly CompareRow[] = [
   {
     label: "Sign-in for viewers",
     claude:
-      "Generally a Claude account; people you invite by email sign in with that address. Only legacy " +
-      "published artifacts open without an account.",
+      "People you invite (or share with in your organization) sign in to Claude; an invitee needs a " +
+      "Claude account. Most “Anyone with the link” artifacts open without signing in, except " +
+      "docs and parts that use Claude or connected apps.",
     rtfx:
       "People you add sign in with a one-time email code. Someone with a share link needs no " +
       "account and no sign-in.",
@@ -362,7 +370,7 @@ const TOPICS: Record<TopicKey, Topic> = {
     h1: "Can you put a password on a Claude artifact?",
     lead:
       "Claude's help article doesn't describe a password option: you share an artifact with only you, " +
-      "anyone with the link, or people you invite by email, who need a Claude account. rtfx.pro " +
+      "anyone with the link, or people you invite by email (who need a Claude account). rtfx.pro " +
       "doesn't use passwords either — each person you choose signs in with a one-time email code, " +
       "you can remove one person without affecting the others, and you see who opened it.",
     sections: [
@@ -412,22 +420,25 @@ const TOPICS: Record<TopicKey, Topic> = {
   },
   noAccount: {
     published: BATCH_2,
-    modified: BATCH_2,
+    modified: "2026-11-06",
     h1: "Can someone open a Claude artifact without a Claude account?",
     lead:
-      "Usually not. Claude's help article says everyone who opens a shared artifact needs a Claude " +
-      "account, even with the link. The exceptions are legacy artifacts published from a chat and, " +
-      "per Claude Code's docs, Claude Code artifacts shared as a public link — and both of those open " +
-      "for anyone who has the link. To share privately with someone who doesn't use Claude, publish " +
-      "to an rtfx.pro private link: they sign in with a one-time email code, or open a share link you " +
-      "made for them.",
+      "It depends how you share it. Claude's help article says most artifacts shared with “Anyone " +
+      "with the link” open without a Claude account — but then anyone who gets the link can open " +
+      "it. To share with specific people instead, each one needs a Claude account. To share privately " +
+      "with chosen people who don't use Claude, publish to an rtfx.pro private link: they sign in with " +
+      "a one-time email code, or open a share link you made for them.",
     sections: [
       {
         heading: "What Claude's own sharing allows",
         html: `<ul>
-          <li><b>Shared artifacts.</b> <q>Everyone needs a Claude account. People without one can't open a
-            shared artifact, even with the link,</q> says <a href="${CLAUDE_SHARING_URL}">Claude's help
-            article</a>. People you invite by email sign in to Claude with the address you invited.</li>
+          <li><b>&ldquo;Anyone with the link.&rdquo;</b> <q>Most artifacts shared with &lsquo;Anyone with the
+            link&rsquo; open without a Claude account or sign-in,</q> says <a href="${CLAUDE_SHARING_URL}">Claude's
+            help article</a>. Docs open only for people signed in to Claude, some artifacts show their content
+            only after sign-in, and link-only visitors can't use the parts that use Claude or connected apps.
+            Anyone the link reaches can open it.</li>
+          <li><b>Specific people.</b> People you invite by email sign in to Claude with the address you
+            invited, and each needs a Claude account with that address.</li>
           <li><b>Legacy artifacts published from a chat.</b> Anyone with the link can view and use them
             without a Claude account (they're asked to sign up only for features that use Claude). That makes
             them public: there is no list of who may open one.</li>
@@ -455,9 +466,9 @@ const TOPICS: Record<TopicKey, Topic> = {
       {
         q: "Do people need a Claude account to open a shared Claude artifact?",
         a:
-          "According to Claude's help article, yes: people without a Claude account can't open a shared " +
-          "artifact, even with the link. Legacy artifacts published from a chat are the exception, and " +
-          "Claude Code's docs describe public links that open without signing in.",
+          "Not for “Anyone with the link”: Claude's help article says most such artifacts open " +
+          "without a Claude account or sign-in (docs need sign-in). People you invite by email do need a " +
+          "Claude account. Claude Code's docs describe public links that open without signing in.",
       },
       {
         q: "How can someone without Claude open my artifact privately?",
@@ -538,20 +549,22 @@ const TOPICS: Record<TopicKey, Topic> = {
   },
   public: {
     published: BATCH_2,
-    modified: BATCH_2,
+    modified: "2026-11-06",
     h1: "Are Claude artifacts public?",
     lead:
       "Not by default. Claude's help article says artifacts start private to you, and nothing is shared " +
       "until you share it. One becomes visible to others when you choose “Anyone with the link”, " +
       "invite people, share it in your organization, publish a legacy chat artifact, or share a Claude " +
-      "Code artifact publicly. Only the last two open without a Claude account.",
+      "Code artifact publicly. Most “Anyone with the link” artifacts then open for whoever has the " +
+      "link, without signing in.",
     sections: [
       {
         heading: "What each sharing choice lets in",
         html: `<ul>
           <li><b>Only you</b> (Pro, Max, Ultra) or <b>Only people invited</b> (Team, Enterprise) — private.</li>
-          <li><b>Anyone with the link</b> — anyone signed in to Claude who has the link. On Team and Enterprise
-            plans an Owner has to turn on external sharing first.</li>
+          <li><b>Anyone with the link</b> — anyone who has the link, and for most artifacts without signing in
+            (docs need sign-in; link-only visitors can't use Claude-powered parts or comments). On Team and
+            Enterprise plans an Owner has to turn on external sharing first.</li>
           <li><b>Invited by email</b> — only the invited address, signed in to Claude, with Can view, Commenter
             or Can edit access. Up to 50 people outside your organization per artifact.</li>
           <li><b>Anyone at your organization</b> (Team, Enterprise) — people signed in to your organization.</li>
@@ -560,7 +573,7 @@ const TOPICS: Record<TopicKey, Topic> = {
           <li><b>A Claude Code artifact shared publicly</b> — anyone on the internet, no sign-in, according to
             <a href="${CLAUDE_CODE_ARTIFACTS_URL}">Claude Code's docs</a>.</li>
         </ul>
-        <p>Source: <a href="${CLAUDE_SHARING_URL}">Claude's help article on sharing artifacts</a>, checked 2026-11-03.</p>`,
+        <p>Source: <a href="${CLAUDE_SHARING_URL}">Claude's help article on sharing artifacts</a>, checked 2026-11-06.</p>`,
       },
       {
         heading: "Check before you share",
@@ -597,9 +610,9 @@ const TOPICS: Record<TopicKey, Topic> = {
       {
         q: "If I choose “Anyone with the link”, can anyone open it?",
         a:
-          "Anyone signed in to Claude who has the link, according to Claude's help article. People " +
-          "without a Claude account can't open it. Legacy published chat artifacts are different: " +
-          "anyone with the link can open those without an account.",
+          "Yes — anyone who has the link, including people outside your organization. Claude's help " +
+          "article says most such artifacts open without a Claude account or sign-in; docs need sign-in, " +
+          "and link-only visitors can't use the parts that use Claude or connected apps.",
       },
       {
         q: "Can Google index a Claude artifact?",
