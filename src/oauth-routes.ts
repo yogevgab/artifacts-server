@@ -364,8 +364,15 @@ async function fetchCimdClient(clientId: string, now: string): Promise<CimdFetch
 
   const redirects = normalizeRedirectUris(input.redirect_uris);
   if ("error" in redirects) return { reason: `redirect_uris: ${redirects.detail}` };
+  // A published document describes every way the client can authenticate,
+  // not the one it will use here — ChatGPT's prefers private_key_jwt but also
+  // lists "none". This server advertises only "none", so a client that
+  // supports it negotiates down to a public PKCE client. Refuse only a client
+  // that cannot do "none" at all.
   const authMethod = input.token_endpoint_auth_method;
-  if (authMethod !== undefined && authMethod !== "none") {
+  const supported = input.token_endpoint_auth_methods_supported;
+  const supportsNone = Array.isArray(supported) && supported.includes("none");
+  if (authMethod !== undefined && authMethod !== "none" && !supportsNone) {
     return { reason: "token_endpoint_auth_method must be \"none\"" };
   }
   if (input.response_types !== undefined) {
