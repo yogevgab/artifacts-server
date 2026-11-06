@@ -199,16 +199,22 @@ export async function viewerRoute(c: AppContext, next: Next): Promise<Response |
     const art = await getArtifact(c.env, segs[1]);
     if (art && art.account_id === account.id) {
       // A workspace with an active primary custom domain: a browser opening the
-      // rtfx.pro address is sent to it (permanently). API and machine requests
+      // rtfx.pro address is sent to it. API and machine requests
       // (not a top-level navigation) are untouched.
       if (wantsShell(c)) {
         const primary = await primaryDomainFor(c.env, account.id);
         if (primary) {
           const url = new URL(c.req.url);
-          return c.redirect(
-            customDomainLink(primary, art.slug, segs.slice(2).join("/")) + url.search,
-            301
-          );
+          // Temporary and uncacheable on purpose: a permanent redirect would be
+          // cached by browsers, so after a domain is removed people (and ?k= share
+          // keys) would keep being sent to the old hostname.
+          return new Response(null, {
+            status: 302,
+            headers: {
+              Location: customDomainLink(primary, art.slug, segs.slice(2).join("/")) + url.search,
+              "Cache-Control": "private, no-store",
+            },
+          });
         }
       }
       return viewArtifact(c, art, account.public_slug ?? first, segs.slice(2));

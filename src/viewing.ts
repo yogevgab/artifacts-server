@@ -25,6 +25,7 @@ import { recordViewAndMaybeNotify } from "./read-receipts";
 import { viewLimitStatus, blocksOnSuspension } from "./quota";
 import { siteOrigin } from "./seo";
 import { verifySession } from "./session";
+import { customerDomainOf } from "./custom-domains";
 
 export type AppContext = Context<{ Bindings: Env; Variables: AuthVars }>;
 
@@ -63,7 +64,8 @@ export async function guestIdentityFor(c: AppContext, slug: string): Promise<Ide
   if (!secret) return null;
   const raw = readCookie(c.req.header("Cookie") ?? c.req.header("cookie"), GUEST_COOKIE);
   if (!raw) return null;
-  const claims = await verifySession(secret, raw, new Date().toISOString());
+  const aud = (await customerDomainOf(c.env, c.req.url))?.hostname ?? null;
+  const claims = await verifySession(secret, raw, new Date().toISOString(), aud);
   if (!claims || claims.kind !== "guest" || claims.slug !== slug) return null;
   return {
     email: claims.email,

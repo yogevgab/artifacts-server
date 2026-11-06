@@ -121,7 +121,7 @@ export async function initDb() {
       id TEXT PRIMARY KEY, email TEXT NOT NULL, code_hash TEXT NOT NULL,
       token_hash TEXT NOT NULL, purpose TEXT NOT NULL, slug TEXT,
       attempts INTEGER NOT NULL DEFAULT 0, expires_at TEXT NOT NULL,
-      consumed_at TEXT, created_at TEXT NOT NULL)`
+      consumed_at TEXT, created_at TEXT NOT NULL, origin TEXT)`
   ).run();
   await env.DB.prepare(
     `CREATE TABLE share_links (

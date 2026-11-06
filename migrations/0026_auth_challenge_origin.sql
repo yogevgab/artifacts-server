@@ -1,0 +1,15 @@
+-- Bind sign-in challenges to the origin that issued them (custom domains).
+--
+-- A challenge issued on a customer host (docs.acme.com) carries that origin and
+-- can only be redeemed there; a challenge with no origin (every existing row, and
+-- everything issued on rtfx.pro) can only be redeemed on the app hosts. The owner
+-- of a custom domain controls the server behind it, so a code or magic token it
+-- can read must be worthless on rtfx.pro.
+--
+-- Additive and nullable. The Worker only writes the column for customer-host
+-- challenges and reads it with SELECT *, so deploying before this migration
+-- changes nothing while CUSTOM_DOMAINS_ENABLED is off. NOT idempotent (SQLite has
+-- no ADD COLUMN IF NOT EXISTS): a "duplicate column name" error means it already ran.
+--
+--   wrangler d1 execute artifacts-meta --remote --file migrations/0026_auth_challenge_origin.sql
+ALTER TABLE auth_challenges ADD COLUMN origin TEXT;

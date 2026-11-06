@@ -51,7 +51,7 @@ export { ChatRoom } from "./chat";
 import { redeemShareLink } from "./share";
 import { accountSlugRoutes, addressNotice, brandedBase } from "./account-slug-routes";
 import { viewerRoute, redirectToViewer } from "./viewer-routes";
-import { customDomainsEnabled, classifyHost, allowedFrameAncestor } from "./custom-domains";
+import { customDomainsEnabled, classifyHost, allowedFrameAncestor, customerDomainOf } from "./custom-domains";
 import { customerHostGate } from "./customer-host";
 import {
   callerIsInWorkspace,
@@ -1149,6 +1149,12 @@ app.get("/_chat/:slug", async (c) => {
   const slug = c.req.param("slug");
   const art = await getArtifact(c.env, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
+  // On a customer host the room is only reachable for that domain's own workspace,
+  // exactly like the viewer (another workspace's slug is a 404 there).
+  const chatDomain = await customerDomainOf(c.env, c.req.url);
+  if (chatDomain && art.account_id !== chatDomain.account_id) {
+    return c.json({ error: "not_found" }, 404);
+  }
 
   const key = readCookie(c.req.header("Cookie") ?? c.req.header("cookie"), linkCookieName(slug));
   const link = key ? await redeemShareLink(c.env, key, new Date().toISOString()) : null;

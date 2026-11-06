@@ -465,6 +465,15 @@ const DOMAIN_FAILURE_DETAIL: Record<RegisterFailure, string> = {
   taken: "that hostname already belongs to another workspace",
 };
 
+/** The :hostname path parameter decoded, or null when it is not valid percent-encoding. */
+function hostParam(raw: string | undefined): string | null {
+  try {
+    return decodeURIComponent(raw ?? "");
+  } catch {
+    return null;
+  }
+}
+
 /** The operator, if this request may use the domain controls; otherwise the response to give. */
 async function domainOperator(c: PortalContext): Promise<Response | null> {
   const identity = c.get("identity");
@@ -497,8 +506,10 @@ platformRoutes.put("/api/platform/custom-domains/:hostname", requireUser, async 
     return c.json({ error: "bad_request", detail: "send { account_id, status?, primary? }" }, 400);
   }
   const status = (body.status ?? "active") as DomainStatus;
+  const hostname = hostParam(c.req.param("hostname"));
+  if (hostname === null) return c.json({ error: "bad_hostname", detail: DOMAIN_FAILURE_DETAIL.bad_hostname }, 400);
   const out = await registerDomain(c.env, {
-    hostname: decodeURIComponent(c.req.param("hostname") ?? ""),
+    hostname,
     accountId: body.account_id,
     status,
     primary: body.primary === true,
@@ -520,9 +531,11 @@ platformRoutes.put("/api/platform/custom-domains/:hostname", requireUser, async 
 platformRoutes.delete("/api/platform/custom-domains/:hostname", requireUser, async (c) => {
   const refused = await domainOperator(c);
   if (refused) return refused;
+  const hostname = hostParam(c.req.param("hostname"));
+  if (hostname === null) return c.json({ error: "bad_hostname", detail: DOMAIN_FAILURE_DETAIL.bad_hostname }, 400);
   const ok = await removeDomain(
     c.env,
-    decodeURIComponent(c.req.param("hostname") ?? ""),
+    hostname,
     actorOf(c),
     new Date().toISOString()
   );

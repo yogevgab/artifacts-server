@@ -240,7 +240,8 @@ CREATE TABLE IF NOT EXISTS auth_challenges (
   attempts     INTEGER NOT NULL DEFAULT 0,
   expires_at   TEXT NOT NULL,
   consumed_at  TEXT,
-  created_at   TEXT NOT NULL
+  created_at   TEXT NOT NULL,
+  origin       TEXT            -- customer-host origin that issued it (migration 0026); NULL = app hosts
 );
 
 CREATE INDEX IF NOT EXISTS idx_auth_challenges_email ON auth_challenges (email, created_at DESC);

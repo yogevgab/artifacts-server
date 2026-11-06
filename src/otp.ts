@@ -65,7 +65,21 @@ function sixDigitCode(): string {
 
 export async function createChallenge(
   env: Env,
-  o: { email: string; purpose: ChallengePurpose; slug?: string; now: string; noLink?: boolean }
+  o: {
+    email: string;
+    purpose: ChallengePurpose;
+    slug?: string;
+    now: string;
+    noLink?: boolean;
+    /**
+     * The customer-host origin this challenge was issued on (a custom domain),
+     * or omitted for the app hosts. A challenge can only be redeemed on the
+     * origin that issued it: the owner of a custom domain controls the server
+     * behind it, so whatever it can read (a code, a magic token) must be worth
+     * nothing on rtfx.pro.
+     */
+    origin?: string | null;
+  }
 ): Promise<IssuedChallenge> {
   const email = normalize(o.email);
   const code = sixDigitCode();
@@ -86,13 +100,25 @@ export async function createChallenge(
     hashToken(o.noLink ? `nolink:${token}` : token),
   ]);
 
-  await env.DB.prepare(
-    `INSERT INTO auth_challenges
-       (id, email, code_hash, token_hash, purpose, slug, attempts, expires_at, consumed_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 0, ?, NULL, ?)`
-  )
-    .bind(id, email, codeHash, tokenHash, o.purpose, o.slug ?? null, expiresAt, o.now)
-    .run();
+  if (o.origin) {
+    // Migration 0026 adds the column; only customer-host sign-ins need it, so a
+    // Worker ahead of the migration still signs in on the app hosts.
+    await env.DB.prepare(
+      `INSERT INTO auth_challenges
+         (id, email, code_hash, token_hash, purpose, slug, attempts, expires_at, consumed_at, created_at, origin)
+       VALUES (?, ?, ?, ?, ?, ?, 0, ?, NULL, ?, ?)`
+    )
+      .bind(id, email, codeHash, tokenHash, o.purpose, o.slug ?? null, expiresAt, o.now, o.origin)
+      .run();
+  } else {
+    await env.DB.prepare(
+      `INSERT INTO auth_challenges
+         (id, email, code_hash, token_hash, purpose, slug, attempts, expires_at, consumed_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 0, ?, NULL, ?)`
+    )
+      .bind(id, email, codeHash, tokenHash, o.purpose, o.slug ?? null, expiresAt, o.now)
+      .run();
+  }
 
   return { email, purpose: o.purpose, slug: o.slug, code, token };
 }
@@ -103,6 +129,19 @@ interface Row {
   purpose: string;
   slug: string | null;
   attempts: number;
+  /** Customer-host origin that issued it; null/absent = the app hosts. */
+  origin?: string | null;
+}
+
+/**
+ * Does this challenge belong to the origin redeeming it? `requestOrigin` is the
+ * customer origin of the redeeming request, or null on an app host; `undefined`
+ * skips the check (unit tests). A challenge issued on a custom domain is only
+ * good there, and one issued on the app hosts is never good on a custom domain.
+ */
+function originMatches(row: Row, requestOrigin: string | null | undefined): boolean {
+  if (requestOrigin === undefined) return true;
+  return (row.origin ?? null) === (requestOrigin ?? null);
 }
 
 function toChallenge(row: Row): Challenge {
@@ -138,18 +177,22 @@ export async function redeemCode(
   env: Env,
   email: string,
   code: string,
-  now: string
+  now: string,
+  requestOrigin?: string | null
 ): Promise<Challenge | null> {
   const addr = normalize(email);
   const codeHash = await hashToken(`${addr}:${code}`);
 
-  const row = await env.DB.prepare(
-    `SELECT id, email, purpose, slug, attempts FROM auth_challenges
+  const rows = await env.DB.prepare(
+    `SELECT * FROM auth_challenges
       WHERE email = ? AND consumed_at IS NULL AND expires_at > ? AND purpose = 'signin'
-      ORDER BY created_at DESC LIMIT 1`
+      ORDER BY created_at DESC LIMIT 10`
   )
     .bind(addr, now)
-    .first<Row & { code_hash?: string }>();
+    .all<Row>();
+  // The newest challenge issued on THIS origin (a code mailed for docs.acme.com
+  // is invisible to rtfx.pro, and the other way round).
+  const row = (rows.results ?? []).find((r) => originMatches(r, requestOrigin)) ?? null;
 
   if (!row) return null;
   // Every guess spends an attempt BEFORE it is checked (see reserveAttempt),
@@ -194,16 +237,18 @@ export async function redeemReviewerCode(
   email: string,
   code: string,
   expected: string,
-  now: string
+  now: string,
+  requestOrigin?: string | null
 ): Promise<Challenge | null> {
   const addr = normalize(email);
-  const row = await env.DB.prepare(
-    `SELECT id, email, purpose, slug, attempts FROM auth_challenges
+  const rows = await env.DB.prepare(
+    `SELECT * FROM auth_challenges
       WHERE email = ? AND consumed_at IS NULL AND expires_at > ? AND purpose = 'signin'
-      ORDER BY created_at DESC LIMIT 1`
+      ORDER BY created_at DESC LIMIT 10`
   )
     .bind(addr, now)
-    .first<Row>();
+    .all<Row>();
+  const row = (rows.results ?? []).find((r) => originMatches(r, requestOrigin)) ?? null;
   if (!row) return null;
   if (!(await reserveAttempt(env, row.id))) return null;
   if (!timingSafeEqual(code, expected)) return null;
@@ -214,18 +259,21 @@ export async function redeemReviewerCode(
 export async function redeemToken(
   env: Env,
   token: string,
-  now: string
+  now: string,
+  requestOrigin?: string | null
 ): Promise<Challenge | null> {
   if (!token) return null;
   const tokenHash = await hashToken(token);
 
   const row = await env.DB.prepare(
-    `SELECT id, email, purpose, slug, attempts FROM auth_challenges
+    `SELECT * FROM auth_challenges
       WHERE token_hash = ? AND consumed_at IS NULL AND expires_at > ?`
   )
     .bind(tokenHash, now)
     .first<Row>();
 
   if (!row) return null;
+  // Wrong origin: refuse WITHOUT consuming, so the legitimate host can still redeem.
+  if (!originMatches(row, requestOrigin)) return null;
   return (await consume(env, row.id, now)) ? toChallenge(row) : null;
 }

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { env } from "cloudflare:test";
 import app from "../src/index";
 import { SESSION_COOKIE } from "../src/auth";
@@ -24,6 +24,9 @@ import { initDb, clearR2, viewerPath } from "./fixtures";
  * Custom domains, phase 1 (docs/CUSTOM_DOMAINS.md). Production-shaped: real
  * signing secret, no dev-login shortcut, two hostnames, the flag on.
  */
+
+// This file does a lot of real signing, D1 and R2 work per test; give a loaded CI box room.
+vi.setConfig({ testTimeout: 20_000 });
 
 const SECRET = "test-secret-at-least-32-bytes-long-for-hs256!!";
 const APP = "https://rtfx.pro";
@@ -59,8 +62,8 @@ function e(extra: Record<string, unknown> = {}) {
   };
 }
 
-const cookie = async (email: string, kind: "member" | "guest" = "member", slug?: string) =>
-  `${kind === "guest" ? GUEST_COOKIE : SESSION_COOKIE}=${await mintSession(SECRET, { email, kind, slug }, NOW())}`;
+const cookie = async (email: string, kind: "member" | "guest" = "member", slug?: string, aud?: string) =>
+  `${kind === "guest" ? GUEST_COOKIE : SESSION_COOKIE}=${await mintSession(SECRET, { email, kind, slug, aud }, NOW())}`;
 
 /** A request to any origin with the flag on (override `extra` to change env). */
 async function call(
@@ -68,7 +71,9 @@ async function call(
   o: { who?: string | null; headers?: Record<string, string>; method?: string; body?: unknown; extra?: Record<string, unknown> } = {}
 ) {
   const headers: Record<string, string> = { ...(o.headers ?? {}) };
-  if (o.who) headers.Cookie = [headers.Cookie, await cookie(o.who)].filter(Boolean).join("; ");
+  // A session is minted for the host it is used on (the `aud` claim).
+  const aud = new URL(url).hostname === DOMAIN ? DOMAIN : undefined;
+  if (o.who) headers.Cookie = [headers.Cookie, await cookie(o.who, "member", undefined, aud)].filter(Boolean).join("; ");
   let body: BodyInit | undefined;
   if (o.body !== undefined) {
     headers["Content-Type"] = "application/json";
@@ -120,6 +125,8 @@ let evil: { id: string };
 beforeEach(async () => {
   sent = [];
   await initDb();
+  // Sign-in is rate limited per address per hour; the table outlives initDb.
+  await env.DB.prepare("DELETE FROM waitlist_rate_limits").run().catch(() => {});
   await clearR2();
   await publish("report", OWNER);
   await publish("other-doc", OTHER);
@@ -773,15 +780,17 @@ describe("canonical URLs follow the primary domain", () => {
     expect(text).toContain(`${CUSTOM}/report`);
   });
 
-  it("browser GETs of the rtfx.pro address 301 to the custom domain; machines are untouched", async () => {
+  it("browser GETs of the rtfx.pro address redirect (302, no-store) to the custom domain; machines are untouched", async () => {
     await activate(acme.id);
     const path = await viewerPath("report");
     const browser = await browse(`${APP}${path}`, OWNER);
-    expect(browser.status).toBe(301);
+    expect(browser.status).toBe(302);
+    // Never cached: after the domain is removed nobody may keep being sent there.
+    expect(browser.headers.get("cache-control")).toBe("private, no-store");
     expect(browser.headers.get("location")).toBe(`${CUSTOM}/report`);
     // The share key rides along so an existing link keeps working.
     const keyed = await browse(`${APP}${path}?k=abc`, null);
-    expect(keyed.status).toBe(301);
+    expect(keyed.status).toBe(302);
     expect(keyed.headers.get("location")).toBe(`${CUSTOM}/report?k=abc`);
     // API / machine request: not a navigation, so no redirect to the domain.
     const machine = await call(`${APP}${path}`, { who: OWNER });
@@ -909,5 +918,135 @@ describe("operator registration endpoints", () => {
     await activate(acme.id);
     const res = await call(`${CUSTOM}/api/platform/custom-domains`, { who: OPERATOR });
     expect(res.status).toBe(404);
+  });
+});
+
+
+// --- security review: credentials are bound to the host that issued them ------------------
+
+describe("sessions and challenges are bound to their host", () => {
+  beforeEach(async () => {
+    await activate(acme.id);
+  });
+
+  const sessionFrom = (res: Response) => /rtfx_session=([^;]+)/.exec(res.headers.get("set-cookie") ?? "")?.[1];
+  const onApp = (path: string, session: string) =>
+    app.request(`${APP}${path}`, { headers: { Cookie: `${SESSION_COOKIE}=${session}` } }, e());
+  const onCustom = (path: string, session: string) =>
+    app.request(`${CUSTOM}${path}`, { headers: { Cookie: `${SESSION_COOKIE}=${session}`, ...NAV } }, e());
+
+  it("P1: a session minted on the customer host is refused on rtfx.pro (and works at home)", async () => {
+    await call(`${CUSTOM}/auth/start`, { method: "POST", body: { email: OWNER } });
+    const code = /\b(\d{6})\b/.exec(sent[0].text)![1];
+    const verify = await call(`${CUSTOM}/auth/verify`, { method: "POST", body: { email: OWNER, code } });
+    const session = sessionFrom(verify)!;
+    expect((await onApp("/api/artifacts", session)).status).not.toBe(200);
+    expect((await onCustom("/report", session)).status).toBe(200);
+  });
+
+  it("P1b: another workspace's user signing in on docs.acme.com gets nothing usable on rtfx.pro", async () => {
+    await call(`${CUSTOM}/auth/start`, { method: "POST", body: { email: OTHER } });
+    const link = /(https:\/\/[^\s"<]+\/auth\/m\/[A-Za-z0-9_-]+)/.exec(sent[0].text)![1];
+    expect(link.startsWith(CUSTOM)).toBe(true);
+    const go = await call(link, { method: "POST" });
+    const session = sessionFrom(go)!;
+    const res = await onApp("/api/artifacts", session);
+    expect(res.status).not.toBe(200);
+    expect(await res.text()).not.toContain("other-doc");
+  });
+
+  it("an rtfx.pro session (or one with no aud) is refused on the customer host", async () => {
+    const appSession = (await cookie(OWNER)).split("=")[1];
+    expect((await onCustom("/report", appSession)).status).toBe(302); // treated as signed out
+    // a session minted for a different custom domain is refused too
+    await activate(evil.id, "docs.evil.example");
+    const other = (await cookie(OWNER, "member", undefined, "docs.evil.example")).split("=")[1];
+    expect((await onCustom("/report", other)).status).toBe(302);
+  });
+
+  it("a guest cookie is bound to its host as well", async () => {
+    await app.request(
+      `${APP}/api/artifacts/report/access`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Cookie: await cookie(OWNER) },
+        body: JSON.stringify({ visibility: "restricted", emails: [GUEST] }),
+      },
+      e()
+    );
+    await call(`${CUSTOM}/auth/guest?slug=report`, { method: "POST", body: { email: GUEST } });
+    const link = /(https:\/\/[^\s"<]+\/auth\/m\/[A-Za-z0-9_-]+)/.exec(sent[0].text)![1];
+    // The magic token is no good on rtfx.pro...
+    const wrong = await call(`${APP}/auth/m/${link.split("/auth/m/")[1]}`, { method: "POST" });
+    expect(wrong.status).toBe(401);
+    // ...and works where it was issued; the cookie it sets only opens that host.
+    const ok = await call(link, { method: "POST" });
+    const guest = /rtfx_guest=[^;]+/.exec(ok.headers.get("set-cookie")!)![0];
+    expect((await browse(`${CUSTOM}/report`, null, { Cookie: guest })).status).toBe(200);
+    expect((await browse(`${APP}${await viewerPath("report")}`, null, { Cookie: guest })).status).not.toBe(200);
+    // A guest cookie minted without aud (rtfx.pro) does not open the customer host.
+    const plain = await cookie(GUEST, "guest", "report");
+    expect((await browse(`${CUSTOM}/report`, null, { Cookie: plain })).status).toBe(302);
+  });
+
+  it("P2: a magic token issued for the customer host is not redeemable on rtfx.pro, and is not burned by trying", async () => {
+    await call(`${CUSTOM}/auth/start`, { method: "POST", body: { email: OWNER } });
+    const link = /(https:\/\/[^\s"<]+\/auth\/m\/[A-Za-z0-9_-]+)/.exec(sent[0].text)![1];
+    const token = link.split("/auth/m/")[1];
+    const go = await call(`${APP}/auth/m/${token}`, { method: "POST" });
+    expect(go.status).toBe(401);
+    expect(go.headers.get("set-cookie") ?? "").not.toContain(`${SESSION_COOKIE}=`);
+    const real = await call(link, { method: "POST" });
+    expect(real.status).toBe(302);
+  });
+
+  it("P2b: a code issued for the customer host is not accepted by rtfx.pro/auth/verify", async () => {
+    await call(`${CUSTOM}/auth/start`, { method: "POST", body: { email: OWNER } });
+    const code = /\b(\d{6})\b/.exec(sent[0].text)![1];
+    const v = await call(`${APP}/auth/verify`, { method: "POST", body: { email: OWNER, code } });
+    expect(v.status).toBe(401);
+    expect((await call(`${CUSTOM}/auth/verify`, { method: "POST", body: { email: OWNER, code } })).status).toBe(200);
+  });
+
+  it("and the reverse: an rtfx.pro token or code does not work on the customer host", async () => {
+    await call(`${APP}/auth/start`, { method: "POST", body: { email: OWNER } });
+    const token = /\/auth\/m\/([A-Za-z0-9_-]+)/.exec(sent[0].text)![1];
+    const code = /\b(\d{6})\b/.exec(sent[0].text)![1];
+    expect((await call(`${CUSTOM}/auth/m/${token}`, { method: "POST" })).status).toBe(401);
+    expect((await call(`${CUSTOM}/auth/verify`, { method: "POST", body: { email: OWNER, code } })).status).toBe(401);
+    expect((await call(`${APP}/auth/verify`, { method: "POST", body: { email: OWNER, code } })).status).toBe(200);
+  });
+
+  it("a code requested on both hosts redeems on the right one each time", async () => {
+    await call(`${APP}/auth/start`, { method: "POST", body: { email: OWNER } });
+    const appCode = /\b(\d{6})\b/.exec(sent[0].text)![1];
+    await call(`${CUSTOM}/auth/start`, { method: "POST", body: { email: OWNER } });
+    const customCode = /\b(\d{6})\b/.exec(sent[1].text)![1];
+    expect((await call(`${APP}/auth/verify`, { method: "POST", body: { email: OWNER, code: appCode } })).status).toBe(200);
+    expect((await call(`${CUSTOM}/auth/verify`, { method: "POST", body: { email: OWNER, code: customCode } })).status).toBe(200);
+  });
+});
+
+describe("review follow-ups", () => {
+  beforeEach(async () => {
+    await activate(acme.id);
+  });
+
+  it("P5b: the chat socket on a customer host is scoped to the domain's workspace", async () => {
+    const cross = await call(`${CUSTOM}/_chat/other-doc`, { who: OTHER, headers: { Upgrade: "websocket", Origin: CUSTOM } });
+    expect(cross.status).toBe(404);
+    const own = await call(`${CUSTOM}/_chat/report`, { who: OWNER, headers: { Upgrade: "websocket", Origin: CUSTOM } });
+    expect(own.status).not.toBe(404);
+  });
+
+  it("a malformed percent-escape in the operator :hostname is a 400, not a 500", async () => {
+    for (const method of ["PUT", "DELETE"]) {
+      const res = await call(`${APP}/api/platform/custom-domains/%E0%A4%A`, {
+        method,
+        who: OPERATOR,
+        body: { account_id: acme.id },
+      });
+      expect(res.status).toBe(400);
+    }
   });
 });

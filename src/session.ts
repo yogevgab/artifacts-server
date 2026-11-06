@@ -20,6 +20,13 @@ export interface SessionClaims {
   kind: SessionKind;
   /** Guest sessions only: the single artifact this session was minted for. */
   slug?: string;
+  /**
+   * The custom-domain hostname this session was minted on. Absent = minted on an
+   * app host. A session is only valid on the host it was minted for: the owner of
+   * a custom domain controls the server behind it and can read every cookie sent
+   * there, so such a cookie must be worthless on rtfx.pro (and vice versa).
+   */
+  aud?: string;
 }
 
 /** 30 days. Sliding — see `shouldRefresh`. */
@@ -57,6 +64,7 @@ export async function mintSession(
   const jwt = new SignJWT({
     kind: claims.kind,
     ...(claims.slug ? { slug: claims.slug } : {}),
+    ...(claims.aud ? { aud: claims.aud } : {}),
   })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(normalize(claims.email))
@@ -74,18 +82,26 @@ export async function mintSession(
 export async function verifySession(
   secret: string,
   token: string,
-  now: string
+  now: string,
+  /**
+   * The custom-domain hostname of the request, or null on an app host. The
+   * token's `aud` must equal it exactly: tokens without `aud` (everything minted
+   * before custom domains) are accepted on app hosts only.
+   */
+  expectedAud: string | null = null
 ): Promise<SessionClaims | null> {
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, keyFrom(secret), {
       currentDate: new Date(now),
     });
+    const aud = typeof payload.aud === "string" ? payload.aud : undefined;
+    if ((aud ?? null) !== (expectedAud ?? null)) return null;
     const kind = payload.kind;
     if (kind !== "member" && kind !== "guest") return null;
     if (typeof payload.sub !== "string" || !payload.sub) return null;
     const slug = typeof payload.slug === "string" ? payload.slug : undefined;
-    return { email: payload.sub, kind, ...(slug ? { slug } : {}) };
+    return { email: payload.sub, kind, ...(slug ? { slug } : {}), ...(aud ? { aud } : {}) };
   } catch {
     return null;
   }
