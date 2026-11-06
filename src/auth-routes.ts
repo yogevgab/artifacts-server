@@ -20,7 +20,7 @@ import { signinMail, guestMail } from "./mail-templates";
 import { normalizeEmail } from "./waitlist";
 import { incrementRateLimitBucket, clientAddress } from "./rate-limit";
 import { touchLastSeen, effectiveRole } from "./users";
-import { ensurePersonalAccount, ensureAccountPublicSlug } from "./accounts";
+import { ensurePersonalAccount, ensureAccountPublicSlug, memberRole } from "./accounts";
 import { canonicalPath } from "./canonical";
 import { GUEST_COOKIE, inBackground, decideAccess } from "./viewing";
 import { siteOrigin } from "./seo";
@@ -233,7 +233,11 @@ async function belongsToArtifact(env: Env, art: ArtifactRow, email: string): Pro
     isAdmin: role === "admin" || role === "super_admin",
     role,
   };
-  return (await decideAccess(env, art, identity)).owned;
+  if ((await decideAccess(env, art, identity)).owned) return true;
+  // decideAccess skips the membership lookup when a grant already lets the
+  // person in. A member who also holds a grant still belongs: prefer the member
+  // sign-in over the scoped guest link.
+  return !!(art.account_id && (await memberRole(env, art.account_id, email)));
 }
 
 async function startChallenge(
@@ -248,7 +252,17 @@ async function startChallenge(
   // (same limits, same response) but nothing is emailed and no link exists. No
   // mail_log row is written, since no mail was attempted.
   if (purpose === "signin" && reviewerConfig(c.env)?.email === email) {
-    await createChallenge(c.env, { email, purpose, now, noLink: true });
+    // Slug and origin ride along (as for anyone else) so the reviewer lands on
+    // the artifact and the code redeems on a customer host; still no mail, no link.
+    const reviewerCustomer = await customerDomainOf(c.env, c.req.url);
+    await createChallenge(c.env, {
+      email,
+      purpose,
+      slug,
+      now,
+      noLink: true,
+      origin: reviewerCustomer ? `https://${reviewerCustomer.hostname}` : null,
+    });
     return;
   }
 
@@ -468,7 +482,7 @@ authRoutes.post("/auth/guest", async (c) => {
   }
 
   const [emailOk, ipOk] = await Promise.all([
-    incrementRateLimitBucket(c, `guest:email:${email}`, START_PER_EMAIL),
+    incrementRateLimitBucket(c, `guest:email-ip:${email}:${clientAddress(c)}`, START_PER_EMAIL),
     incrementRateLimitBucket(c, `guest:ip:${clientAddress(c)}`, START_PER_IP),
   ]);
   if (!emailOk || !ipOk) return c.json({ error: "rate_limited" }, 429, { "Retry-After": "3600" });
@@ -485,6 +499,9 @@ authRoutes.post("/auth/guest", async (c) => {
     // On a customer host a member sign-in is only for that host's own workspace;
     // a slug from another workspace falls through to the grant check below.
     if ((!customer || onCustom) && (await belongsToArtifact(c.env, art, email))) {
+      // Same all-sources cap as /auth/start: the per-address bucket above is
+      // keyed on the client too, so it alone does not bound mail to one address.
+      if (!(await incrementRateLimitBucket(c, `auth:email:${email}`, START_PER_EMAIL_ALL_SOURCES))) return;
       await startChallenge(c, email, "signin", art.slug);
       return;
     }

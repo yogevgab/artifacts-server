@@ -1103,3 +1103,21 @@ describe("the gate for people who belong to the document, on the customer host",
     expect(sent).toHaveLength(0);
   });
 });
+
+describe("the customer-host gate page", () => {
+  it("has the code form and no GET fallback", async () => {
+    await activate(acme.id);
+    const html = await (await call(`${CUSTOM}/shared/report`)).text();
+    expect(html).toContain("data-guest-code");
+    expect(html).toContain('name="code"');
+    expect(html).toContain('aria-describedby="guest-sent-to"');
+    const forms = html.match(/<form[^>]*>/g) ?? [];
+    expect(forms.length).toBeGreaterThanOrEqual(2);
+    for (const f of forms) {
+      expect(f).toContain('method="post"');
+      expect(f).not.toMatch(/method="get"/i);
+    }
+    // The script attaches its email handler even without the code form.
+    expect(html).toContain("if(!form) return;");
+  });
+});

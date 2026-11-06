@@ -386,3 +386,109 @@ describe("the gate recognises people who belong to the artifact", () => {
     expect(html).toContain("Something went wrong");
   });
 });
+
+describe("gate review fixes", () => {
+  const ADMIN = "ops@rtfx.pro";
+  let mailbox: any[] = [];
+  const ge = (extra: Record<string, unknown> = {}) =>
+    e({
+      ADMIN_EMAILS: ADMIN,
+      EMAIL: { send: async (m: any) => (mailbox.push(m), { messageId: "m" }) },
+      ...extra,
+    });
+  const gateFrom = (email: string, ip: string, extra: Record<string, unknown> = {}) =>
+    app.request(
+      `${APP}/auth/guest?slug=report`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "CF-Connecting-IP": ip },
+        body: JSON.stringify({ email }),
+      },
+      ge(extra)
+    );
+  const rows = async (email: string) =>
+    (await (env as any).DB.prepare("SELECT * FROM auth_challenges WHERE email = ?").bind(email).all()).results as any[];
+
+  beforeEach(async () => {
+    mailbox = [];
+    for (const t of ["waitlist_rate_limits", "mail_log", "auth_challenges"]) {
+      await (env as any).DB.prepare(`DELETE FROM ${t}`).run().catch(() => {});
+    }
+  });
+
+  it("a workspace member who also holds a grant still gets the member sign-in", async () => {
+    const MEMBER = "mia@rtfx.pro";
+    const art = (await (env as any).DB.prepare("SELECT account_id FROM artifacts WHERE slug = 'report'").first()) as {
+      account_id: string;
+    };
+    await (env as any).DB.prepare(
+      "INSERT INTO account_members (account_id, email, role, created_at, updated_at) VALUES (?, ?, 'viewer', ?, ?)"
+    )
+      .bind(art.account_id, MEMBER, NOW(), NOW())
+      .run();
+    await req("/api/artifacts/report/access", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ visibility: "restricted", emails: [GUEST, MEMBER] }),
+      ...as(OWNER),
+    });
+    await gateFrom(MEMBER, "1.1.1.1");
+    expect((await rows(MEMBER)).map((r) => r.purpose)).toEqual(["signin"]);
+  });
+
+  it("a stranger at another address cannot burn the owner's gate budget", async () => {
+    for (let i = 0; i < 6; i++) await gateFrom(OWNER, "9.9.9.9");
+    expect((await gateFrom(OWNER, "9.9.9.9")).status).toBe(429);
+    expect((await gateFrom(OWNER, "2.2.2.2")).status).toBe(202);
+    expect((await rows(OWNER)).length).toBeGreaterThan(0);
+  });
+
+  it("the member branch counts toward the all-sources cap", async () => {
+    // 15 per hour across sources: vary the IP to dodge the per-IP buckets.
+    for (let i = 0; i < 18; i++) await gateFrom(OWNER, `10.0.0.${i}`);
+    expect((await rows(OWNER)).length).toBe(15);
+  });
+
+  it("the reviewer's gate challenge carries the artifact slug (still no mail)", async () => {
+    const reviewer = "reviewer@rtfx.pro";
+    await (env as any).DB.prepare("UPDATE artifacts SET owner_email = ? WHERE slug = 'report'").bind(reviewer).run();
+    await gateFrom(reviewer, "3.3.3.3", { REVIEWER_EMAIL: reviewer, REVIEWER_CODE: "424242" });
+    const ch = await rows(reviewer);
+    expect(ch.map((r) => r.slug)).toEqual(["report"]);
+    expect(mailbox).toEqual([]);
+    const res = await app.request(
+      `${APP}/auth/verify`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: reviewer, code: "424242" }),
+      },
+      ge({ REVIEWER_EMAIL: reviewer, REVIEWER_CODE: "424242" })
+    );
+    expect(((await res.json()) as { redirect: string }).redirect).toBe(await viewerPath("report"));
+  });
+
+  it("/auth/verify runs the same DB statements whether or not a challenge exists", async () => {
+    const count = async (email: string) => {
+      let n = 0;
+      const db = (env as any).DB;
+      const proxy = new Proxy(db, {
+        get(t, k) {
+          if (k === "prepare") return (...a: any[]) => (n++, t.prepare(...a));
+          const v = t[k];
+          return typeof v === "function" ? v.bind(t) : v;
+        },
+      });
+      await app.request(
+        `${APP}/auth/verify`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, code: "000000" }) },
+        ge({ DB: proxy })
+      );
+      return n;
+    };
+    await createChallenge(env as any, { email: OWNER, purpose: "signin", slug: "report", now: NOW() });
+    const withRow = await count(OWNER);
+    const withoutRow = await count("nobody@x.com");
+    expect(withoutRow).toBe(withRow);
+  });
+});

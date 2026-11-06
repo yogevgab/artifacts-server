@@ -105,6 +105,7 @@ export const AUTH_SCRIPT = `(function(){
     }).catch(function(){busy(emailForm,false);say('Network problem. Try again.','error');});
   });
 
+  if(!codeForm) return;
   codeForm.addEventListener('submit',function(e){
     e.preventDefault();
     var code=codeForm.elements.code.value.trim();
@@ -368,7 +369,7 @@ export function guestSigninPage(env: Env, slug: string, next?: string | null): s
        <h1>Confirm it's you</h1>
        <p class="lede">Enter the email address this was shared with \u2014 or your own, if it's
          yours \u2014 and we'll email you a way in. No password.</p>
-       <form class="auth-form" data-guest-form data-slug="${esc(slug)}" novalidate>
+       <form class="auth-form" method="post" data-guest-form data-slug="${esc(slug)}" novalidate>
          <label class="field">
            <span class="field-label">Email address</span>
            <input type="email" name="email" autocomplete="email" inputmode="email"
@@ -376,12 +377,12 @@ export function guestSigninPage(env: Env, slug: string, next?: string | null): s
          </label>
          <button type="submit" class="link-button">Email me</button>
        </form>
-       <form class="auth-form" data-guest-code hidden novalidate>
-         <p class="lede" data-sent-to></p>
+       <form class="auth-form" method="post" data-guest-code hidden novalidate>
+         <p class="lede" id="guest-sent-to" data-sent-to></p>
          <label class="field">
            <span class="field-label">Six-digit code</span>
            <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code"
-                  pattern="[0-9]{6}" maxlength="6" placeholder="000000" required>
+                  pattern="[0-9]{6}" maxlength="6" placeholder="000000" required aria-describedby="guest-sent-to">
          </label>
          <button type="submit" class="link-button">Open</button>
          <button type="button" class="ghost link-button" data-back>Use a different address</button>
@@ -408,8 +409,10 @@ export const GUEST_SCRIPT = `(function(){
   var form=document.querySelector('[data-guest-form]');
   var codeForm=document.querySelector('[data-guest-code]');
   var status=document.querySelector('[data-auth-status]');
-  if(!form||!codeForm) return;
+  if(!form) return;
   var address='';
+  // Never let a form submit natively: the address would end up in a URL.
+  if(codeForm){codeForm.addEventListener('submit',function(e){e.preventDefault();});}
   function say(msg,tone){
     status.hidden=!msg; status.textContent=msg||'';
     if(tone){status.setAttribute('data-tone',tone);}else{status.removeAttribute('data-tone');}
@@ -427,6 +430,10 @@ export const GUEST_SCRIPT = `(function(){
       body:JSON.stringify({email:address})
     }).then(function(r){
       busy(form,false,'Email me');
+      if(r.ok && !codeForm){
+        form.hidden=true; say('If '+address+' has access, we sent an email. Open the link in it. It expires in 15 minutes.');
+        return;
+      }
       if(r.ok){
         form.hidden=true; codeForm.hidden=false;
         codeForm.querySelector('[data-sent-to]').textContent='If '+address+' has access, we sent an email. Open the link in it, or type the six-digit code if it has one. It expires in 15 minutes.';
