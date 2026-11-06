@@ -30,6 +30,22 @@ export interface TopicSection {
   html: string;
 }
 
+/** A short walkthrough video served from /media (src/media.ts), with VideoObject data. */
+export interface TopicVideo {
+  file: string;
+  poster: string;
+  width: number;
+  height: number;
+  /** ISO 8601 duration, e.g. PT30S. */
+  duration: string;
+  /** ISO 8601 with a time zone (Search Console rejects a bare date). */
+  uploadDate: string;
+  name: string;
+  description: string;
+  /** Visible caption under the player (plain text). */
+  caption: string;
+}
+
 export interface Topic {
   /** datePublished of the Article node; defaults to PUBLISHED. */
   published?: string;
@@ -42,6 +58,8 @@ export interface Topic {
   finalH: string;
   /** Replaces the default "Set it up: …" line (trusted HTML). */
   related?: string;
+  /** Shown above the first section. */
+  video?: TopicVideo;
 }
 
 export type AnswerGroup = "claude" | "tools" | "channels";
@@ -125,8 +143,10 @@ function toolTopic(o: {
   /** Sections between "Connect" and "Publish, share, update". */
   extra?: readonly TopicSection[];
   modified?: string;
+  video?: TopicVideo;
 }): Topic {
   return {
+    ...(o.video ? { video: o.video } : {}),
     published: B3,
     modified: o.modified ?? B3,
     h1: o.h1,
@@ -182,6 +202,19 @@ const chatgpt = toolTopic({
         ${shotFig("chatgpt-03-consent", 500, 865, "The rtfx consent screen: chatgpt.com (ChatGPT) wants access, with the permissions it asks for, the signed-in account, and Cancel and Allow access buttons", "rtfx's consent screen names each permission before you allow it (here, see and publish only).")}
         <p>OpenAI notes that workspace permissions and security restrictions apply, and to only connect servers
           you trust. Its guide doesn't state plan tiers, so check what your plan and workspace allow.</p>`,
+  video: {
+    file: "rtfx-chatgpt-guide.mp4",
+    poster: "rtfx-chatgpt-guide-poster.jpg",
+    width: 1280,
+    height: 720,
+    duration: "PT30S",
+    uploadDate: "2026-11-06T00:00:00+00:00",
+    name: "Connect rtfx to ChatGPT and publish a private link (30 seconds)",
+    description:
+      "Add rtfx.pro to ChatGPT as a custom MCP server, sign in and allow access, then ask ChatGPT to " +
+      "publish a page and get a private link. Made from screenshots of our own run on 6 November 2026.",
+    caption: "30 seconds: add the server, connect, publish, get the link. Screenshots from our run.",
+  },
   extra: [
     {
       heading: "Publish from a ChatGPT conversation",

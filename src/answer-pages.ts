@@ -6,6 +6,7 @@ import type { Env } from "./env";
 import { SITE, MCP_URL, ANSWER_META, TOPIC_KEYS, canonicalUrl, siteOrigin } from "./seo";
 import type { TopicKey } from "./seo";
 import { htmlToMarkdown } from "./html-text";
+import { mediaUrl } from "./media";
 import type { Faq } from "./home-content";
 import { priceLabel } from "./plan-copy";
 import { CLIENT_TOPICS, CLIENT_GROUPS } from "./answer-pages-clients";
@@ -861,7 +862,15 @@ export function topicPage(env: Env, key: TopicKey): string {
   const sections = t.sections
     .map((s, i) => `<section class="topic" aria-labelledby="t${i}-h"><h2 class="sec" id="t${i}-h">${esc(s.heading)}</h2>${s.html}</section>`)
     .join("\n    ");
+  const v = t.video;
+  const video = v
+    ? `<figure class="walk"><video controls playsinline preload="none" width="${v.width}" height="${v.height}"
+          poster="${mediaUrl(v.poster)}" aria-label="${esc(v.name)}">
+          <source src="${mediaUrl(v.file)}" type="video/mp4">
+        </video><figcaption>${esc(v.caption)}</figcaption></figure>`
+    : "";
   const main = `
+    ${video}
     ${sections}
 
     <section id="faq" aria-labelledby="faq-h">
@@ -888,8 +897,26 @@ export function topicPage(env: Env, key: TopicKey): string {
     meta.title,
     wrapPage(esc(t.h1), t.lead, main, dates.modified),
     STYLE,
-    head(env, meta, t.h1, [faqPage(env, meta.path, t.faqs)], dates)
+    head(env, meta, t.h1, [faqPage(env, meta.path, t.faqs), ...(v ? [topicVideoObject(env, meta.path, v)] : [])], dates)
   );
+}
+
+function topicVideoObject(env: Env, path: string, v: NonNullable<Topic["video"]>): Record<string, unknown> {
+  return {
+    "@context": "https://schema.org",
+    "@type": "VideoObject",
+    "@id": `${canonicalUrl(env, path)}#video`,
+    name: v.name,
+    description: v.description,
+    thumbnailUrl: canonicalUrl(env, mediaUrl(v.poster)),
+    contentUrl: canonicalUrl(env, mediaUrl(v.file)),
+    uploadDate: v.uploadDate,
+    duration: v.duration,
+    width: v.width,
+    height: v.height,
+    encodingFormat: "video/mp4",
+    inLanguage: "en",
+  };
 }
 
 const GROUP_HEADINGS: Record<AnswerGroup, string> = {
@@ -1075,6 +1102,9 @@ figure img{display:block;width:100%;height:auto;border:1px solid var(--border-st
 figure.shot{margin:1rem 0 1.6rem}
 figure.shot img{width:auto;max-width:100%}
 figure.shot figcaption{margin-top:.5rem;color:var(--faint);font-size:.88rem}
+figure.walk{margin:2.2rem 0 0}
+figure.walk video{display:block;width:100%;height:auto;border:1px solid var(--border-strong);border-radius:var(--radius-sm);box-shadow:var(--shadow);background:var(--card)}
+figure.walk figcaption{margin-top:.5rem;color:var(--faint);font-size:.88rem}
 .faq-list{display:grid;gap:.6rem}
 .faq-list details{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-sm);padding:.15rem 1rem}
 .faq-list summary{cursor:pointer;font-weight:600;letter-spacing:-.01em;padding:.75rem 0;min-height:44px;display:flex;align-items:center;gap:.75rem;list-style:none}

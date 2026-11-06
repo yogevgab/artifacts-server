@@ -20,6 +20,9 @@ import type { Env } from "./env";
 export const MEDIA: Record<string, string> = {
   "rtfx-guide.mp4": "video/mp4",
   "rtfx-guide-poster.jpg": "image/jpeg",
+  // The ChatGPT walkthrough on /share-chatgpt-html-privately (src/answer-pages-clients.ts).
+  "rtfx-chatgpt-guide.mp4": "video/mp4",
+  "rtfx-chatgpt-guide-poster.jpg": "image/jpeg",
 };
 
 /** Cache-buster for the URLs written into pages. Bump after re-uploading. */
