@@ -46,7 +46,16 @@ describe("/media", () => {
       expect(html).not.toMatch(/<video[^>]*autoplay/);
       expect(html).toContain('src="/media/rtfx-guide.mp4?v=');
       expect(html).toContain('poster="/media/rtfx-guide-poster.jpg?v=');
+      expect(html).toMatch(/<track kind="captions" src="\/media\/rtfx-guide\.vtt\?v=[^"]+" srclang="en" label="English">/);
     }
+  });
+
+  it("serves the WebVTT captions as text/vtt", async () => {
+    await env.FILES.put("_site/rtfx-guide.vtt", "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHi\n");
+    const res = await req("/media/rtfx-guide.vtt", ANON);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("text/vtt; charset=utf-8");
+    expect(await res.text()).toMatch(/^WEBVTT/);
   });
 
   it("is app-host only and an unclaimable workspace slug", () => {

@@ -153,6 +153,8 @@ export const ENTERPRISE_LINES: readonly string[] = [
 export const VIDEO = {
   file: "rtfx-guide.mp4",
   poster: "rtfx-guide-poster.jpg",
+  /** WebVTT captions, served from /media like the video. */
+  captions: "rtfx-guide.vtt",
   width: 1920,
   height: 1080,
   /** ISO 8601 duration of the 55 s video. */

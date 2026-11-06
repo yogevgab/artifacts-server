@@ -3,6 +3,7 @@ import { initDb, clearR2, req } from "./fixtures";
 import { isReservedAccountSlug } from "../src/account-slugs";
 import { isManagementPath } from "../src/host";
 import { GUIDE_IMAGES } from "../src/guide-images";
+import { MEDIA } from "../src/media";
 
 const ANON = { headers: { "X-Dev-Anonymous": "true" } };
 
@@ -70,6 +71,30 @@ describe("/guide", () => {
     }
     // The screenshots must not show a real person's address.
     expect(html).not.toMatch(/@gmail\.com/);
+  });
+
+  it("embeds the ChatGPT walkthrough video with VideoObject data, served from the /media allowlist", async () => {
+    const html = await (await req("/share-chatgpt-html-privately", ANON)).text();
+    expect(html).toMatch(/<figure class="walk"><video controls playsinline preload="none" width="1280" height="720"/);
+    expect(html).toContain('poster="/media/rtfx-chatgpt-guide-poster.jpg?v=');
+    expect(html).toContain('<source src="/media/rtfx-chatgpt-guide.mp4?v=');
+    expect(html).toMatch(/<track kind="captions" src="\/media\/rtfx-chatgpt-guide\.vtt\?v=[^"]+" srclang="en" label="English">/);
+    const ld = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)]
+      .flatMap((m) => {
+        const j = JSON.parse(m[1]!);
+        return Array.isArray(j) ? j : j["@graph"] ?? [j];
+      });
+    const video = ld.find((n: any) => n["@type"] === "VideoObject");
+    expect(video).toMatchObject({
+      "@id": "https://rtfx.pro/share-chatgpt-html-privately#video",
+      duration: "PT30S",
+      encodingFormat: "video/mp4",
+    });
+    expect(video.contentUrl).toMatch(/^https:\/\/rtfx\.pro\/media\/rtfx-chatgpt-guide\.mp4\?v=/);
+    expect(video.uploadDate).toMatch(/T00:00:00\+00:00$/);
+    expect(Object.keys(MEDIA)).toEqual(expect.arrayContaining(["rtfx-chatgpt-guide.mp4", "rtfx-chatgpt-guide-poster.jpg"]));
+    // Other answer pages carry no video.
+    expect(await (await req("/share-cursor-html-privately", ANON)).text()).not.toContain("<video");
   });
 
   it("is linked from the home page, the nav and the sitemap", async () => {
