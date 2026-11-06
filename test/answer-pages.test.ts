@@ -237,6 +237,11 @@ describe("batch-3 pages", () => {
     expect(upd).toContain("https://code.claude.com/docs/en/artifacts");
   });
 
+  it("llms-full.txt keeps config snippets as multi-line fenced code", () => {
+    const full = llmsFullTxt({ PUBLIC_BASE_URL: "https://rtfx.pro" });
+    expect(full).toContain('```\nmcp_servers:\n  rtfx:\n    url: "https://mcp.rtfx.pro/mcp"\n    auth: oauth\n```');
+  });
+
   it("the Google page links Claude's help article and says it doesn't state indexing", async () => {
     const html = await (await get(ANSWER_META.outOfGoogle.path)).text();
     expect(html).toContain("https://support.claude.com/en/articles/9547008-share-artifacts");

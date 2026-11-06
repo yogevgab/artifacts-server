@@ -137,7 +137,7 @@ const chatgpt = toolTopic({
     "choose who can open it. People sign in with an email code, and you can see who opened it.",
   vendor: "OpenAI's custom MCP server guide",
   vendorUrl: "https://developers.openai.com/api/docs/guides/custom-mcp-server",
-  connect: `<p>${URL_NOTE} OpenAI's guide describes this path, on ChatGPT on the web:</p>
+  connect: `<p>${URL_NOTE} OpenAI's guide describes this path:</p>
         <ol>
           <li>Go to <b>ChatGPT Plugins</b> at chatgpt.com/plugins.</li>
           <li>Select the plus button, then <b>Add custom MCP server</b>.</li>
@@ -191,8 +191,8 @@ const cursor = toolTopic({
     {
       q: "Can Cursor publish a whole built site?",
       a:
-        "Through the MCP server the agent sends the page contents. For a built folder or zip on disk, use the " +
-        "rtfx Claude Code plugin, or drop the zip into the dashboard in your browser.",
+        "Through the MCP server the agent sends the page contents. For a built folder or zip on disk, drop the zip into the " +
+        "rtfx dashboard in your browser (index.html at its root).",
     },
   ],
   finalH: "Share what Cursor built, privately.",
@@ -209,7 +209,7 @@ const vscode = toolTopic({
   connect: `<p>${URL_NOTE} The VS Code docs describe this path:</p>
         <ol>
           <li>Run <b>Chat: Open Customizations</b> from the Command Palette and select <b>MCP Servers</b>, then
-            <b>Add Server</b> (+). Alternatively, run <b>MCP: Add Server</b>.</li>
+            <b>Add Server</b>. Alternatively, run <b>MCP: Add Server</b>.</li>
           <li>Choose <b>HTTP (HTTP or Server-Sent Events)</b> and enter the server address above.</li>
           <li>Enter a server ID, such as <code>rtfx</code>.</li>
           <li>For a personal setup, select <b>Global</b>.</li>
@@ -236,20 +236,20 @@ const devin = toolTopic({
   tool: "Devin Desktop",
   h1: "Use rtfx with Devin Desktop (formerly Windsurf)",
   lead:
-    "Devin Desktop, formerly Windsurf, can call remote MCP servers. Add rtfx.pro from Customize, sign in " +
-    "with an email code, and publish pages to private links your agent can share with named people.",
+    "Devin Desktop, formerly Windsurf, can call remote MCP servers. Add rtfx.pro to Devin Desktop's MCP config, " +
+    "sign in with an email code, and publish pages to private links your agent can share with named people.",
   vendor: "Devin Desktop's MCP docs",
   vendorUrl: "https://docs.devin.ai/desktop/cascade/mcp",
-  connect: `<p>${URL_NOTE} If you used this tool as Windsurf, its docs have moved to docs.devin.ai. They say:</p>
+  connect: `<p>${URL_NOTE} If you used this tool as Windsurf, its docs have moved to docs.devin.ai (see <a href="https://docs.devin.ai/desktop/devin-desktop-faq">Devin Desktop's FAQ</a> for the rename). They say:</p>
         <ol>
-          <li>Click <b>Customize</b> in the agent sidebar, then <b>MCPs</b>.</li>
+          <li>Open the <b>Customize</b> page from the Agents window and click <b>MCPs</b>.</li>
           <li>Choose a scope with the <b>Install MCPs for</b> selector.</li>
           <li>To add a remote server yourself, add it to a config file: <code>.devin/mcp_config.json</code> in the
             project, <code>.devin/mcp_config.local.json</code> for a local override, or
             <code>~/.config/devin/mcp_config.json</code> for your user.</li>
         </ol>
         <p>The MCP page doesn't include a remote-server example, so follow the configuration docs it links for the
-          file format. It says Devin supports the Streamable HTTP and SSE transports with OAuth for each; if a
+          file format. It says Devin Local supports the Streamable HTTP and SSE transports, with OAuth for each; if a
           server shows <b>Needs authentication</b>, click <b>Authenticate</b> to run the browser sign-in.</p>`,
   faqs: [
     connectFaq(
@@ -294,7 +294,7 @@ const gemini = toolTopic({
 }</code></pre>
         <p>Remote servers must use Streamable HTTP, which rtfx does. In the Antigravity app, open
           <b>Customizations</b>, <b>Installed</b>, then <b>MCP Servers</b> and click <b>Authenticate</b> next to the
-          server. For servers that support dynamic client registration, Antigravity handles OAuth with PKCE
+          server, sign in in your browser, then paste the authorization code into <b>Enter authorization code</b> and click <b>Submit</b>. For servers that support dynamic client registration, Antigravity handles OAuth with PKCE
           itself.</p>
         <p>Antigravity source: <a href="https://antigravity.google/docs/mcp">antigravity.google/docs/mcp</a>, read ${B3}.</p>`,
   faqs: [
@@ -328,10 +328,9 @@ const grok = toolTopic({
           <li>Enter the server address above and complete any authentication it requires. For rtfx that is the
             code we email you.</li>
         </ol>
-        <p>Grok then discovers the tools the server exposes. The docs say the server must be reachable over the
-          public internet, and that on Business and Enterprise a team admin provisions connectors in the console
-          before members can use them. The docs don't state per-plan limits on custom connectors, so check what
-          your plan allows.</p>`,
+        <p>Grok then discovers the tools the server exposes. The docs say connectors are available to all Grok users, that the
+          server must be reachable over the public internet, and that Business and Enterprise connectors are
+          provisioned by a team admin in the console before members can use them.</p>`,
   faqs: [
     {
       q: "Does Grok ask me to approve a publish?",
@@ -342,7 +341,7 @@ const grok = toolTopic({
     {
       q: "Can I add a custom connector on every Grok plan?",
       a:
-        "xAI's page doesn't state plan limits for custom connectors. It does say Business and Enterprise " +
+        "xAI's docs say connectors are available to all Grok users, and that Business and Enterprise " +
         "connectors are provisioned by a team admin first.",
     },
   ],
@@ -376,7 +375,7 @@ const pi = toolTopic({
     },
     {
       q: "Does Pi support SSE servers?",
-      a: "Pi's docs describe streamable HTTP for remote servers. rtfx serves Streamable HTTP at the address above.",
+      a: "No. Pi's MCP docs say the legacy SSE transport is not supported. rtfx serves Streamable HTTP at the address above, which Pi supports.",
     },
   ],
   finalH: "Share what Pi built, privately.",
@@ -403,7 +402,7 @@ const opencode = toolTopic({
   }
 }</code></pre>
         <p>OpenCode handles OAuth for remote servers: it detects the 401 response, uses dynamic client
-          registration if the server supports it (rtfx does), and stores the tokens. To start sign-in yourself,
+          registration if the server supports it (rtfx does). To start sign-in yourself,
           run <code>opencode mcp auth rtfx</code>; <code>opencode mcp list</code> shows each server's auth status.
           Sign in with the code we email you.</p>`,
   faqs: [
@@ -440,7 +439,7 @@ const hermes = toolTopic({
           identification, PKCE, token exchange and refresh; your part is approving in the browser (Hermes never
           opens it by itself: click <b>Open in browser</b> in Desktop, or press Enter in the terminal). Sign in
           with the code we email you. On a headless host the docs list alternatives such as
-          <code>hermes mcp login rtfx --flow device</code>.</p>`,
+          <code>hermes mcp login rtfx --flow device</code> if the authorization server supports it.</p>`,
   faqs: [
     {
       q: "Does Hermes ask me to approve a publish?",
@@ -494,8 +493,8 @@ function channelTopic(o: {
             revoke it at any time without touching other people's access.</li>
           <li>A signed-in person without access sees the same “not found” page as for an artifact that doesn't exist.</li>
         </ul>
-        <p>Artifact pages tell search engines not to index them and are excluded in robots.txt. If ${o.app} builds a
-          preview when you paste a link, the view log records that as an attempt rather than a person.</p>`,
+        <p>Artifact pages tell search engines not to index them and are excluded in robots.txt. If a chat app builds a link
+          preview from a share link, the view log marks it as a link preview, not a person's visit.</p>`,
       },
       {
         heading: "Updating it later",
@@ -531,7 +530,7 @@ const slack = channelTopic({
   h1: "How to share an HTML file privately in Slack",
   lead:
     "Publish the HTML file to a private rtfx.pro link, paste the link in a Slack channel or message, and " +
-    "only the people you chose can open it. They sign in with an email code, and you see who opened it.",
+    "only the people you chose (plus members of your team workspace, if you publish to one) can open it. They sign in with an email code, and you see who opened it.",
   where: "Paste the link in Slack.",
   faqs: [
     {
@@ -548,7 +547,7 @@ const whatsapp = channelTopic({
   h1: "How to share an HTML file privately on WhatsApp",
   lead:
     "Publish the HTML file to a private rtfx.pro link, send the link in a WhatsApp chat, and only the " +
-    "people you chose can open it. They sign in with an email code, and you see who opened it.",
+    "people you chose (plus members of your team workspace, if you publish to one) can open it. They sign in with an email code, and you see who opened it.",
   where: "Send the link in WhatsApp.",
   faqs: [
     {
@@ -565,7 +564,7 @@ const email = channelTopic({
   h1: "How to share an HTML file privately by email or Gmail",
   lead:
     "Publish the HTML file to a private rtfx.pro link and put the link in your Gmail or other email, instead " +
-    "of attaching the file. Only the people you chose can open it, and you see who did.",
+    "of attaching the file. Only the people you chose (plus members of your team workspace, if you publish to one) can open it, and you see who did.",
   where: "Put the link in your email.",
   faqs: [
     {
@@ -582,7 +581,7 @@ const teams = channelTopic({
   h1: "How to share an HTML file privately in Microsoft Teams",
   lead:
     "Publish the HTML file to a private rtfx.pro link, paste the link in a Teams chat or channel, and only " +
-    "the people you chose can open it. They sign in with an email code, and you see who opened it.",
+    "the people you chose (plus members of your team workspace, if you publish to one) can open it. They sign in with an email code, and you see who opened it.",
   where: "Paste the link in Teams.",
   faqs: [
     {
@@ -599,7 +598,7 @@ const discord = channelTopic({
   h1: "How to share an HTML file privately on Discord",
   lead:
     "Publish the HTML file to a private rtfx.pro link, paste the link in a Discord server or direct message, " +
-    "and only the people you chose can open it. They sign in with an email code, and you see who opened it.",
+    "and only the people you chose (plus members of your team workspace, if you publish to one) can open it. They sign in with an email code, and you see who opened it.",
   where: "Paste the link in Discord.",
   faqs: [
     {
@@ -666,7 +665,7 @@ const updateLink: Topic = {
     },
     {
       q: "Can someone else update my rtfx artifact?",
-      a: "Editors you add can publish new versions and roll back, but can't change who has access or delete it.",
+      a: "Editors you add can publish new versions and roll back, but can't change who has access or delete it. Editors need their own rtfx account.",
     },
   ],
   finalH: "Update it once, keep the link.",
@@ -695,7 +694,7 @@ const revert: Topic = {
             the history.</li>
           <li><b>How many versions exist.</b> Every publish is a version. Free keeps your last 5 and paid plans
             keep every one, so on Free you can only go back to a version still kept.</li>
-          <li><b>Who can roll back.</b> You, and editors you added.</li>
+          <li><b>Who can roll back.</b> You, workspace members who manage it, and editors you added (editors need their own rtfx account).</li>
         </ul>
         <p>Connect once with <code>claude mcp add --transport http rtfx ${MCP_URL}</code>, or in Claude on the web
           with <b>Customize → Connectors → Add custom connector</b>.</p>`,
@@ -732,7 +731,7 @@ const outOfGoogle: Topic = {
     {
       heading: "What Claude's docs say",
       html: `<p>Claude's help article doesn't say whether shared artifacts are indexed. It does say artifacts start
-          private to you, and that a link shared with anyone who has it can be opened by anyone signed in to Claude.
+          private to you, and that a link shared with “Anyone with the link” can, for most artifacts, be opened by people who aren't signed in to Claude (docs open only for signed-in people).
           Claude Code's docs describe a public link as one that anyone on the internet can open without signing in.
           Whether a search engine would find such a link isn't covered, so the cautious reading is to not share
           anything sensitive that way.</p>

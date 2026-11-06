@@ -227,7 +227,7 @@ export const ANSWER_META = {
     path: "/use-rtfx-with-devin-desktop-windsurf",
     title: "Use rtfx with Devin Desktop (formerly Windsurf)",
     description:
-      "Devin Desktop, formerly Windsurf, can call remote MCP servers. Add rtfx.pro from Customize and publish pages to private links.",
+      "Devin Desktop, formerly Windsurf, can call remote MCP servers. Add rtfx.pro to Devin Desktop's MCP config and publish to private links.",
     summary:
       "Adding rtfx.pro to Devin Desktop (formerly Windsurf) from Customize, MCPs, where its config files live, OAuth sign-in and approvals.",
   },
@@ -275,7 +275,7 @@ export const ANSWER_META = {
     path: "/share-html-file-privately-in-slack",
     title: "Share an HTML file privately in Slack · rtfx",
     description:
-      "Publish an HTML file to a private rtfx.pro link and paste the link in Slack. Only the people you choose can open it, and you see who did.",
+      "Publish an HTML file to a private rtfx.pro link and paste the link in Slack. You choose who can open it, and you see who did.",
     summary:
       "Sharing an HTML file in Slack as a private link: publish, choose who can open it, paste the link, see who opened it.",
   },
@@ -283,7 +283,7 @@ export const ANSWER_META = {
     path: "/share-html-file-privately-on-whatsapp",
     title: "Share an HTML file privately on WhatsApp · rtfx",
     description:
-      "Publish an HTML file to a private rtfx.pro link and send the link on WhatsApp. Only the people you choose can open it, and you see who did.",
+      "Publish an HTML file to a private rtfx.pro link and send the link on WhatsApp. You choose who can open it, and you see who did.",
     summary:
       "Sharing an HTML file on WhatsApp as a private link: publish, choose who can open it, send the link, see who opened it.",
   },
@@ -299,7 +299,7 @@ export const ANSWER_META = {
     path: "/share-html-file-privately-in-microsoft-teams",
     title: "Share an HTML file privately in Microsoft Teams · rtfx",
     description:
-      "Publish an HTML file to a private rtfx.pro link and paste the link in Teams. Only the people you choose can open it, and you see who did.",
+      "Publish an HTML file to a private rtfx.pro link and paste the link in Teams. You choose who can open it, and you see who did.",
     summary:
       "Sharing an HTML file in Microsoft Teams as a private link: publish, choose who can open it, paste the link, see who opened it.",
   },
@@ -307,7 +307,7 @@ export const ANSWER_META = {
     path: "/share-html-file-privately-on-discord",
     title: "Share an HTML file privately on Discord · rtfx",
     description:
-      "Publish an HTML file to a private rtfx.pro link and paste the link in Discord. Only the people you choose can open it, and you see who did.",
+      "Publish an HTML file to a private rtfx.pro link and paste the link in Discord. You choose who can open it, and you see who did.",
     summary:
       "Sharing an HTML file on Discord as a private link: publish, choose who can open it, paste the link, see who opened it, and why not to post a share link in a public server.",
   },

@@ -980,7 +980,7 @@ export function answersHubPage(env: Env): string {
     "question: from Claude, from other AI tools, and in the apps you send links in.";
   return layout(
     meta.title,
-    wrapPage("Answers about sharing Claude artifacts", lead, main, "2026-11-06"),
+    wrapPage("Answers about sharing what your AI makes", lead, main, "2026-11-06"),
     STYLE,
     {
       description: meta.description,
