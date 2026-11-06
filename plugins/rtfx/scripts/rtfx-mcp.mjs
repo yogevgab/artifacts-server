@@ -9,15 +9,14 @@
 //
 // Standalone by design: no npm install, no dependencies, Node 18+.
 //
-// Configuration — two variables, neither a Cloudflare account credential:
-//   RTFX_API_TOKEN   a scoped token from the dashboard → Integrations (required)
+// Configuration. As a Claude Code plugin both values come from the plugin's
+// `userConfig` (Claude Code injects them into this process's env; the token is
+// stored in the system keychain). Nothing else in the ambient environment is read.
+//   RTFX_API_TOKEN   a scoped token from the dashboard → Integrations (optional if
+//                    you signed in with /rtfx:login)
 //   ARTIFACTS_URL    your instance, default https://rtfx.pro (RTFX_URL also accepted)
 //
 // Optional:
-//   CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET   Access service-token headers,
-//                    only for a self-hosted instance that gates every path at the
-//                    edge. Not needed on rtfx.pro: the tools call /api/machine,
-//                    which authenticates the bearer token on its own.
 //   RTFX_MCP_ALLOW_ACCESS=1   also expose `update_access` (needs a `manage` token)
 //   RTFX_MCP_DEBUG=1          log method names to stderr (never arguments)
 //
@@ -34,7 +33,7 @@ import { readFileSync, statSync, lstatSync, readdirSync } from "node:fs";
 import { File } from "node:buffer";
 import { join } from "node:path";
 import { deflateRawSync } from "node:zlib";
-import { DEFAULT_ENDPOINT, TOKEN_VAR } from "./rtfx.lib.mjs";
+import { DEFAULT_ENDPOINT, TOKEN_VAR, pluginEnv } from "./rtfx.lib.mjs";
 import { prepareBundle } from "./rtfx.bundle.mjs";
 import { getCredential, putCredential } from "./rtfx.oauth.lib.mjs";
 import { credentialsPath, loadStore, saveStore } from "./rtfx.oauth.mjs";
@@ -61,6 +60,10 @@ if (!Number.isFinite(NODE_MAJOR) || NODE_MAJOR < 18) {
   process.exit(1);
 }
 
+// The token and endpoint come from the plugin's `userConfig` (injected into this
+// process's env by Claude Code); nothing else in the ambient environment is read.
+const ENV = pluginEnv(process.env, { token: true });
+
 // --- Filesystem, injected ----------------------------------------------------
 //
 // rtfx.bundle.mjs takes its filesystem as an argument so the same walk can be
@@ -84,12 +87,12 @@ const IO = {
 // would be stale for most of the session.
 
 const CREDENTIALS = {
-  read: (issuer) => getCredential(loadStore(process.env), issuer),
-  write: (issuer, credential) => saveStore(putCredential(loadStore(process.env), issuer, credential), process.env),
+  read: (issuer) => getCredential(loadStore(ENV), issuer),
+  write: (issuer, credential) => saveStore(putCredential(loadStore(ENV), issuer, credential), ENV),
 };
 
 const ctx = createContext({
-  env: process.env,
+  env: ENV,
   fetch: (...args) => fetch(...args),
   prepareBundle: (path) => prepareBundle(path, IO),
   File,
@@ -97,7 +100,7 @@ const ctx = createContext({
   credentials: CREDENTIALS,
 });
 
-const DEBUG = ["1", "true", "yes", "on"].includes(String(process.env.RTFX_MCP_DEBUG ?? "").toLowerCase());
+const DEBUG = ["1", "true", "yes", "on"].includes(String(ENV.RTFX_MCP_DEBUG ?? "").toLowerCase());
 
 /** Diagnostics go to stderr only, and are redacted like everything else. */
 function log(message) {
@@ -132,7 +135,7 @@ if (process.argv.slice(2).some((a) => a === "--help" || a === "-h" || a === "hel
       `      "command": "node", "args": ["${process.argv[1]}"],`,
       `      "env": { "${TOKEN_VAR}": "rtfx_…" } } } }`,
       "",
-      "Credentials — either one works, and the environment variable wins:",
+      "Credentials — either one works, and the token wins:",
       `  node ${process.argv[1].replace(/rtfx-mcp\.mjs$/, "rtfx.mjs")} login`,
       "                            a browser sign-in, stored 0600 and renewed automatically",
       `  ${TOKEN_VAR}            a scoped token from the dashboard → Integrations`,
@@ -140,7 +143,6 @@ if (process.argv.slice(2).some((a) => a === "--help" || a === "-h" || a === "hel
       "Environment:",
       `  ${TOKEN_VAR}            optional — takes priority over a stored sign-in`,
       `  ARTIFACTS_URL             optional — default ${DEFAULT_ENDPOINT} (RTFX_URL is an alias)`,
-      "  CF_ACCESS_CLIENT_ID/…     optional — Cloudflare Access service token, edge gating only",
       `  ${ACCESS_TOOL_VAR}     optional — set to 1 to also expose update_access`,
       "  RTFX_MCP_DEBUG            optional — log method names to stderr",
       "",

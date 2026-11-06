@@ -98,3 +98,5 @@ export function publishSummary(data: {
   file_count: number;
   url: string;
 }): string;
+
+export function pluginEnv(source?: Record<string, string | undefined>, options?: { token?: boolean }): Record<string, string>;

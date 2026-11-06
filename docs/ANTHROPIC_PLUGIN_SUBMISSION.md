@@ -33,7 +33,7 @@ Copy these into the form.
 | Field | Value |
 |---|---|
 | Plugin name | `rtfx` |
-| Version | `1.2.1` |
+| Version | `1.2.2` |
 | Plugin path in repository | `./plugins/rtfx` |
 | Manifest | `plugins/rtfx/.claude-plugin/plugin.json` |
 | Marketplace manifest | `.claude-plugin/marketplace.json` (marketplace name: `rtfx`) |
@@ -101,9 +101,9 @@ by `npm run validate:plugin` or the test suite unless noted.
 | **Dependencies?** | None. The plugin has no `package.json` and installs nothing — it writes its own zip container rather than pulling a compression library. |
 | **Network destinations?** | One: the instance in `ARTIFACTS_URL`, default `https://rtfx.pro`. No telemetry, no analytics, no third-party calls. |
 | **What data leaves the machine?** | Only the files the user names for a specific publish, plus the slug/title/note they give. Nothing is read or sent in the background. |
-| **Credentials required** | Recommended: browser OAuth login with `read` and `publish` scopes, stored locally with `0600` permissions. Advanced/CI: one scoped API token in `RTFX_API_TOKEN`, minted by the user at `/admin/integrations` with the scopes they choose (`read`, `publish`, optionally `manage`). Bound to its owner, individually revocable, expirable. |
-| **Is a cloud-provider credential involved?** | No. The plugin takes no Cloudflare account or management credential; `test/claude-plugin.test.ts` pins that its config resolution ignores one. `CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET` are an optional self-host-only pass-through for an instance that gates every path at the edge — a Cloudflare Access service token, which grants nothing inside the app. |
-| **Does it write credentials to disk?** | Browser login writes a local OAuth credential to `~/.config/rtfx/credentials.json` with owner-only permissions (`0600`) and rotates refresh tokens. `RTFX_API_TOKEN` remains an optional env-token path for CI and is never written by the plugin. |
+| **Credentials required** | Recommended: browser OAuth login with `read` and `publish` scopes, stored locally with `0600` permissions. Optional: one scoped API token entered by the user in the plugin's `api_token` option (`userConfig`, `sensitive: true`, kept in the system keychain and passed only to the MCP server as `RTFX_API_TOKEN`), minted at `/admin/integrations` with the scopes they choose (`read`, `publish`, optionally `manage`). Bound to its owner, individually revocable, expirable. |
+| **Is a cloud-provider credential involved?** | No. The plugin takes no Cloudflare account or management credential; `test/claude-plugin.test.ts` pins that its config resolution ignores one. The plugin does not forward Cloudflare Access service-token headers. |
+| **Does it write credentials to disk?** | Browser login writes a local OAuth credential to `~/.config/rtfx/credentials.json` with owner-only permissions (`0600`) and rotates refresh tokens. The plugin reads no credential from the user's shell environment; an API token comes only from its `api_token` option, and the stored OAuth credential is sent only to the issuer origin that minted it. |
 | **Does anything print a token?** | No. `doctor` and `login` report a token's **id** and expiry only; they never print the access token or refresh token. `redactToken`/`tokenId` and OAuth redaction are unit-tested. |
 | **Can it exfiltrate a repository?** | The directory walk drops `.env`, `.dev.vars`, `*.pem`, `*.key`, `id_rsa` and similar, skips `.git`/`node_modules`, and reports everything it skipped. A prebuilt zip containing any of them is refused outright rather than silently filtered. `dry_run` lists exactly what would be sent without uploading. |
 | **Destructive operations?** | None. Publishing appends a version; rollback repoints a slug. Neither deletes content. Publishing to a slug owned by someone else is refused with `409`, never merged. |
@@ -117,8 +117,8 @@ Two things a reviewer will notice. Both are already documented for users in
 
 **Authentication uses browser OAuth by default.** The user runs `/rtfx:login`; the plugin opens a
 browser authorization flow, stores a local OAuth credential with owner-only permissions, and rotates
-refresh tokens. `RTFX_API_TOKEN` remains an advanced/CI fallback and takes priority only when the
-user intentionally sets it in the shell that starts Claude Code.
+refresh tokens. An API token can instead be entered in the plugin's `api_token` option (sensitive; MCP server only);
+the plugin never reads one from the shell environment.
 
 **Server-side remote MCP/OAuth is separate from this plugin.** The artifacts-server app answers MCP
 over HTTP at `POST /mcp` (`src/mcp.ts`) and now serves OAuth discovery, Anthropic-recommended CIMD,
@@ -131,8 +131,8 @@ dedicated remote-MCP origin for live smoke. The plan and status are in
 [`REMOTE_MCP_OAUTH.md`](REMOTE_MCP_OAUTH.md).
 
 None of that changes what is being submitted here. **The plugin itself is stdio-first**: it runs local
-Node scripts and uses the local browser-OAuth credential store by default, with `RTFX_API_TOKEN` as an
-advanced fallback. The HTTP/OAuth endpoint is server-side code in this repository, not something the
+Node scripts and uses the local browser-OAuth credential store by default, with the `api_token`
+plugin option as an optional alternative. The HTTP/OAuth endpoint is server-side code in this repository, not something the
 plugin needs in order to publish local paths.
 
 **Artifacts share one content origin.** The origin split isolates published content from the
@@ -172,7 +172,7 @@ by editing the file afterwards.
 
 - [ ] Working tree clean, and the change is on `main` — not a branch head that can move under review
 - [ ] All five commands in §7 pass
-- [ ] `plugins/rtfx/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` both read `1.2.1`
+- [ ] `plugins/rtfx/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` both read `1.2.2`
 - [ ] [`../plugins/rtfx/CHANGELOG.md`](../plugins/rtfx/CHANGELOG.md) has an entry for that version
 - [ ] `LICENSE` (MIT) and `SECURITY.md` present at repository root
 - [ ] No page in the repository claims an official or community listing

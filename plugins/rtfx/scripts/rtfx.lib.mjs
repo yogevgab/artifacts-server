@@ -90,6 +90,44 @@ export function isSensitivePath(path) {
 }
 
 /**
+ * The only environment variables the plugin's entry scripts look at.
+ *
+ * The plugin never reads a credential out of the user's ambient environment.
+ * The MCP server's token and endpoint arrive through the manifest's `userConfig`
+ * (`api_token` is `sensitive: true`), which Claude Code injects into that one
+ * process's `env` block; the CLI (`rtfx.mjs`) takes no token from the environment
+ * at all and uses the browser sign-in. Everything else in `source` — other
+ * tools' tokens, `CF_ACCESS_*`, cloud keys — is dropped here, before any other
+ * code can see it.
+ *
+ * A value that still reads `${user_config.…}` (an option the user never set) is
+ * treated as unset, and an endpoint that is not https (or loopback http) is
+ * ignored so a bearer token can never be sent in clear to a remote host.
+ */
+export function pluginEnv(source = {}, { token = false } = {}) {
+  const out = {};
+  const keys = [...ENDPOINT_VARS, "XDG_CONFIG_HOME", "RTFX_MCP_ALLOW_ACCESS", "RTFX_MCP_DEBUG", ...(token ? [TOKEN_VAR] : [])];
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value !== "string") continue;
+    const v = value.trim();
+    if (!v || v.includes("${")) continue;
+    out[key] = v;
+  }
+  for (const key of ENDPOINT_VARS) {
+    if (!(key in out)) continue;
+    try {
+      const u = new URL(out[key]);
+      const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
+      if (u.protocol !== "https:" && !(u.protocol === "http:" && loopback)) delete out[key];
+    } catch {
+      delete out[key];
+    }
+  }
+  return out;
+}
+
+/**
  * Resolve the instance URL from the environment. `ARTIFACTS_URL` is the name the
  * repo CLI already uses and wins; `RTFX_URL` is accepted as an alias so a person
  * who only ever saw rtfx.pro branding guesses right.

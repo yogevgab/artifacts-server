@@ -31,20 +31,20 @@ and never prints the token:
 /rtfx:setup
 ```
 
-For CI or advanced scripted use, `RTFX_API_TOKEN` still works and takes priority over a browser
-sign-in. Mint one at <https://rtfx.pro/admin/integrations> with the `read` and `publish` scopes,
-then put it in the shell you start Claude Code from:
+Prefer an API token (for the MCP tools)? Mint one at <https://rtfx.pro/admin/integrations> with the
+`read` and `publish` scopes and enter it in the plugin's **API token** option: `/plugin`, choose
+`rtfx`, **Configure**. Claude Code also asks for it when the plugin is enabled; leave it empty to use the
+browser sign-in. The token is marked sensitive, so it is kept in your system keychain, not in a file.
+The **rtfx endpoint** option defaults to `https://rtfx.pro`; change it only to point at a self-hosted
+artifacts-server (https only).
 
-```bash
-export RTFX_API_TOKEN=rtfx_…
-export ARTIFACTS_URL=https://rtfx.pro   # only if you self-host artifacts-server
-```
+Since 1.2.2 the plugin **no longer reads `RTFX_API_TOKEN` (or any other credential) from your shell
+environment**, and the `/rtfx:*` slash commands use the browser sign-in only. If you used to
+`export RTFX_API_TOKEN=...`, paste that token into the **API token** option instead, or run `/rtfx:login`.
+For CI and scripts, use the repo's `artifacts` CLI.
 
 Run `/rtfx:setup` to confirm whichever credential is active. It prints the token's **id**, never the
 token or refresh token.
-
-Put any token export in your shell profile or a secret manager — not in a file inside a repository,
-and never in a commit.
 
 > **Remote MCP is also available for content publishing and connection checks.** Claude Code can add the hosted MCP
 > endpoint and sign in with OAuth:
@@ -87,7 +87,7 @@ node scripts/rtfx.mjs logout
 
 The same operations are available as **MCP tools**, for a client that has no shell to run a command
 in — Claude Desktop, or anything else that speaks MCP. Installing the plugin registers it. It uses
-the same browser sign-in as the CLI, unless `RTFX_API_TOKEN` is set in the environment.
+the plugin's **API token** option when set, otherwise the same browser sign-in as the CLI.
 
 | Tool | Does |
 |---|---|
@@ -105,7 +105,7 @@ directory's copy of the script (`/plugin` shows where the plugin was installed):
 claude mcp add rtfx -- node /absolute/path/to/plugins/rtfx/scripts/rtfx-mcp.mjs
 ```
 
-**Claude Desktop** — `claude_desktop_config.json`. It does not inherit your shell, so the token
+**Claude Desktop** — `claude_desktop_config.json` (this standalone setup is separate from the plugin, which takes its token from the **API token** option). The token
 belongs in `env` here; give that one an expiry, since it sits in a plaintext file:
 
 ```json
@@ -131,13 +131,15 @@ for `--json` and the exit code.
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `RTFX_API_TOKEN` | no | Optional scoped API token. Takes priority over browser login; useful for CI. |
-| `ARTIFACTS_URL` | no | Instance URL, default `https://rtfx.pro`. `RTFX_URL` is accepted too. |
-| `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` | no | **Advanced / self-host only.** Cloudflare Access service token, for an instance that gates every path at the edge. Not needed on rtfx.pro — publishing goes to `/api/machine`, which takes the bearer token alone. Not a Cloudflare account credential; grants nothing inside the app. |
+| `RTFX_API_TOKEN` | no | MCP server only. Set by the plugin from its **API token** option (or by you, in a hand-registered / Claude Desktop MCP config). Ignored by the CLI. Takes priority over browser login. |
+| `ARTIFACTS_URL` | no | Instance URL, default `https://rtfx.pro`; set by the plugin's **rtfx endpoint** option. `RTFX_URL` is accepted too. Must be https (loopback http allowed). |
 | `RTFX_MCP_ALLOW_ACCESS` | no | MCP only. `1` also exposes `update_access`. |
 | `RTFX_MCP_DEBUG` | no | MCP only. Logs method names to stderr; never arguments. |
 
-No Cloudflare management token is involved anywhere. Browser login writes only
+The scripts read only the variables listed above (plus `XDG_CONFIG_HOME` for the credentials path); nothing
+else in your environment. The stored browser sign-in is keyed by issuer origin and is only ever sent to the
+issuer that minted it. No Cloudflare management token is involved anywhere, and Cloudflare Access service-token
+headers are no longer forwarded. Browser login writes only
 `~/.config/rtfx/credentials.json` with owner-only permissions; `doctor` prints a token's **id** only.
 
 ## Design notes

@@ -29,6 +29,7 @@ import {
   SOURCE_ENV,
   SOURCE_OAUTH,
   SOURCE_NONE,
+  pluginEnv,
 } from "../plugins/rtfx/scripts/rtfx.lib.mjs";
 import {
   LOGIN_SCOPES,
@@ -963,5 +964,29 @@ describe("the product surfaces point at the plugin", () => {
     expect(panel).toContain("rtfx-mcp.mjs");
     // The example config must show a placeholder, never anything token-shaped.
     expect(panel).not.toMatch(/rtfx_[A-Za-z0-9]{4,}_[A-Za-z0-9_-]{8,}/);
+  });
+});
+
+describe("pluginEnv (no ambient credentials)", () => {
+  const ambient = {
+    RTFX_API_TOKEN: "rtfx_abc123_secret",
+    CF_ACCESS_CLIENT_ID: "id",
+    CF_ACCESS_CLIENT_SECRET: "s",
+    GITHUB_TOKEN: "ghp_x",
+    ARTIFACTS_URL: "https://rtfx.pro",
+    XDG_CONFIG_HOME: "/x",
+  };
+  it("drops everything but the allow-list, and the token unless asked", () => {
+    expect(pluginEnv(ambient)).toEqual({ ARTIFACTS_URL: "https://rtfx.pro", XDG_CONFIG_HOME: "/x" });
+    expect(pluginEnv(ambient, { token: true }).RTFX_API_TOKEN).toBe("rtfx_abc123_secret");
+  });
+  it("treats unresolved user_config placeholders and empty values as unset", () => {
+    const out = pluginEnv({ RTFX_API_TOKEN: "${user_config.api_token}", ARTIFACTS_URL: "  " }, { token: true });
+    expect(out).toEqual({});
+  });
+  it("ignores a non-https, non-loopback endpoint so a token is never sent in clear", () => {
+    expect(pluginEnv({ ARTIFACTS_URL: "http://evil.example" })).toEqual({});
+    expect(pluginEnv({ ARTIFACTS_URL: "http://localhost:8787" })).toEqual({ ARTIFACTS_URL: "http://localhost:8787" });
+    expect(pluginEnv({ ARTIFACTS_URL: "not a url" })).toEqual({});
   });
 });

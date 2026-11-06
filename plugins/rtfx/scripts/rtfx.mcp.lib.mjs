@@ -51,7 +51,7 @@ import {
 export const SERVER_INFO = {
   name: "rtfx",
   title: "rtfx.pro publishing",
-  version: "1.2.1",
+  version: "1.2.2",
 };
 
 /**
@@ -446,7 +446,7 @@ async function requireToken(ctx) {
   const config = await resolveRuntimeConfig(ctx);
   if (!config.hasToken) {
     throw new ToolError("no rtfx credential is available", {
-      hint: `Run \`/rtfx:login\` to sign in with a browser, or set ${TOKEN_VAR} in the MCP server's env block (a token from ${config.endpoint}/admin/integrations, scopes: read, publish).`,
+      hint: `Run \`/rtfx:login\` to sign in with a browser, or set the plugin's "API token" option (/plugin → rtfx → Configure; a token from ${config.endpoint}/admin/integrations, scopes: read, publish).`,
     });
   }
   return config;
@@ -703,7 +703,7 @@ async function doctor(ctx) {
   if (!ctx.config.hasToken) {
     throw new ToolError("no rtfx credential is available", {
       detail: `endpoint ${facts.endpoint}; tools ${facts.tools.join(", ")}`,
-      hint: `Run \`/rtfx:login\` to sign in with a browser, or set ${TOKEN_VAR} in the MCP server's env block (a token from ${facts.endpoint}/admin/integrations, scopes: read, publish).`,
+      hint: `Run \`/rtfx:login\` to sign in with a browser, or set the plugin's "API token" option (/plugin → rtfx → Configure; a token from ${facts.endpoint}/admin/integrations, scopes: read, publish).`,
     });
   }
   const data = await api(ctx, "/api/artifacts");

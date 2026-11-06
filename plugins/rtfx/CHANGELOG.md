@@ -1,4 +1,4 @@
-# Changelog — rtfx Claude Code plugin
+# Changelog - rtfx Claude Code plugin
 
 Versions of the plugin under `plugins/rtfx`, which is versioned independently of the
 `artifacts-server` application that hosts it. The version here is the one declared in
@@ -8,6 +8,38 @@ declared version.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are
 [semantic](https://semver.org/spec/v2.0.0.html).
+
+## 1.2.2
+
+Fixes from the Claude plugin directory review of 1.2.1.
+
+### Changed
+
+- **The plugin no longer reads credentials from your shell environment.** The MCP server's API
+  token and endpoint are now plugin options (`userConfig`): `api_token` is marked sensitive and kept
+  in the system keychain, `endpoint` defaults to `https://rtfx.pro`. Claude Code passes them to the
+  MCP server only. Enter them under `/plugin`, rtfx, Configure; leave the token empty to use the
+  browser sign-in (`/rtfx:login`).
+- The scripts now read only `ARTIFACTS_URL` / `RTFX_URL`, `XDG_CONFIG_HOME` (credentials path),
+  `RTFX_MCP_ALLOW_ACCESS`, `RTFX_MCP_DEBUG` and, in the MCP server only, `RTFX_API_TOKEN` as injected
+  by the plugin option. Everything else in the environment is dropped before use. An endpoint that
+  is not https (loopback http excepted) is ignored, so a token is never sent in clear text.
+- The browser sign-in is unchanged: `~/.config/rtfx/credentials.json` is written by the plugin itself
+  and sent only to the issuer origin that minted it.
+
+### Migration
+
+- If you had `export RTFX_API_TOKEN=...` in your shell: the MCP server and the `/rtfx:*` commands no
+  longer pick it up (keeping that would keep the credential-from-environment behaviour under review).
+  Paste the same token into the plugin's **API token** option, or run `/rtfx:login`. The
+  `/rtfx:*` slash commands (the CLI) use the browser sign-in only; the MCP tools use the token option.
+- Cloudflare Access service-token headers (`CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET`) are no
+  longer forwarded by the plugin. rtfx.pro does not need them; for an instance gated at the edge use
+  the repo's `artifacts` CLI.
+
+### Fixed
+
+- This changelog is plain ASCII text; it no longer mentions the listing image by file name.
 
 ## 1.2.1
 
@@ -22,7 +54,7 @@ Fixes from the Claude plugin directory review of 1.2.0.
 
 ### Added
 
-- `.claude-plugin/icon.png`, a 512 × 512 listing icon (the rtfx.pro logo).
+- A 512 x 512 listing icon (the rtfx.pro logo).
 
 ## 1.2.0
 
@@ -45,8 +77,8 @@ This version introduced the local MCP server and browser-login era of the plugin
 
 ### Added
 
-- **Native MCP server** (`scripts/rtfx-mcp.mjs`), so a client with no shell — Claude Desktop, or
-  anything else that speaks MCP — publishes through tool calls. Stdio transport, written out by
+- **Native MCP server** (`scripts/rtfx-mcp.mjs`), so a client with no shell - Claude Desktop, or
+  anything else that speaks MCP - publishes through tool calls. Stdio transport, written out by
   hand: no SDK, no dependencies. Tools: `publish`, `list_artifacts`, `get_versions`, `rollback`,
   `doctor`.
 - `update_access` as an **opt-in** MCP tool. Absent unless the server is started with
@@ -57,7 +89,7 @@ This version introduced the local MCP server and browser-login era of the plugin
   the bearer token and nothing else, so publishing needs no Cloudflare Access service token on an
   instance that gates its dashboard at the edge. Requests fall back to `/api/*` on an instance too
   old to expose the machine surface.
-- **PDF publishing** — a `.pdf` is accepted as an artifact alongside HTML pages, folders and zips.
+- **PDF publishing** - a `.pdf` is accepted as an artifact alongside HTML pages, folders and zips.
 - Free-tier retention guidance in the skill and the MCP tool descriptions, so a session says what
   happens to an unopened artifact instead of leaving the user to find out.
 

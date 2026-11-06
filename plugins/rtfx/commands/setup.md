@@ -32,10 +32,10 @@ If the user is on SSH/headless, use:
 node "${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs" login --manual
 ```
 
-If `RTFX_API_TOKEN` is set, it still takes priority over the browser sign-in. That is intentional for
-CI and advanced users. To use the browser credential, unset the env var. To use an env token instead,
-mint one at `https://rtfx.pro/admin/integrations` with scopes **read** and **publish** and export it
-in the shell that starts Claude Code — never in a repository file or commit.
+To use an API token instead (for the MCP tools), mint one at `https://rtfx.pro/admin/integrations`
+with scopes **read** and **publish** and enter it in the plugin's "API token" option (`/plugin` >
+rtfx > Configure; it is stored in the system keychain). The slash commands use the browser sign-in
+only. The plugin no longer reads `RTFX_API_TOKEN` from your shell environment.
 
 Remote HTTP MCP at `/mcp` also supports Claude's OAuth login and exposes `publish` for content
 sent inside the MCP call, plus `doctor`. It still cannot publish by local filesystem path; folders
@@ -47,17 +47,16 @@ or a route (people, tokens, workspaces) that needs a real signed-in session rath
 **Advanced / self-host only.** If `doctor` reports that something other than the API answered —
 an edge gate's own sign-in page rather than JSON — the instance is an older self-hosted one that
 still gates every path at the edge. rtfx.pro is not one of these and needs no such credential.
-There, the operator issues a Cloudflare Access service token (`CF_ACCESS_CLIENT_ID` /
-`CF_ACCESS_CLIENT_SECRET`) in Cloudflare Zero Trust, not the rtfx dashboard; it gets the request
-through the edge while the `rtfx_…` token still decides identity and scope.
+The plugin does not forward Cloudflare Access service-token headers; use the repo's `artifacts` CLI
+or the hosted MCP endpoint against such an instance.
 
 The plugin also registers an **MCP server** with the same tools, for clients with no shell (Claude
-Desktop). It reads the same `RTFX_API_TOKEN`. If the user asks about it, run:
+Desktop). It uses the plugin's "API token" option when set, otherwise the browser sign-in. If the user asks about it, run:
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/scripts/rtfx-mcp.mjs" --help
 ```
 
 That prints the client configuration and how the current environment resolves — endpoint, token id,
-exposed tools. Claude Desktop does not inherit the shell environment, so its config file needs the
-token in an `env` block; recommend a short expiry for that one, since it sits in plaintext.
+exposed tools. Claude Desktop (outside this plugin) needs the token in an `env` block of its config file;
+recommend a short expiry for that one, since it sits in plaintext.

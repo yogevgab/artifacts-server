@@ -69,12 +69,10 @@ The login command uses OAuth authorization-code + PKCE, stores a credential in
 `~/.config/rtfx/credentials.json` with mode `0600`, and the CLI/MCP server refresh it automatically.
 `/rtfx:setup` reports the credential source and token **id** — never the token or refresh token.
 
-For CI or advanced scripts, `RTFX_API_TOKEN` still works and takes priority over browser login:
-
-```bash
-export RTFX_API_TOKEN=rtfx_…            # dashboard → Integrations, scopes read + publish
-export ARTIFACTS_URL=https://rtfx.pro   # only when self-hosting
-```
+To use an API token instead (MCP tools), enter it in the plugin's **API token** option (`/plugin`, rtfx,
+Configure; dashboard → Integrations, scopes read + publish). From 1.2.2 the plugin no longer reads
+`RTFX_API_TOKEN` from your shell environment, and the `/rtfx:*` slash commands use the browser sign-in
+only. For CI and scripts use the repo's `artifacts` CLI.
 
 Remote MCP also has OAuth (`claude mcp login rtfx`) and a dedicated app-side host at
 `mcp.rtfx.pro`. It can publish content sent inside the MCP tool call and run `doctor`, but it still
@@ -109,9 +107,8 @@ One stored credential plus optional environment overrides; none is a Cloudflare 
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `RTFX_API_TOKEN` | no | Optional scoped API token. Takes priority over browser login; useful for CI. |
+| `RTFX_API_TOKEN` | no | MCP server only; set by the plugin from its **API token** option. Ignored by the CLI. Takes priority over browser login. |
 | `ARTIFACTS_URL` | no | Instance URL, default `https://rtfx.pro`. `RTFX_URL` is an accepted alias. |
-| `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` | no | **Advanced / self-host only.** Cloudflare Access service token, for an instance that gates every path at the edge. Not needed on rtfx.pro: publishing goes to `/api/machine`, which authenticates the bearer token alone ([`HERMES_CLOUD.md`](HERMES_CLOUD.md) §2). Pass-through only — it gets a request past Access and grants nothing inside the app. |
 | `RTFX_MCP_ALLOW_ACCESS` / `RTFX_MCP_DEBUG` | no | MCP server only. See [`MCP.md`](MCP.md) §3. |
 
 `CF_API_TOKEN` — the Cloudflare management token used for user administration — is deliberately

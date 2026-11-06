@@ -17,9 +17,8 @@ After it succeeds, run:
 node "${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs" doctor
 ```
 
-If `RTFX_API_TOKEN` is already set, mention that it takes priority over this browser sign-in. The
-login is still stored, but publish/list/version calls will keep using the environment token until it
-is unset.
+If the plugin also has an "API token" option set, mention that the MCP tools use that token in
+preference to this browser sign-in; these slash commands always use the browser sign-in.
 
 If browser opening fails or the user is on SSH, suggest the manual path:
 
