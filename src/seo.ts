@@ -108,8 +108,8 @@ export const ANSWER_META = {
     path: "/open-claude-artifact-without-account",
     title: "Open a Claude artifact without a Claude account? · rtfx",
     description:
-      "Claude's help article says viewers need a Claude account, except for legacy published " +
-      "artifacts. With rtfx.pro, viewers sign in with an email code.",
+      "Claude's link sharing opens for anyone with the link; invitees need a Claude account. " +
+      "rtfx.pro shares with chosen people, who sign in with an email code.",
     summary:
       "Whether someone without a Claude account can open a Claude artifact (shared, legacy published, " +
       "Claude Code public links), and how to share privately with people who don't use Claude.",
@@ -251,7 +251,7 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
       "How to connect rtfx.pro to Claude as an MCP server (claude.ai custom connector or any MCP " +
       "client), then publish, share and delete from chat, followed by an FAQ and pricing.",
     priority: "1.0",
-    updated: "2026-11-03",
+    updated: "2026-11-06",
   },
   {
     path: "/guide",
@@ -267,14 +267,14 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
     title: ANSWER_META.share.title,
     summary: ANSWER_META.share.summary,
     priority: "0.7",
-    updated: "2026-11-03",
+    updated: "2026-11-06",
   },
   {
     path: ANSWER_META.compare.path,
     title: ANSWER_META.compare.title,
     summary: ANSWER_META.compare.summary,
     priority: "0.7",
-    updated: "2026-11-03",
+    updated: "2026-11-06",
   },
   {
     path: ANSWER_META.views.path,
@@ -288,14 +288,14 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
     title: ANSWER_META.password.title,
     summary: ANSWER_META.password.summary,
     priority: "0.7",
-    updated: "2026-11-03",
+    updated: "2026-11-06",
   },
   ...(["noAccount", "htmlFile", "public", "people", "expiry", "stopSharing", "claudeCode", "answers"] as const).map((k) => ({
     path: ANSWER_META[k].path,
     title: ANSWER_META[k].title,
     summary: ANSWER_META[k].summary,
     priority: k === "answers" ? "0.6" : "0.7",
-    updated: "2026-11-03",
+    updated: "2026-11-06",
   })),
   {
     path: "/pro",
@@ -527,10 +527,10 @@ plus two paid ones, both bought on the site. Source: ${SOURCE_URL} (MIT).
   back), **share** (viewers, editors, everyone in the workspace, named expiring share links that
   can be extended or revoked), **delete**, and **see who opened it** (view log).
 - Private by default. For comparison, Claude's own artifacts also start private, and Claude's
-  Share menu can open one to anyone with the link or to people invited by email, but viewers
-  generally need a Claude account (only legacy published artifacts open without one). rtfx.pro is
-  for sharing with exactly the people you choose, with or without a Claude account, and seeing
-  who opened it.
+  Share menu can open one to anyone with the link (most such artifacts open without a Claude
+  account, so anyone the link reaches can open them) or to people invited by email (each needs a
+  Claude account). rtfx.pro is for sharing with exactly the people you choose, with or without a
+  Claude account, and seeing who opened it.
 - Operators (rtfx staff) see metadata only \u2014 never artifact content or who viewed it.
 - There is a Free plan; Pro ($12/mo) and Team ($40/mo) are bought on the site; all four tiers
   are described at ${origin}/#pricing.

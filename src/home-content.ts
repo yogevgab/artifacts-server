@@ -36,10 +36,10 @@ export const FAQS: readonly Faq[] = [
   {
     q: "Isn't Claude's own sharing enough?",
     a:
-      "Claude can share an artifact with anyone who has the link or with people you invite by " +
-      "email, but the people opening it generally need a Claude account, and Claude's help article " +
-      "doesn't describe expiring links or a view log. rtfx is for sharing with exactly the people " +
-      "you choose — no Claude account needed — and seeing who opened it.",
+      "Claude can share an artifact with anyone who has the link — then anyone it's forwarded to can " +
+      "open it too — or with people you invite by email, who each need a Claude account. Claude's " +
+      "help article doesn't describe expiring links or a view log. rtfx is for sharing with exactly " +
+      "the people you choose — no Claude account needed — and seeing who opened it.",
     more: { href: "/claude-publish-vs-private-link", label: "Read more" },
   },
   {
