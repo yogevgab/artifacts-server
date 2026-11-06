@@ -1072,6 +1072,9 @@ ol.steps li{margin:0;min-width:0}
 .more{font-size:.92rem}
 figure{margin:.4rem 0 0}
 figure img{display:block;width:100%;height:auto;border:1px solid var(--border-strong);border-radius:var(--radius-sm);box-shadow:var(--shadow);background:var(--card)}
+figure.shot{margin:1rem 0 1.6rem}
+figure.shot img{width:auto;max-width:100%}
+figure.shot figcaption{margin-top:.5rem;color:var(--faint);font-size:.88rem}
 .faq-list{display:grid;gap:.6rem}
 .faq-list details{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-sm);padding:.15rem 1rem}
 .faq-list summary{cursor:pointer;font-weight:600;letter-spacing:-.01em;padding:.75rem 0;min-height:44px;display:flex;align-items:center;gap:.75rem;list-style:none}

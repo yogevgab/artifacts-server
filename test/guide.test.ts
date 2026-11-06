@@ -46,10 +46,30 @@ describe("/guide", () => {
       const bytes = new Uint8Array(await res.arrayBuffer());
       expect(String.fromCharCode(...bytes.slice(0, 4))).toBe("RIFF");
     }
-    expect(Object.keys(GUIDE_IMAGES).length).toBe(12);
+    // The 12 /guide screenshots plus the 6 on the ChatGPT answer page.
+    expect(Object.keys(GUIDE_IMAGES).filter((k) => !k.startsWith("chatgpt-")).length).toBe(12);
+    expect(Object.keys(GUIDE_IMAGES).filter((k) => k.startsWith("chatgpt-")).length).toBe(6);
     for (const bad of ["/guide/nope.webp", "/guide/01-add-custom-connector.png", "/guide/__proto__.webp"]) {
       expect((await req(bad, ANON)).status, bad).toBe(404);
     }
+  });
+
+  it("serves every screenshot on the ChatGPT answer page, with alt text and a caption", async () => {
+    const html = await (await req("/share-chatgpt-html-privately", ANON)).text();
+    const imgs = [...html.matchAll(/<figure class="shot"><img([^>]*)><figcaption>([^<]+)<\/figcaption><\/figure>/g)];
+    expect(imgs.length).toBe(6);
+    for (const [, attrs, caption] of imgs) {
+      const src = /src="([^"]+)"/.exec(attrs!)![1]!;
+      expect(src).toMatch(/^\/guide\/chatgpt-\d\d-[a-z-]+\.webp\?v=[0-9a-f]{8}$/);
+      expect(attrs).toMatch(/alt="[^"]{10,}"/);
+      expect(attrs).toMatch(/width="\d+" height="\d+"/);
+      expect(caption!.length).toBeGreaterThan(10);
+      const res = await req(src, ANON);
+      expect(res.status, src).toBe(200);
+      expect(res.headers.get("Content-Type")).toBe("image/webp");
+    }
+    // The screenshots must not show a real person's address.
+    expect(html).not.toMatch(/@gmail\.com/);
   });
 
   it("is linked from the home page, the nav and the sitemap", async () => {

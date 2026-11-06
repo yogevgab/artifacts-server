@@ -1,5 +1,6 @@
 import { MCP_URL, ANSWER_META } from "./seo";
 import type { Faq } from "./home-content";
+import { GUIDE_IMAGES } from "./guide-images";
 
 /**
  * Batch-3 answer pages (published 2026-11-06): one page per AI tool, per
@@ -98,6 +99,17 @@ const connectFaq = (tool: string, extra: string): Faq => ({
     " Listing artifacts and reading details or view statistics are marked read-only.",
 });
 
+/**
+ * A screenshot from a run we did ourselves, served from the Worker like the
+ * /guide images (src/guide-images.ts). `alt` and `caption` are plain text.
+ */
+function shotFig(name: string, width: number, height: number, alt: string, caption: string): string {
+  const img = GUIDE_IMAGES[name];
+  if (!img) throw new Error(`unknown guide image: ${name}`);
+  const attr = (v: string) => v.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  return `<figure class="shot"><img src="/guide/${name}.webp?v=${img.hash}" width="${width}" height="${height}" alt="${attr(alt)}" loading="lazy" decoding="async"><figcaption>${attr(caption)}</figcaption></figure>`;
+}
+
 function toolTopic(o: {
   h1: string;
   lead: string;
@@ -107,14 +119,18 @@ function toolTopic(o: {
   tool: string;
   faqs: readonly Faq[];
   finalH: string;
+  /** Sections between "Connect" and "Publish, share, update". */
+  extra?: readonly TopicSection[];
+  modified?: string;
 }): Topic {
   return {
     published: B3,
-    modified: B3,
+    modified: o.modified ?? B3,
     h1: o.h1,
     lead: o.lead,
     sections: [
       { heading: `Connect rtfx to ${o.tool}`, html: o.connect + src(o.vendorUrl, o.vendor) },
+      ...(o.extra ?? []),
       publishSection(o.tool),
     ],
     faqs: [...o.faqs, ...toolFaqs(o.tool)],
@@ -137,24 +153,62 @@ const chatgpt = toolTopic({
     "choose who can open it. People sign in with an email code, and you can see who opened it.",
   vendor: "OpenAI's custom MCP server guide",
   vendorUrl: "https://developers.openai.com/api/docs/guides/custom-mcp-server",
-  connect: `<p>${URL_NOTE} OpenAI's guide describes this path:</p>
+  connect: `<p>${URL_NOTE} We connected ChatGPT to rtfx and published from it on 6 November 2026; the
+          screenshots are from that run.</p>
         <ol>
-          <li>Go to <b>ChatGPT Plugins</b> at chatgpt.com/plugins.</li>
-          <li>Select the plus button, then <b>Add custom MCP server</b>.</li>
-          <li>Enter a name, such as rtfx, and under <b>Connection</b> the server address above.</li>
-          <li>Configure authentication: choose <b>OAuth</b>. rtfx publishes standard OAuth discovery and accepts
-            dynamic client registration, so there is no key to paste. Sign in with the code we email you.</li>
-          <li>Review the risk warning, select <b>I understand and want to continue</b>, then <b>Create as a plugin</b>.</li>
-          <li>Install the plugin. In a conversation, type <b>@</b> and pick it.</li>
+          <li>Open <b>Plugins</b> at chatgpt.com/plugins, select <b>Add</b>, then <b>Custom MCP server</b>.</li>
+          <li>Enter a name, such as rtfx, put the server address above under <b>Connection</b>, and choose
+            <b>OAuth</b> under <b>Authentication</b>. You can leave <b>Advanced OAuth settings</b> alone: ChatGPT
+            discovers rtfx's sign-in settings itself, and its default client registration works with rtfx, so
+            there is no key or client secret to paste.</li>
+          <li>Read the risk warning, select <b>I understand and want to continue</b>, then <b>Create as a plugin</b>.</li>
         </ol>
+        ${shotFig("chatgpt-01-add-server", 720, 810, "ChatGPT's Add custom MCP server form with the name rtfx, the server URL https://mcp.rtfx.pro/mcp and OAuth authentication", "The Add custom MCP server form, filled in for rtfx.")}
+        <ol start="4">
+          <li>Select <b>Connect rtfx</b>. A new tab opens on rtfx.pro.</li>
+        </ol>
+        ${shotFig("chatgpt-02-connect", 412, 405, "ChatGPT's Connect rtfx dialog", "ChatGPT asks before it connects.")}
+        <ol start="5">
+          <li>Sign in with the code we email you. rtfx then lists exactly what ChatGPT is asking for, and
+            nothing is granted until you select <b>Allow access</b>. When we tested, ChatGPT asked to see,
+            publish, and also manage and delete artifacts; the screen marks that last one as destructive.
+            ChatGPT's <b>Advanced OAuth settings</b> include a <b>Default scopes</b> section, and you can revoke
+            the access at any time from Integrations in rtfx.</li>
+        </ol>
+        ${shotFig("chatgpt-03-consent", 500, 865, "The rtfx consent screen: chatgpt.com (ChatGPT) wants access, with the permissions it asks for, the signed-in account, and Cancel and Allow access buttons", "rtfx's consent screen names each permission before you allow it.")}
         <p>OpenAI notes that workspace permissions and security restrictions apply, and to only connect servers
-          you trust. The guide doesn't state plan tiers, so check what your plan and workspace allow.</p>`,
+          you trust. Its guide doesn't state plan tiers, so check what your plan and workspace allow.</p>`,
+  extra: [
+    {
+      heading: "Publish from a ChatGPT conversation",
+      html: `<p>Start a chat, type <b>@</b> and pick rtfx (or select <b>Try in chat</b> on the plugin's page), then
+          ask for the page you want and say to publish it with rtfx.</p>
+        ${shotFig("chatgpt-04-prompt", 690, 225, "A ChatGPT message with rtfx selected, asking for a one-page Hello from ChatGPT card published with rtfx", "Ask ChatGPT to make the page and publish it with rtfx.")}
+        <p>ChatGPT writes the page, calls rtfx's publish tool, and replies with the link. In our test that took
+          about half a minute.</p>
+        ${shotFig("chatgpt-05-reply", 860, 380, "ChatGPT's reply: published your card, a link to open it, and a note that the page is private", "ChatGPT replies with the rtfx link.")}
+        ${shotFig("chatgpt-06-page", 560, 530, "The published Hello from ChatGPT card, open at its rtfx link", "The page at its link. Only you can open it until you share it.")}`,
+    },
+  ],
   faqs: [
     connectFaq(
       "ChatGPT",
       "OpenAI's guide says write actions require confirmation by default, and tools count as write actions " +
         "unless they carry a read-only hint. Review the input before approving."
     ),
+    {
+      q: "ChatGPT says some app settings were rejected. What now?",
+      a:
+        "When we tested, that message came from the icon. ChatGPT wants a real PNG file of 10 KB or less, and " +
+        "it refused a .ico file renamed to .png. Remove the icon or pick a small PNG, then create the plugin again.",
+    },
+    {
+      q: "The Connect button keeps spinning. How do I fix it?",
+      a:
+        "That happened to us after a sign-in attempt that had failed. Uninstalling the plugin from ChatGPT's " +
+        "Plugins settings and installing it again from its page brought back a working Connect button, and the " +
+        "plugin kept its settings.",
+    },
     {
       q: "Is the connector available on every ChatGPT plan?",
       a:
