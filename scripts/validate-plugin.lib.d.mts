@@ -51,4 +51,11 @@ export function checkSubmissionPacket(
   expected?: SubmissionPacketExpectations
 ): CheckResult;
 
+export const DIRECTORY_FILE_EXTENSIONS: string[];
+export const DIRECTORY_FILE_NAMES: string[];
+export function checkDirectoryCompliance(
+  files: string[],
+  context?: { manifest?: any; mcpFile?: any; texts?: Record<string, string> }
+): CheckResult;
+
 export function mergeResults(results: CheckResult[]): CheckResult;

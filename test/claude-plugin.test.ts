@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { describe, it, expect, beforeEach } from "vitest";
 import { unzipSync, deflateSync, strToU8, strFromU8 } from "fflate";
 import app from "../src/index";
@@ -30,7 +31,7 @@ import {
   SOURCE_OAUTH,
   SOURCE_NONE,
   pluginEnv,
-} from "../plugins/rtfx/scripts/rtfx.lib.mjs";
+} from "../plugins/rtfx-local/scripts/rtfx.lib.mjs";
 import {
   LOGIN_SCOPES,
   authorizationCodeForm,
@@ -54,7 +55,7 @@ import {
   resourceFor,
   revokeForm,
   serializeStore,
-} from "../plugins/rtfx/scripts/rtfx.oauth.lib.mjs";
+} from "../plugins/rtfx-local/scripts/rtfx.oauth.lib.mjs";
 import {
   parseFrontmatter,
   findSecrets,
@@ -71,15 +72,17 @@ import {
   checkChangelog,
   checkCommunityMarketplaceClaims,
   checkSubmissionPacket,
+  checkDirectoryCompliance,
+  checkMcpConfig as checkMcpConfigRule,
 } from "../scripts/validate-plugin.lib.mjs";
-import listCommand from "../plugins/rtfx/commands/list.md?raw";
-import loginCommand from "../plugins/rtfx/commands/login.md?raw";
-import logoutCommand from "../plugins/rtfx/commands/logout.md?raw";
-import publishCommand from "../plugins/rtfx/commands/publish.md?raw";
-import rollbackCommand from "../plugins/rtfx/commands/rollback.md?raw";
-import setupCommand from "../plugins/rtfx/commands/setup.md?raw";
-import versionsCommand from "../plugins/rtfx/commands/versions.md?raw";
-import shippedSkill from "../plugins/rtfx/skills/publishing-to-rtfx/SKILL.md?raw";
+import listCommand from "../plugins/rtfx-local/commands/list.md?raw";
+import loginCommand from "../plugins/rtfx-local/commands/login.md?raw";
+import logoutCommand from "../plugins/rtfx-local/commands/logout.md?raw";
+import publishCommand from "../plugins/rtfx-local/commands/publish.md?raw";
+import rollbackCommand from "../plugins/rtfx-local/commands/rollback.md?raw";
+import setupCommand from "../plugins/rtfx-local/commands/setup.md?raw";
+import versionsCommand from "../plugins/rtfx-local/commands/versions.md?raw";
+import shippedSkill from "../plugins/rtfx-local/skills/publishing-to-rtfx/SKILL.md?raw";
 
 const SHIPPED_COMMANDS: Record<string, string> = {
   "list.md": listCommand,
@@ -685,9 +688,9 @@ describe("manifest and marketplace rules", () => {
       owner: { name: "rtfx.pro" },
       plugins: [{ name: "rtfx", source: "./plugins/moved", description: "d" }],
     };
-    expect(checkMarketplace(market, ["./plugins/rtfx"]).errors[0]).toMatch(/has no .claude-plugin/);
+    expect(checkMarketplace(market, ["./plugins/rtfx-local"]).errors[0]).toMatch(/has no .claude-plugin/);
     expect(
-      checkMarketplace({ ...market, plugins: [{ ...market.plugins[0], source: "./plugins/rtfx" }] }, ["./plugins/rtfx"])
+      checkMarketplace({ ...market, plugins: [{ ...market.plugins[0], source: "./plugins/rtfx-local" }] }, ["./plugins/rtfx-local"])
         .errors
     ).toEqual([]);
   });
@@ -703,11 +706,11 @@ describe("manifest and marketplace rules", () => {
       name: "rtfx",
       owner: { name: "rtfx.pro" },
       plugins: [
-        { name: "rtfx", source: "./plugins/rtfx", description: "d" },
-        { name: "rtfx", source: "./plugins/rtfx", description: "d" },
+        { name: "rtfx", source: "./plugins/rtfx-local", description: "d" },
+        { name: "rtfx", source: "./plugins/rtfx-local", description: "d" },
       ],
     };
-    expect(checkMarketplace(dup, ["./plugins/rtfx"]).errors[0]).toMatch(/more than once/);
+    expect(checkMarketplace(dup, ["./plugins/rtfx-local"]).errors[0]).toMatch(/more than once/);
   });
 
   // The marketplace entry restates the plugin's own metadata so the install
@@ -903,11 +906,11 @@ describe("submission-readiness rules", () => {
 
   describe("the submission packet against the manifest", () => {
     const packet =
-      "Version `1.1.0`, path `./plugins/rtfx`, repo https://github.com/yogevgab/artifacts-server\n";
+      "Version `1.1.0`, path `./plugins/rtfx-local`, repo https://github.com/yogevgab/artifacts-server\n";
     const expected = {
       version: "1.1.0",
       repository: "https://github.com/yogevgab/artifacts-server",
-      pluginPath: "./plugins/rtfx",
+      pluginPath: "./plugins/rtfx-local",
     };
 
     it("accepts a packet that names all three", () => {
@@ -941,7 +944,7 @@ describe("the product surfaces point at the plugin", () => {
   it("the integrations panel offers the plugin next to the token that feeds it", async () => {
     const html = await (await req("/admin/integrations", as("admin@test.com"))).text();
     expect(html).toContain('data-snippet="setup-plugin"');
-    expect(html).toContain("/plugin install rtfx@rtfx");
+    expect(html).toContain("/plugin install rtfx-local@rtfx");
   });
 
   it("the integrations panel carries the MCP server the plugin registers (issue #39)", async () => {
@@ -981,5 +984,65 @@ describe("pluginEnv (no ambient credentials)", () => {
     for (const ok of ["https://artifacts.example.com", "http://localhost:8787", "http://127.0.0.1:8787"]) {
       expect(resolveConfig(pluginEnv({ ARTIFACTS_URL: ok, RTFX_API_TOKEN: "rtfx_a_b" }, { token: true })).endpoint).toBe(ok);
     }
+  });
+});
+
+// --- Anthropic directory compliance ------------------------------------------------
+//
+// `plugins/rtfx` is the plugin the directory scans under the rules for organizations
+// that are not Verified. These tests read the real files (the Workers pool has no
+// filesystem, so Vite globs them in) and pin those rules so a later change cannot
+// quietly bring a script, a local MCP server or a tool grant back.
+
+const directoryFiles = import.meta.glob(["../plugins/rtfx/**/*", "../plugins/rtfx/.*", "../plugins/rtfx/.*/*"], { query: "?raw", import: "default", eager: true }) as Record<string, string>;
+const directoryPaths = Object.keys(directoryFiles).map((k) => k.replace("../plugins/rtfx/", ""));
+const directoryTexts = Object.fromEntries(
+  Object.entries(directoryFiles)
+    .filter(([k]) => /\.(md|json)$/.test(k))
+    .map(([k, v]) => [k.replace("../plugins/rtfx/", ""), v])
+);
+
+describe("plugins/rtfx stays directory-compliant", () => {
+  const manifest = JSON.parse(directoryTexts[".claude-plugin/plugin.json"]);
+
+  it("ships only the file types the directory accepts", () => {
+    expect(directoryPaths.length).toBeGreaterThan(3);
+    const result = checkDirectoryCompliance(directoryPaths, { manifest, texts: directoryTexts });
+    expect(result.errors).toEqual([]);
+    expect(directoryPaths.some((p) => /\.(mjs|js|sh|cjs|ts)$/.test(p))).toBe(false);
+  });
+
+  it("declares exactly one MCP server and it is remote https", () => {
+    const servers = manifest.mcpServers;
+    expect(Object.keys(servers)).toEqual(["rtfx"]);
+    expect(servers.rtfx).toEqual({ type: "http", url: "https://mcp.rtfx.pro/mcp" });
+    expect(directoryPaths).not.toContain(".mcp.json");
+    expect(checkMcpConfigRule("plugin.json", { mcpServers: servers }, () => false).errors).toEqual([]);
+  });
+
+  it("has no hooks, commands, userConfig or allowed-tools", () => {
+    expect(manifest.hooks).toBeUndefined();
+    expect(manifest.userConfig).toBeUndefined();
+    expect(directoryPaths.some((p) => p.startsWith("commands/") || p.startsWith("hooks/") || p.startsWith("scripts/"))).toBe(false);
+    for (const [file, text] of Object.entries(directoryTexts)) {
+      if (file.endsWith(".md")) expect(text, file).not.toMatch(/allowed-?tools/i);
+    }
+  });
+
+  it("the changelog is plain ASCII", () => {
+    expect(/^[\x00-\x7f]*$/.test(directoryTexts["CHANGELOG.md"])).toBe(true);
+  });
+
+  it("the rule itself rejects scripts, local servers and broad tool grants", () => {
+    const bad = checkDirectoryCompliance(["scripts/x.mjs", "run.sh", "a.png", "LICENSE"], {
+      manifest: { mcpServers: { local: { command: "node", args: ["x"] }, plain: { type: "http", url: "http://x.example/mcp" } } },
+      texts: { "skills/a/SKILL.md": "---\nname: a\nallowed-tools: Read, Bash(node x:*)\n---\nbody" },
+    });
+    expect(bad.errors.some((e) => e.startsWith("scripts/x.mjs"))).toBe(true);
+    expect(bad.errors.some((e) => e.startsWith("run.sh"))).toBe(true);
+    expect(bad.errors.filter((e) => e.startsWith("a.png") || e.startsWith("LICENSE"))).toEqual([]);
+    expect(bad.errors.filter((e) => e.includes("MCP server"))).toHaveLength(2);
+    expect(bad.errors.some((e) => e.includes("Bash(node x:*)"))).toBe(true);
+    expect(bad.errors.some((e) => e.includes('"Read"'))).toBe(false);
   });
 });

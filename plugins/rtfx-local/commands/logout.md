@@ -11,5 +11,5 @@ This revokes the stored OAuth access/refresh credential when the server is reach
 from this machine either way. It does not touch the plugin's "API token" option; if one is set, explain that the user can clear
 it under `/plugin` > rtfx > Configure separately.
 
-After logout, `/rtfx:setup` should report that no browser sign-in is available unless an API token
+After logout, `/rtfx-local:setup` should report that no browser sign-in is available unless an API token
 is still configured on the plugin.

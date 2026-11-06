@@ -1,13 +1,13 @@
 # MCP integration
 
-Issue #39. rtfx.pro ships a native **MCP server**: `plugins/rtfx/scripts/rtfx-mcp.mjs`. Any MCP
+Issue #39. rtfx.pro ships a native **MCP server**: `plugins/rtfx-local/scripts/rtfx-mcp.mjs`. Any MCP
 client — Claude Desktop, Claude Code, or something you wrote — can publish an artifact, read its
 version history and roll it back as *tool calls*, with no shell command in between.
 
 It is a wrapper, not a second product. The credential resolution, the bundle safety model and the
 HTTP contract are the same modules the CLI uses, so the two cannot drift apart.
 
-The user-facing quickstart is in [`plugins/rtfx/README.md`](../plugins/rtfx/README.md); this is the
+The user-facing quickstart is in [`plugins/rtfx-local/README.md`](../plugins/rtfx-local/README.md); this is the
 operator's view.
 
 There is now a **second** transport: the app itself answers MCP over HTTP at `POST /mcp`, with
@@ -21,7 +21,7 @@ and [`REMOTE_MCP_OAUTH.md`](REMOTE_MCP_OAUTH.md) for the OAuth details.
 ## 1. What ships
 
 ```
-plugins/rtfx/
+plugins/rtfx-local/
   .claude-plugin/plugin.json    declares the server (`mcpServers`)
   .mcp.json                     the same declaration, as a plugin-root config
   scripts/rtfx-mcp.mjs          the stdio server (Node 18+, zero dependencies)
@@ -46,7 +46,7 @@ token wins when both exist.
 ### Claude Code
 
 ```bash
-claude mcp add rtfx -- node /absolute/path/to/plugins/rtfx/scripts/rtfx-mcp.mjs
+claude mcp add rtfx -- node /absolute/path/to/plugins/rtfx-local/scripts/rtfx-mcp.mjs
 ```
 
 That is the by-hand route, and it needs the real path to the script — either this checkout, or
@@ -57,7 +57,7 @@ uses the same local browser sign-in as the CLI, unless `RTFX_API_TOKEN` is set:
 
 ```
 /plugin marketplace add yogevgab/artifacts-server
-/plugin install rtfx@rtfx
+/plugin install rtfx-local@rtfx
 ```
 
 Or, per project, in the repo's own `.mcp.json`:
@@ -67,7 +67,7 @@ Or, per project, in the repo's own `.mcp.json`:
   "mcpServers": {
     "rtfx": {
       "command": "node",
-      "args": ["/absolute/path/to/artifacts-server/plugins/rtfx/scripts/rtfx-mcp.mjs"]
+      "args": ["/absolute/path/to/artifacts-server/plugins/rtfx-local/scripts/rtfx-mcp.mjs"]
     }
   }
 }
@@ -85,7 +85,7 @@ prefer an explicit token, put it in the `env` block here:
   "mcpServers": {
     "rtfx": {
       "command": "node",
-      "args": ["/absolute/path/to/artifacts-server/plugins/rtfx/scripts/rtfx-mcp.mjs"],
+      "args": ["/absolute/path/to/artifacts-server/plugins/rtfx-local/scripts/rtfx-mcp.mjs"],
       "env": {
         "RTFX_API_TOKEN": "rtfx_…"
       }
@@ -99,7 +99,7 @@ expiry — it is sitting in plaintext, which is exactly the case scoped, revocab
 
 ### Anything else
 
-`node plugins/rtfx/scripts/rtfx-mcp.mjs` speaks the MCP **stdio transport**: one JSON-RPC message
+`node plugins/rtfx-local/scripts/rtfx-mcp.mjs` speaks the MCP **stdio transport**: one JSON-RPC message
 per line on stdin and stdout, diagnostics on stderr. `--help` prints the configuration a client
 needs, plus how the current environment resolves.
 
@@ -296,7 +296,7 @@ refusal, scope checks, inline bundle path filtering and body-size limits.
 ## 11. Related
 
 - [`REMOTE_MCP_OAUTH.md`](REMOTE_MCP_OAUTH.md) — the remote transport and OAuth implementation
-- [`plugins/rtfx/README.md`](../plugins/rtfx/README.md) — user-facing install and usage
+- [`plugins/rtfx-local/README.md`](../plugins/rtfx-local/README.md) — user-facing install and usage
 - [`CLAUDE_CODE.md`](CLAUDE_CODE.md) — the plugin this ships alongside
 - [`HERMES_CLOUD.md`](HERMES_CLOUD.md) — token lifecycle, scopes and error semantics
 - [`POSITIONING.md`](POSITIONING.md) — where "native MCP" sits in what we claim

@@ -420,7 +420,7 @@ export async function resolveRuntimeConfig(ctx) {
     throw new ToolError("the stored rtfx sign-in could not be renewed", {
       detail: oauth?.detail ?? e?.message ?? String(e),
       hint: oauth?.needsLogin
-        ? "Run `/rtfx:login` (or `node scripts/rtfx.mjs login`) to sign in again."
+        ? "Run `/rtfx-local:login` (or `node scripts/rtfx.mjs login`) to sign in again."
         : (oauth?.hint ?? "Retry; if it persists the server is refusing the refresh."),
     });
   }
@@ -432,7 +432,7 @@ export async function resolveRuntimeConfig(ctx) {
   } catch (e) {
     throw new ToolError("the renewed rtfx sign-in could not be saved", {
       detail: e?.message ?? String(e),
-      hint: "Check that the credentials file is writable, then run `/rtfx:login` again.",
+      hint: "Check that the credentials file is writable, then run `/rtfx-local:login` again.",
     });
   }
   ctx.config = resolveConfig(ctx.env, { credential: next });
@@ -444,7 +444,7 @@ async function requireToken(ctx) {
   const config = await resolveRuntimeConfig(ctx);
   if (!config.hasToken) {
     throw new ToolError("no rtfx credential is available", {
-      hint: `Run \`/rtfx:login\` to sign in with a browser, or set the plugin's "API token" option (/plugin → rtfx → Configure; a token from ${config.endpoint}/admin/integrations, scopes: read, publish).`,
+      hint: `Run \`/rtfx-local:login\` to sign in with a browser, or set the plugin's "API token" option (/plugin → rtfx → Configure; a token from ${config.endpoint}/admin/integrations, scopes: read, publish).`,
     });
   }
   return config;
@@ -700,7 +700,7 @@ async function doctor(ctx) {
   if (!ctx.config.hasToken) {
     throw new ToolError("no rtfx credential is available", {
       detail: `endpoint ${facts.endpoint}; tools ${facts.tools.join(", ")}`,
-      hint: `Run \`/rtfx:login\` to sign in with a browser, or set the plugin's "API token" option (/plugin → rtfx → Configure; a token from ${facts.endpoint}/admin/integrations, scopes: read, publish).`,
+      hint: `Run \`/rtfx-local:login\` to sign in with a browser, or set the plugin's "API token" option (/plugin → rtfx → Configure; a token from ${facts.endpoint}/admin/integrations, scopes: read, publish).`,
     });
   }
   const data = await api(ctx, "/api/artifacts");

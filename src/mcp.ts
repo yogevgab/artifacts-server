@@ -132,7 +132,7 @@ import {
   validateToolInput,
   type ToolCallResult,
   type ToolDefinition,
-} from "../plugins/rtfx/scripts/rtfx.mcp.lib.mjs";
+} from "../plugins/rtfx-local/scripts/rtfx.mcp.lib.mjs";
 
 type Vars = { Bindings: Env; Variables: AuthVars };
 
@@ -533,8 +533,8 @@ page in "content_text", a PDF in "content_base64", or a small multi-file site in
 returns the artifact's stable URL. It does NOT take a path: this server runs in Cloudflare's
 network and cannot read the machine your client runs on, so a path here would name the server's
 disk rather than yours, and is refused. To publish a directory that exists on disk (a build output,
-a site you did not author in this conversation), install the local rtfx plugin
-(/plugin marketplace add yogevgab/artifacts-server, then /plugin install rtfx@rtfx): its stdio MCP
+a site you did not author in this conversation), install the local rtfx-local plugin
+(/plugin marketplace add yogevgab/artifacts-server, then /plugin install rtfx-local@rtfx): its stdio MCP
 server runs beside your files and takes a path.
 
 Publishing to a NEW slug creates the artifact at v1, private to its owner. Publishing again to a

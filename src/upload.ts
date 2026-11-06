@@ -1,10 +1,10 @@
 import { Unzip, UnzipInflate, type UnzipFile, type FlateError } from "fflate";
 // The single definition of "this filename looks like a credential", shared with
-// the CLI and the stdio plugin (plugins/rtfx/scripts/rtfx.lib.mjs). A second
+// the CLI and the stdio plugin (plugins/rtfx-local/scripts/rtfx.lib.mjs). A second
 // copy here would be a second thing to keep in step, and the failure mode of
 // drift is a leaked `.env` — so the server imports the same list rather than
 // restating it.
-import { isSensitivePath, classifyEntry, SKIPPED_DIRS, SKIP_SECRET, SKIP_FILE } from "../plugins/rtfx/scripts/rtfx.lib.mjs";
+import { isSensitivePath, classifyEntry, SKIPPED_DIRS, SKIP_SECRET, SKIP_FILE } from "../plugins/rtfx-local/scripts/rtfx.lib.mjs";
 
 export type UploadFile = { path: string; bytes: Uint8Array };
 

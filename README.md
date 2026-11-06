@@ -9,7 +9,7 @@ of everything shared with you. Artifacts — single HTML files or multi-file sta
 published from a web dashboard, a CLI, or an agent session (Claude Code, Hermes). With
 **per-artifact permissions** and **versioning**.
 
-- 🤖 **Agent-native publishing** — Claude Code, a native MCP server, Hermes, the CLI and the HTTP API all take the same path a human takes; no separate, weaker agent route. See [`plugins/rtfx`](plugins/rtfx) and [`docs/MCP.md`](docs/MCP.md).
+- 🤖 **Agent-native publishing** — Claude Code, a native MCP server, Hermes, the CLI and the HTTP API all take the same path a human takes; no separate, weaker agent route. See [`plugins/rtfx-local`](plugins/rtfx-local) and [`docs/MCP.md`](docs/MCP.md).
 - 👥 **Access by identity first** — each artifact is private, shared with named people, or open to all signed-in users. Unauthorized and non-existent both return **404**.
 - 🔗 **Revocable share links** — for someone who will not have an account, create a capability URL for exactly one artifact, optionally expiring in 1–365 days. Only a hash is stored.
 - 🕓 **Versioning** — every re-publish is a new immutable version; roll back within your plan's
@@ -238,25 +238,35 @@ The hosted server publishes content sent inside the tool call; it cannot read a 
 | `delete_artifact` | Permanently delete an artifact: every version, file, access grant and share link. Requires `confirm_slug`; needs the `manage` scope. |
 | `doctor` | Report how this connection is authenticated and whether the instance answers; publishes nothing. |
 
-### Claude Code plugin (local, stdio alternative)
+### Claude Code plugins
 
-This repository is also a Claude Code marketplace. Installing the plugin makes publishing part of
+This repository is a Claude Code marketplace with two plugins:
+
+- **`rtfx`** (listed in Anthropic's directory) is remote-only: a skill plus the hosted MCP server at
+  `https://mcp.rtfx.pro/mcp`. `/plugin install rtfx@rtfx`, then `/mcp` to sign in. It publishes content
+  Claude sends; it cannot read your disk. See [`plugins/rtfx`](plugins/rtfx/README.md).
+- **`rtfx-local`** is the full local tooling (below): publish a folder, build output or zip from disk by
+  path. It is installed from this marketplace, not from the directory.
+
+#### rtfx-local (local, stdio)
+
+Installing `rtfx-local` makes publishing part of
 the conversation rather than a separate step:
 
 ```
 /plugin marketplace add yogevgab/artifacts-server
-/plugin install rtfx@rtfx
+/plugin install rtfx-local@rtfx
 ```
 
 Then sign in from the session — no token to copy, paste or store:
 
 ```
-/rtfx:login
+/rtfx-local:login
 ```
 
 That runs an OAuth authorization-code flow with PKCE against the instance, on a loopback redirect,
 and writes a `0600` credential to `~/.config/rtfx/credentials.json` (refresh tokens rotate;
-`/rtfx:logout` revokes both tokens and deletes it). To use an API token instead, enter it in the
+`/rtfx-local:logout` revokes both tokens and deletes it). To use an API token instead, enter it in the
 plugin's sensitive **API token** option (`/plugin`, rtfx, Configure); the MCP tools use it in preference to
 the stored sign-in. The plugin does not read `RTFX_API_TOKEN` from your shell, and the slash commands use the
 browser sign-in only. Self-hosting: set the plugin's **rtfx endpoint** option (MCP tools) and also
@@ -266,12 +276,12 @@ endpoint must be https.
 | | |
 |---|---|
 | Skill `publishing-to-rtfx` | Loads on its own when someone says "publish this" / "ship it". |
-| `/rtfx:publish [path] [slug]` | Publish or re-publish, then report the URL. |
-| `/rtfx:list` · `/rtfx:versions` · `/rtfx:rollback` | Inventory, history, and going back. |
-| `/rtfx:login` · `/rtfx:logout` | Browser sign-in, and revoking it. |
-| `/rtfx:setup` | Check credentials and connectivity (prints a token's id, never the token). |
+| `/rtfx-local:publish [path] [slug]` | Publish or re-publish, then report the URL. |
+| `/rtfx-local:list` · `/rtfx-local:versions` · `/rtfx-local:rollback` | Inventory, history, and going back. |
+| `/rtfx-local:login` · `/rtfx-local:logout` | Browser sign-in, and revoking it. |
+| `/rtfx-local:setup` | Check credentials and connectivity (prints a token's id, never the token). |
 
-The publisher (`plugins/rtfx/scripts/rtfx.mjs`) is dependency-free Node 18+, so it also works as a
+The publisher (`plugins/rtfx-local/scripts/rtfx.mjs`) is dependency-free Node 18+, so it also works as a
 plain CLI on a machine that has never checked this repo out. It refuses to upload `.env`, `*.pem`,
 `*.key` and similar, and skips `.git`/`node_modules`, printing everything it left out.
 
@@ -281,7 +291,7 @@ Anthropic's community or official marketplace; what a submission to the first wo
 down in [`docs/ANTHROPIC_PLUGIN_SUBMISSION.md`](docs/ANTHROPIC_PLUGIN_SUBMISSION.md).
 
 Details, testing and design notes: [`docs/CLAUDE_CODE.md`](docs/CLAUDE_CODE.md). Release notes:
-[`plugins/rtfx/CHANGELOG.md`](plugins/rtfx/CHANGELOG.md).
+[`plugins/rtfx-local/CHANGELOG.md`](plugins/rtfx-local/CHANGELOG.md).
 
 ### Claude Desktop Extension
 
@@ -303,7 +313,7 @@ Full details: [`docs/CLAUDE_DESKTOP.md`](docs/CLAUDE_DESKTOP.md).
 
 ### Local MCP server (stdio alternative)
 
-The hosted server above is the default. The plugin also ships a native local **MCP server** (`plugins/rtfx/scripts/rtfx-mcp.mjs`), so a client
+The hosted server above is the default. The plugin also ships a native local **MCP server** (`plugins/rtfx-local/scripts/rtfx-mcp.mjs`), so a client
 with no shell to run a command in — Claude Desktop, or anything else that speaks MCP — publishes
 through tool calls instead. Installing the plugin registers it; for a manual Claude Desktop setup,
 point `claude_desktop_config.json` at the script:
@@ -313,7 +323,7 @@ point `claude_desktop_config.json` at the script:
   "mcpServers": {
     "rtfx": {
       "command": "node",
-      "args": ["/absolute/path/to/plugins/rtfx/scripts/rtfx-mcp.mjs"],
+      "args": ["/absolute/path/to/plugins/rtfx-local/scripts/rtfx-mcp.mjs"],
       "env": { "RTFX_API_TOKEN": "rtfx_…" }
     }
   }

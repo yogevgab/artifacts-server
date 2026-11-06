@@ -9,7 +9,7 @@ no Cloudflare account, no service token. See [§2](#2-authenticate) for why the 
 `/api/machine` and not `/api`.
 
 > Publishing from a **Claude Code** session is the same contract, packaged: see
-> [`CLAUDE_CODE.md`](CLAUDE_CODE.md) for the plugin in [`plugins/rtfx`](../plugins/rtfx).
+> [`CLAUDE_CODE.md`](CLAUDE_CODE.md) for the plugin in [`plugins/rtfx-local`](../plugins/rtfx-local).
 
 ---
 

@@ -1,4 +1,4 @@
-// Pure checks for the Claude Code plugin under plugins/rtfx.
+// Pure checks for the Claude Code plugin under plugins/rtfx-local.
 //
 // Same split as validate-deploy-config: everything here is a function over plain
 // data so the test suite can exercise it inside the Workers pool, while
@@ -352,6 +352,20 @@ export function checkMcpConfig(path, config, exists) {
       errors.push(`${path}: server "${name}" must be an object`);
       continue;
     }
+    if (server.type === "http" || server.type === "streamable-http" || server.type === "sse") {
+      // A remote server: nothing runs on the user's machine, so none of the
+      // command/args/env rules apply. It must be a public https URL.
+      let url = null;
+      try {
+        url = new URL(String(server.url));
+      } catch {
+        // falls through to the error below
+      }
+      if (!url || url.protocol !== "https:") errors.push(`${path}: server "${name}" needs an https \`url\``);
+      else if (server.command !== undefined) errors.push(`${path}: server "${name}" is remote but also sets a \`command\``);
+      if (errors.length === before) ok.push(`${path}: server "${name}" -> ${server.url}`);
+      continue;
+    }
     if (typeof server.command !== "string" || !server.command.trim()) {
       errors.push(`${path}: server "${name}" needs a \`command\``);
     }
@@ -515,6 +529,70 @@ export function checkSubmissionPacket(path, text, { version, repository, pluginP
   }
 
   return { errors, ok };
+}
+
+// --- Anthropic directory compliance ---------------------------------------------
+//
+// The plugin Anthropic's directory lists (`rtfx`) is scanned under the rules for
+// organizations that are not Verified: no MCP server that runs on the user's
+// machine, allowed-tools cut to read-only tools, and only data-like files. The
+// full local plugin lives in `rtfx-local`, outside the directory, so it is not
+// held to this.
+
+/** Extensions the directory accepts: Markdown, text, JSON, YAML and web images. */
+export const DIRECTORY_FILE_EXTENSIONS = [
+  ".md", ".txt", ".json", ".yaml", ".yml", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico",
+];
+/** Extension-less files the directory also lets through. */
+export const DIRECTORY_FILE_NAMES = ["LICENSE", "LICENSE.md", "LICENSE.txt", ".gitignore"];
+const DIRECTORY_TOOLS = new Set(["Read", "Grep", "Glob", "LS"]);
+
+/**
+ * `files` are paths relative to the plugin root; `texts` maps a relative path to
+ * its content for the Markdown and JSON files; `manifest` and `mcpFile` are the
+ * parsed plugin.json and .mcp.json (either may be null).
+ */
+export function checkDirectoryCompliance(files, { manifest = null, mcpFile = null, texts = {} } = {}) {
+  const errors = [];
+  for (const file of files) {
+    const base = file.split("/").pop();
+    const dot = base.lastIndexOf(".");
+    const ext = dot > 0 ? base.slice(dot).toLowerCase() : "";
+    if (DIRECTORY_FILE_NAMES.includes(base)) continue;
+    if (!DIRECTORY_FILE_EXTENSIONS.includes(ext)) {
+      errors.push(`${file}: file type is not accepted by the directory (Markdown, text, JSON, YAML, PNG/JPEG/GIF/WebP/ICO only)`);
+    }
+  }
+
+  for (const [where, servers] of [
+    ["plugin.json", manifest?.mcpServers],
+    [".mcp.json", mcpFile?.mcpServers],
+  ]) {
+    if (!servers || typeof servers !== "object") continue;
+    for (const [name, server] of Object.entries(servers)) {
+      const remote = server?.type === "http" || server?.type === "streamable-http" || server?.type === "sse";
+      if (!remote || server?.command !== undefined || typeof server?.url !== "string" || !/^https:\/\//.test(server.url)) {
+        errors.push(`${where}: MCP server "${name}" must be a remote https server (type http + url); servers that run on the user's computer are not accepted`);
+      }
+    }
+  }
+  if (manifest && ("hooks" in manifest || "monitors" in manifest || "lspServers" in manifest)) {
+    errors.push("plugin.json: hooks, monitors and lspServers run code locally and are not accepted");
+  }
+
+  for (const [file, text] of Object.entries(texts)) {
+    if (!file.endsWith(".md")) continue;
+    const parsed = parseFrontmatter(text);
+    const declared = parsed?.frontmatter?.["allowed-tools"] ?? parsed?.frontmatter?.allowedTools;
+    if (!declared) continue;
+    const entries = String(declared).replace(/^\[|\]$/g, "").split(/,\s*(?![^()]*\))/).map((e) => e.trim()).filter(Boolean);
+    for (const entry of entries) {
+      if (!DIRECTORY_TOOLS.has(entry)) {
+        errors.push(`${file}: allowed-tools entry "${entry}" - only Read, Grep, Glob and LS (bare names) are accepted`);
+      }
+    }
+  }
+  return { errors, ok: errors.length ? [] : ["directory compliance: file types, remote-only MCP, read-only allowed-tools"] };
 }
 
 /** Merge several check results into one. */

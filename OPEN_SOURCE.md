@@ -28,8 +28,8 @@ would be a poor trade. **None of it is held back, and none of it will be.**
 | | Where | Why it is public |
 |---|---|---|
 | The Worker | `src/`, `schema.sql`, `migrations/` | The whole product. Auth, authorization, serving, API, billing wiring, the public site and the dashboard. |
-| The Claude Code plugin | `plugins/rtfx/` | It runs on your machine with your credentials. |
-| Local MCP server + CLI | `plugins/rtfx/scripts/`, `cli/` | Same reason. |
+| The Claude Code plugin | `plugins/rtfx-local/` | It runs on your machine with your credentials. |
+| Local MCP server + CLI | `plugins/rtfx-local/scripts/`, `cli/` | Same reason. |
 | Remote MCP + OAuth server | `src/mcp.ts`, `src/oauth*.ts` | The tool allow-list and the scope checks are the security story; they should be auditable. |
 | Tests | `test/` | The invariants are the claim. A claim with no test is marketing. |
 | Docs | `docs/`, this file, `SECURITY.md`, `CONTRIBUTING.md` | Architecture, design notes, deployment shape, positioning rules. |

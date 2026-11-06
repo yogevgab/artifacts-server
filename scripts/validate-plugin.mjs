@@ -24,6 +24,7 @@ import {
   checkPluginRootRefs,
   checkMcpConfig,
   checkMcpAgreement,
+  checkDirectoryCompliance,
   checkChangelog,
   checkCommunityMarketplaceClaims,
   checkSubmissionPacket,
@@ -36,6 +37,9 @@ const MARKETPLACE = join(ROOT, ".claude-plugin", "marketplace.json");
 const PLUGINS_DIR = join(ROOT, "plugins");
 const DOCS_DIR = join(ROOT, "docs");
 const SUBMISSION_DOC = join(DOCS_DIR, "ANTHROPIC_PLUGIN_SUBMISSION.md");
+
+/** The plugin the Anthropic directory scans; held to the non-Verified-organization rules. */
+const DIRECTORY_PLUGIN = "rtfx";
 
 const errors = [];
 const ok = [];
@@ -116,7 +120,6 @@ for (const name of pluginDirs) {
 
   const commandsDir = join(pluginRoot, "commands");
   const commands = existsSync(commandsDir) ? readdirSync(commandsDir).filter((f) => f.endsWith(".md")) : [];
-  if (!commands.length) errors.push(`plugins/${name}: no commands found`);
   for (const file of commands) {
     const path = join(commandsDir, file);
     const text = readFileSync(path, "utf8");
@@ -127,7 +130,7 @@ for (const name of pluginDirs) {
   const skills = existsSync(skillsDir)
     ? readdirSync(skillsDir).filter((d) => existsSync(join(skillsDir, d, "SKILL.md")))
     : [];
-  if (!skills.length) errors.push(`plugins/${name}: no skills found (skills/<name>/SKILL.md)`);
+  if (!skills.length && !commands.length) errors.push(`plugins/${name}: no skills or commands found`);
   for (const skill of skills) {
     const path = join(skillsDir, skill, "SKILL.md");
     const text = readFileSync(path, "utf8");
@@ -156,6 +159,15 @@ for (const name of pluginDirs) {
   if (manifest?.mcpServers) {
     collect(checkMcpConfig(`plugins/${name}/.claude-plugin/plugin.json`, { mcpServers: manifest.mcpServers }, exists));
     collect(checkMcpAgreement(manifest.mcpServers, mcpFile?.mcpServers));
+  }
+
+  // The plugin the Anthropic directory lists must stay inside the directory's rules.
+  if (name === DIRECTORY_PLUGIN) {
+    const files = walk(pluginRoot);
+    const texts = Object.fromEntries(
+      files.filter((f) => f.endsWith(".md")).map((f) => [f, readFileSync(join(pluginRoot, f), "utf8")])
+    );
+    collect(checkDirectoryCompliance(files, { manifest, mcpFile, texts }));
   }
 
   if (!existsSync(join(pluginRoot, "README.md"))) errors.push(`plugins/${name}: no README.md`);

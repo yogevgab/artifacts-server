@@ -3,8 +3,8 @@ import { env } from "cloudflare:test";
 import { deflateSync, strToU8, strFromU8, unzipSync } from "fflate";
 import app from "../src/index";
 import { initDb, clearR2, req, as } from "./fixtures";
-import { createZip } from "../plugins/rtfx/scripts/rtfx.lib.mjs";
-import { prepareBundle, type BundleIo } from "../plugins/rtfx/scripts/rtfx.bundle.mjs";
+import { createZip } from "../plugins/rtfx-local/scripts/rtfx.lib.mjs";
+import { prepareBundle, type BundleIo } from "../plugins/rtfx-local/scripts/rtfx.bundle.mjs";
 import {
   ACCESS_TOOL_VAR,
   LATEST_PROTOCOL_VERSION,
@@ -24,7 +24,7 @@ import {
   validateToolInput,
   type McpContext,
   type ToolCallResult,
-} from "../plugins/rtfx/scripts/rtfx.mcp.lib.mjs";
+} from "../plugins/rtfx-local/scripts/rtfx.mcp.lib.mjs";
 import { checkMcpAgreement, checkMcpConfig, checkPluginRootRefs } from "../scripts/validate-plugin.lib.mjs";
 
 /**
@@ -303,7 +303,7 @@ describe("no credential can leave the process", () => {
     const result = await callTool("doctor", {}, context());
     expect(result.isError).toBe(true);
     expect(payload(result).error).toMatch(/no rtfx credential is available/);
-    expect(payload(result).hint).toMatch(/\/rtfx:login/);
+    expect(payload(result).hint).toMatch(/\/rtfx-local:login/);
     expect(JSON.stringify(result)).not.toMatch(/rtfx_[A-Za-z0-9]+_[A-Za-z0-9_-]{8,}/);
   });
 

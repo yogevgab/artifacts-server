@@ -20,7 +20,7 @@
   },
   "bin": {
     "artifacts": "cli/artifacts.mjs",
-    "rtfx-mcp": "plugins/rtfx/scripts/rtfx-mcp.mjs"
+    "rtfx-mcp": "plugins/rtfx-local/scripts/rtfx-mcp.mjs"
   },
   "scripts": {
     "dev": "wrangler dev --var DEV_LOGIN:true",

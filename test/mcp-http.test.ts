@@ -11,7 +11,7 @@ import {
   MCP_PATH,
   REMOTE_TOOLS,
 } from "../src/mcp";
-import { TOOLS, SUPPORTED_PROTOCOL_VERSIONS, LATEST_PROTOCOL_VERSION } from "../plugins/rtfx/scripts/rtfx.mcp.lib.mjs";
+import { TOOLS, SUPPORTED_PROTOCOL_VERSIONS, LATEST_PROTOCOL_VERSION } from "../plugins/rtfx-local/scripts/rtfx.mcp.lib.mjs";
 
 /**
  * Remote MCP over Streamable HTTP — `POST /mcp` (src/mcp.ts).

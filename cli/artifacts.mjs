@@ -35,7 +35,7 @@ import {
   describeNonJsonResponse,
   machineApiPath,
   shouldRetryOnLegacyApi,
-} from "../plugins/rtfx/scripts/rtfx.lib.mjs";
+} from "../plugins/rtfx-local/scripts/rtfx.lib.mjs";
 
 const BASE = (process.env.ARTIFACTS_URL || process.env.RTFX_URL || "http://localhost:8787").replace(/\/+$/, "");
 const ID = process.env.CF_ACCESS_CLIENT_ID;
