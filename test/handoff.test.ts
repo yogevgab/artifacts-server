@@ -66,6 +66,8 @@ class Browser {
   async send(url: string, init: RequestInit = {}, env = e()): Promise<Response> {
     const u = new URL(url);
     const headers = new Headers(init.headers);
+    // Browsers always send this; every real chain here is same-site.
+    if (!headers.has("Sec-Fetch-Site")) headers.set("Sec-Fetch-Site", "same-site");
     const ck = this.cookieHeader(u.hostname);
     if (ck) headers.set("Cookie", ck);
     const res = await app.request(url, { ...init, headers, redirect: "manual" }, env);
@@ -221,7 +223,9 @@ describe("revocation parity", () => {
           .run();
       });
     const redeem = await b.send(redeemUrl);
-    expect(redeem.status).toBe(400);
+    // No session, but no dead end either: back to the consent screen.
+    expect(redeem.status).toBe(302);
+    expect(redeem.headers.get("Location")).toBe(`https://${MCP}${AUTHORIZE}`);
     expect(b.jar(APP).has(SESSION_COOKIE)).toBe(false);
   });
 });
@@ -249,10 +253,11 @@ describe("token rules", () => {
     // and also holds the cookie still gets nothing the second time).
     const replay = await app.request(
       redeemUrl,
-      { headers: { Cookie: `${HANDOFF_COOKIE}=${nonce}` }, redirect: "manual" },
+      { headers: { Cookie: `${HANDOFF_COOKIE}=${nonce}`, "Sec-Fetch-Site": "same-site" }, redirect: "manual" },
       e()
     );
-    expect(replay.status).toBe(400);
+    expect(replay.status).toBe(302);
+    expect(replay.headers.get("Location")).toBe(`https://${MCP}${AUTHORIZE}`);
     expect(replay.headers.getSetCookie().some((c) => c.startsWith(`${SESSION_COOKIE}=`) && !/Max-Age=0/.test(c))).toBe(false);
   });
 
@@ -261,7 +266,8 @@ describe("token rules", () => {
     await env.DB.prepare("UPDATE auth_handoffs SET expires_at = ?")
       .bind(new Date(Date.now() - 1000).toISOString())
       .run();
-    expect((await b.send(redeemUrl)).status).toBe(400);
+    const res = await b.send(redeemUrl);
+    expect(res.headers.get("Location")).toBe(`https://${MCP}${AUTHORIZE}`);
     expect(b.jar(APP).has(SESSION_COOKIE)).toBe(false);
   });
 
@@ -275,33 +281,67 @@ describe("token rules", () => {
     expect(row).toMatchObject({ email: EMAIL, source_host: MCP, target_host: APP, next_path: AUTHORIZE });
   });
 
-  it("is bound to its target host: redeeming on the source host fails and does not burn it", async () => {
+  it("only runs mcp -> rtfx.pro: the reverse direction is not reachable", async () => {
     const { redeemUrl } = await startHandoff(b);
     const token = new URL(redeemUrl).searchParams.get("t")!;
-    const wrong = await b.send(`https://${MCP}/auth/handoff?t=${token}`);
-    expect(wrong.status).toBe(400);
-    expect((await b.send(redeemUrl)).status).toBe(302);
+    const h = "a".repeat(64);
+    expect((await b.send(`https://${MCP}/auth/handoff?t=${token}`)).status).toBe(404);
+    expect((await b.send(`https://${MCP}/auth/handoff/begin?next=${encodeURIComponent(`https://${APP}/`)}`)).status).toBe(404);
+    expect((await b.send(`https://${APP}/auth/handoff/issue?h=${h}&next=/`)).status).toBe(404);
+    // Refused before the database is touched, so the real token is intact.
+    await b.send(redeemUrl);
+    expect(b.jar(APP).has(SESSION_COOKIE)).toBe(true);
   });
 
-  it("is bound to the browser that started it (login CSRF)", async () => {
+  it("is bound to the browser that started it (login CSRF), and a wrong redeem burns the token", async () => {
     // The attacker signs in as themselves and captures their redeem URL...
     const attacker = new Browser();
     await attacker.signIn(MCP, AUTHORIZE, "attacker@evil.com");
     const { redeemUrl } = await startHandoff(attacker);
 
-    // ...then lures a victim, who has no / a different nonce cookie, to it.
-    const noCookie = await app.request(redeemUrl, { redirect: "manual" }, e());
-    expect(noCookie.status).toBe(400);
+    // ...then lures a victim, who has no nonce cookie, to it.
+    const noCookie = await app.request(redeemUrl, { redirect: "manual", headers: { "Sec-Fetch-Site": "same-site" } }, e());
+    expect(noCookie.status).toBe(302);
     expect(noCookie.headers.getSetCookie().some((c) => /^rtfx_session=[^;]+/.test(c))).toBe(false);
 
+    // That failed redeem destroyed the token; even the attacker's own browser
+    // (matching nonce) cannot use it now.
+    await attacker.send(redeemUrl);
+    expect(attacker.jar(APP).has(SESSION_COOKIE)).toBe(false);
+
+    // Fresh token, victim with a different nonce: fails and is burned too.
+    const { redeemUrl: second } = await startHandoff(attacker);
     const victim = new Browser();
     await victim.send(`https://${APP}/auth/handoff/begin?next=${encodeURIComponent(`https://${MCP}/`)}`);
-    const victimHit = await victim.send(redeemUrl);
-    expect(victimHit.status).toBe(400);
+    const victimHit = await victim.send(second);
+    expect(victimHit.status).toBe(302);
     expect(victim.jar(APP).has(SESSION_COOKIE)).toBe(false);
+    await attacker.send(second);
+    expect(attacker.jar(APP).has(SESSION_COOKIE)).toBe(false);
+  });
 
-    // The attacker's own browser still redeems it fine (the token was not burned).
-    expect((await attacker.send(redeemUrl)).status).toBe(302);
+  it("an attacker-chosen h is refused cross-site, and a token minted for it dies on first use", async () => {
+    // Attacker gets h = sha256(their nonce) from their own /begin.
+    const attacker = new Browser();
+    const abegin = await attacker.send(
+      `https://${APP}/auth/handoff/begin?next=${encodeURIComponent(`https://${MCP}/`)}`
+    );
+    const h = new URL(abegin.headers.get("Location")!).searchParams.get("h")!;
+    // A victim signed in on mcp is sent to issue with that h from the attacker's
+    // page: cross-site, refused, nothing minted.
+    const crossSite = await b.send(`https://${MCP}/auth/handoff/issue?h=${h}&next=/`, {
+      headers: { "Sec-Fetch-Site": "cross-site" },
+    });
+    expect(crossSite.headers.get("Location")).toBe("/");
+    // Even if a token were minted for it, the victim's own failed redeem burns it.
+    const minted = await b.send(`https://${MCP}/auth/handoff/issue?h=${h}&next=/`);
+    const redeemUrl = minted.headers.get("Location")!;
+    expect(redeemUrl).toContain("/auth/handoff?t=");
+    const victimHit = await b.send(redeemUrl);
+    expect(victimHit.status).toBe(302);
+    expect(b.jar(APP).has(SESSION_COOKIE)).toBe(false);
+    await attacker.send(redeemUrl);
+    expect(attacker.jar(APP).has(SESSION_COOKIE)).toBe(false);
   });
 
   it("the nonce cookie is a __Host- cookie, so a sibling host cannot toss one over it", async () => {
@@ -360,10 +400,11 @@ describe("host rules", () => {
     });
     const redeem = await app.request(
       `https://${APP}/auth/handoff?t=${token}`,
-      { headers: { Cookie: `${HANDOFF_COOKIE}=n` }, redirect: "manual" },
+      { headers: { Cookie: `${HANDOFF_COOKIE}=n`, "Sec-Fetch-Site": "same-site" }, redirect: "manual" },
       e()
     );
-    expect(redeem.status).toBe(400);
+    expect(redeem.status).toBe(302);
+    expect(redeem.headers.getSetCookie().some((c) => /^rtfx_session=[^;]+/.test(c))).toBe(false);
   });
 
   it("is not served by a customer custom domain, and customer sessions keep their aud", async () => {
@@ -468,5 +509,106 @@ describe("open redirect", () => {
     expect(res.headers.get("Location")).toBe(`https://${MCP}${AUTHORIZE}`);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
     expect(res.headers.get("Referrer-Policy")).toBe("no-referrer");
+  });
+});
+
+describe("Sec-Fetch-Site gate", () => {
+  for (const site of ["cross-site", "none", undefined]) {
+    it(`refuses to run the chain when Sec-Fetch-Site is ${site ?? "absent"}, and still lands on authorize`, async () => {
+      const b = new Browser();
+      await b.signIn(MCP, AUTHORIZE);
+      const hdr: Record<string, string> = site ? { "Sec-Fetch-Site": site } : {};
+      const call = (url: string, cookie = "") =>
+        app.request(url, { headers: { ...hdr, Cookie: cookie }, redirect: "manual" }, e());
+
+      const begin = await call(`https://${APP}/auth/handoff/begin?next=${encodeURIComponent(`https://${MCP}${AUTHORIZE}`)}`);
+      expect(begin.headers.get("Location")).toBe(`https://${MCP}${AUTHORIZE}`);
+      expect(begin.headers.getSetCookie()).toHaveLength(0);
+
+      const issue = await call(
+        `https://${MCP}/auth/handoff/issue?h=${"a".repeat(64)}&next=${encodeURIComponent(AUTHORIZE)}`,
+        b.cookieHeader(MCP)
+      );
+      expect(issue.headers.get("Location")).toBe(AUTHORIZE);
+
+      const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM auth_handoffs").first<any>().catch(() => ({ n: 0 }));
+      expect(n.n).toBe(0);
+
+      const redeem = await call(`https://${APP}/auth/handoff?t=${"b".repeat(64)}`);
+      expect(redeem.status).toBe(302);
+      expect(redeem.headers.getSetCookie().some((c) => /^rtfx_session=[^;]+/.test(c))).toBe(false);
+    });
+  }
+});
+
+describe("no dead ends", () => {
+  let b: Browser;
+  beforeEach(async () => {
+    b = new Browser();
+    await b.signIn(MCP, AUTHORIZE);
+  });
+
+  it("parallel handoffs: the one whose nonce was overwritten fails but still ends on authorize", async () => {
+    const first = await startHandoff(b, `https://${MCP}${AUTHORIZE}&n=1`);
+    const second = await startHandoff(b, `https://${MCP}${AUTHORIZE}&n=2`);
+    // The second begin replaced the nonce cookie, so the first token no longer fits.
+    const r1 = await b.send(first.redeemUrl);
+    expect(r1.status).toBe(302);
+    expect(r1.headers.get("Location")).toBe(`https://${MCP}${AUTHORIZE}&n=1`);
+    expect(b.jar(APP).has(SESSION_COOKIE)).toBe(false);
+    // The failure cleared the cookie; the second still lands on its own page.
+    const r2 = await b.send(second.redeemUrl);
+    expect(r2.status).toBe(302);
+    expect(r2.headers.get("Location")).toBe(`https://${MCP}${AUTHORIZE}&n=2`);
+  });
+
+  it("missing cookie: lands on authorize, no session", async () => {
+    const { redeemUrl } = await startHandoff(b);
+    b.jar(APP).delete(HANDOFF_COOKIE);
+    const res = await b.send(redeemUrl);
+    expect(res.headers.get("Location")).toBe(`https://${MCP}${AUTHORIZE}`);
+    expect(b.jar(APP).has(SESSION_COOKIE)).toBe(false);
+  });
+
+  it("unknown token with the cookie: lands on authorize from the cookie", async () => {
+    await startHandoff(b);
+    const res = await b.send(`https://${APP}/auth/handoff?t=${"c".repeat(64)}`);
+    expect(res.headers.get("Location")).toBe(`https://${MCP}${AUTHORIZE}`);
+  });
+
+  it("no cookie and no token: lands on the mcp host root, never on /login", async () => {
+    const res = await b.send(`https://${APP}/auth/handoff?t=nope`);
+    expect(res.headers.get("Location")).toBe(`https://${MCP}/`);
+  });
+
+  it("a rate-limited issue continues to next instead of returning 429", async () => {
+    let last: Response | undefined;
+    for (let i = 0; i < 62; i++) {
+      last = await b.send(`https://${MCP}/auth/handoff/issue?h=${"a".repeat(64)}&next=${encodeURIComponent(AUTHORIZE)}`);
+    }
+    expect(last!.status).toBe(302);
+    expect(last!.headers.get("Location")).toBe(AUTHORIZE);
+  });
+
+  it("duplicate handoff cookies are refused, and a non-member identity is not handed off", async () => {
+    const { redeemUrl } = await startHandoff(b);
+    const nonce = b.jar(APP).get(HANDOFF_COOKIE)!;
+    const res = await app.request(
+      redeemUrl,
+      {
+        headers: { Cookie: `${HANDOFF_COOKIE}=${nonce}; ${HANDOFF_COOKIE}=${nonce}`, "Sec-Fetch-Site": "same-site" },
+        redirect: "manual",
+      },
+      e()
+    );
+    expect(res.headers.getSetCookie().some((c) => /^rtfx_session=[^;]+/.test(c))).toBe(false);
+
+    // DEV_LOGIN-style identity (no session cookie) is not a member session.
+    const dev = await app.request(
+      `https://${MCP}/auth/handoff/issue?h=${"a".repeat(64)}&next=${encodeURIComponent(AUTHORIZE)}`,
+      { headers: { "X-Dev-Email": EMAIL, "Sec-Fetch-Site": "same-site" }, redirect: "manual" },
+      { ...e(), DEV_LOGIN: "true" }
+    );
+    expect(dev.headers.get("Location")).toBe(AUTHORIZE);
   });
 });

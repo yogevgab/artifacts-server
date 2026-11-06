@@ -151,35 +151,75 @@ export async function issueHandoff(
   return token;
 }
 
-export interface RedeemedHandoff {
-  email: string;
-  sourceHost: string;
-  nextPath: string;
-}
+export type HandoffRedeem =
+  | { ok: true; email: string; sourceHost: string; nextPath: string }
+  /** `nextPath` is where a failed handoff may still send the browser (never a credential). */
+  | { ok: false; nextPath: string | null };
 
 /**
- * Redeem atomically. One conditional UPDATE: unconsumed, unexpired, issued FOR
- * this host BY the partner host, and bound to this browser's nonce. A failed
- * condition changes nothing, so a wrong-host or wrong-browser probe cannot burn a
- * token, and two concurrent redeems cannot both win.
+ * Redeem atomically, burning FIRST. One conditional UPDATE consumes the row on a
+ * token match alone (unconsumed, unexpired); only then are target host, source
+ * host and the browser nonce checked. A presented token that does not fit is
+ * therefore destroyed, not left live: a token minted for the wrong browser (an
+ * attacker-chosen nonce hash) dies on the victim's first, failed redeem instead
+ * of sitting valid in history and request logs. Two concurrent redeems cannot
+ * both win.
  */
 export async function redeemHandoff(
   env: Env,
   o: { token: string; targetHost: string; sourceHost: string; nonce: string; now: string }
-): Promise<RedeemedHandoff | null> {
-  if (!HEX64.test(o.token) || !o.nonce) return null;
+): Promise<HandoffRedeem> {
+  if (!HEX64.test(o.token)) return { ok: false, nextPath: null };
   await ensureTable(env);
   const row = await env.DB.prepare(
     `UPDATE auth_handoffs SET consumed_at = ?
       WHERE token_hash = ? AND consumed_at IS NULL AND expires_at > ?
-        AND target_host = ? AND source_host = ? AND nonce_hash = ?
-      RETURNING email, source_host, next_path, created_at`
+      RETURNING email, source_host, target_host, next_path, nonce_hash, created_at`
   )
-    .bind(o.now, await hashToken(o.token), o.now, o.targetHost, o.sourceHost, await hashToken(o.nonce))
-    .first<{ email: string; source_host: string; next_path: string; created_at: string }>();
-  if (!row) return null;
+    .bind(o.now, await hashToken(o.token), o.now)
+    .first<{
+      email: string;
+      source_host: string;
+      target_host: string;
+      next_path: string;
+      nonce_hash: string;
+      created_at: string;
+    }>();
+  if (!row) return { ok: false, nextPath: null };
+  const fits =
+    !!o.nonce &&
+    row.target_host === o.targetHost &&
+    row.source_host === o.sourceHost &&
+    row.nonce_hash === (await hashToken(o.nonce));
+  // Wrong host or wrong browser: the token is spent. The stored path is only
+  // offered as a place to land (on the source host, which holds the session).
+  if (!fits) return { ok: false, nextPath: row.source_host === o.sourceHost ? row.next_path : null };
   // Signed out on either host between issue and redeem: that sign-out voids
   // sessions issued before it, and a session minted now must not resurrect it.
-  if (await sessionRevoked(env, row.email, Math.floor(Date.parse(row.created_at) / 1000))) return null;
-  return { email: row.email, sourceHost: row.source_host, nextPath: row.next_path };
+  if (await sessionRevoked(env, row.email, Math.floor(Date.parse(row.created_at) / 1000))) {
+    return { ok: false, nextPath: row.next_path };
+  }
+  return { ok: true, email: row.email, sourceHost: row.source_host, nextPath: row.next_path };
+}
+
+/**
+ * The handoff runs one way only: from the MCP host (where OAuth sign-in happens)
+ * to the canonical host. `begin` and the redeem run on the canonical host,
+ * `issue` on the MCP host. The reverse is refused rather than left reachable
+ * through the symmetric URLs.
+ */
+export type HandoffStep = "begin" | "issue" | "redeem";
+export function stepAllowed(pair: AppHostPair, step: HandoffStep): boolean {
+  return step === "issue" ? pair.self !== pair.canonical : pair.self === pair.canonical;
+}
+
+/**
+ * Sec-Fetch-Site must say the whole navigation chain stayed on this site. The
+ * real chain (mcp.rtfx.pro <-> rtfx.pro) is same-site; a chain started from
+ * another site or from the sandboxed content host (opaque origin) is cross-site,
+ * and "none"/absent never occurs in it. Refusing those stops an attacker from
+ * driving a victim's browser into minting a token.
+ */
+export function sameSiteNavigation(header: string | undefined | null): boolean {
+  return header === "same-origin" || header === "same-site";
 }
