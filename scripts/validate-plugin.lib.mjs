@@ -564,20 +564,49 @@ export function checkDirectoryCompliance(files, { manifest = null, mcpFile = nul
     }
   }
 
+  // Components Claude Code loads from their default location without any manifest key.
+  for (const file of files) {
+    if (file === "hooks/hooks.json" || file === ".lsp.json" || file === "monitors/monitors.json" || file.startsWith("bin/")) {
+      errors.push(`${file}: runs code locally (hooks, language servers, monitors, bin/) and is not accepted`);
+    }
+  }
+
+  const mcp = manifest?.mcpServers;
+  if (mcp !== undefined && (!mcp || typeof mcp !== "object" || Array.isArray(mcp))) {
+    errors.push("plugin.json: `mcpServers` must be an inline object of remote servers - a file path, bundle (.mcpb) or array cannot be inspected");
+  }
+  let remoteServers = 0;
   for (const [where, servers] of [
     ["plugin.json", manifest?.mcpServers],
     [".mcp.json", mcpFile?.mcpServers],
   ]) {
-    if (!servers || typeof servers !== "object") continue;
+    if (!servers || typeof servers !== "object" || Array.isArray(servers)) continue;
     for (const [name, server] of Object.entries(servers)) {
       const remote = server?.type === "http" || server?.type === "streamable-http" || server?.type === "sse";
       if (!remote || server?.command !== undefined || typeof server?.url !== "string" || !/^https:\/\//.test(server.url)) {
         errors.push(`${where}: MCP server "${name}" must be a remote https server (type http + url); servers that run on the user's computer are not accepted`);
-      }
+      } else remoteServers += 1;
     }
   }
-  if (manifest && ("hooks" in manifest || "monitors" in manifest || "lspServers" in manifest)) {
-    errors.push("plugin.json: hooks, monitors and lspServers run code locally and are not accepted");
+  if (remoteServers > 0 && !(typeof manifest?.privacyPolicyUrl === "string" && /^https:\/\//.test(manifest.privacyPolicyUrl))) {
+    errors.push("plugin.json: a plugin with a remote MCP server needs an https `privacyPolicyUrl` (the directory reports PRIVACY_URL_MISSING)");
+  }
+  if (manifest) {
+    for (const key of ["hooks", "monitors", "lspServers", "workflows"]) {
+      if (key in manifest) errors.push(`plugin.json: \`${key}\` runs code locally and is not accepted`);
+    }
+    if (manifest.experimental && typeof manifest.experimental === "object" && "monitors" in manifest.experimental) {
+      errors.push("plugin.json: `experimental.monitors` runs code locally and is not accepted");
+    }
+    if (manifest.commands && typeof manifest.commands === "object" && !Array.isArray(manifest.commands)) {
+      for (const [cmd, def] of Object.entries(manifest.commands)) {
+        const tools = def?.allowedTools;
+        if (tools === undefined) continue;
+        for (const t of Array.isArray(tools) ? tools : [tools]) {
+          if (!DIRECTORY_TOOLS.has(String(t).trim())) errors.push(`plugin.json: command "${cmd}" allowedTools entry "${t}" - only Read, Grep, Glob and LS are accepted`);
+        }
+      }
+    }
   }
 
   for (const [file, text] of Object.entries(texts)) {

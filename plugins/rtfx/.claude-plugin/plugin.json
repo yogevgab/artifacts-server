@@ -9,11 +9,21 @@
   "homepage": "https://rtfx.pro/docs",
   "repository": "https://github.com/yogevgab/artifacts-server",
   "license": "MIT",
-  "keywords": ["publishing", "artifacts", "hosting", "mcp", "rtfx"],
+  "keywords": [
+    "publishing",
+    "artifacts",
+    "hosting",
+    "mcp",
+    "rtfx"
+  ],
   "mcpServers": {
     "rtfx": {
       "type": "http",
       "url": "https://mcp.rtfx.pro/mcp"
     }
-  }
+  },
+  "icon": "./.claude-plugin/icon.png",
+  "documentationUrl": "https://rtfx.pro/docs",
+  "supportUrl": "https://github.com/yogevgab/artifacts-server/issues",
+  "privacyPolicyUrl": "https://rtfx.pro/privacy"
 }

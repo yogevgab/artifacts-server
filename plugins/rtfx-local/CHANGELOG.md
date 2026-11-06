@@ -1,6 +1,6 @@
 # Changelog - rtfx Claude Code plugin
 
-Versions of the plugin under `plugins/rtfx`, which is versioned independently of the
+Versions of the plugin under `plugins/rtfx-local`, which is versioned independently of the
 `artifacts-server` application that hosts it. The version here is the one declared in
 `.claude-plugin/plugin.json` and mirrored into the repository's `.claude-plugin/marketplace.json`;
 `npm run validate:plugin` fails if the two disagree, or if the newest entry below is not the
@@ -20,6 +20,7 @@ installed from this repository's own marketplace.
 - Renamed `rtfx` to `rtfx-local`. Install with `/plugin install rtfx-local@rtfx`. Slash commands are
   now `/rtfx-local:login`, `/rtfx-local:publish`, `/rtfx-local:list`, `/rtfx-local:versions`,
   `/rtfx-local:rollback`, `/rtfx-local:setup` and `/rtfx-local:logout`.
+- Option values you set on `rtfx` 1.x (`api_token`, `endpoint`) do NOT carry over: re-enter them under `/plugin`, rtfx-local, Configure.
 - Behaviour, scripts, the `api_token` / `endpoint` options and the browser sign-in file
   (`~/.config/rtfx/credentials.json`) are unchanged from 1.2.2.
 

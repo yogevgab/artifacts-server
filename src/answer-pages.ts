@@ -840,8 +840,8 @@ const BASE_TOPICS: Record<BaseTopicKey, Topic> = {
       {
         q: "Can I publish a multi-page site from Claude Code?",
         a:
-          "A Claude Code artifact is one self-contained page. With the rtfx Claude Code plugin you can " +
-          "publish a built folder (index.html at its root) or a zip, served at one private link.",
+          "A Claude Code artifact is one self-contained page. With the rtfx-local Claude Code plugin you can " +
+          "publish a built folder (index.html at its root) or a zip from disk, served at one private link.",
       },
       {
         q: "Does rtfx work when Claude Code uses an API key?",

@@ -15,7 +15,7 @@ it; it cannot read your disk.
 /plugin install rtfx@rtfx
 ```
 
-Then run `/mcp`, choose `rtfx` and sign in in the browser (or `claude mcp login rtfx`). Claude Code
+Then run `/mcp`, choose `plugin:rtfx:rtfx` and Authenticate in the browser (or `claude mcp login plugin:rtfx:rtfx`). Claude Code
 stores and renews the credential. The server supports OAuth discovery (RFC 9728 / RFC 8414), dynamic
 client registration and client ID metadata documents, with PKCE S256.
 
@@ -39,10 +39,12 @@ See [`plugins/rtfx-local`](../rtfx-local/README.md).
 
 Version 2.0.0 replaces the local scripts, slash commands and API-token options with the hosted
 server and browser sign-in. If you used `/rtfx:*` commands, a local stdio server, or the `api_token`
-option, install `rtfx-local@rtfx`, which is the same package as 1.2.2 under a new name. Your stored
+option, install `rtfx-local@rtfx`, which is the same package as 1.2.2 under a new name. Plugin
+option values (`api_token`, `endpoint`) do **not** carry over to `rtfx-local`: enter them again
+under `/plugin`, rtfx-local, Configure. Your stored
 browser sign-in file (`~/.config/rtfx/credentials.json`) keeps working there.
 
 ## Privacy and support
 
-Content you publish is sent to rtfx.pro and stored there. See <https://rtfx.pro/docs>. Source and
+Content you publish is sent to rtfx.pro and stored there. [Privacy policy](https://rtfx.pro/privacy). Docs: <https://rtfx.pro/docs>. Source and
 issues: <https://github.com/yogevgab/artifacts-server>. MIT licensed.

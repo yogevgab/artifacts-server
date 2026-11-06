@@ -1029,6 +1029,31 @@ describe("plugins/rtfx stays directory-compliant", () => {
     }
   });
 
+  it("declares a privacy policy URL, as the directory requires for a remote server", () => {
+    expect(manifest.privacyPolicyUrl).toBe("https://rtfx.pro/privacy");
+    const without = { ...manifest, privacyPolicyUrl: undefined };
+    const result = checkDirectoryCompliance(directoryPaths, { manifest: without, texts: directoryTexts });
+    expect(result.errors.some((e) => e.includes("privacyPolicyUrl"))).toBe(true);
+  });
+
+  it("rejects every other way of running local code", () => {
+    const base = { name: "x", privacyPolicyUrl: "https://x.example/p", mcpServers: manifest.mcpServers };
+    const errs = (files: string[], m: Record<string, unknown>) => checkDirectoryCompliance(files, { manifest: m }).errors.join("\n");
+    expect(errs(["hooks/hooks.json"], base)).toMatch(/hooks\/hooks\.json/);
+    expect(errs([".lsp.json"], base)).toMatch(/\.lsp\.json/);
+    expect(errs(["monitors/monitors.json"], base)).toMatch(/monitors\.json/);
+    expect(errs(["bin/tool.md"], base)).toMatch(/bin\//);
+    expect(errs([], { ...base, experimental: { monitors: [] } })).toMatch(/experimental\.monitors/);
+    expect(errs([], { ...base, hooks: {} })).toMatch(/`hooks`/);
+    expect(errs([], { ...base, lspServers: "./.lsp.json" })).toMatch(/lspServers/);
+    expect(errs([], { ...base, mcpServers: "./servers.json" })).toMatch(/inline object/);
+    expect(errs([], { ...base, mcpServers: "https://x.example/s.mcpb" })).toMatch(/inline object/);
+    expect(errs([], { ...base, mcpServers: [manifest.mcpServers] })).toMatch(/inline object/);
+    expect(errs([], { ...base, commands: { go: { source: "./c.md", allowedTools: ["Bash(node x:*)"] } } })).toMatch(/allowedTools/);
+    expect(errs([], { ...base, commands: { go: { source: "./c.md", allowedTools: ["Read", "Grep"] } } })).toBe("");
+    expect(errs([], base)).toBe("");
+  });
+
   it("the changelog is plain ASCII", () => {
     expect(/^[\x00-\x7f]*$/.test(directoryTexts["CHANGELOG.md"])).toBe(true);
   });

@@ -74,12 +74,12 @@ The login command uses OAuth authorization-code + PKCE, stores a credential in
 `~/.config/rtfx/credentials.json` with mode `0600`, and the CLI/MCP server refresh it automatically.
 `/rtfx-local:setup` reports the credential source and token **id** — never the token or refresh token.
 
-To use an API token instead (MCP tools), enter it in the plugin's **API token** option (`/plugin`, rtfx,
+To use an API token instead (MCP tools), enter it in the plugin's **API token** option (`/plugin`, rtfx-local,
 Configure; dashboard → Integrations, scopes read + publish). From 1.2.2 the plugin no longer reads
 `RTFX_API_TOKEN` from your shell environment, and the `/rtfx-local:*` slash commands use the browser sign-in
 only. For CI and scripts use the repo's `artifacts` CLI.
 
-Remote MCP also has OAuth (`claude mcp login rtfx`) and a dedicated app-side host at
+Remote MCP also has OAuth (`claude mcp login rtfx` for a server you added by hand; `claude mcp login plugin:rtfx:rtfx` for the hosted `rtfx` plugin) and a dedicated app-side host at
 `mcp.rtfx.pro`. It can publish content sent inside the MCP tool call and run `doctor`, but it still
 cannot read a local filesystem path. Use the local plugin/server for large folders or build outputs.
 

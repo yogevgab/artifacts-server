@@ -18,7 +18,7 @@ separate plugin.
 ### Changed (breaking)
 
 - `rtfx` connects to the hosted MCP server `https://mcp.rtfx.pro/mcp` (HTTP transport). Sign in with
-  the browser through `/mcp` (or `claude mcp login rtfx`); Claude Code stores the credential.
+  the browser through `/mcp`, `plugin:rtfx:rtfx`, Authenticate (or `claude mcp login plugin:rtfx:rtfx`); Claude Code stores the credential.
 - The skill is rewritten for the hosted tools: `publish` (content sent with the call),
   `create_upload_link`, `list_artifacts`, `artifact_details`, `artifact_statistics`, `share_artifact`,
   `rollback_artifact`, `delete_artifact` and `doctor`.
@@ -35,6 +35,7 @@ separate plugin.
 - Publishing a folder, build output or zip from disk by path needs the local tooling: run
   `/plugin install rtfx-local@rtfx`. It is the 1.2.2 package renamed (see its changelog), installed
   from this repository's own marketplace rather than the directory.
+- Option values (`api_token`, `endpoint`) do not carry over to `rtfx-local`; re-enter them there.
 - A browser sign-in stored by 1.x at `~/.config/rtfx/credentials.json` is used by `rtfx-local`; the
   hosted `rtfx` plugin signs in separately through `/mcp`.
 

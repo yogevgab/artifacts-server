@@ -262,6 +262,22 @@ describe("the remote tool surface", () => {
     expect(await env.DB.prepare("SELECT slug FROM artifacts").first()).toBeNull();
   });
 
+  it("maps old 1.x tool names to the hosted equivalents and points at rtfx-local", async () => {
+    const { token } = await tokenFor(BOB, { name: "m", scopes: ["read", "publish", "manage"] });
+    const expected: Record<string, string> = {
+      get_versions: "artifact_details",
+      rollback: "rollback_artifact",
+      update_access: "share_artifact",
+    };
+    for (const [name, hosted] of Object.entries(expected)) {
+      const body = await json(
+        await rpc(token, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: {} } })
+      );
+      expect(body.error.message, name).toContain(`"${hosted}"`);
+      expect(body.error.message, name).toContain("rtfx-local@rtfx");
+    }
+  });
+
   /**
    * `publish` is the one an agent will actually reach for, so the refusal has to
    * say where publishing lives instead of just "unknown tool" — and it must never

@@ -234,7 +234,7 @@ The hosted server publishes content sent inside the tool call; it cannot read a 
 | `artifact_details` | Everything known about one artifact: URL, full version history, who it is shared with (viewers and editors) and how often it has been opened. |
 | `artifact_statistics` | Aggregate numbers: versions, files, bytes and views, for one artifact or across everything the credential can reach. |
 | `share_artifact` | Replace who may open an artifact: restricted to named viewers and editors, or everyone in the workspace. Needs the `manage` scope. |
-| `rollback_artifact` | Point an artifact's URL back at one of its earlier versions; non-destructive. Needs the `manage` scope. |
+| `rollback_artifact` | Point an artifact's URL back at one of its earlier versions; non-destructive. Needs the `publish` scope. |
 | `delete_artifact` | Permanently delete an artifact: every version, file, access grant and share link. Requires `confirm_slug`; needs the `manage` scope. |
 | `doctor` | Report how this connection is authenticated and whether the instance answers; publishes nothing. |
 

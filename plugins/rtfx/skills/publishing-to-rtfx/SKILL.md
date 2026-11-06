@@ -16,7 +16,7 @@ tools appear as `mcp__plugin_rtfx_rtfx__*` (for example `publish`). The server r
 ## First use: sign in
 
 The first call may report that the server needs authentication. Tell the user to run `/mcp`, pick
-`rtfx` and complete the browser sign-in (or `claude mcp login rtfx` in a shell). Tokens are stored and
+`plugin:rtfx:rtfx` and choose Authenticate to complete the browser sign-in (or `claude mcp login plugin:rtfx:rtfx` in a shell). Tokens are stored and
 renewed by Claude Code. Never ask the user to paste a token. Call `doctor` to confirm the connection:
 it shows the endpoint, the scopes held and the tools available.
 

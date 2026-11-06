@@ -176,7 +176,7 @@ function setupPanel(origin: string): string {
     )}
     ${snippet(
       "setup-plugin",
-      "3 · Or install the local Claude Code plugin, and just say “publish this”",
+      "3 · Or install a Claude Code plugin (hosted: `/plugin install rtfx@rtfx` then `/mcp`; local, below), and just say “publish this”",
       `/plugin marketplace add yogevgab/artifacts-server\n/plugin install rtfx-local@rtfx\n/rtfx-local:setup   # confirms the token above reaches this instance`
     )}
     ${snippet(
