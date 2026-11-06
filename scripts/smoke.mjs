@@ -79,7 +79,7 @@ import {
   apiUrl,
   machineApiPath,
   describeNonJsonResponse,
-} from "../plugins/rtfx/scripts/rtfx.lib.mjs";
+} from "../plugins/rtfx-local/scripts/rtfx.lib.mjs";
 
 // --- setup -------------------------------------------------------------------
 

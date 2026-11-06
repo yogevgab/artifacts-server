@@ -1,6 +1,8 @@
 # Anthropic Store / Directory Submission Packet — rtfx.pro
 
 Status: submitted and pending review
+
+> Note (2026-11): the plugin commands, paths and install strings below describe the local package, now `rtfx-local` (formerly `rtfx` up to 1.2.2). The plugin listed in the directory is the hosted-only `rtfx` 2.0.0; see ANTHROPIC_PLUGIN_SUBMISSION.md.
 Product: rtfx.pro
 Package version: 1.2.0
 Repository: https://github.com/yogevgab/artifacts-server
@@ -78,8 +80,8 @@ claude, mcp, publishing, artifacts, hosting, preview, deployment, html, pdf, ver
 | Repository | `https://github.com/yogevgab/artifacts-server` |
 | Branch | `main` |
 | Commit SHA | `4878adfbabc081dfb9436755bb15a19cb8abd572` for the refreshed 2026-08-27 plugin submission |
-| Plugin path | `./plugins/rtfx` |
-| Plugin manifest | `plugins/rtfx/.claude-plugin/plugin.json` |
+| Plugin path | `./plugins/rtfx-local` |
+| Plugin manifest | `plugins/rtfx-local/.claude-plugin/plugin.json` |
 | Marketplace manifest | `.claude-plugin/marketplace.json` |
 | License | MIT |
 | Homepage | `https://rtfx.pro/docs` |
@@ -104,13 +106,13 @@ claude, mcp, publishing, artifacts, hosting, preview, deployment, html, pdf, ver
 ## What the local Claude Code plugin provides
 
 - Slash commands:
-  - `/rtfx:login`
-  - `/rtfx:logout`
-  - `/rtfx:setup`
-  - `/rtfx:publish`
-  - `/rtfx:list`
-  - `/rtfx:versions`
-  - `/rtfx:rollback`
+  - `/rtfx-local:login`
+  - `/rtfx-local:logout`
+  - `/rtfx-local:setup`
+  - `/rtfx-local:publish`
+  - `/rtfx-local:list`
+  - `/rtfx-local:versions`
+  - `/rtfx-local:rollback`
 - Local stdio MCP server:
   - `publish`
   - `list_artifacts`
@@ -224,7 +226,7 @@ Run:
 npm run dxt:validate
 npm run validate:plugin
 claude plugin validate . --strict
-claude plugin validate ./plugins/rtfx --strict
+claude plugin validate ./plugins/rtfx-local --strict
 npm run check
 npm run validate:deploy
 git diff --check
@@ -247,14 +249,14 @@ Capture only after ensuring no token is visible.
 1. Claude Code plugin install from custom marketplace:
    ```text
    /plugin marketplace add yogevgab/artifacts-server
-   /plugin install rtfx@rtfx
+   /plugin install rtfx-local@rtfx
    ```
-2. `/rtfx:login` browser OAuth.
-3. `/rtfx:setup` showing connected status with token id only.
-4. `/rtfx:publish ./demo --slug anthropic-review-demo` returning a stable rtfx URL.
+2. `/rtfx-local:login` browser OAuth.
+3. `/rtfx-local:setup` showing connected status with token id only.
+4. `/rtfx-local:publish ./demo --slug anthropic-review-demo` returning a stable rtfx URL.
 5. Artifact page open at its `rtfx.pro/<workspace>/<slug>` address.
-6. `/rtfx:versions anthropic-review-demo` showing immutable versions.
-7. `/rtfx:rollback anthropic-review-demo 1` if a v2 exists.
+6. `/rtfx-local:versions anthropic-review-demo` showing immutable versions.
+7. `/rtfx-local:rollback anthropic-review-demo 1` if a v2 exists.
 8. Claude Desktop installing/opening `rtfx.dxt`.
 9. Claude Desktop MCP `doctor`.
 10. Hosted Remote MCP OAuth connector setup using Anthropic hosted client metadata.

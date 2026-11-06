@@ -141,7 +141,7 @@ async function config() {
   }
   if (!credential) {
     fail(`not signed in to ${endpoint}`, {
-      hint: `Run \`rtfx.mjs login\` (or /rtfx:login in Claude Code). To use an API token, set the plugin's "API token" option (the MCP tools use it); for CI use the repo \`artifacts\` CLI.`,
+      hint: `Run \`rtfx.mjs login\` (or /rtfx-local:login in Claude Code). To use an API token, set the plugin's "API token" option (the MCP tools use it); for CI use the repo \`artifacts\` CLI.`,
     });
   }
   return resolveConfig(ENV, { credential });
@@ -447,7 +447,7 @@ async function doctor() {
   if (!resolved.hasToken) {
     fail(`no credential for ${endpoint}`, {
       ...facts,
-      hint: `Run \`rtfx.mjs login\` (or /rtfx:login in Claude Code). To use an API token, set the plugin's "API token" option (the MCP tools use it); for CI use the repo \`artifacts\` CLI.`,
+      hint: `Run \`rtfx.mjs login\` (or /rtfx-local:login in Claude Code). To use an API token, set the plugin's "API token" option (the MCP tools use it); for CI use the repo \`artifacts\` CLI.`,
     });
   }
 

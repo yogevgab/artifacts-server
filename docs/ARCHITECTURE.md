@@ -200,7 +200,7 @@ if the person who owns it later joins others.
   a scoped `rtfx_…` token minted at `/admin/integrations` is sufficient on its own. See
   `docs/HERMES_CLOUD.md` §2 and `docs/DEPLOY_RTFX.md` §5d.
 - **OAuth** (`src/oauth.ts`, `src/oauth-routes.ts`) is how an agent gets one of those tokens
-  without anybody copying it: an authorization-code flow with PKCE, driven by `/rtfx:login` or
+  without anybody copying it: an authorization-code flow with PKCE, driven by `/rtfx-local:login` or
   `claude mcp login`. The grant ends in an ordinary `api_tokens` row with a short expiry and the
   consented scopes, so every check above applies to it unchanged. See
   `docs/REMOTE_MCP_OAUTH.md`.
@@ -368,7 +368,7 @@ does not touch who may sign in — see the table at the top of this document.
 | `src/authz.ts` | Pure policy: `canView`, `canManage`, `isOwner`, `canUseDashboard`, `hasScope`, and the platform-vs-account split (`isPlatformAdmin`, `canManageMembers`, `memberChangeDenial`). |
 | `src/accounts.ts` | Accounts/workspaces: account roles, memberships, personal-account provisioning, per-request account context. |
 | `src/tokens.ts` | API tokens: generation, hashing, scopes, lifecycle queries. |
-| `src/oauth.ts` / `src/oauth-routes.ts` | The OAuth 2.1 authorization server behind `claude mcp login` and `/rtfx:login`: discovery, registration, consent, token issuance and revocation. |
+| `src/oauth.ts` / `src/oauth-routes.ts` | The OAuth 2.1 authorization server behind `claude mcp login` and `/rtfx-local:login`: discovery, registration, consent, token issuance and revocation. |
 | `src/mcp.ts` | Remote MCP over Streamable HTTP at `POST /mcp`; bearer-authenticated, publishes by content. |
 | `src/share.ts` / `src/share-routes.ts` | Share links: the URL is the credential; hashed, revocable, optionally expiring. |
 | `src/serve.ts` | R2 file serving + content types. |
@@ -384,7 +384,7 @@ does not touch who may sign in — see the table at the top of this document.
 | `src/landing.ts` | Server-rendered public landing page + waitlist form. |
 | `src/waitlist.ts` | `/waitlist` endpoint: email validation, join/redirect. |
 | `src/util.ts` | Slug validation (+ reserved slugs), content-type map. |
-| `plugins/rtfx/` | Claude Code plugin (skill, `/rtfx:*` commands, dependency-free publisher). Talks to `/api/machine` like any other machine client — see [CLAUDE_CODE.md](CLAUDE_CODE.md). |
+| `plugins/rtfx-local/` | Claude Code plugin (skill, `/rtfx-local:*` commands, dependency-free publisher). Talks to `/api/machine` like any other machine client — see [CLAUDE_CODE.md](CLAUDE_CODE.md). |
 
 ## Testing
 

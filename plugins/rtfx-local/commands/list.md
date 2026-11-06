@@ -14,4 +14,4 @@ Show the result as a short table: slug, live version, visibility, title, and the
 enough). Note that the list is scoped to what this token can reach — an ordinary token sees only
 its owner's artifacts, so "not listed" does not mean "does not exist".
 
-If it reports no credential, tell the user to run `/rtfx:login` and stop; do not guess a token.
+If it reports no credential, tell the user to run `/rtfx-local:login` and stop; do not guess a token.

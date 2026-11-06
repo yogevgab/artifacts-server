@@ -16,11 +16,11 @@ import {
 } from "../src/canonical";
 import { isManagementPath, reservedTopLevelSegments } from "../src/host";
 import cliSource from "../cli/artifacts.mjs?raw";
-import pluginMain from "../plugins/rtfx/scripts/rtfx.mjs?raw";
-import pluginLib from "../plugins/rtfx/scripts/rtfx.lib.mjs?raw";
-import pluginMcp from "../plugins/rtfx/scripts/rtfx.mcp.lib.mjs?raw";
-import pluginApiRef from "../plugins/rtfx/skills/publishing-to-rtfx/references/api.md?raw";
-import pluginSkill from "../plugins/rtfx/skills/publishing-to-rtfx/SKILL.md?raw";
+import pluginMain from "../plugins/rtfx-local/scripts/rtfx.mjs?raw";
+import pluginLib from "../plugins/rtfx-local/scripts/rtfx.lib.mjs?raw";
+import pluginMcp from "../plugins/rtfx-local/scripts/rtfx.mcp.lib.mjs?raw";
+import pluginApiRef from "../plugins/rtfx-local/skills/publishing-to-rtfx/references/api.md?raw";
+import pluginSkill from "../plugins/rtfx-local/skills/publishing-to-rtfx/SKILL.md?raw";
 import architecture from "../docs/ARCHITECTURE.md?raw";
 import mcpSource from "../src/mcp.ts?raw";
 import { initDb, clearR2, req, as, viewerPath } from "./fixtures";

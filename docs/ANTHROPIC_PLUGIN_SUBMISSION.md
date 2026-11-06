@@ -3,7 +3,16 @@
 Everything a human needs in front of them to fill in the submission form, in one page, so the form
 is a transcription job rather than a research one.
 
-**Status: submitted and pending review.** The Claude Platform submissions page shows an `rtfx`
+**Directory rules (2026-11).** The directory scans the marketplace plugin named `rtfx`. For an
+organization that is not Verified it refuses local-code MCP servers (`LOCAL_CODE_MCP_SERVER`),
+allowed-tools beyond Read/Grep/Glob/LS (`LOCAL_CODE_TOOL_GRANT`) and files that are not
+Markdown/text/JSON/YAML/images (`LOCAL_CODE_FILE_TYPE`). 1.2.2 (commit `3208367`) was refused on those
+codes. From 2.0.0 the submitted `rtfx` plugin is **remote-only** (one HTTP MCP server at
+`https://mcp.rtfx.pro/mcp`, one skill, no scripts); the local package lives on as `rtfx-local`,
+installed from this repository's own marketplace and not submitted. `npm run validate:plugin` pins
+those rules for `plugins/rtfx`. After merging, use "Check for new commits" on the directory page.
+
+**Status (earlier submissions): submitted and pending review.** The Claude Platform submissions page shows an `rtfx`
 submission from 2026-08-26 and a duplicate refreshed submission from 2026-08-27, both pending
 review. Nothing in this repository can grant a listing, and no page here should imply approval.
 What the repository *can* do — a valid marketplace manifest, a plugin that passes
@@ -18,7 +27,7 @@ Three different things get called "the marketplace". Only the first works today.
 
 | | How it is obtained | Status here |
 |---|---|---|
-| **This repository, as a custom marketplace** | Nothing. Any repository with a valid `.claude-plugin/marketplace.json` is one. | **Live.** `/plugin marketplace add yogevgab/artifacts-server`, then `/plugin install rtfx@rtfx`. |
+| **This repository, as a custom marketplace** | Nothing. Any repository with a valid `.claude-plugin/marketplace.json` is one. | **Live.** `/plugin marketplace add yogevgab/artifacts-server`, then `/plugin install rtfx@rtfx` (hosted) or `/plugin install rtfx-local@rtfx` (full local tooling, not submitted). |
 | **Community marketplace** (`anthropics/claude-plugins-community`) | Submit through the form in §3; Anthropic reviews. | **Submitted, pending review.** The install string only becomes real after approval — see §6. |
 | **Official marketplace** | No application process. Anthropic curates it at their own discretion. | **Nothing to do.** There is no form, and no step here that moves it along. |
 
@@ -33,7 +42,7 @@ Copy these into the form.
 | Field | Value |
 |---|---|
 | Plugin name | `rtfx` |
-| Version | `1.2.2` |
+| Version | `2.0.0` |
 | Plugin path in repository | `./plugins/rtfx` |
 | Manifest | `plugins/rtfx/.claude-plugin/plugin.json` |
 | Marketplace manifest | `.claude-plugin/marketplace.json` (marketplace name: `rtfx`) |
@@ -44,7 +53,7 @@ Copy these into the form.
 | Homepage | `https://rtfx.pro/docs` |
 | Author | rtfx.pro — `https://rtfx.pro` |
 | Category | `deployment` |
-| Keywords | publishing, artifacts, hosting, cloudflare, mcp, rtfx |
+| Keywords | publishing, artifacts, hosting, mcp, rtfx |
 | Security contact | `SECURITY.md` at repository root (GitHub Security Advisories) |
 | User documentation | [`CLAUDE_ONBOARDING.md`](CLAUDE_ONBOARDING.md) |
 | Changelog | [`../plugins/rtfx/CHANGELOG.md`](../plugins/rtfx/CHANGELOG.md) |
@@ -74,66 +83,47 @@ For this plugin the individual-author form is the one.
 
 **One line** (for the catalog row):
 
-> Publish HTML pages and multi-file artifacts to rtfx.pro from a Claude Code session — versioned,
-> access-controlled, with a stable URL.
+> Publish HTML pages and small sites to rtfx.pro from a Claude Code session through the hosted rtfx
+> MCP server - versioned, access-controlled, with a stable URL.
 
 This is the string already in both manifests; `npm run validate:plugin` fails if they disagree, so
 change it in both places or not at all.
 
 **A paragraph** (for a longer field, if the form has one):
 
-> rtfx turns "publish this" into an ordinary sentence in a session. Point it at a built directory, a
-> single HTML file, a PDF or a zip and it returns a stable URL. Re-publishing the same slug appends
-> an immutable version at the same address, and rollback repoints it without deleting anything.
-> Artifacts are private to their owner by default and served from a separate content origin, so a
-> published page cannot reach the dashboard that manages it. The publisher is dependency-free Node,
-> ships as both slash commands and an MCP server, and refuses to upload anything shaped like a
-> credential.
+> rtfx turns "publish this" into an ordinary sentence in a session. The plugin connects Claude Code to
+> the hosted rtfx MCP server; Claude sends a page or a small site and gets a stable URL back.
+> Re-publishing the same slug appends an immutable version at the same address, and rollback repoints
+> it without deleting anything. Artifacts are private to their owner by default and served from a
+> separate content origin, so a published page cannot reach the dashboard that manages it. The plugin
+> itself contains only a skill, an icon and documentation; nothing runs on the user's computer.
 
 ## 5. Security and data answers
 
-Answers to the questions a review — automated or human — is going to ask. All of these are checked
-by `npm run validate:plugin` or the test suite unless noted.
+Answers to the questions a review - automated or human - is going to ask. The structural ones are
+enforced by `npm run validate:plugin` (`checkDirectoryCompliance`).
 
 | Question | Answer |
 |---|---|
-| **What does the plugin execute?** | `node ${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs` (commands) and `node ${CLAUDE_PLUGIN_ROOT}/scripts/rtfx-mcp.mjs` (MCP server). Both are plain Node 18+ files in this repository. |
-| **Dependencies?** | None. The plugin has no `package.json` and installs nothing — it writes its own zip container rather than pulling a compression library. |
-| **Network destinations?** | One: the instance in `ARTIFACTS_URL`, default `https://rtfx.pro`. No telemetry, no analytics, no third-party calls. |
-| **What data leaves the machine?** | Only the files the user names for a specific publish, plus the slug/title/note they give. Nothing is read or sent in the background. |
-| **Credentials required** | Recommended: browser OAuth login with `read` and `publish` scopes, stored locally with `0600` permissions. Optional: one scoped API token entered by the user in the plugin's `api_token` option (`userConfig`, `sensitive: true`, kept in the system keychain and passed only to the MCP server as `RTFX_API_TOKEN`), minted at `/admin/integrations` with the scopes they choose (`read`, `publish`, optionally `manage`). Bound to its owner, individually revocable, expirable. |
-| **Is a cloud-provider credential involved?** | No. The plugin takes no Cloudflare account or management credential; `test/claude-plugin.test.ts` pins that its config resolution ignores one. The plugin does not forward Cloudflare Access service-token headers. |
-| **Does it write credentials to disk?** | Browser login writes a local OAuth credential to `~/.config/rtfx/credentials.json` with owner-only permissions (`0600`) and rotates refresh tokens. The plugin reads no credential from the user's shell environment; an API token comes only from its `api_token` option, and the stored OAuth credential is sent only to the issuer origin that minted it. |
-| **Does anything print a token?** | No. `doctor` and `login` report a token's **id** and expiry only; they never print the access token or refresh token. `redactToken`/`tokenId` and OAuth redaction are unit-tested. |
-| **Can it exfiltrate a repository?** | The directory walk drops `.env`, `.dev.vars`, `*.pem`, `*.key`, `id_rsa` and similar, skips `.git`/`node_modules`, and reports everything it skipped. A prebuilt zip containing any of them is refused outright rather than silently filtered. `dry_run` lists exactly what would be sent without uploading. |
-| **Destructive operations?** | None. Publishing appends a version; rollback repoints a slug. Neither deletes content. Publishing to a slug owned by someone else is refused with `409`, never merged. |
-| **Filesystem writes?** | None outside a temporary bundle. |
-| **Secrets committed to the repository?** | `npm run validate:plugin` scans every file under `plugins/` and the marketplace manifest for token-shaped strings and fails on a match. Docs use the `rtfx_…` placeholder deliberately. |
+| **What does the plugin execute?** | Nothing. It ships a skill (Markdown), `plugin.json`, a README, a changelog, a license and a PNG icon. No scripts, hooks, commands or local MCP servers. |
+| **MCP servers?** | One remote server, `type: http`, `https://mcp.rtfx.pro/mcp`. It runs in Cloudflare's network. |
+| **Tool grants?** | None. No `allowed-tools` anywhere under `plugins/rtfx`. |
+| **Dependencies?** | None. |
+| **Network destinations?** | `https://mcp.rtfx.pro/mcp` only, from Claude Code itself. No telemetry. |
+| **What data leaves the machine?** | Only the content Claude puts in a `publish` / `create_upload_link` call for a specific publish, plus the slug/title/note. The server cannot read the user's disk. |
+| **Credentials?** | Browser OAuth through Claude Code's `/mcp` flow (RFC 9728 / RFC 8414 discovery, CIMD or dynamic client registration, PKCE S256). Claude Code stores and renews the token. The plugin reads no credential from the user's machine and has no user-supplied token option. |
+| **Cloud-provider credential?** | No. |
+| **Destructive operations?** | `delete_artifact` exists but requires `confirm_slug` to equal `slug` and the `manage` scope; the skill tells Claude to confirm the exact artifact with the user first. Publishing appends a version; rollback repoints. |
+| **Secrets committed?** | `npm run validate:plugin` scans every file under `plugins/` and the marketplace manifest for token-shaped strings. |
 
-## 6. Known limitations — state these plainly
+## 6. Known limitations - state these plainly
 
-Two things a reviewer will notice. Both are already documented for users in
-[`CLAUDE_ONBOARDING.md`](CLAUDE_ONBOARDING.md) and the plugin README, in the same words.
+**No publishing from disk by path.** The hosted server receives content in the tool call. Publishing a
+folder, build output or zip by path is the job of `rtfx-local` (`/plugin install rtfx-local@rtfx`),
+which runs a local MCP server and is therefore not submitted to the directory. The skill says so.
 
-**Authentication uses browser OAuth by default.** The user runs `/rtfx:login`; the plugin opens a
-browser authorization flow, stores a local OAuth credential with owner-only permissions, and rotates
-refresh tokens. An API token can instead be entered in the plugin's `api_token` option (sensitive; MCP server only);
-the plugin never reads one from the shell environment.
-
-**Server-side remote MCP/OAuth is separate from this plugin.** The artifacts-server app answers MCP
-over HTTP at `POST /mcp` (`src/mcp.ts`) and now serves OAuth discovery, Anthropic-recommended CIMD,
-dynamic client registration fallback, authorization-code + PKCE, token refresh and revocation. That
-remote endpoint exposes `doctor`, content-based `publish`, read tools (`list_artifacts`,
-`artifact_details`, `artifact_statistics`), and manage-scoped tools (`share_artifact`,
-`rollback_artifact`, `delete_artifact`). Clients send `content_text`, `content_base64`, or explicit
-`files[]`; hosted Remote MCP still never reads client-local filesystem paths. `mcp.rtfx.pro` is the
-dedicated remote-MCP origin for live smoke. The plan and status are in
-[`REMOTE_MCP_OAUTH.md`](REMOTE_MCP_OAUTH.md).
-
-None of that changes what is being submitted here. **The plugin itself is stdio-first**: it runs local
-Node scripts and uses the local browser-OAuth credential store by default, with the `api_token`
-plugin option as an optional alternative. The HTTP/OAuth endpoint is server-side code in this repository, not something the
-plugin needs in order to publish local paths.
+**Upgrading users.** `rtfx` 2.0.0 replaces the 1.x local scripts, `/rtfx:*` commands and API-token
+options with the hosted server. 1.x users who need those install `rtfx-local`.
 
 **Artifacts share one content origin.** The origin split isolates published content from the
 dashboard, not artifacts from each other. `SECURITY.md` §"Content-origin isolation" covers exactly
@@ -150,7 +140,7 @@ npm run validate:plugin                        # structure, manifest drift, secr
 npm run check                                  # typecheck + full test suite + validate:plugin
 git diff --check                               # no whitespace damage
 claude plugin validate . --strict              # marketplace manifest
-claude plugin validate ./plugins/rtfx --strict # plugin manifest
+claude plugin validate ./plugins/rtfx --strict # plugin manifest (directory plugin)
 ```
 
 `--strict` treats warnings as errors — unrecognized fields, missing metadata and everything else
@@ -172,7 +162,7 @@ by editing the file afterwards.
 
 - [ ] Working tree clean, and the change is on `main` — not a branch head that can move under review
 - [ ] All five commands in §7 pass
-- [ ] `plugins/rtfx/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` both read `1.2.2`
+- [ ] `plugins/rtfx/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` both read `2.0.0`
 - [ ] [`../plugins/rtfx/CHANGELOG.md`](../plugins/rtfx/CHANGELOG.md) has an entry for that version
 - [ ] `LICENSE` (MIT) and `SECURITY.md` present at repository root
 - [ ] No page in the repository claims an official or community listing

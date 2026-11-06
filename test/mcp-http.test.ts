@@ -11,7 +11,7 @@ import {
   MCP_PATH,
   REMOTE_TOOLS,
 } from "../src/mcp";
-import { TOOLS, SUPPORTED_PROTOCOL_VERSIONS, LATEST_PROTOCOL_VERSION } from "../plugins/rtfx/scripts/rtfx.mcp.lib.mjs";
+import { TOOLS, SUPPORTED_PROTOCOL_VERSIONS, LATEST_PROTOCOL_VERSION } from "../plugins/rtfx-local/scripts/rtfx.mcp.lib.mjs";
 
 /**
  * Remote MCP over Streamable HTTP — `POST /mcp` (src/mcp.ts).
@@ -260,6 +260,22 @@ describe("the remote tool surface", () => {
     }
     // Nothing was published, read or re-addressed on the way through.
     expect(await env.DB.prepare("SELECT slug FROM artifacts").first()).toBeNull();
+  });
+
+  it("maps old 1.x tool names to the hosted equivalents and points at rtfx-local", async () => {
+    const { token } = await tokenFor(BOB, { name: "m", scopes: ["read", "publish", "manage"] });
+    const expected: Record<string, string> = {
+      get_versions: "artifact_details",
+      rollback: "rollback_artifact",
+      update_access: "share_artifact",
+    };
+    for (const [name, hosted] of Object.entries(expected)) {
+      const body = await json(
+        await rpc(token, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: {} } })
+      );
+      expect(body.error.message, name).toContain(`"${hosted}"`);
+      expect(body.error.message, name).toContain("rtfx-local@rtfx");
+    }
   });
 
   /**

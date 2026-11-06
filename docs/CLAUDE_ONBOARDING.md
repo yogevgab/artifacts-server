@@ -14,15 +14,15 @@ In any Claude Code session:
 
 ```
 /plugin marketplace add yogevgab/artifacts-server
-/plugin install rtfx@rtfx
+/plugin install rtfx-local@rtfx
 ```
 
 The repository is itself a Claude Code marketplace — `.claude-plugin/marketplace.json` at the root
-lists one plugin, `./plugins/rtfx`. There is nothing to clone and no package to install: the
+lists two plugins, `./plugins/rtfx` (hosted) and `./plugins/rtfx-local` (full local tooling, described below). There is nothing to clone and no package to install: the
 plugin carries its own dependency-free publisher and registers its MCP server on install.
 
-You now have a skill, seven slash commands (`/rtfx:login`, `/rtfx:publish`, `/rtfx:list`,
-`/rtfx:versions`, `/rtfx:rollback`, `/rtfx:logout`, `/rtfx:setup`) and an MCP server with the same
+You now have a skill, seven slash commands (`/rtfx-local:login`, `/rtfx-local:publish`, `/rtfx-local:list`,
+`/rtfx-local:versions`, `/rtfx-local:rollback`, `/rtfx-local:logout`, `/rtfx-local:setup`) and an MCP server with the same
 operations.
 
 ## 2. Connect your account
@@ -31,11 +31,11 @@ One command opens a browser, asks for the `read` and `publish` scopes, and store
 credential with owner-only permissions:
 
 ```
-/rtfx:login
-/rtfx:setup
+/rtfx-local:login
+/rtfx-local:setup
 ```
 
-`/rtfx:setup` reports the endpoint, the active credential source, the token's **id** (never the
+`/rtfx-local:setup` reports the endpoint, the active credential source, the token's **id** (never the
 token or refresh token) and whether the API answered.
 
 For CI or advanced scripted use, `RTFX_API_TOKEN` still works and takes priority over browser login:
@@ -57,8 +57,8 @@ publish this dashboard and share the link
 →  https://rtfx.pro/w-3f9a0c12/sales-dashboard   (v1, bundle, 14 files)
 ```
 
-Re-publishing the same slug appends an immutable version and keeps the URL. `/rtfx:versions`
-shows the history, `/rtfx:rollback` makes an earlier version live again.
+Re-publishing the same slug appends an immutable version and keeps the URL. `/rtfx-local:versions`
+shows the history, `/rtfx-local:rollback` makes an earlier version live again.
 
 ---
 
@@ -128,15 +128,15 @@ with `redacted@example.com` before being committed.
 | # | Shot | Frame | Shows |
 |---|---|---|---|
 | 1 | `/plugin marketplace add yogevgab/artifacts-server` in a session | Terminal, the command and its confirmation | Install is one line, no clone |
-| 2 | `/plugin install rtfx@rtfx` with the install confirmation | Terminal | What arrives: skill, commands, MCP server |
-| 3 | `/rtfx:login` starting browser sign-in | Terminal + browser opening | No token copy/paste |
+| 2 | `/plugin install rtfx-local@rtfx` with the install confirmation | Terminal | What arrives: skill, commands, MCP server |
+| 3 | `/rtfx-local:login` starting browser sign-in | Terminal + browser opening | No token copy/paste |
 | 4 | OAuth consent screen showing read + publish scopes | Browser, consent only | The user controls authorization |
 | 5 | Login success page / terminal success, token id redacted | Browser + terminal | Connected, with no secret on screen |
-| 6 | `/rtfx:setup` reporting browser sign-in + API reachable | Terminal | Ready to publish |
+| 6 | `/rtfx-local:setup` reporting browser sign-in + API reachable | Terminal | Ready to publish |
 | 7 | "publish this" → the returned `https://rtfx.pro/<workspace>/<slug>` URL | Terminal, then the live page | The payoff, in the user's own words |
 | 8 | Remote MCP `claude mcp login rtfx` + `publish`/`doctor` | Terminal | Hosted auth works; remote publishes inline content, not paths |
 
-Optional ninth: `/rtfx:versions` next to `/rtfx:rollback`, for the versioning story.
+Optional ninth: `/rtfx-local:versions` next to `/rtfx-local:rollback`, for the versioning story.
 
 ## 60-second video outline
 
@@ -144,9 +144,9 @@ Optional ninth: `/rtfx:versions` next to `/rtfx:rollback`, for the versioning st
 |---|---|---|
 | 0:00–0:07 | The problem: a finished build with nowhere to send it | A local `dist/` and an empty share sheet |
 | 0:07–0:20 | Install — the two commands, uncut, real speed | Shots 1–2 |
-| 0:20–0:35 | Connect — `/rtfx:login`, consent, `/rtfx:setup` goes green | Shots 3–6, token id only |
+| 0:20–0:35 | Connect — `/rtfx-local:login`, consent, `/rtfx-local:setup` goes green | Shots 3–6, token id only |
 | 0:35–0:50 | "publish this" → a URL, opened in the browser | Shot 7 |
-| 0:50–1:00 | Re-publish → v2 at the same URL; one line on access control | `/rtfx:versions`, then the sharing panel |
+| 0:50–1:00 | Re-publish → v2 at the same URL; one line on access control | `/rtfx-local:versions`, then the sharing panel |
 
 Record the install, login and publish in one take at real speed — the point of the video is that the
 whole thing is short, and a cut undercuts the claim. If Remote MCP appears, say plainly that it
@@ -155,8 +155,8 @@ read the files.
 
 ## Related
 
-- [`../plugins/rtfx/README.md`](../plugins/rtfx/README.md) — the plugin's own README
-- [`../plugins/rtfx/CHANGELOG.md`](../plugins/rtfx/CHANGELOG.md) — what each plugin version contains
+- [`../plugins/rtfx-local/README.md`](../plugins/rtfx-local/README.md) — the plugin's own README
+- [`../plugins/rtfx-local/CHANGELOG.md`](../plugins/rtfx-local/CHANGELOG.md) — what each plugin version contains
 - [`CLAUDE_CODE.md`](CLAUDE_CODE.md) — how the plugin is built, validated and tested
 - [`ANTHROPIC_PLUGIN_SUBMISSION.md`](ANTHROPIC_PLUGIN_SUBMISSION.md) — the marketplace submission packet
 - [`MCP.md`](MCP.md) — MCP tools and client configuration

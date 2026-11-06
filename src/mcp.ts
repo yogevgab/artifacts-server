@@ -132,7 +132,7 @@ import {
   validateToolInput,
   type ToolCallResult,
   type ToolDefinition,
-} from "../plugins/rtfx/scripts/rtfx.mcp.lib.mjs";
+} from "../plugins/rtfx-local/scripts/rtfx.mcp.lib.mjs";
 
 type Vars = { Bindings: Env; Variables: AuthVars };
 
@@ -274,7 +274,7 @@ export const REMOTE_TOOLS: ToolDefinition[] = [
           },
           description:
             "A multi-file site, as [{path, content_text | content_base64}]. Paths are artifact-relative and must use \"/\" — one of them must be exactly \"index.html\". Credential-looking files, dotfiles and build directories are refused outright, not silently dropped. At most " +
-            `${MAX_INLINE_FILES} files and ${Math.round(MAX_INLINE_BYTES / (1024 * 1024))}MB decoded in total; publish a larger build with the local rtfx plugin.`,
+            `${MAX_INLINE_FILES} files and ${Math.round(MAX_INLINE_BYTES / (1024 * 1024))}MB decoded in total; publish a larger build with the rtfx-local plugin (/plugin install rtfx-local@rtfx).`,
         },
       },
       additionalProperties: false,
@@ -533,8 +533,8 @@ page in "content_text", a PDF in "content_base64", or a small multi-file site in
 returns the artifact's stable URL. It does NOT take a path: this server runs in Cloudflare's
 network and cannot read the machine your client runs on, so a path here would name the server's
 disk rather than yours, and is refused. To publish a directory that exists on disk (a build output,
-a site you did not author in this conversation), install the local rtfx plugin
-(/plugin marketplace add yogevgab/artifacts-server, then /plugin install rtfx@rtfx): its stdio MCP
+a site you did not author in this conversation), install the local rtfx-local plugin
+(/plugin marketplace add yogevgab/artifacts-server, then /plugin install rtfx-local@rtfx): its stdio MCP
 server runs beside your files and takes a path.
 
 Publishing to a NEW slug creates the artifact at v1, private to its owner. Publishing again to a
@@ -579,7 +579,7 @@ Remote HTTP publishing is available only to a token with the "publish" scope and
 content in the tool call ("content_text", "content_base64", or "files"), or by "create_upload_link"
 for large sites. It never takes a filesystem
 path: this server runs in Cloudflare's network and cannot read the machine your client runs on. To
-publish a directory that exists on disk, install the local rtfx plugin, whose stdio MCP server runs
+publish a directory that exists on disk, install the rtfx-local plugin (/plugin install rtfx-local@rtfx), whose stdio MCP server runs
 beside your files.`;
 
 function httpInstructionsFor(identity: Identity | null): string {
@@ -783,7 +783,7 @@ async function doctor(c: Context<Vars>): Promise<ToolCallResult> {
       facts.can_publish
         ? `publish   available — send content (content_text, content_base64 or files), never a path; ` +
           `up to ${Math.round(MAX_INLINE_BYTES / (1024 * 1024))}MB and ${MAX_INLINE_FILES} files inline. ` +
-          `Publish a large build directory with the local rtfx plugin instead.`
+          `Publish a large build directory with the rtfx-local plugin (/plugin install rtfx-local@rtfx) instead.`
         : `publish   this token lacks the "publish" scope, so the publish tool is not offered`,
       artifactCount === null
         ? `api       ok — this token has no "read" scope, so nothing was listed`
@@ -848,8 +848,8 @@ function pathRefusal(args: any): string | null {
     `remote publish does not take a filesystem path (${offending.map((k) => `"${k}"`).join(", ")}). ` +
     `This server runs in Cloudflare's network and cannot read the machine your client is running on — ` +
     `a path here would name the SERVER's disk, not yours. Send the content instead, as "content_text", ` +
-    `"content_base64" or "files". To publish a directory that exists on disk, install the local rtfx ` +
-    `plugin, whose stdio MCP server runs beside your files.`
+    `"content_base64" or "files". To publish a directory that exists on disk, install ` +
+    `the rtfx-local plugin (/plugin install rtfx-local@rtfx), whose stdio MCP server runs beside your files.`
   );
 }
 
@@ -1012,7 +1012,7 @@ async function publish(c: Context<Vars>, args: any): Promise<ToolCallResult> {
         // it should have used is `files` — which reports every path it takes
         // instead of quietly dropping the ones a zip walk would.
         throw new ToolError("that content is a zip archive, which this transport does not accept", {
-          hint: 'send the site as "files": [{path, content_text}], or publish the zip with the local rtfx plugin',
+          hint: 'send the site as "files": [{path, content_text}], or publish the zip with the rtfx-local plugin (/plugin install rtfx-local@rtfx)',
         });
       }
       processed = kind === "pdf" ? singlePdf(bytes) : singleHtml(bytes);
@@ -1446,12 +1446,20 @@ class RpcError extends Error {
  * on. A tool that exists locally gets the real reason and the alternative; an
  * invented name gets the available list.
  */
+/** The 1.x local tool names, and the hosted tool that does the same job. */
+const HOSTED_EQUIVALENT: Record<string, string> = {
+  get_versions: '"artifact_details" (version history)',
+  rollback: '"rollback_artifact"',
+  update_access: '"share_artifact"',
+};
+
 function unknownToolMessage(name: unknown): string {
   const available = REMOTE_TOOLS.map((t) => t.name).join(", ");
   if (typeof name === "string" && LOCAL_ONLY_TOOLS.includes(name)) {
     return (
       `tool "${name}" is not available over the remote HTTP transport (available: ${available}). ` +
-      `Install the rtfx Claude Code plugin, whose stdio MCP server exposes it — or call the same ` +
+      `${HOSTED_EQUIVALENT[name] ? `This server has ${HOSTED_EQUIVALENT[name]} instead. ` : ""}` +
+      `The rtfx-local Claude Code plugin (/plugin install rtfx-local@rtfx) exposes it over stdio — or call the same ` +
       `thing directly on the REST API at /api/machine, with this token.`
     );
   }

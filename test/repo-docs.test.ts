@@ -9,8 +9,8 @@ import publicSite from "../docs/PUBLIC_SITE.md?raw";
 import deployRtfx from "../docs/DEPLOY_RTFX.md?raw";
 import architecture from "../docs/ARCHITECTURE.md?raw";
 import hermesCloud from "../docs/HERMES_CLOUD.md?raw";
-import pluginApiRef from "../plugins/rtfx/skills/publishing-to-rtfx/references/api.md?raw";
-import pluginSetupCmd from "../plugins/rtfx/commands/setup.md?raw";
+import pluginApiRef from "../plugins/rtfx-local/skills/publishing-to-rtfx/references/api.md?raw";
+import pluginSetupCmd from "../plugins/rtfx-local/commands/setup.md?raw";
 import peopleSource from "../src/people.ts?raw";
 import cliSource from "../cli/artifacts.mjs?raw";
 

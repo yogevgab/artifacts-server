@@ -1,7 +1,7 @@
 {
   "name": "rtfx",
-  "version": "1.2.2",
-  "description": "Publish HTML pages and multi-file artifacts to rtfx.pro from a Claude Code session or any MCP client — versioned, access-controlled, with a stable URL",
+  "version": "2.0.0",
+  "description": "Publish HTML pages and small sites to rtfx.pro from a Claude Code session through the hosted rtfx MCP server - versioned, access-controlled, with a stable URL",
   "author": {
     "name": "rtfx.pro",
     "url": "https://rtfx.pro"
@@ -13,34 +13,17 @@
     "publishing",
     "artifacts",
     "hosting",
-    "cloudflare",
     "mcp",
     "rtfx"
   ],
   "mcpServers": {
     "rtfx": {
-      "command": "node",
-      "args": [
-        "${CLAUDE_PLUGIN_ROOT}/scripts/rtfx-mcp.mjs"
-      ],
-      "env": {
-        "RTFX_API_TOKEN": "${user_config.api_token}",
-        "ARTIFACTS_URL": "${user_config.endpoint}"
-      }
+      "type": "http",
+      "url": "https://mcp.rtfx.pro/mcp"
     }
   },
-  "userConfig": {
-    "api_token": {
-      "type": "string",
-      "title": "rtfx.pro API token (optional)",
-      "description": "A scoped token from rtfx.pro > Dashboard > Integrations (scopes: read, publish). Leave empty to sign in with a browser instead (/rtfx:login).",
-      "sensitive": true
-    },
-    "endpoint": {
-      "type": "string",
-      "title": "rtfx endpoint",
-      "description": "Base URL of your rtfx instance. Leave as is for rtfx.pro; change it only for a self-hosted artifacts-server (https only).",
-      "default": "https://rtfx.pro"
-    }
-  }
+  "icon": "./.claude-plugin/icon.png",
+  "documentationUrl": "https://rtfx.pro/docs",
+  "supportUrl": "https://github.com/yogevgab/artifacts-server/issues",
+  "privacyPolicyUrl": "https://rtfx.pro/privacy"
 }

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const src = join(root, 'plugins/rtfx/scripts');
+const src = join(root, 'plugins/rtfx-local/scripts');
 const dxt = join(root, 'dxt/rtfx');
 const server = join(dxt, 'server');
 const dist = join(root, 'dist');

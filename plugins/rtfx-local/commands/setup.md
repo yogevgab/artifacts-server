@@ -13,7 +13,7 @@ never read one out of a file to display it), and whether the API answered. `doct
 self-hosted instance that gates every path at the edge.
 
 If it all checks out, say so in one line and stop — there is nothing else to configure. Offer
-`/rtfx:publish` as the next thing to try.
+`/rtfx-local:publish` as the next thing to try.
 
 If no credential is available or the API returned `401`, the plugin is installed and only needs an
 account connected. Prefer the browser login:

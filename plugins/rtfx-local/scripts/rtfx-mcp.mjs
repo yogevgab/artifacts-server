@@ -13,7 +13,7 @@
 // `userConfig` (Claude Code injects them into this process's env; the token is
 // stored in the system keychain). Nothing else in the ambient environment is read.
 //   RTFX_API_TOKEN   a scoped token from the dashboard → Integrations (optional if
-//                    you signed in with /rtfx:login)
+//                    you signed in with /rtfx-local:login)
 //   ARTIFACTS_URL    your instance, default https://rtfx.pro (RTFX_URL also accepted)
 //
 // Optional:

@@ -176,13 +176,13 @@ function setupPanel(origin: string): string {
     )}
     ${snippet(
       "setup-plugin",
-      "3 · Or install the Claude Code plugin, and just say “publish this”",
-      `/plugin marketplace add yogevgab/artifacts-server\n/plugin install rtfx@rtfx\n/rtfx:setup   # confirms the token above reaches this instance`
+      "3 · Or install a Claude Code plugin (hosted: `/plugin install rtfx@rtfx` then `/mcp`; local, below), and just say “publish this”",
+      `/plugin marketplace add yogevgab/artifacts-server\n/plugin install rtfx-local@rtfx\n/rtfx-local:setup   # confirms the token above reaches this instance`
     )}
     ${snippet(
       "setup-mcp",
       "4 · Or connect the MCP server, for a client with no shell (Claude Desktop)",
-      `{ "mcpServers": { "rtfx": {\n    "command": "node",\n    "args": ["/path/to/plugins/rtfx/scripts/rtfx-mcp.mjs"],\n    "env": { "RTFX_API_TOKEN": "rtfx_…" } } } }\n\ntools: publish · list_artifacts · get_versions · rollback · doctor`
+      `{ "mcpServers": { "rtfx": {\n    "command": "node",\n    "args": ["/path/to/plugins/rtfx-local/scripts/rtfx-mcp.mjs"],\n    "env": { "RTFX_API_TOKEN": "rtfx_…" } } } }\n\ntools: publish · list_artifacts · get_versions · rollback · doctor`
     )}
     ${snippet(
       "setup-http",

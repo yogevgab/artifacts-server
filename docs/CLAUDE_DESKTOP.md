@@ -27,7 +27,7 @@ Or build from the repository root:
 npm run dxt:pack
 ```
 
-This copies the dependency-free local MCP server from `plugins/rtfx/scripts/` into `dxt/rtfx/server/`, validates the manifest, and packs:
+This copies the dependency-free local MCP server from `plugins/rtfx-local/scripts/` into `dxt/rtfx/server/`, validates the manifest, and packs:
 
 ```text
 dist/rtfx.dxt

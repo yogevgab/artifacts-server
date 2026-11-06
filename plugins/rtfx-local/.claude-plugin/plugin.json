@@ -1,0 +1,46 @@
+{
+  "name": "rtfx-local",
+  "version": "1.3.0",
+  "description": "Full local rtfx.pro tooling: publish a folder, build output or zip from disk by path, with slash commands and a local MCP server",
+  "author": {
+    "name": "rtfx.pro",
+    "url": "https://rtfx.pro"
+  },
+  "homepage": "https://rtfx.pro/docs",
+  "repository": "https://github.com/yogevgab/artifacts-server",
+  "license": "MIT",
+  "keywords": [
+    "publishing",
+    "artifacts",
+    "hosting",
+    "cloudflare",
+    "mcp",
+    "rtfx"
+  ],
+  "mcpServers": {
+    "rtfx": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/scripts/rtfx-mcp.mjs"
+      ],
+      "env": {
+        "RTFX_API_TOKEN": "${user_config.api_token}",
+        "ARTIFACTS_URL": "${user_config.endpoint}"
+      }
+    }
+  },
+  "userConfig": {
+    "api_token": {
+      "type": "string",
+      "title": "rtfx.pro API token (optional)",
+      "description": "A scoped token from rtfx.pro > Dashboard > Integrations (scopes: read, publish). Leave empty to sign in with a browser instead (/rtfx-local:login).",
+      "sensitive": true
+    },
+    "endpoint": {
+      "type": "string",
+      "title": "rtfx endpoint",
+      "description": "Base URL of your rtfx instance. Leave as is for rtfx.pro; change it only for a self-hosted artifacts-server (https only).",
+      "default": "https://rtfx.pro"
+    }
+  }
+}

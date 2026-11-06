@@ -821,9 +821,9 @@ const BASE_TOPICS: Record<BaseTopicKey, Topic> = {
             with the code we email you.</li>
           <li><b>Ask:</b> <q>Publish this report with rtfx as a private link.</q> Then <q>Share it with
             dana@acme.com.</q> Dana signs in with an email code; she needs no Claude account.</li>
-          <li><b>Whole sites:</b> the rtfx Claude Code plugin publishes a built folder or a zip from disk —
+          <li><b>Whole sites:</b> the rtfx-local Claude Code plugin publishes a built folder or a zip from disk —
             <code>/plugin marketplace add yogevgab/artifacts-server</code>, then
-            <code>/plugin install rtfx@rtfx</code>.</li>
+            <code>/plugin install rtfx-local@rtfx</code>.</li>
           <li><b>Same link, new versions:</b> publish again to the same name; roll back from chat.</li>
         </ul>
         <p>rtfx is an MCP server with its own sign-in, so it works however Claude Code itself is signed in.</p>`,
@@ -840,8 +840,8 @@ const BASE_TOPICS: Record<BaseTopicKey, Topic> = {
       {
         q: "Can I publish a multi-page site from Claude Code?",
         a:
-          "A Claude Code artifact is one self-contained page. With the rtfx Claude Code plugin you can " +
-          "publish a built folder (index.html at its root) or a zip, served at one private link.",
+          "A Claude Code artifact is one self-contained page. With the rtfx-local Claude Code plugin you can " +
+          "publish a built folder (index.html at its root) or a zip from disk, served at one private link.",
       },
       {
         q: "Does rtfx work when Claude Code uses an API key?",

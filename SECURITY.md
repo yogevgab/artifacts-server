@@ -18,7 +18,7 @@ what is on offer — please size your expectations to that, and test only agains
 
 ## The Claude Code plugin and the local MCP server
 
-`plugins/rtfx` is published as a Claude Code plugin, so it is worth stating its blast radius
+`plugins/rtfx-local` is published as a Claude Code plugin, so it is worth stating its blast radius
 separately from the server's. It runs plain Node files from this repository, has no dependencies
 and installs nothing. It talks to exactly one host — the instance in `ARTIFACTS_URL`, default
 `rtfx.pro` — with no telemetry and no third-party calls, and it sends only the files a user names
@@ -26,11 +26,11 @@ for a specific publish.
 
 ### How it authenticates
 
-**Browser sign-in is the normal path.** `/rtfx:login` (`rtfx.mjs login`) runs an OAuth
+**Browser sign-in is the normal path.** `/rtfx-local:login` (`rtfx.mjs login`) runs an OAuth
 authorization-code flow with **PKCE S256** against the instance itself: the client registers
 dynamically, opens the system browser, and receives the code on a **loopback redirect**
 (`http://127.0.0.1:<port>/callback`, RFC 8252) that is bound to a one-shot `state`. It requests
-two scopes, `rtfx:read` and `rtfx:publish` — never `manage`. `/rtfx:logout` posts both the refresh
+two scopes, `rtfx:read` and `rtfx:publish` — never `manage`. `/rtfx-local:logout` posts both the refresh
 token and the access token to the instance's revocation endpoint and then deletes the local
 credential; the delete happens whether or not the revocation call succeeds, because a person
 running logout wants the credential off *this machine* regardless of the network.
@@ -45,7 +45,7 @@ old one whether or not the process survives.
 
 **`RTFX_API_TOKEN` is the advanced/CI fallback, and it always wins.** When it is set it
 short-circuits credential resolution entirely, including the disk read (`resolveConfig` in
-`plugins/rtfx/scripts/rtfx.lib.mjs`). That order is deliberate: a CI job sets the variable on
+`plugins/rtfx-local/scripts/rtfx.lib.mjs`). That order is deliberate: a CI job sets the variable on
 purpose, often with different scopes than an interactive login would grant, and a stored browser
 credential silently overriding it would be a surprise in exactly the setting where surprises cost
 the most. The user mints and revokes that token themselves at `/admin/integrations`.
@@ -67,7 +67,7 @@ The directory walk refuses to upload anything shaped like a credential (`.env`, 
 containing such a file is refused rather than silently filtered. `npm run validate:plugin` fails if
 a token-shaped string is ever committed under `plugins/`.
 
-The plugin's stdio MCP server (`plugins/rtfx/scripts/rtfx-mcp.mjs`) offers `publish`,
+The plugin's stdio MCP server (`plugins/rtfx-local/scripts/rtfx-mcp.mjs`) offers `publish`,
 `list_artifacts`, `get_versions`, `rollback` and `doctor`. `update_access` exists but is not
 registered unless `RTFX_MCP_ALLOW_ACCESS` is set, and even then needs a `manage`-scoped
 credential — changing who can see an artifact is not something a model should be able to reach for
@@ -77,7 +77,7 @@ by default.
 
 There are two MCP surfaces in this repository and they are deliberately not the same shape.
 
-**Local (stdio), `plugins/rtfx/scripts/rtfx-mcp.mjs`.** Runs on the user's machine, beside their
+**Local (stdio), `plugins/rtfx-local/scripts/rtfx-mcp.mjs`.** Runs on the user's machine, beside their
 files. It takes a **filesystem path** and uploads what it finds there, minus the credential and
 build-directory filters above. It can do this safely because the disk it reads is the caller's own.
 

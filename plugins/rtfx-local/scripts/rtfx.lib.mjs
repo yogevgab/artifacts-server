@@ -451,7 +451,7 @@ export function describeApiError(status, body = {}) {
   const base = { status, error, detail, retryable: false };
   switch (true) {
     case status === 401 && error === "unauthorized":
-      return { ...base, hint: `No bearer token reached the server. Run \`rtfx.mjs login\` (or /rtfx:login), or set ${TOKEN_VAR} to a token minted at /admin/integrations.` };
+      return { ...base, hint: `No bearer token reached the server. Run \`rtfx.mjs login\` (or /rtfx-local:login), or set ${TOKEN_VAR} to a token minted at /admin/integrations.` };
     case status === 401:
       return { ...base, hint: `That credential is unknown, revoked or expired — run \`rtfx.mjs login\` again, or mint a new ${TOKEN_VAR}. Retrying will not help.` };
     case status === 403 && error === "insufficient_scope":

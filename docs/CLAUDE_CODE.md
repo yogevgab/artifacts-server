@@ -1,31 +1,36 @@
 # Claude Code integration
 
-A first-class Claude Code plugin lives in this repo at [`plugins/rtfx`](../plugins/rtfx). It turns
+> **Two plugins.** `plugins/rtfx` is the hosted-only plugin listed in Anthropic's directory (one skill,
+> one remote MCP server at `https://mcp.rtfx.pro/mcp`, no scripts; `npm run validate:plugin` pins
+> the directory's rules for it). This document describes `plugins/rtfx-local`, the full local package
+> (formerly `rtfx` up to 1.2.2), installed with `/plugin install rtfx-local@rtfx`.
+
+A first-class Claude Code plugin lives in this repo at [`plugins/rtfx-local`](../plugins/rtfx-local). It turns
 "publish this" into an ordinary sentence in a session: the agent picks the build output, versions
 it under a slug, and hands back `https://rtfx.pro/<workspace>/<slug>`.
 
 This document is the operator's view — what ships, how it is installed, how it is tested, and why
 it is built the way it is. The user-facing README is
-[`plugins/rtfx/README.md`](../plugins/rtfx/README.md).
+[`plugins/rtfx-local/README.md`](../plugins/rtfx-local/README.md).
 
 ---
 
 ## 1. What ships
 
 The repository is itself a Claude Code **marketplace**: `.claude-plugin/marketplace.json` at the
-root lists one plugin, `./plugins/rtfx`.
+root lists two plugins, `./plugins/rtfx` (hosted) and `./plugins/rtfx-local`.
 
 ```
 .claude-plugin/marketplace.json          the repo, as an installable marketplace
-plugins/rtfx/
+plugins/rtfx-local/
   .claude-plugin/plugin.json             manifest (name, version, description)
-  commands/publish.md                    /rtfx:publish
-  commands/list.md                       /rtfx:list
-  commands/versions.md                   /rtfx:versions
-  commands/rollback.md                   /rtfx:rollback
-  commands/login.md                      /rtfx:login
-  commands/logout.md                     /rtfx:logout
-  commands/setup.md                      /rtfx:setup
+  commands/publish.md                    /rtfx-local:publish
+  commands/list.md                       /rtfx-local:list
+  commands/versions.md                   /rtfx-local:versions
+  commands/rollback.md                   /rtfx-local:rollback
+  commands/login.md                      /rtfx-local:login
+  commands/logout.md                     /rtfx-local:logout
+  commands/setup.md                      /rtfx-local:setup
   skills/publishing-to-rtfx/SKILL.md     loads on its own when someone says "publish this"
   skills/publishing-to-rtfx/references/api.md
   scripts/rtfx.lib.mjs                   pure helpers (config, zip, error mapping)
@@ -55,26 +60,26 @@ The user-facing walkthrough, with the screenshot checklist and video outline, is
 
 ```
 /plugin marketplace add yogevgab/artifacts-server
-/plugin install rtfx@rtfx
+/plugin install rtfx-local@rtfx
 ```
 
 Then connect with a browser and verify:
 
 ```
-/rtfx:login
-/rtfx:setup
+/rtfx-local:login
+/rtfx-local:setup
 ```
 
 The login command uses OAuth authorization-code + PKCE, stores a credential in
 `~/.config/rtfx/credentials.json` with mode `0600`, and the CLI/MCP server refresh it automatically.
-`/rtfx:setup` reports the credential source and token **id** — never the token or refresh token.
+`/rtfx-local:setup` reports the credential source and token **id** — never the token or refresh token.
 
-To use an API token instead (MCP tools), enter it in the plugin's **API token** option (`/plugin`, rtfx,
+To use an API token instead (MCP tools), enter it in the plugin's **API token** option (`/plugin`, rtfx-local,
 Configure; dashboard → Integrations, scopes read + publish). From 1.2.2 the plugin no longer reads
-`RTFX_API_TOKEN` from your shell environment, and the `/rtfx:*` slash commands use the browser sign-in
+`RTFX_API_TOKEN` from your shell environment, and the `/rtfx-local:*` slash commands use the browser sign-in
 only. For CI and scripts use the repo's `artifacts` CLI.
 
-Remote MCP also has OAuth (`claude mcp login rtfx`) and a dedicated app-side host at
+Remote MCP also has OAuth (`claude mcp login rtfx` for a server you added by hand; `claude mcp login plugin:rtfx:rtfx` for the hosted `rtfx` plugin) and a dedicated app-side host at
 `mcp.rtfx.pro`. It can publish content sent inside the MCP tool call and run `doctor`, but it still
 cannot read a local filesystem path. Use the local plugin/server for large folders or build outputs.
 
@@ -229,9 +234,9 @@ are tuned to match a plausible secret and not the `rtfx_…` placeholder the doc
 ## 9. Related
 
 - [`MCP.md`](MCP.md) — the MCP server: tools, client configuration, plugin-vs-MCP
-- [`plugins/rtfx/README.md`](../plugins/rtfx/README.md) — user-facing install and usage
-- [`plugins/rtfx/CHANGELOG.md`](../plugins/rtfx/CHANGELOG.md) — what each plugin version contains
+- [`plugins/rtfx-local/README.md`](../plugins/rtfx-local/README.md) — user-facing install and usage
+- [`plugins/rtfx-local/CHANGELOG.md`](../plugins/rtfx-local/CHANGELOG.md) — what each plugin version contains
 - [`ANTHROPIC_PLUGIN_SUBMISSION.md`](ANTHROPIC_PLUGIN_SUBMISSION.md) — the marketplace submission packet, and which marketplace is which
-- [`plugins/rtfx/skills/publishing-to-rtfx/references/api.md`](../plugins/rtfx/skills/publishing-to-rtfx/references/api.md) — HTTP contract as the agent sees it
+- [`plugins/rtfx-local/skills/publishing-to-rtfx/references/api.md`](../plugins/rtfx-local/skills/publishing-to-rtfx/references/api.md) — HTTP contract as the agent sees it
 - [`HERMES_CLOUD.md`](HERMES_CLOUD.md) — full token lifecycle, scopes and error semantics
 - [`DEPLOY_RTFX.md`](DEPLOY_RTFX.md) — the Access posture that decides whether service-token headers are needed

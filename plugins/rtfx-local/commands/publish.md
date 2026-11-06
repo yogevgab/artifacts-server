@@ -30,4 +30,4 @@ Work through this in order:
 If it fails, follow the `hint:` line the script printed. Do not retry a 401, 403, 404 or 409 —
 none of them get better on a second attempt. Report what the user needs to fix.
 
-Never write a token into a file or the transcript. If the script reports no credential, tell the user to run `/rtfx:login` and stop.
+Never write a token into a file or the transcript. If the script reports no credential, tell the user to run `/rtfx-local:login` and stop.

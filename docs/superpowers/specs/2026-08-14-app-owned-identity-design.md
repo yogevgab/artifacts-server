@@ -244,7 +244,7 @@ current promise, and the promise is currently made in five places that must all 
 the same release:
 
 - `README.md` → "Contract": *"Rollback repoints the slug without deleting anything."*
-- `plugins/rtfx/skills/publishing-to-rtfx/SKILL.md` → *"the newer version's files stay"*
+- `plugins/rtfx-local/skills/publishing-to-rtfx/SKILL.md` → *"the newer version's files stay"*
 - The MCP `publish` tool description → *"appends an immutable version"*
 - `src/docs.ts` and the version-list UI
 - The published explainer artifact at `a.rtfx.pro/what-is-rtfx/` → *"Nothing is deleted"*
