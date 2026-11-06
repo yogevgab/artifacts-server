@@ -531,6 +531,47 @@ describe("the authorization endpoint", () => {
     expect(await res.text()).toContain("Claude");
   });
 
+  /**
+   * ChatGPT's live document (https://chatgpt.com/oauth/client.json) prefers
+   * private_key_jwt but lists "none" as supported. Refusing it ended every
+   * ChatGPT connector sign-in on an invalid_client page.
+   */
+  it("accepts a CIMD document that prefers another auth method but supports none", async () => {
+    const url = "https://chatgpt.com/oauth/client.json";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({
+        client_id: url,
+        client_uri: "https://chatgpt.com/",
+        redirect_uris: [CB],
+        token_endpoint_auth_method: "private_key_jwt",
+        token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        client_name: "ChatGPT",
+        token_endpoint_auth_signing_alg: "RS256",
+        jwks_uri: "https://chatgpt.com/oauth/jwks.json",
+      })
+    );
+    const res = await req(authorizeQuery(url), as(BOB));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("ChatGPT");
+  });
+
+  it("refuses a CIMD document that cannot authenticate as a public client", async () => {
+    const url = "https://chatgpt.com/oauth/client.json";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({
+        client_id: url,
+        redirect_uris: [CB],
+        token_endpoint_auth_method: "private_key_jwt",
+        token_endpoint_auth_methods_supported: ["private_key_jwt"],
+      })
+    );
+    const res = await req(authorizeQuery(url), as(BOB));
+    expect(res.status).toBe(400);
+    expect(await res.text()).toContain("token_endpoint_auth_method must be");
+  });
+
   it("refuses a CIMD document whose grants leave out authorization_code", async () => {
     const url = "https://claude.ai/oauth/mcp-oauth-client-metadata";
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
