@@ -32,6 +32,7 @@ import { safeNextPath } from "./util";
 import { reviewerConfig } from "./reviewer";
 import { recordAudit } from "./audit";
 import { isAllowedOrigin } from "./cors";
+import { afterSignin } from "./handoff";
 
 export const authRoutes = new Hono<AppBindings>();
 
@@ -79,7 +80,7 @@ const VERIFY_PER_EMAIL_PER_DAY = 25;
  */
 const ACCEPTED = { status: "accepted" as const };
 
-function sessionCookie(token: string, maxAge: number): string {
+export function sessionCookie(token: string, maxAge: number): string {
   // Host-only (no Domain attribute): this cookie must never be sent to the
   // content host, where uploaded HTML runs.
   return [
@@ -320,7 +321,9 @@ authRoutes.post("/auth/verify", async (c) => {
   headers.append("Set-Cookie", pendingNextCookie(null));
   // Nothing under /admin exists on a customer host; land on its root instead.
   const home = (await customerDomainOf(c.env, c.req.url)) ? "/" : "/admin";
-  return new Response(JSON.stringify({ ok: true, redirect: pendingNext(c) ?? home }), {
+  // On the MCP host the sign-in is also carried to the canonical host (src/handoff.ts).
+  const target = await afterSignin(c.env, c.req.url, pendingNext(c) ?? home);
+  return new Response(JSON.stringify({ ok: true, redirect: target }), {
     status: 200,
     headers,
   });
@@ -397,7 +400,7 @@ authRoutes.post("/auth/m/:token", async (c) => {
   // and a redirect without the Set-Cookie would sign nobody in while looking
   // exactly like success.
   const home = (await customerDomainOf(c.env, c.req.url)) ? "/" : "/admin";
-  const headers = new Headers({ Location: pendingNext(c) ?? home });
+  const headers = new Headers({ Location: await afterSignin(c.env, c.req.url, pendingNext(c) ?? home) });
   headers.append("Set-Cookie", cookie);
   headers.append("Set-Cookie", pendingNextCookie(null));
   return new Response(null, { status: 302, headers });

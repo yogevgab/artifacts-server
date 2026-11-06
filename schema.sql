@@ -246,6 +246,20 @@ CREATE TABLE IF NOT EXISTS auth_challenges (
 
 CREATE INDEX IF NOT EXISTS idx_auth_challenges_email ON auth_challenges (email, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_auth_challenges_token ON auth_challenges (token_hash);
+-- One-time cross-host sign-in handoffs between the two app hosts (migration 0029;
+-- also created on demand by src/handoff.ts).
+CREATE TABLE IF NOT EXISTS auth_handoffs (
+  token_hash   TEXT PRIMARY KEY,
+  email        TEXT NOT NULL,
+  source_host  TEXT NOT NULL,
+  target_host  TEXT NOT NULL,
+  next_path    TEXT NOT NULL,
+  nonce_hash   TEXT NOT NULL,
+  expires_at   TEXT NOT NULL,
+  consumed_at  TEXT,
+  created_at   TEXT NOT NULL
+);
+
 -- Bearer capability URLs: a link an owner can paste anywhere, which opens one
 -- artifact for whoever holds it. Deliberately separate from artifact_grants —
 -- a grant names a person, a share link names nobody, and the view log must be
