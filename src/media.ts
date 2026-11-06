@@ -30,6 +30,10 @@ export const MEDIA: Record<string, string> = {
   "rtfx-chatgpt-guide.mp4": "video/mp4",
   "rtfx-chatgpt-guide-poster.jpg": "image/jpeg",
   "rtfx-chatgpt-guide.vtt": "text/vtt; charset=utf-8",
+  // The 28-second promo under the home-page hero (src/landing.ts).
+  "rtfx-promo.mp4": "video/mp4",
+  "rtfx-promo-poster.jpg": "image/jpeg",
+  "rtfx-promo.vtt": "text/vtt; charset=utf-8",
 };
 
 /** Cache-buster for the URLs written into pages. Bump after re-uploading. */

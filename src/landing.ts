@@ -12,6 +12,7 @@ import {
   FAQS,
   MCP_JSON,
   OTHER_CLIENTS_NOTE,
+  PROMO_VIDEO,
   VIDEO,
   WALKTHROUGH,
 } from "./home-content";
@@ -47,6 +48,10 @@ import {
  */
 
 /** Styles for guideVideo(), shared with /guide (src/guide.ts). */
+const PROMO_STYLE = `.promo{margin:0 auto;max-width:60rem;padding:.6rem 0 1.2rem}
+.promo video{display:block;width:100%;height:auto;border-radius:var(--radius-sm);border:1px solid var(--border-strong);box-shadow:var(--shadow);background:#0b0f16}
+.promo figcaption{margin-top:.6rem;color:var(--muted);font-size:.92rem;text-align:center}`;
+
 export const GUIDE_VIDEO_STYLE = `.guide-video{margin:2rem 0 0}.guide-video video{display:block;width:100%;height:auto;border-radius:var(--radius-sm);border:1px solid var(--border-strong);box-shadow:var(--shadow);background:var(--card)}
 .guide-video figcaption{margin-top:.6rem;color:var(--muted);font-size:.92rem}`;
 
@@ -58,6 +63,7 @@ const LANDING_STYLE = `${PUBLIC_CHROME_STYLE}${CONSENT_STYLE}
 .hero>*{min-width:0}
 @media(min-width:960px){.hero{grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);gap:3.2rem;padding-top:4.2rem}}
 ${GUIDE_VIDEO_STYLE}
+${PROMO_STYLE}
 .hero h1{font-size:clamp(2.3rem,5.4vw,3.8rem);line-height:1.02;letter-spacing:-.06em;font-weight:760;margin:0 0 1rem;text-wrap:balance}
 .hero p.lead{font-size:clamp(1.05rem,2vw,1.22rem);color:var(--muted);margin:0 0 1.6rem;letter-spacing:-.01em;max-width:34rem}
 /* Example card: a stylised artifact, built from the product's own vocabulary. */
@@ -282,6 +288,7 @@ function structuredData(env: Env): unknown[] {
       ],
     },
     videoObject(env),
+    promoVideoObject(env),
     faqPage(env),
   ];
 }
@@ -372,6 +379,39 @@ function pricingSection(): string {
  * served from R2 by src/media.ts). No autoplay and preload="none": nobody
  * downloads 5 MB they did not ask for.
  */
+/** The short promo under the hero: click to play (it has a soundtrack), captions off by default. */
+function promoVideo(): string {
+  const v = PROMO_VIDEO;
+  return `<figure class="promo" data-landing="promo">
+        <video controls playsinline preload="none" width="${v.width}" height="${v.height}"
+          poster="${mediaUrl(v.poster)}" aria-label="${v.name}">
+          <source src="${mediaUrl(v.file)}" type="video/mp4">
+          <track kind="captions" src="${mediaUrl(v.captions)}" srclang="en" label="English">
+        </video>
+        <figcaption>${v.caption}</figcaption>
+      </figure>`;
+}
+
+/** VideoObject for the promo; its own @id so it doesn't collide with the guide video's. */
+function promoVideoObject(env: Env): Record<string, unknown> {
+  const v = PROMO_VIDEO;
+  return {
+    "@context": "https://schema.org",
+    "@type": "VideoObject",
+    "@id": `${canonicalUrl(env, "/")}#promo-video`,
+    name: v.name,
+    description: v.description,
+    thumbnailUrl: canonicalUrl(env, mediaUrl(v.poster)),
+    contentUrl: canonicalUrl(env, mediaUrl(v.file)),
+    uploadDate: v.uploadDate,
+    duration: v.duration,
+    width: v.width,
+    height: v.height,
+    encodingFormat: "video/mp4",
+    inLanguage: "en",
+  };
+}
+
 export function guideVideo(): string {
   return `<figure class="guide-video" data-landing="video">
         <video controls playsinline preload="none" width="${VIDEO.width}" height="${VIDEO.height}"
@@ -450,6 +490,8 @@ export function landingPage(env: Env): string {
       </div>
       ${exampleCard()}
     </section>
+
+    ${promoVideo()}
 
     <section id="ways" class="band">
       <h2>Three ways to share</h2>
