@@ -225,3 +225,164 @@ describe("the shared-link landing page", () => {
     expect(html).toContain("/login?next=%2Fabc%2Freport");
   });
 });
+
+/**
+ * The gate form is the only door a signed-out owner sees on their own page. A
+ * grant is how *other* people get in, so an owner or a workspace member never
+ * holds one — before this, typing their address here sent nothing at all while
+ * the page said a link was on its way.
+ */
+describe("the gate recognises people who belong to the artifact", () => {
+  const MEMBER = "mia@rtfx.pro";
+  const STRANGER = "nobody@x.com";
+  const ADMIN = "ops@rtfx.pro";
+  let mailbox: any[] = [];
+  const ge = (extra: Record<string, unknown> = {}) =>
+    e({
+      // The owner is deliberately NOT a platform admin here.
+      ADMIN_EMAILS: ADMIN,
+      EMAIL: { send: async (m: any) => (mailbox.push(m), { messageId: "m" }) },
+      ...extra,
+    });
+  const gate = (email: string, host = APP, extra: Record<string, unknown> = {}) =>
+    app.request(
+      `${host}/auth/guest?slug=report`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) },
+      ge(extra)
+    );
+  const rows = async (table: string, email: string) =>
+    (await (env as any).DB.prepare(`SELECT * FROM ${table} WHERE email = ?`).bind(email).all()).results as any[];
+  const verify = (email: string, code: string, extra: Record<string, unknown> = {}) =>
+    app.request(
+      `${APP}/auth/verify`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, code }) },
+      ge(extra)
+    );
+
+  beforeEach(async () => {
+    mailbox = [];
+    await (env as any).DB.prepare("DELETE FROM waitlist_rate_limits").run().catch(() => {});
+    await (env as any).DB.prepare("DELETE FROM mail_log").run().catch(() => {});
+    await (env as any).DB.prepare("DELETE FROM auth_challenges").run().catch(() => {});
+  });
+
+  it("sends the owner a member sign-in (code + link) that names the artifact", async () => {
+    expect((await gate(OWNER)).status).toBe(202);
+    const ch = await rows("auth_challenges", OWNER);
+    expect(ch.map((r) => [r.purpose, r.slug])).toEqual([["signin", "report"]]);
+    expect(mailbox).toHaveLength(1);
+    expect(mailbox[0].text).toMatch(/\b\d{6}\b/);
+    expect(mailbox[0].text).toContain("/auth/m/");
+  });
+
+  it("sends a workspace member (any role) a member sign-in too", async () => {
+    const art = (await (env as any).DB.prepare("SELECT account_id FROM artifacts WHERE slug = 'report'").first()) as {
+      account_id: string;
+    };
+    await (env as any).DB.prepare(
+      "INSERT INTO account_members (account_id, email, role, created_at, updated_at) VALUES (?, ?, 'viewer', ?, ?)"
+    )
+      .bind(art.account_id, MEMBER, NOW(), NOW())
+      .run();
+    expect((await gate(MEMBER)).status).toBe(202);
+    expect((await rows("auth_challenges", MEMBER)).map((r) => [r.purpose, r.slug])).toEqual([["signin", "report"]]);
+    expect(mailbox).toHaveLength(1);
+  });
+
+  it("an admin gets a member sign-in only for an ownerless artifact, as the viewer decides", async () => {
+    await gate(ADMIN);
+    expect(await rows("auth_challenges", ADMIN)).toEqual([]);
+    await (env as any).DB.prepare("UPDATE artifacts SET owner_email = NULL, account_id = NULL WHERE slug = 'report'").run();
+    await (env as any).DB.prepare("DELETE FROM waitlist_rate_limits").run();
+    await gate(ADMIN);
+    expect((await rows("auth_challenges", ADMIN)).map((r) => [r.purpose, r.slug])).toEqual([["signin", "report"]]);
+  });
+
+  it("still gives a grantee the scoped guest link, and a stranger nothing", async () => {
+    await gate(GUEST);
+    await gate(STRANGER);
+    expect((await rows("auth_challenges", GUEST)).map((r) => [r.purpose, r.slug])).toEqual([["guest", "report"]]);
+    expect(await rows("auth_challenges", STRANGER)).toEqual([]);
+    expect(await rows("mail_log", STRANGER)).toEqual([]);
+    expect(mailbox.map((m) => m.to)).toEqual([GUEST]);
+  });
+
+  it("answers owner, grantee and stranger identically", async () => {
+    const bodies = [];
+    for (const who of [OWNER, GUEST, STRANGER]) {
+      const res = await gate(who);
+      bodies.push([res.status, await res.text()]);
+    }
+    expect(new Set(bodies.map((b) => JSON.stringify(b))).size).toBe(1);
+  });
+
+  it("is rate limited per address", async () => {
+    let last = 0;
+    for (let i = 0; i < 6; i++) last = (await gate(OWNER)).status;
+    expect(last).toBe(429);
+  });
+
+  it("refuses a cross-site POST", async () => {
+    const res = await app.request(
+      `${APP}/auth/guest?slug=report`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: "https://evil.example" },
+        body: JSON.stringify({ email: OWNER }),
+      },
+      ge()
+    );
+    expect(res.status).toBe(403);
+    expect(await rows("auth_challenges", OWNER)).toEqual([]);
+  });
+
+  it("a reviewer address gets a challenge but no email and no link", async () => {
+    const reviewer = "reviewer@rtfx.pro";
+    await (env as any).DB.prepare("UPDATE artifacts SET owner_email = ? WHERE slug = 'report'").bind(reviewer).run();
+    await gate(reviewer, APP, { REVIEWER_EMAIL: reviewer, REVIEWER_CODE: "424242" });
+    expect(mailbox).toEqual([]);
+    expect(await rows("mail_log", reviewer)).toEqual([]);
+    expect(await rows("auth_challenges", reviewer)).toHaveLength(1);
+  });
+
+  it("round trip: owner asks at the gate, types the emailed code, lands on the artifact", async () => {
+    await gate(OWNER);
+    const code = /\b(\d{6})\b/.exec(mailbox[0].text)![1];
+    const res = await verify(OWNER, code);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { redirect: string }).redirect).toBe(await viewerPath("report"));
+    const cookie = res.headers.getSetCookie().find((c) => c.startsWith(`${SESSION_COOKIE}=`))!;
+    const view = await app.request(await viewerUrl(), nav(cookie.split(";")[0]), ge());
+    expect(view.status).toBe(200);
+    expect(await view.text()).toContain("<iframe");
+  });
+
+  it("round trip: the emailed link lands on the artifact, even from another device", async () => {
+    await gate(OWNER);
+    const token = /\/auth\/m\/([A-Za-z0-9_-]+)/.exec(mailbox[0].text)![1];
+    const res = await app.request(`${APP}/auth/m/${token}`, { method: "POST" }, ge());
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(await viewerPath("report"));
+    expect(res.headers.getSetCookie().some((c) => c.startsWith(`${SESSION_COOKIE}=`))).toBe(true);
+  });
+
+  it("a guest challenge's code never opens a member session", async () => {
+    const issued = await createChallenge(env as any, { email: GUEST, purpose: "guest", slug: "report", now: NOW() });
+    expect((await verify(GUEST, issued.code)).status).toBe(401);
+  });
+
+  it("an ordinary sign-in still lands on the dashboard", async () => {
+    const issued = await createChallenge(env as any, { email: OWNER, purpose: "signin", now: NOW() });
+    const res = await app.request(`${APP}/auth/m/${issued.token}`, { method: "POST" }, ge());
+    expect(res.headers.get("location")).toBe("/admin");
+  });
+
+  it("the gate page shows a code field after submit and posts it to /auth/verify", async () => {
+    const html = await (await app.request("https://rtfx.pro/shared/report", {}, e())).text();
+    expect(html).toContain("data-guest-code");
+    expect(html).toContain('name="code"');
+    expect(html).toContain("/auth/verify");
+    expect(html).toContain("Too many attempts");
+    expect(html).toContain("Something went wrong");
+  });
+});

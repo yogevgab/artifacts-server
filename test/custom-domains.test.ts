@@ -1054,3 +1054,52 @@ describe("review follow-ups", () => {
     }
   });
 });
+
+describe("the gate for people who belong to the document, on the customer host", () => {
+  beforeEach(async () => {
+    await activate(acme.id);
+    await env.DB.prepare("DELETE FROM mail_log").run().catch(() => {});
+  });
+  const gateAt = (host: string, slug: string, email: string) =>
+    call(`${host}/auth/guest?slug=${slug}`, { method: "POST", body: { email } });
+
+  it("the owner gets a code and a link bound to the customer host, and lands on /<slug>", async () => {
+    expect((await gateAt(CUSTOM, "report", OWNER)).status).toBe(202);
+    expect(sent).toHaveLength(1);
+    const link = /(https:\/\/[^\s"<]+\/auth\/m\/[A-Za-z0-9_-]+)/.exec(sent[0].text)![1];
+    expect(link.startsWith(`${CUSTOM}/auth/m/`)).toBe(true);
+    const code = /\b(\d{6})\b/.exec(sent[0].text)![1];
+
+    // The code is good on that host only.
+    const onApp = await call(`${APP}/auth/verify`, { method: "POST", body: { email: OWNER, code } });
+    expect(onApp.status).toBe(401);
+    const res = await call(`${CUSTOM}/auth/verify`, { method: "POST", body: { email: OWNER, code } });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { redirect: string }).redirect).toBe("/report");
+    const session = /rtfx_session=[^;]+/.exec(res.headers.get("set-cookie") ?? "")![0];
+    const view = await browse(`${CUSTOM}/report`, null, { Cookie: session });
+    expect(view.status).toBe(200);
+  });
+
+  it("the emailed link works on the customer host only and lands on /<slug>", async () => {
+    await gateAt(CUSTOM, "report", OWNER);
+    const token = /\/auth\/m\/([A-Za-z0-9_-]+)/.exec(sent[0].text)![1];
+    expect((await call(`${APP}/auth/m/${token}`, { method: "POST" })).status).toBe(401);
+    const go = await call(`${CUSTOM}/auth/m/${token}`, { method: "POST" });
+    expect(go.status).toBe(302);
+    expect(go.headers.get("location")).toBe("/report");
+  });
+
+  it("a member sign-in is not issued for another workspace's slug on this host", async () => {
+    // OTHER owns other-doc; asking for it on acme's host must send nothing.
+    await gateAt(CUSTOM, "other-doc", OTHER);
+    expect(sent).toHaveLength(0);
+    const rows = await env.DB.prepare("SELECT * FROM auth_challenges WHERE email = ?").bind(OTHER).all();
+    expect(rows.results).toHaveLength(0);
+  });
+
+  it("a stranger gets nothing on the customer host", async () => {
+    expect((await gateAt(CUSTOM, "report", "nobody@x.com")).status).toBe(202);
+    expect(sent).toHaveLength(0);
+  });
+});

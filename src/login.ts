@@ -366,15 +366,25 @@ export function guestSigninPage(env: Env, slug: string, next?: string | null): s
       "guest",
       `<p class="eyebrow">Shared with you</p>
        <h1>Confirm it's you</h1>
-       <p class="lede">Enter the email address this was shared with and we'll send you a link
-         to open it. No account, no password.</p>
+       <p class="lede">Enter the email address this was shared with \u2014 or your own, if it's
+         yours \u2014 and we'll email you a way in. No password.</p>
        <form class="auth-form" data-guest-form data-slug="${esc(slug)}" novalidate>
          <label class="field">
            <span class="field-label">Email address</span>
            <input type="email" name="email" autocomplete="email" inputmode="email"
                   placeholder="you@example.com" required autofocus>
          </label>
-         <button type="submit" class="link-button">Send me the link</button>
+         <button type="submit" class="link-button">Email me</button>
+       </form>
+       <form class="auth-form" data-guest-code hidden novalidate>
+         <p class="lede" data-sent-to></p>
+         <label class="field">
+           <span class="field-label">Six-digit code</span>
+           <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code"
+                  pattern="[0-9]{6}" maxlength="6" placeholder="000000" required>
+         </label>
+         <button type="submit" class="link-button">Open</button>
+         <button type="button" class="ghost link-button" data-back>Use a different address</button>
        </form>
        <p class="status" data-auth-status role="status" aria-live="polite" hidden></p>
        <hr class="divider">
@@ -386,26 +396,62 @@ export function guestSigninPage(env: Env, slug: string, next?: string | null): s
   );
 }
 
+/**
+ * One form for every visitor, and the same words for every outcome: the server
+ * answers 202 whether the address belongs to the page, was granted it, or is a
+ * stranger, so the page cannot know which. It therefore always offers both
+ * endings: the link in the email, or the six-digit code (which only exists for
+ * people who belong to the page; a guest invitation is link-only). The code goes
+ * to `/auth/verify`, whose redirect brings the person back to the artifact.
+ */
 export const GUEST_SCRIPT = `(function(){
   var form=document.querySelector('[data-guest-form]');
+  var codeForm=document.querySelector('[data-guest-code]');
   var status=document.querySelector('[data-auth-status]');
-  if(!form) return;
+  if(!form||!codeForm) return;
+  var address='';
+  function say(msg,tone){
+    status.hidden=!msg; status.textContent=msg||'';
+    if(tone){status.setAttribute('data-tone',tone);}else{status.removeAttribute('data-tone');}
+  }
+  function busy(f,on,label){
+    var b=f.querySelector('button[type="submit"]'); b.disabled=on; b.textContent=on?'Working\u2026':label;
+  }
   form.addEventListener('submit',function(e){
     e.preventDefault();
-    var email=form.elements.email.value.trim();
-    if(!email){return;}
-    var btn=form.querySelector('button'); btn.disabled=true; btn.textContent='Sending\u2026';
+    address=form.elements.email.value.trim();
+    if(!address){say('Enter your email address.','error');return;}
+    busy(form,true,'Email me'); say('');
     fetch('/auth/guest?slug='+encodeURIComponent(form.getAttribute('data-slug')),{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({email:email})
-    }).then(function(){
-      form.hidden=true; status.hidden=false;
-      status.textContent='If that address has access, a link is on its way. It expires in 15 minutes.';
-    }).catch(function(){
-      btn.disabled=false; btn.textContent='Send me the link';
-      status.hidden=false; status.setAttribute('data-tone','error');
-      status.textContent='Network problem. Try again.';
-    });
+      body:JSON.stringify({email:address})
+    }).then(function(r){
+      busy(form,false,'Email me');
+      if(r.ok){
+        form.hidden=true; codeForm.hidden=false;
+        codeForm.querySelector('[data-sent-to]').textContent='If '+address+' has access, we sent an email. Open the link in it, or type the six-digit code if it has one. It expires in 15 minutes.';
+        codeForm.elements.code.focus();
+        return;
+      }
+      say(r.status===429?'Too many attempts. Try again in an hour.':
+        r.status===400?'That address does not look right.':'Something went wrong. Try again.','error');
+    }).catch(function(){busy(form,false,'Email me');say('Network problem. Try again.','error');});
+  });
+  codeForm.addEventListener('submit',function(e){
+    e.preventDefault();
+    var code=codeForm.elements.code.value.trim();
+    if(!/^[0-9]{6}$/.test(code)){say('Enter the six digits from the email.','error');return;}
+    busy(codeForm,true,'Open'); say('');
+    fetch('/auth/verify',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email:address,code:code})}).then(function(r){
+      busy(codeForm,false,'Open');
+      if(r.ok){return r.json().then(function(j){window.location.href=j.redirect||'/admin';});}
+      say(r.status===401?'That code is wrong or has expired. Use the link in the email instead, or request a new one.':
+        r.status===429?'Too many codes tried today. Use the link in the email instead.':'Something went wrong.','error');
+    }).catch(function(){busy(codeForm,false,'Open');say('Network problem. Try again.','error');});
+  });
+  codeForm.querySelector('[data-back]').addEventListener('click',function(){
+    codeForm.hidden=true; form.hidden=false; say(''); form.elements.email.focus();
   });
 })();`;
 
