@@ -40,7 +40,6 @@ import { deflateRawSync } from "node:zlib";
 import {
   DEFAULT_ENDPOINT,
   TOKEN_VAR,
-  SOURCE_ENV,
   SOURCE_OAUTH,
   resolveConfig,
   resolveEndpoint,
@@ -337,16 +336,6 @@ async function login(flags) {
     fail(e.message);
   }
 
-  if (resolveConfig(ENV).source === SOURCE_ENV && !asJson) {
-    // Not a refusal: the login still happens and is still stored. But without
-    // this, a person would sign in, see success, and watch every later command
-    // keep using the env token — with nothing on screen explaining why.
-    console.error(
-      `note: ${TOKEN_VAR} is set, and it takes priority over a browser sign-in.\n` +
-        `      Unset it if you want this login to be what publishes.\n`
-    );
-  }
-
   let result;
   try {
     result = await oauthLogin(endpoint, {
@@ -445,7 +434,6 @@ async function doctor() {
     env_token_set: fromEnv.hasToken,
     oauth: credential ? { ...describeCredential(credential), shadowed_by_env: shadowed } : null,
     credentials_file: credentialsPath(),
-    access_headers: Boolean(resolved.access),
     node: process.version,
   };
 
@@ -470,14 +458,12 @@ async function doctor() {
     `auth      ${describeSource(reachable, credential)}`,
     `token     ${reachable.token}`,
     ...(shadowed ? [`note      a stored sign-in exists but ${TOKEN_VAR} takes priority`] : []),
-    `access    ${reachable.access_headers ? "service-token headers set" : "not set (not needed — the machine API takes the bearer token)"}`,
     `api       ok — ${reachable.artifact_count} artifact(s) visible to this credential`,
   ]);
 }
 
 /** The one line that says which credential is in play, and how healthy it is. */
 function describeSource(facts, credential) {
-  if (facts.credential_source === SOURCE_ENV) return `${TOKEN_VAR} (environment)`;
   if (facts.credential_source === SOURCE_OAUTH) {
     const scopes = credential?.scopes?.length ? ` · ${credential.scopes.join(", ")}` : "";
     const soon = credential && needsRefresh(credential, Date.now()) ? " · renewing on next call" : "";

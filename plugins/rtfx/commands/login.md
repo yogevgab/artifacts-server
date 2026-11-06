@@ -17,6 +17,9 @@ After it succeeds, run:
 node "${CLAUDE_PLUGIN_ROOT}/scripts/rtfx.mjs" doctor
 ```
 
+If the user self-hosts, the slash commands read `ARTIFACTS_URL` from the shell (the plugin's endpoint option
+only reaches the MCP server); check it matches before logging in.
+
 If the plugin also has an "API token" option set, mention that the MCP tools use that token in
 preference to this browser sign-in; these slash commands always use the browser sign-in.
 

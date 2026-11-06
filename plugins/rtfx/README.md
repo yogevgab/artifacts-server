@@ -36,7 +36,10 @@ Prefer an API token (for the MCP tools)? Mint one at <https://rtfx.pro/admin/int
 `rtfx`, **Configure**. Claude Code also asks for it when the plugin is enabled; leave it empty to use the
 browser sign-in. The token is marked sensitive, so it is kept in your system keychain, not in a file.
 The **rtfx endpoint** option defaults to `https://rtfx.pro`; change it only to point at a self-hosted
-artifacts-server (https only).
+artifacts-server (https only; anything else is refused, never replaced by rtfx.pro). It applies to the MCP
+tools. Claude Code does not substitute plugin options into slash-command text, so for a self-hosted instance
+also `export ARTIFACTS_URL=https://your-instance` in the shell that starts Claude Code, or `/rtfx:login` will
+sign in to rtfx.pro.
 
 Since 1.2.2 the plugin **no longer reads `RTFX_API_TOKEN` (or any other credential) from your shell
 environment**, and the `/rtfx:*` slash commands use the browser sign-in only. If you used to

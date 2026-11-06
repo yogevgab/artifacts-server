@@ -256,13 +256,12 @@ Then sign in from the session — no token to copy, paste or store:
 
 That runs an OAuth authorization-code flow with PKCE against the instance, on a loopback redirect,
 and writes a `0600` credential to `~/.config/rtfx/credentials.json` (refresh tokens rotate;
-`/rtfx:logout` revokes both tokens and deletes it). For CI and scripted use, an environment token
-is the fallback and takes precedence over any stored sign-in:
-
-```bash
-export RTFX_API_TOKEN=rtfx_…            # dashboard → Integrations (scopes: read, publish)
-export ARTIFACTS_URL=https://rtfx.pro   # only when self-hosting
-```
+`/rtfx:logout` revokes both tokens and deletes it). To use an API token instead, enter it in the
+plugin's sensitive **API token** option (`/plugin`, rtfx, Configure); the MCP tools use it in preference to
+the stored sign-in. The plugin does not read `RTFX_API_TOKEN` from your shell, and the slash commands use the
+browser sign-in only. Self-hosting: set the plugin's **rtfx endpoint** option (MCP tools) and also
+`export ARTIFACTS_URL=https://your-instance` in the shell that starts Claude Code (slash commands); the
+endpoint must be https.
 
 | | |
 |---|---|
