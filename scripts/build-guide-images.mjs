@@ -10,6 +10,11 @@
  * A short content hash is stored next to the bytes and appended to the image
  * URL as ?v=<hash>, so re-shooting a screenshot busts the immutable cache.
  * Update the width/height table in src/guide.ts if a size changes.
+ *
+ * The folder must hold EVERY image, not just the ones you re-shot: the module
+ * is rebuilt from it alone. That includes the chatgpt-*.webp screenshots used
+ * by the ChatGPT answer page (src/answer-pages-clients.ts). To start from what
+ * is deployed, decode the current module's base64 entries back to files first.
  */
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
