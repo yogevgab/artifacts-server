@@ -8,6 +8,8 @@ import type { TopicKey } from "./seo";
 import { htmlToMarkdown } from "./html-text";
 import type { Faq } from "./home-content";
 import { priceLabel } from "./plan-copy";
+import { CLIENT_TOPICS, CLIENT_GROUPS } from "./answer-pages-clients";
+import type { Topic, AnswerGroup, ClientTopicKey } from "./answer-pages-clients";
 
 /**
  * Short "answer" pages for the searches people actually type: the two below,
@@ -282,25 +284,9 @@ const WHEN_RTFX: readonly string[] = [
  * read notices: src/read-receipts.ts; chat access to the log: artifact_details in
  * src/mcp.ts returns the recent views).
  */
-interface TopicSection {
-  heading: string;
-  /** Trusted HTML written in this file. */
-  html: string;
-}
+type BaseTopicKey = Exclude<TopicKey, ClientTopicKey>;
 
-interface Topic {
-  /** datePublished of the Article node; defaults to PUBLISHED. */
-  published?: string;
-  /** dateModified and the visible "Updated" line; defaults to MODIFIED. */
-  modified?: string;
-  h1: string;
-  lead: string;
-  sections: readonly TopicSection[];
-  faqs: readonly Faq[];
-  finalH: string;
-}
-
-const TOPICS: Record<TopicKey, Topic> = {
+const BASE_TOPICS: Record<BaseTopicKey, Topic> = {
   views: {
     h1: "Can you see who viewed a Claude artifact?",
     lead:
@@ -867,7 +853,9 @@ const TOPICS: Record<TopicKey, Topic> = {
   },
 };
 
-export function topicPage(env: Env, key: keyof typeof TOPICS): string {
+const TOPICS: Record<TopicKey, Topic> = { ...BASE_TOPICS, ...CLIENT_TOPICS };
+
+export function topicPage(env: Env, key: TopicKey): string {
   const t = TOPICS[key];
   const meta = ANSWER_META[key];
   const sections = t.sections
@@ -883,8 +871,8 @@ export function topicPage(env: Env, key: keyof typeof TOPICS): string {
       </div>
     </section>
 
-    <p class="related">Set it up: <a href="${ANSWER_META.share.path}">how to share a Claude artifact privately</a>,
-      or compare <a href="${ANSWER_META.compare.path}">Claude's own sharing with a private link</a>.</p>
+    <p class="related">${t.related ?? `Set it up: <a href="${ANSWER_META.share.path}">how to share a Claude artifact privately</a>,
+      or compare <a href="${ANSWER_META.compare.path}">Claude's own sharing with a private link</a>.`}</p>
 
     ${moreAnswers(meta.path)}
 
@@ -904,43 +892,69 @@ export function topicPage(env: Env, key: keyof typeof TOPICS): string {
   );
 }
 
+const GROUP_HEADINGS: Record<AnswerGroup, string> = {
+  claude: "Claude artifacts",
+  tools: "AI tools",
+  channels: "Messaging apps",
+};
+const GROUP_ORDER: readonly AnswerGroup[] = ["claude", "tools", "channels"];
+
+interface AnswerEntry {
+  path: string;
+  h1: string;
+  summary: string;
+  group: AnswerGroup;
+}
+
 /** Every answer page, hub order: the two how-to pages first, then each topic. */
-function answerIndex(): { path: string; h1: string; summary: string }[] {
+function answerIndex(): AnswerEntry[] {
   return [
-    { path: ANSWER_META.share.path, h1: SHARE_H1, summary: ANSWER_META.share.description },
-    { path: ANSWER_META.compare.path, h1: COMPARE_H1, summary: ANSWER_META.compare.description },
-    ...TOPIC_KEYS.map((k) => ({ path: ANSWER_META[k].path, h1: TOPICS[k].h1, summary: ANSWER_META[k].description })),
+    { path: ANSWER_META.share.path, h1: SHARE_H1, summary: ANSWER_META.share.description, group: "claude" },
+    { path: ANSWER_META.compare.path, h1: COMPARE_H1, summary: ANSWER_META.compare.description, group: "claude" },
+    ...TOPIC_KEYS.map((k) => ({
+      path: ANSWER_META[k].path,
+      h1: TOPICS[k].h1,
+      summary: ANSWER_META[k].description,
+      group: (k in CLIENT_GROUPS ? CLIENT_GROUPS[k as ClientTopicKey] : "claude") as AnswerGroup,
+    })),
   ];
 }
 
 /**
  * Links to the other answer pages, so every page is one click from every other
  * and from the hub — the cluster is what tells a search engine the site covers
- * the topic, not any single page.
+ * the topic, not any single page. Grouped by category so the list stays scannable.
  */
 function moreAnswers(current: string): string {
-  const items = answerIndex()
-    .filter((a) => a.path !== current)
-    .map((a) => `<li><a href="${a.path}">${esc(a.h1)}</a></li>`)
-    .join("");
+  const all = answerIndex().filter((a) => a.path !== current);
+  const groups = GROUP_ORDER.map((g) => {
+    const items = all.filter((a) => a.group === g);
+    if (!items.length) return "";
+    return `<h3>${GROUP_HEADINGS[g]}</h3>
+      <ul>${items.map((a) => `<li><a href="${a.path}">${esc(a.h1)}</a></li>`).join("")}</ul>`;
+  }).join("\n      ");
   return `<nav class="more-answers" aria-labelledby="more-h">
       <h2 class="sec" id="more-h">More answers</h2>
-      <ul>${items}</ul>
+      ${groups}
       <p><a href="${ANSWER_META.answers.path}">All answers &rarr;</a></p>
     </nav>`;
 }
 
-/** `/answers`: the hub listing every answer page. */
+/** `/answers`: the hub listing every answer page, by category. */
 export function answersHubPage(env: Env): string {
   const meta = ANSWER_META.answers;
   const list = answerIndex();
-  const main = `
-    <section aria-labelledby="list-h">
-      <h2 class="sec" id="list-h">Questions about sharing Claude artifacts</h2>
+  const sections = GROUP_ORDER.map((g, i) => {
+    const items = list.filter((a) => a.group === g);
+    return `<section aria-labelledby="list-${i}-h">
+      <h2 class="sec" id="list-${i}-h">${GROUP_HEADINGS[g]}</h2>
       <ul class="hub">
-        ${list.map((a) => `<li><a href="${a.path}"><b>${esc(a.h1)}</b></a><p>${esc(a.summary)}</p></li>`).join("\n        ")}
+        ${items.map((a) => `<li><a href="${a.path}"><b>${esc(a.h1)}</b></a><p>${esc(a.summary)}</p></li>`).join("\n        ")}
       </ul>
-    </section>
+    </section>`;
+  }).join("\n\n    ");
+  const main = `
+    ${sections}
 
     <section class="final">
       <h2>Share your next artifact privately.</h2>
@@ -962,10 +976,11 @@ export function answersHubPage(env: Env): string {
   };
   const lead =
     "Each answer says what Claude's own sharing does, quoting Anthropic's help article or Claude Code's " +
-    "docs, and where it says nothing we say so. Then it shows how an rtfx.pro private link handles the same question.";
+    "docs, and where it says nothing we say so. Then it shows how an rtfx.pro private link handles the same " +
+    "question: from Claude, from other AI tools, and in the apps you send links in.";
   return layout(
     meta.title,
-    wrapPage("Answers about sharing Claude artifacts", lead, main, BATCH_2),
+    wrapPage("Answers about sharing Claude artifacts", lead, main, "2026-11-06"),
     STYLE,
     {
       description: meta.description,
@@ -1079,6 +1094,7 @@ table.cmp td{color:var(--muted)}
 .final h2{font-size:clamp(1.4rem,3.2vw,1.8rem);letter-spacing:-.045em;margin:0 0 1rem}
 .final .cta{display:flex;gap:.7rem;justify-content:center;flex-wrap:wrap}.final .cta a:hover{text-decoration:none}
 .related{margin:2.4rem 0 0;color:var(--muted);font-size:.96rem}
+.more-answers h3{margin:1.1rem 0 .5rem;font-size:1rem;letter-spacing:-.01em}
 .more-answers ul{margin:0 0 .8rem;padding-left:1.15rem;display:grid;gap:.45rem}
 .more-answers p{margin:0;font-size:.96rem}
 ul.hub{list-style:none;margin:0;padding:0;display:grid;gap:.8rem}
@@ -1086,6 +1102,10 @@ ul.hub li{background:var(--card);border:1px solid var(--border);border-radius:va
 ul.hub li p{margin:.3rem 0 0;color:var(--muted);font-size:.96rem}
 section.topic ul{margin:0 0 .9rem;padding-left:1.15rem;color:var(--muted);display:grid;gap:.55rem}
 section.topic p{color:var(--muted);margin:0 0 .9rem}
+section.topic pre{margin:0 0 .9rem;padding:.8rem 1rem;overflow-x:auto;background:var(--card);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:.88rem}
+section.topic pre code{font-family:var(--mono)}
+section.topic ol{margin:0 0 .9rem;padding-left:1.25rem;color:var(--muted);display:grid;gap:.55rem}
+section.topic h3{margin:1.2rem 0 .4rem;font-size:1.05rem;letter-spacing:-.02em}
 section.topic b,section.topic q{color:var(--fg);font-weight:600}
 .cell-label{display:none}
 @media(max-width:760px){.hero{padding:2rem 0 .5rem}h2.sec{margin-top:2.4rem}.when{grid-template-columns:1fr}
