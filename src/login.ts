@@ -69,7 +69,7 @@ main.auth{display:flex;align-items:center;justify-content:center;min-height:62vh
  * sign-in, which is the same trade the dashboard already makes. Kept in ES5-ish
  * style to match `CONSENT_SCRIPT` and the People panel.
  */
-const AUTH_SCRIPT = `(function(){
+export const AUTH_SCRIPT = `(function(){
   var emailForm=document.querySelector('[data-step="email"]');
   var codeForm=document.querySelector('[data-step="code"]');
   var status=document.querySelector('[data-auth-status]');
@@ -386,7 +386,7 @@ export function guestSigninPage(env: Env, slug: string, next?: string | null): s
   );
 }
 
-const GUEST_SCRIPT = `(function(){
+export const GUEST_SCRIPT = `(function(){
   var form=document.querySelector('[data-guest-form]');
   var status=document.querySelector('[data-auth-status]');
   if(!form) return;

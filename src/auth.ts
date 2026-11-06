@@ -4,6 +4,7 @@ import type { Env } from "./env";
 import { canUseDashboard, hasScope } from "./authz";
 import { verifySession } from "./session";
 import { revokeSessionsFor, sessionRevoked } from "./session-revocation";
+import { customerDomainOf } from "./custom-domains";
 import { resolveAccountContext, type AccountContext } from "./accounts";
 import {
   findApiToken,
@@ -370,7 +371,9 @@ async function identityFromSession(c: AuthContext): Promise<Identity | null> {
   const raw = readCookie(c.req.header("Cookie") ?? c.req.header("cookie"), SESSION_COOKIE);
   if (!raw) return null;
 
-  const claims = await verifySession(secret, raw, new Date().toISOString());
+  // A session is valid only on the host it was minted for (see SessionClaims.aud).
+  const aud = (await customerDomainOf(c.env, c.req.url ?? ""))?.hostname ?? null;
+  const claims = await verifySession(secret, raw, new Date().toISOString(), aud);
   if (!claims) return null;
   if (await sessionRevoked(c.env, claims.email, claims.iat)) return null;
 
@@ -406,7 +409,11 @@ export async function revokeCurrentSession(c: AuthContext): Promise<void> {
   if (!secret) return;
   const raw = readCookie(c.req.header("Cookie") ?? c.req.header("cookie"), SESSION_COOKIE);
   if (!raw) return;
-  const claims = await verifySession(secret, raw, new Date().toISOString());
+  // Verified against the host this request arrived on, so a sign-out on a
+  // customer domain (aud-bearing cookie) revokes just like one on an app host.
+  // The revocation is per address, so it voids sessions minted on every host.
+  const aud = (await customerDomainOf(c.env, c.req.url ?? ""))?.hostname ?? null;
+  const claims = await verifySession(secret, raw, new Date().toISOString(), aud);
   if (claims) await revokeSessionsFor(c.env, claims.email, new Date().toISOString());
 }
 

@@ -14,7 +14,7 @@
 -- Subscriptions created before this table existed bind on their next webhook
 -- (Lemon Squeezy sends one at every renewal).
 --
---   wrangler d1 execute artifacts-meta --remote --file migrations/0025_billing_subscriptions.sql
+--   wrangler d1 execute artifacts-meta --remote --file migrations/0027_billing_subscriptions.sql
 
 CREATE TABLE IF NOT EXISTS billing_subscriptions (
   subscription_id TEXT PRIMARY KEY,

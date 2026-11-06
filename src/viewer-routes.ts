@@ -50,6 +50,12 @@ import { blocksOnSuspension, blocksOnViewLimit, viewLimitStatus } from "./quota"
 import { overViewLimitPage, suspendedContentPage } from "./view-limit-page";
 import { appOriginFor, canonicalOrigin, canonicalPath, contentOrigin } from "./canonical";
 import {
+  customDomainLink,
+  customerDomainOf,
+  primaryDomainFor,
+  type CustomDomainRow,
+} from "./custom-domains";
+import {
   decideAccess,
   guestIdentityFor,
   linkCookie,
@@ -100,12 +106,16 @@ export async function redirectToViewer(
   art: ArtifactRow,
   rest: string
 ): Promise<Response> {
-  const ws = art.account_id ? await ensureAccountPublicSlug(c.env, art.account_id) : null;
   const k = new URL(c.req.url).searchParams.get("k");
-  const location =
-    appOriginFor(c.env, c.req.url) +
-    canonicalPath(ws, art.slug, rest) +
-    (k ? `?k=${encodeURIComponent(k)}` : "");
+  const keep = k ? `?k=${encodeURIComponent(k)}` : "";
+  // On a customer host the canonical address is that host's own `/<slug>`: a
+  // redirect must never carry a visitor from docs.acme.com over to rtfx.pro.
+  const customer = await customerDomainOf(c.env, c.req.url);
+  if (customer && art.account_id === customer.account_id) {
+    return c.redirect(customDomainLink(customer.hostname, art.slug, rest) + keep, 302);
+  }
+  const ws = art.account_id ? await ensureAccountPublicSlug(c.env, art.account_id) : null;
+  const location = appOriginFor(c.env, c.req.url) + canonicalPath(ws, art.slug, rest) + keep;
   return c.redirect(location, 302);
 }
 
@@ -203,6 +213,11 @@ export async function viewerRoute(c: AppContext, next: Next): Promise<Response |
   if (!segs) return c.html(notFoundPage(undefined, siteOrigin(c.env)), 404);
   if (segs.length === 0) return next();
 
+  // A custom domain serves its own workspace's artifacts at `/<slug>`; it never
+  // redirects to rtfx.pro and never reaches the app-host logic below.
+  const customer = await customerDomainOf(c.env, c.req.url);
+  if (customer) return customerViewer(c, customer, segs);
+
   const twoHost = !!firstContentHostname(c.env);
 
   // The frame-token path is a content-host construct. On a single-host
@@ -231,6 +246,25 @@ export async function viewerRoute(c: AppContext, next: Next): Promise<Response |
   if (account) {
     const art = await getArtifact(c.env, segs[1]);
     if (art && art.account_id === account.id) {
+      // A workspace with an active primary custom domain: a browser opening the
+      // rtfx.pro address is sent to it. API and machine requests
+      // (not a top-level navigation) are untouched.
+      if (wantsShell(c)) {
+        const primary = await primaryDomainFor(c.env, account.id);
+        if (primary) {
+          const url = new URL(c.req.url);
+          // Temporary and uncacheable on purpose: a permanent redirect would be
+          // cached by browsers, so after a domain is removed people (and ?k= share
+          // keys) would keep being sent to the old hostname.
+          return new Response(null, {
+            status: 302,
+            headers: {
+              Location: customDomainLink(primary, art.slug, segs.slice(2).join("/")) + url.search,
+              "Cache-Control": "private, no-store",
+            },
+          });
+        }
+      }
       return viewArtifact(c, art, account.public_slug ?? first, segs.slice(2));
     }
   }
@@ -272,6 +306,23 @@ export async function viewerRoute(c: AppContext, next: Next): Promise<Response |
 }
 
 /**
+ * `/<slug>[/path]` on a customer host. The artifact must belong to the domain's
+ * workspace; a slug from any other workspace answers exactly as a missing slug
+ * does (including the sign-in bounce for a signed-out browser), so the domain is
+ * no existence oracle for other workspaces. Access decisions are `viewArtifact`'s,
+ * unchanged.
+ */
+async function customerViewer(c: AppContext, domain: CustomDomainRow, segs: string[]): Promise<Response> {
+  if (segs[1] === FRAME_TOKEN_SEGMENT) return notFound(c, segs[0]);
+  const art = await getArtifact(c.env, segs[0]);
+  if (art && art.account_id === domain.account_id) {
+    return viewArtifact(c, art, null, segs.slice(1), domain);
+  }
+  if (wantsShell(c) && !(await hasAnyCredential(c, segs[0]))) return signInRedirect(c, segs[0]);
+  return notFound(c, segs[0]);
+}
+
+/**
  * `/<slug>[/path]` on the app host: the old form. A browser goes to the
  * canonical address; a machine goes straight to the bytes. An artifact with no
  * workspace has no canonical `<ws>/<slug>`, and is viewed here, at `/<slug>`.
@@ -306,7 +357,8 @@ async function viewArtifact(
   c: AppContext,
   art: ArtifactRow,
   ws: string | null,
-  restSegs: string[]
+  restSegs: string[],
+  customer?: CustomDomainRow
 ): Promise<Response> {
   const slug = art.slug;
   const filePath = restSegs.join("/");
@@ -367,7 +419,15 @@ async function viewArtifact(
 
   const grants = art.visibility === "restricted" ? await listGrants(c.env, slug) : [];
   const frameToken = c.env.SESSION_SECRET
-    ? await mintFrameToken(c.env.SESSION_SECRET, slug, new Date().toISOString(), art.created_at)
+    ? await mintFrameToken(
+        c.env.SESSION_SECRET,
+        slug,
+        new Date().toISOString(),
+        // The content host re-checks this against the active domains of the
+        // artifact's workspace before it adds it to frame-ancestors.
+        customer ? url.origin : undefined,
+        art.created_at
+      )
     : undefined;
 
   if (linkGrantsThis && key.viaLink) {
@@ -385,7 +445,9 @@ async function viewArtifact(
   }
 
   const frameOrigin = contentOrigin(c.env, c.req.url);
-  const canonical = appOriginFor(c.env, c.req.url) + canonicalPath(ws, slug);
+  const canonical = customer
+    ? customDomainLink(customer.hostname, slug)
+    : appOriginFor(c.env, c.req.url) + canonicalPath(ws, slug);
   const html = shellPage({
     slug,
     title: art.title || slug,
@@ -403,6 +465,8 @@ async function viewArtifact(
     entry: art.entry,
     isDocument: art.entry?.toLowerCase().endsWith(".pdf") ?? false,
     contentOrigin: frameOrigin ?? undefined,
+    // Management (Share, dashboard, home) lives on the app host only.
+    ...(customer ? { appBaseUrl: canonicalOrigin(c.env) } : {}),
     brandedUrl: canonical,
     frameToken,
   });

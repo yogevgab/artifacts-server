@@ -6,7 +6,7 @@
 -- (src/session-revocation.ts), and treats an unreadable table as "nobody has
 -- signed out yet", so deploy order does not matter.
 --
---   wrangler d1 execute artifacts-meta --remote --file migrations/0026_session_revocations.sql
+--   wrangler d1 execute artifacts-meta --remote --file migrations/0028_session_revocations.sql
 
 CREATE TABLE IF NOT EXISTS session_revocations (
   email          TEXT PRIMARY KEY,

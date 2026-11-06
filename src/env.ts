@@ -89,6 +89,14 @@ export interface Env {
    * A content host listed here is ignored — see `appOrigins` in src/cors.ts.
    */
   APP_ORIGINS?: string;
+  /**
+   * "true" turns on custom domains (docs/CUSTOM_DOMAINS.md, phase 1): hostnames
+   * listed in the `custom_domains` table serve their workspace at
+   * `https://<domain>/<artifact-slug>`. Unset or anything else = off, and the
+   * Worker behaves exactly as it did before the feature existed. Needs migration
+   * 0025 and Cloudflare for SaaS on the zone before it does anything useful.
+   */
+  CUSTOM_DOMAINS_ENABLED?: string;
 
 
   // --- Lemon Squeezy billing (src/billing.ts, src/billing-routes.ts). All

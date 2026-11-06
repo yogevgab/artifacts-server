@@ -51,6 +51,8 @@ export { ChatRoom } from "./chat";
 import { redeemShareLink } from "./share";
 import { accountSlugRoutes, addressNotice, brandedBase } from "./account-slug-routes";
 import { viewerRoute, redirectToViewer, redirectToAppLegacy } from "./viewer-routes";
+import { customDomainsEnabled, classifyHost, allowedFrameAncestor, customerDomainOf } from "./custom-domains";
+import { customerHostGate } from "./customer-host";
 import {
   callerIsInWorkspace,
   decideAccess,
@@ -76,7 +78,7 @@ import { accessRequestRoutes } from "./access-request-routes";
 import { membersPage } from "./members";
 import { billingPage } from "./billing-page";
 import { workspaceBilling, UPGRADE_PRO_PATH } from "./plan-copy";
-import { verifyFrameToken } from "./session";
+import { readFrameToken } from "./session";
 import { landingPage } from "./landing";
 import { guidePage, guideImageResponse } from "./guide";
 import { sharePrivatelyPage, comparePage, topicPage, answersHubPage } from "./answer-pages";
@@ -129,6 +131,20 @@ const app = new Hono<{ Bindings: Env; Variables: AuthVars }>();
 // routes — and the app host must never serve uploaded artifact HTML, since
 // that content is untrusted and would otherwise run same-origin as the app.
 app.use("*", async (c, next) => {
+  // Custom domains (flag-gated; with the flag off this block is skipped and
+  // nothing below changes). A customer host serves one workspace's viewer and
+  // sign-in and nothing else; an unrecognised host on a two-host deployment
+  // serves nothing.
+  if (customDomainsEnabled(c.env)) {
+    const klass = await classifyHost(c.env, c.req.url);
+    if (klass.kind === "customer") {
+      const answered = await customerHostGate(c, klass.domain);
+      if (answered) return answered;
+      await next();
+      return;
+    }
+    if (klass.kind === "unknown") return c.html(notFoundPage(), 404);
+  }
   const contentHost = firstContentHostname(c.env);
   if (contentHost === undefined) {
     await next();
@@ -1167,6 +1183,12 @@ app.get("/_chat/:slug", async (c) => {
   const slug = c.req.param("slug");
   const art = await getArtifact(c.env, slug);
   if (!art) return c.json({ error: "not_found" }, 404);
+  // On a customer host the room is only reachable for that domain's own workspace,
+  // exactly like the viewer (another workspace's slug is a 404 there).
+  const chatDomain = await customerDomainOf(c.env, c.req.url);
+  if (chatDomain && art.account_id !== chatDomain.account_id) {
+    return c.json({ error: "not_found" }, 404);
+  }
 
   const key = readCookie(c.req.header("Cookie") ?? c.req.header("cookie"), linkCookieName(slug));
   const link = key ? await redeemShareLink(c.env, key, new Date().toISOString()) : null;
@@ -1271,17 +1293,13 @@ app.get("*", async (c) => {
     if (c.req.method !== "GET" && c.req.method !== "HEAD") {
       return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
     }
-    const candidate = c.env.SESSION_SECRET ? await getArtifact(c.env, slug) : null;
-    const valid =
-      !!candidate &&
-      (await verifyFrameToken(
-        c.env.SESSION_SECRET!,
-        frameToken,
-        slug,
-        new Date().toISOString(),
-        candidate.created_at
-      ));
-    const art = valid ? candidate : null;
+    const claims = c.env.SESSION_SECRET
+      ? await readFrameToken(c.env.SESSION_SECRET, frameToken, slug, new Date().toISOString())
+      : null;
+    const candidate = claims ? await getArtifact(c.env, slug) : null;
+    // A token minted for an artifact is void once the slug belongs to a newer one.
+    const art =
+      candidate && (claims!.art === undefined || claims!.art === candidate.created_at) ? candidate : null;
     if (!art) return c.html(notFoundPage(slug, siteOrigin(c.env)), 404);
     // Suspension is a takedown control and binds every path, this one included.
     const status = art.account_id
@@ -1290,7 +1308,14 @@ app.get("*", async (c) => {
     if (blocksOnSuspension(status)) {
       return c.html(suspendedContentPage(slug, siteOrigin(c.env)), 403);
     }
-    const served = await serveArtifact(c, slug, art.current_version, framedPath, { framed: true });
+    // frame-ancestors is per request: a token minted for a viewer on a custom
+    // domain names it (`anc`), and it is honoured only while that domain is an
+    // ACTIVE one of this artifact's own workspace. Otherwise the static list.
+    const extraAncestor = await allowedFrameAncestor(c.env, claims?.anc, art.account_id);
+    const served = await serveArtifact(c, slug, art.current_version, framedPath, {
+      framed: true,
+      extraAncestor,
+    });
     // The framed document has an opaque origin, so its own fetch()/XHR of a
     // sibling file is cross-origin and the browser drops the response unless
     // it is CORS-readable. (Images, media and scripts load without CORS, which
