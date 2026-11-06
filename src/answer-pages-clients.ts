@@ -212,8 +212,8 @@ const chatgpt = toolTopic({
     name: "Connect rtfx to ChatGPT and publish a private link (30 seconds)",
     description:
       "Add rtfx.pro to ChatGPT as a custom MCP server, sign in and allow access, then ask ChatGPT to " +
-      "publish a page and get a private link. Made from screenshots of our own run on 6 November 2026.",
-    caption: "30 seconds: add the server, connect, publish, get the link. Screenshots from our run.",
+      "publish a page and get a private link. Made from screenshots of our own run on 6 November 2026 (the consent screen was captured again afterwards).",
+    caption: "30 seconds: add the server, connect, publish, get the link. Screenshots from our run; the consent screen was captured again afterwards.",
   },
   extra: [
     {
