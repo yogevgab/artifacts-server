@@ -124,7 +124,13 @@ async function consume(env: Env, id: string, now: string): Promise<boolean> {
 }
 
 /**
- * Redeem by typed code. Returns null for every failure — wrong code, expired,
+ * Redeem by typed code. Only a MEMBER sign-in challenge (`purpose = 'signin'`)
+ * can be redeemed this way: `/auth/verify` mints a member session from the
+ * result, so a guest-share challenge (which is bound to one artifact and must
+ * only ever yield a guest credential) must be invisible here. Without the filter
+ * its code would have minted a member session.
+ *
+ * Returns null for every failure — wrong code, expired,
  * already used, wrong address, too many attempts — because the caller must not
  * be able to tell those apart, and neither must the person typing.
  */
@@ -139,7 +145,7 @@ export async function redeemCode(
 
   const row = await env.DB.prepare(
     `SELECT id, email, purpose, slug, attempts FROM auth_challenges
-      WHERE email = ? AND consumed_at IS NULL AND expires_at > ?
+      WHERE email = ? AND consumed_at IS NULL AND expires_at > ? AND purpose = 'signin'
       ORDER BY created_at DESC LIMIT 1`
   )
     .bind(addr, now)
