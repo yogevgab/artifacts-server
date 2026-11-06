@@ -47,11 +47,12 @@ import {
  * sent in the call, never a path.
  */
 
-/** Styles for guideVideo(), shared with /guide (src/guide.ts). */
+/** Styles for promoVideo() (home page only). */
 const PROMO_STYLE = `.promo{margin:0 auto;max-width:60rem;padding:.6rem 0 1.2rem}
 .promo video{display:block;width:100%;height:auto;border-radius:var(--radius-sm);border:1px solid var(--border-strong);box-shadow:var(--shadow);background:#0b0f16}
 .promo figcaption{margin-top:.6rem;color:var(--muted);font-size:.92rem;text-align:center}`;
 
+/** Styles for guideVideo(), shared with /guide (src/guide.ts). */
 export const GUIDE_VIDEO_STYLE = `.guide-video{margin:2rem 0 0}.guide-video video{display:block;width:100%;height:auto;border-radius:var(--radius-sm);border:1px solid var(--border-strong);box-shadow:var(--shadow);background:var(--card)}
 .guide-video figcaption{margin-top:.6rem;color:var(--muted);font-size:.92rem}`;
 
@@ -374,11 +375,6 @@ function pricingSection(): string {
   </div>`;
 }
 
-/**
- * The one-minute walkthrough video (rendered from the /guide screenshots,
- * served from R2 by src/media.ts). No autoplay and preload="none": nobody
- * downloads 5 MB they did not ask for.
- */
 /** The short promo under the hero: click to play (it has a soundtrack), captions off by default. */
 function promoVideo(): string {
   const v = PROMO_VIDEO;
@@ -412,6 +408,11 @@ function promoVideoObject(env: Env): Record<string, unknown> {
   };
 }
 
+/**
+ * The one-minute walkthrough video (rendered from the /guide screenshots,
+ * served from R2 by src/media.ts). No autoplay and preload="none": nobody
+ * downloads 5 MB they did not ask for.
+ */
 export function guideVideo(): string {
   return `<figure class="guide-video" data-landing="video">
         <video controls playsinline preload="none" width="${VIDEO.width}" height="${VIDEO.height}"

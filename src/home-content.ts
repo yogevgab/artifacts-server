@@ -149,7 +149,6 @@ export const ENTERPRISE_LINES: readonly string[] = [
   "Or self-host it: the source is MIT",
 ];
 
-/** The walkthrough video's facts: one record for the player, the JSON-LD and llms-full. */
 /** The short promo shown under the home-page hero. Its own soundtrack; never autoplays. */
 export const PROMO_VIDEO = {
   file: "rtfx-promo.mp4",
@@ -166,6 +165,7 @@ export const PROMO_VIDEO = {
   caption: "28 seconds: publish from Claude, choose who can open it, see who did.",
 } as const;
 
+/** The walkthrough video's facts: one record for the player, the JSON-LD and llms-full. */
 export const VIDEO = {
   file: "rtfx-guide.mp4",
   poster: "rtfx-guide-poster.jpg",
