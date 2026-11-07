@@ -169,10 +169,16 @@ async function guestResponse(c: AppContext, domain: CustomDomainRow, slug: strin
   const next = safeNextPath(c.req.query("next"));
   if (identity?.email) return c.redirect(next ?? `/${encodeURIComponent(slug)}`, 302);
   const body = `<h1>Confirm it's you</h1>
-    <p>Enter the email address this was shared with and we'll send you a link to open it. No account, no password.</p>
-    <form data-guest-form data-slug="${esc(slug)}" novalidate>
+    <p>Enter the email address this was shared with \u2014 or your own, if it's yours \u2014 and we'll email you a way in. No password.</p>
+    <form method="post" data-guest-form data-slug="${esc(slug)}" novalidate>
       <label><span>Email address</span><input type="email" name="email" autocomplete="email" inputmode="email" placeholder="you@example.com" required autofocus></label>
-      <button type="submit">Send me the link</button>
+      <button type="submit">Email me</button>
+    </form>
+    <form method="post" data-guest-code hidden novalidate>
+      <p id="guest-sent-to" data-sent-to></p>
+      <label><span>Six-digit code</span><input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="000000" required aria-describedby="guest-sent-to"></label>
+      <button type="submit">Open</button>
+      <button type="button" class="ghost" data-back>Use a different address</button>
     </form>
     <p class="status" data-auth-status role="status" aria-live="polite" hidden></p>
     <p class="foot">Have an account? <a href="${esc(next ? `/login?next=${encodeURIComponent(next)}` : "/login")}">Sign in</a> instead.</p>
