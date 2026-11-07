@@ -5,6 +5,7 @@ import { mcpRoutes } from "./mcp";
 import { oauthRoutes } from "./oauth-routes";
 import { waitlist } from "./waitlist";
 import { authRoutes, pendingNextCookie } from "./auth-routes";
+import { handoffRoutes } from "./handoff-routes";
 import { requireUser, accessEmail, accountsFor, getIdentity, resolveAuth, readCookie, revokeCurrentSession, SESSION_COOKIE, type AuthVars } from "./auth";
 import { serveArtifact } from "./serve";
 import { safeNextPath, isValidSlug } from "./util";
@@ -653,6 +654,7 @@ app.route("/", contactRoutes);
 // App-owned sign-in (/auth/*). Mounted at the root because the module declares
 // its own full paths. App host only — see MANAGEMENT_PREFIXES in host.ts.
 app.route("/", authRoutes);
+app.route("/", handoffRoutes);
 app.route("/", shareRoutes);
 
 // --- Public product surface (issue #29) -------------------------------------

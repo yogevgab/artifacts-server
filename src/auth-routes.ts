@@ -32,6 +32,7 @@ import { safeNextPath } from "./util";
 import { reviewerConfig } from "./reviewer";
 import { recordAudit } from "./audit";
 import { isAllowedOrigin } from "./cors";
+import { afterSignin } from "./handoff";
 
 export const authRoutes = new Hono<AppBindings>();
 
@@ -79,7 +80,7 @@ const VERIFY_PER_EMAIL_PER_DAY = 25;
  */
 const ACCEPTED = { status: "accepted" as const };
 
-function sessionCookie(token: string, maxAge: number): string {
+export function sessionCookie(token: string, maxAge: number): string {
   // Host-only (no Domain attribute): this cookie must never be sent to the
   // content host, where uploaded HTML runs.
   return [
@@ -376,7 +377,10 @@ authRoutes.post("/auth/verify", async (c) => {
   headers.append("Set-Cookie", cookie);
   headers.append("Set-Cookie", pendingNextCookie(null));
   // Nothing under /admin exists on a customer host; land on its root instead.
-  return new Response(JSON.stringify({ ok: true, redirect: await signinLanding(c, challenge) }), {
+  // Land where the sign-in was for (src/auth-routes.ts signinLanding); on the MCP host the
+  // sign-in is also carried to the canonical host first (src/handoff.ts).
+  const target = await afterSignin(c.env, c.req.url, await signinLanding(c, challenge));
+  return new Response(JSON.stringify({ ok: true, redirect: target }), {
     status: 200,
     headers,
   });
@@ -452,7 +456,7 @@ authRoutes.post("/auth/m/:token", async (c) => {
   // Built by hand rather than with c.redirect(): that helper takes no headers,
   // and a redirect without the Set-Cookie would sign nobody in while looking
   // exactly like success.
-  const headers = new Headers({ Location: await signinLanding(c, challenge) });
+  const headers = new Headers({ Location: await afterSignin(c.env, c.req.url, await signinLanding(c, challenge)) });
   headers.append("Set-Cookie", cookie);
   headers.append("Set-Cookie", pendingNextCookie(null));
   return new Response(null, { status: 302, headers });

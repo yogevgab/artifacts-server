@@ -31,6 +31,7 @@ export async function initDb() {
     "upload_sessions",
     "billing_subscriptions",
     "session_revocations",
+    "auth_handoffs",
     "custom_domains",
   ]) {
     await env.DB.prepare(`DROP TABLE IF EXISTS ${table}`).run();
