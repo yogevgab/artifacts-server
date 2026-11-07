@@ -194,7 +194,7 @@ export async function redeemCode(
   // is invisible to rtfx.pro, and the other way round).
   const row = (rows.results ?? []).find((r) => originMatches(r, requestOrigin)) ?? null;
 
-  if (!row) return null;
+  if (!row) return await spendDummyGuess(env, codeHash);
   // Every guess spends an attempt BEFORE it is checked (see reserveAttempt),
   // so parallel requests cannot all slip under the cap.
   if (!(await reserveAttempt(env, row.id))) return null;
@@ -207,6 +207,21 @@ export async function redeemCode(
 
   if (!match) return null;
   return (await consume(env, row.id, now)) ? toChallenge(row) : null;
+}
+
+/**
+ * The same two statements a real guess runs (a conditional UPDATE, then a hash
+ * lookup), aimed at a row that does not exist. Without it, "no challenge for
+ * this address" returns measurably faster than "wrong code", and since the
+ * artifact gate now issues member challenges only to people who belong to the
+ * artifact, that latency would say who does. Always resolves to null.
+ */
+async function spendDummyGuess(env: Env, codeHash: string): Promise<null> {
+  await reserveAttempt(env, "-");
+  await env.DB.prepare(`SELECT id FROM auth_challenges WHERE id = ? AND code_hash = ?`)
+    .bind("-", codeHash)
+    .first<{ id: string }>();
+  return null;
 }
 
 /**
@@ -249,7 +264,7 @@ export async function redeemReviewerCode(
     .bind(addr, now)
     .all<Row>();
   const row = (rows.results ?? []).find((r) => originMatches(r, requestOrigin)) ?? null;
-  if (!row) return null;
+  if (!row) return await spendDummyGuess(env, "-");
   if (!(await reserveAttempt(env, row.id))) return null;
   if (!timingSafeEqual(code, expected)) return null;
   return (await consume(env, row.id, now)) ? toChallenge(row) : null;

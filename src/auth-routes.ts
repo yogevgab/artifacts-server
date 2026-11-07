@@ -10,22 +10,22 @@
  */
 
 import { Hono, type Context } from "hono";
-import type { AppBindings, Env } from "./env";
+import type { AppBindings, ArtifactRow, Env } from "./env";
 import { SESSION_COOKIE } from "./auth";
 import { mintSession, SESSION_TTL_SECONDS } from "./session";
 import { customerDomainOf } from "./custom-domains";
-import { createChallenge, redeemCode, redeemReviewerCode, redeemToken, CHALLENGE_TTL_MINUTES } from "./otp";
+import { createChallenge, redeemCode, redeemReviewerCode, redeemToken, CHALLENGE_TTL_MINUTES, type Challenge } from "./otp";
 import { sendMail } from "./mail";
 import { signinMail, guestMail } from "./mail-templates";
 import { normalizeEmail } from "./waitlist";
 import { incrementRateLimitBucket, clientAddress } from "./rate-limit";
 import { touchLastSeen, effectiveRole } from "./users";
-import { ensurePersonalAccount, ensureAccountPublicSlug } from "./accounts";
+import { ensurePersonalAccount, ensureAccountPublicSlug, memberRole } from "./accounts";
 import { canonicalPath } from "./canonical";
-import { GUEST_COOKIE } from "./viewing";
+import { GUEST_COOKIE, inBackground, decideAccess } from "./viewing";
 import { siteOrigin } from "./seo";
 import { isContentHost, requestHostname } from "./host";
-import { getIdentity, readCookie, revokeCurrentSession } from "./auth";
+import { getIdentity, readCookie, revokeCurrentSession, type Identity } from "./auth";
 import { hasGrant, getArtifact } from "./db";
 import { magicLinkConfirmPage } from "./login";
 import { safeNextPath } from "./util";
@@ -193,6 +193,53 @@ async function signinOrigin(c: Context<AppBindings>): Promise<string> {
   return url.origin;
 }
 
+/**
+ * Where a member lands once a sign-in is redeemed.
+ *
+ * A challenge that names an artifact was asked for from that artifact's gate,
+ * so it wins: it rides the challenge row itself, which is the only thing that
+ * survives the person opening the email on another device. On a customer host
+ * the artifact lives at that host's own `/<slug>` (and only when it belongs to
+ * that host's workspace). Otherwise the parked `?next=`, then the home page.
+ */
+async function signinLanding(c: Context<AppBindings>, challenge: Challenge): Promise<string> {
+  const customer = await customerDomainOf(c.env, c.req.url);
+  if (challenge.purpose === "signin" && challenge.slug) {
+    const art = await getArtifact(c.env, challenge.slug);
+    if (art) {
+      if (customer) {
+        if (art.account_id === customer.account_id) return `/${encodeURIComponent(art.slug)}`;
+      } else {
+        const workspace = art.account_id ? await ensureAccountPublicSlug(c.env, art.account_id) : null;
+        return canonicalPath(workspace, art.slug);
+      }
+    }
+  }
+  return pendingNext(c) ?? (customer ? "/" : "/admin");
+}
+
+/**
+ * Does this address BELONG to the artifact, by the viewer's own rule: its owner,
+ * any member of its workspace, or (for an ownerless artifact) a platform admin?
+ * Those people hold no grant, since grants are how other people get in, so they
+ * need a member sign-in rather than the scoped guest one. Reusing `decideAccess`
+ * keeps the gate and the viewer from ever disagreeing about who gets in.
+ */
+async function belongsToArtifact(env: Env, art: ArtifactRow, email: string): Promise<boolean> {
+  const role = effectiveRole(env, email);
+  const identity: Identity = {
+    email,
+    commonName: null,
+    isAdmin: role === "admin" || role === "super_admin",
+    role,
+  };
+  if ((await decideAccess(env, art, identity)).owned) return true;
+  // decideAccess skips the membership lookup when a grant already lets the
+  // person in. A member who also holds a grant still belongs: prefer the member
+  // sign-in over the scoped guest link.
+  return !!(art.account_id && (await memberRole(env, art.account_id, email)));
+}
+
 async function startChallenge(
   c: Context<AppBindings>,
   email: string,
@@ -205,7 +252,17 @@ async function startChallenge(
   // (same limits, same response) but nothing is emailed and no link exists. No
   // mail_log row is written, since no mail was attempted.
   if (purpose === "signin" && reviewerConfig(c.env)?.email === email) {
-    await createChallenge(c.env, { email, purpose, now, noLink: true });
+    // Slug and origin ride along (as for anyone else) so the reviewer lands on
+    // the artifact and the code redeems on a customer host; still no mail, no link.
+    const reviewerCustomer = await customerDomainOf(c.env, c.req.url);
+    await createChallenge(c.env, {
+      email,
+      purpose,
+      slug,
+      now,
+      noLink: true,
+      origin: reviewerCustomer ? `https://${reviewerCustomer.hostname}` : null,
+    });
     return;
   }
 
@@ -319,8 +376,7 @@ authRoutes.post("/auth/verify", async (c) => {
   headers.append("Set-Cookie", cookie);
   headers.append("Set-Cookie", pendingNextCookie(null));
   // Nothing under /admin exists on a customer host; land on its root instead.
-  const home = (await customerDomainOf(c.env, c.req.url)) ? "/" : "/admin";
-  return new Response(JSON.stringify({ ok: true, redirect: pendingNext(c) ?? home }), {
+  return new Response(JSON.stringify({ ok: true, redirect: await signinLanding(c, challenge) }), {
     status: 200,
     headers,
   });
@@ -396,19 +452,26 @@ authRoutes.post("/auth/m/:token", async (c) => {
   // Built by hand rather than with c.redirect(): that helper takes no headers,
   // and a redirect without the Set-Cookie would sign nobody in while looking
   // exactly like success.
-  const home = (await customerDomainOf(c.env, c.req.url)) ? "/" : "/admin";
-  const headers = new Headers({ Location: pendingNext(c) ?? home });
+  const headers = new Headers({ Location: await signinLanding(c, challenge) });
   headers.append("Set-Cookie", cookie);
   headers.append("Set-Cookie", pendingNextCookie(null));
   return new Response(null, { status: 302, headers });
 });
 
 /**
- * Guest sign-in: prove you control an address somebody granted this artifact to.
+ * The artifact gate's form: whoever you are, prove you control the address.
  *
- * Answers 202 whether or not the address holds a grant, and whether or not the
- * artifact exists. Anything else would let a stranger enumerate both who has
- * access and which slugs are real.
+ * - Somebody who belongs to the artifact (owner, workspace member, or an admin
+ *   of an ownerless one) gets an ordinary MEMBER sign-in, code and link, that
+ *   lands back on it. They hold no grant, so the guest path alone sent them
+ *   nothing while the page said a link was on its way.
+ * - Somebody granted it gets a guest link scoped to this one artifact.
+ * - Anybody else gets nothing.
+ *
+ * Answers 202 in every case, and whether or not the artifact exists; anything
+ * else would let a stranger enumerate who has access and which slugs are real.
+ * The lookup and the send run after the response so latency does not say which
+ * case applied either.
  */
 authRoutes.post("/auth/guest", async (c) => {
   const slug = (c.req.query("slug") ?? "").trim().toLowerCase();
@@ -419,19 +482,32 @@ authRoutes.post("/auth/guest", async (c) => {
   }
 
   const [emailOk, ipOk] = await Promise.all([
-    incrementRateLimitBucket(c, `guest:email:${email}`, START_PER_EMAIL),
+    incrementRateLimitBucket(c, `guest:email-ip:${email}:${clientAddress(c)}`, START_PER_EMAIL),
     incrementRateLimitBucket(c, `guest:ip:${clientAddress(c)}`, START_PER_IP),
   ]);
   if (!emailOk || !ipOk) return c.json({ error: "rate_limited" }, 429, { "Retry-After": "3600" });
 
-  const art = await getArtifact(c.env, slug);
-  if (art && (await hasGrant(c.env, slug, email))) {
-    const now = new Date().toISOString();
+  const issue = async () => {
+    const art = await getArtifact(c.env, slug);
+    if (!art) return;
     // The request's own host when it is an active custom domain of THIS
-    // artifact's workspace, so the guest lands where they were looking. The
+    // artifact's workspace, so the person lands where they were looking. The
     // challenge is bound to that host: redeemable nowhere else.
     const customer = await customerDomainOf(c.env, c.req.url);
     const onCustom = !!customer && art.account_id === customer.account_id;
+
+    // On a customer host a member sign-in is only for that host's own workspace;
+    // a slug from another workspace falls through to the grant check below.
+    if ((!customer || onCustom) && (await belongsToArtifact(c.env, art, email))) {
+      // Same all-sources cap as /auth/start: the per-address bucket above is
+      // keyed on the client too, so it alone does not bound mail to one address.
+      if (!(await incrementRateLimitBucket(c, `auth:email:${email}`, START_PER_EMAIL_ALL_SOURCES))) return;
+      await startChallenge(c, email, "signin", art.slug);
+      return;
+    }
+    if (!(await hasGrant(c.env, slug, email))) return;
+
+    const now = new Date().toISOString();
     const origin = onCustom ? `https://${customer!.hostname}` : c.env.PUBLIC_BASE_URL || siteOrigin(c.env);
     const issued = await createChallenge(c.env, {
       email,
@@ -450,7 +526,8 @@ authRoutes.post("/auth/guest", async (c) => {
       }),
       now,
     });
-  }
+  };
+  await inBackground(c, issue().catch((err) => console.error("auth/guest: issuing a challenge failed", err)));
 
   return c.json(ACCEPTED, 202);
 });
